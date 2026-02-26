@@ -6,10 +6,10 @@ into the import service and repository layers.
 
 from __future__ import annotations
 
-from typing import Any, TypedDict
+from typing import Any, NotRequired, TypedDict
 
 
-class ParsedSavedResponse(TypedDict, total=False):
+class ParsedSavedResponse(TypedDict):
     """A single saved response (Postman example)."""
 
     name: str
@@ -22,9 +22,14 @@ class ParsedSavedResponse(TypedDict, total=False):
 
 
 class ParsedRequest(TypedDict, total=False):
-    """A single HTTP request extracted from an import source."""
+    """A single HTTP request extracted from an import source.
 
-    type: str  # "request"
+    Required keys (``type``, ``name``, ``method``, ``url``) are always set
+    by every parser.  The remaining keys are populated only when the source
+    data provides them.
+    """
+
+    type: str  # "request"  -- always set by all parsers
     name: str
     method: str
     url: str
@@ -42,7 +47,7 @@ class ParsedRequest(TypedDict, total=False):
     saved_responses: list[ParsedSavedResponse]
 
 
-class ParsedFolder(TypedDict, total=False):
+class ParsedFolder(TypedDict):
     """A folder node in the collection tree."""
 
     type: str  # "folder"
@@ -50,29 +55,29 @@ class ParsedFolder(TypedDict, total=False):
     description: str | None
     auth: dict[str, Any] | None
     events: list[dict[str, Any]] | None
-    variables: list[dict[str, Any]] | None
     children: list[ParsedFolder | ParsedRequest]
+    variables: NotRequired[list[dict[str, Any]] | None]
 
 
-class ParsedCollection(TypedDict, total=False):
+class ParsedCollection(TypedDict):
     """A complete parsed collection ready for DB import."""
 
     name: str
-    description: str | None
-    events: list[dict[str, Any]] | None
-    variables: list[dict[str, Any]] | None
-    auth: dict[str, Any] | None
     items: list[ParsedFolder | ParsedRequest]
+    description: NotRequired[str | None]
+    events: NotRequired[list[dict[str, Any]] | None]
+    variables: NotRequired[list[dict[str, Any]] | None]
+    auth: NotRequired[dict[str, Any] | None]
 
 
-class ParsedEnvironment(TypedDict, total=False):
+class ParsedEnvironment(TypedDict):
     """A parsed environment with its variable list."""
 
     name: str
     values: list[dict[str, Any]]
 
 
-class ImportResult(TypedDict, total=False):
+class ImportResult(TypedDict):
     """Aggregate result returned by any parser entry point."""
 
     collections: list[ParsedCollection]

@@ -9,13 +9,11 @@ from typing import Any
 import pytest
 
 from services.import_parser.curl_parser import is_curl, parse_curl
-from services.import_parser.postman_parser import (
-    detect_postman_type,
-    parse_archive_folder,
-    parse_collection_file,
-    parse_environment_file,
-    parse_json_text,
-)
+from services.import_parser.postman_parser import (detect_postman_type,
+                                                   parse_archive_folder,
+                                                   parse_collection_file,
+                                                   parse_environment_file,
+                                                   parse_json_text)
 from services.import_parser.url_parser import parse_raw_text
 
 
@@ -196,10 +194,12 @@ class TestParseCollectionFile:
 
         result = parse_collection_file(f)
         coll = result["collections"][0]
-        assert coll["variables"] is not None
-        assert coll["variables"][0]["key"] == "host"
-        assert coll["events"] is not None
-        assert coll["events"][0]["listen"] == "prerequest"
+        variables = coll.get("variables")
+        assert variables is not None
+        assert variables[0]["key"] == "host"
+        events = coll.get("events")
+        assert events is not None
+        assert events[0]["listen"] == "prerequest"
 
     def test_body_modes(self, tmp_path: Path) -> None:
         """Different body modes are handled (raw, formdata, graphql)."""
