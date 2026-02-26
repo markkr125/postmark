@@ -9,7 +9,8 @@ applyTo: "tests/**/*.py"
 ## Quick rules — read these first
 
 1. **Run `poetry run pytest` after every change** — all tests must pass.
-2. **Also run `poetry run ruff check src/ tests/` and
+2. **Also run `poetry run ruff check src/ tests/`,
+   `poetry run ruff format --check src/ tests/`, and
    `poetry run mypy src/ tests/`** — see `copilot-instructions.md` for the
    full validation checklist.
 3. **Each test gets a fresh SQLite database** — the `_fresh_db` autouse
@@ -94,12 +95,17 @@ tests/
 ├── conftest.py                    # Root: _fresh_db (autouse) + qapp (session)
 ├── unit/                          # Pure logic — no Qt widgets
 │   ├── test_repository.py         # TestCollectionCRUD, TestRequestCRUD
-│   └── test_service.py            # TestCollectionService
+│   ├── test_service.py            # TestCollectionService
+│   ├── test_environment_repository.py  # Environment CRUD tests
+│   ├── test_import_parser.py      # Postman/cURL/URL parser unit tests
+│   └── test_import_service.py     # ImportService integration tests
 └── ui/                            # PySide6 widget tests (need qapp + qtbot)
     ├── conftest.py                # _no_fetch (autouse) + helper functions
     ├── test_collection_header.py
     ├── test_collection_tree.py
     ├── test_collection_widget.py
+    ├── test_import_dialog.py
+    ├── test_request_editor.py
     └── test_main_window.py
 ```
 
