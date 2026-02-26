@@ -2,8 +2,15 @@ from typing import Any
 
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QAction, QIcon
-from PySide6.QtWidgets import (QHBoxLayout, QLineEdit, QMenu, QSizePolicy,
-                               QToolButton, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QLineEdit,
+    QMenu,
+    QSizePolicy,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 
 # ----------------------------------------------------------------------
@@ -100,7 +107,7 @@ class CollectionHeader(QWidget):
             placeholder-text-color: #888;
         """
         )
-        self._search.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self._search.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
 
         # Use a theme icon if available; fall back to a bundled SVG/PNG if needed.
         magnify_icon = QIcon.fromTheme("search")  # typical theme name
@@ -109,7 +116,7 @@ class CollectionHeader(QWidget):
             magnify_icon = QIcon(":/icons/magnifier.svg")
 
         # Add the icon as an action positioned *leading* (left) inside the QLineEdit
-        self._search.addAction(magnify_icon, QLineEdit.LeadingPosition)
+        self._search.addAction(magnify_icon, QLineEdit.ActionPosition.LeadingPosition)
 
         bottom_row.addWidget(self._search)
         main_layout.addLayout(bottom_row)

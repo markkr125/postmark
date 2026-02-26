@@ -1,11 +1,22 @@
 import logging
-from typing import Any
+from typing import Any, cast
 
 from PySide6.QtCore import QMimeData, QPoint, Qt, Signal, Slot
 from PySide6.QtGui import QAction, QDropEvent, QIcon
-from PySide6.QtWidgets import (QApplication, QHBoxLayout, QLabel, QLineEdit,
-                               QMenu, QMessageBox, QStyle, QTreeWidget,
-                               QTreeWidgetItem, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (
+    QApplication,
+    QBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMenu,
+    QMessageBox,
+    QStyle,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +145,7 @@ class CollectionTree(QWidget):
         self._tree.setDragEnabled(True)
         self._tree.setAcceptDrops(True)
         self._tree.setDropIndicatorShown(True)
-        self._tree.setDragDropMode(QTreeWidget.InternalMove)
+        self._tree.setDragDropMode(QTreeWidget.DragDropMode.InternalMove)
         self._tree.viewport().setAcceptDrops(True)
 
         layout.addWidget(self._tree)
@@ -247,9 +258,9 @@ class CollectionTree(QWidget):
         self._current_item = item
 
         # Grab the stored type (set in set_collections/_add_items)
-        itype = item.data(1, ROLE_ITEM_TYPE)   # "request" or "folder"
+        item_type = item.data(1, ROLE_ITEM_TYPE)   # "request" or "folder"
 
-        menu = self._request_menu if itype == "request" else self._folder_menu
+        menu = self._request_menu if item_type == "request" else self._folder_menu
         menu.exec(self._tree.mapToGlobal(pos))
 
     def _emit_menu_action(self, action: QAction) -> None:
@@ -284,10 +295,10 @@ class CollectionTree(QWidget):
                 self,
                 "Confirm Delete",
                 msg,
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
             )
-            if reply != QMessageBox.Yes:
+            if reply != QMessageBox.StandardButton.Yes:
                 return
 
             if item_type == "folder":
@@ -366,7 +377,8 @@ class CollectionTree(QWidget):
                 layout = widget.layout()
                 if layout and layout.count() >= 2:
                     # Get and hide the name label
-                    name_label = layout.itemAt(1).widget()
+                    layout_item = layout.itemAt(1)
+                    name_label = layout_item.widget() if layout_item else None
                     if name_label:
                         name_label.hide()
 
@@ -384,7 +396,8 @@ class CollectionTree(QWidget):
                         line_edit.editingFinished.connect(lambda: self._finish_request_rename(tree_item, line_edit, False))
 
                         # Insert the line edit after the badge
-                        layout.insertWidget(1, line_edit)
+                        box_layout = cast(QBoxLayout, layout)
+                        box_layout.insertWidget(1, line_edit)
                         line_edit.setFocus()
 
     def _finish_request_rename(self, tree_item, line_edit, from_return):
@@ -554,20 +567,19 @@ class CollectionTree(QWidget):
     def _apply_item_properties(
         self, item: QTreeWidgetItem, spec: dict[str, Any]
     ) -> None:
-        itype = spec.get("type", "folder")
+        item_type = spec.get("type", "folder")
         method = spec.get("method", "GET")
-
 
         # Store the data that will be read in dropEvent
         mime = QMimeData()
         mime.setText(str(spec["id"]))                # the id of the item
-        mime.setData("application/x-itemtype", itype.encode())   # "folder" or "request"
+        mime.setData("application/x-itemtype", item_type.encode())   # "folder" or "request"
 
         # Tell the widget to use that mime data for the drag
-        item.setData(3,ROLE_MIME_DATA, mime)           # a custom role just for drag data
+        item.setData(3, ROLE_MIME_DATA, mime)          # a custom role just for drag data
 
-        if itype == "folder":
-            self._set_item_icon(item, itype, method)
+        if item_type == "folder":
+            self._set_item_icon(item, item_type, method)
         else:
             self._set_item_widget(item, method, item.text(1))
 
@@ -618,7 +630,7 @@ class CollectionTree(QWidget):
         target = self._find_item_by_id(self._tree.invisibleRootItem(), item_id, item_type)
         if target:
             self._tree.setCurrentItem(target)
-            self._tree.scrollToItem(target, QTreeWidget.EnsureVisible)
+            self._tree.scrollToItem(target, QTreeWidget.ScrollHint.EnsureVisible)
 
         # ---------- Incremental helpers ----------
     def add_collection(self, new_collection: dict, parent_id: int | None) -> None:

@@ -200,6 +200,9 @@ class CollectionWidget(QWidget):
     # ------------------------------------------------------------------
     def _create_new_request(self, collection_id: int | None = None) -> None:
         """Create a new request and add it to the tree."""
+        if collection_id is None:
+            logger.warning("Cannot create request without a collection_id")
+            return
         new_request = self._svc.create_request(
             collection_id, "GET", "https://api.example.com", "New Request"
         )
