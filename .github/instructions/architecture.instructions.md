@@ -198,6 +198,31 @@ eventFilter on tree_widget:
 ```
 CollectionWidget.item_action_triggered("request", id, "Open")
   → MainWindow._on_item_action
+```
+
+### Import operations
+
+```
+CollectionHeader "Import" button click
+  → CollectionHeader.import_requested()
+    → CollectionWidget._on_import_requested()
+      → ImportDialog(parent=self)
+        → ImportDialog.import_completed → CollectionWidget._start_fetch
+
+MainWindow File → Import (Ctrl+I)
+  → MainWindow._on_import()
+    → ImportDialog(parent=self)
+      → ImportDialog.import_completed → CollectionWidget._start_fetch
+
+ImportDialog internally:
+  paste / file-drop / folder-select
+    → _ImportWorker (QObject on QThread)
+      → ImportService.import_files / import_folder / import_text
+        → parser layer → import_repository → DB
+      → _ImportWorker.finished(ImportSummary)
+        → ImportDialog._on_import_finished → update log + emit import_completed
+```
+  → MainWindow._on_item_action
     → _open_request(id)
       → CollectionService.get_request(id) → dict
       → RequestEditorWidget.load_request(dict)
@@ -226,7 +251,6 @@ features.
 
 | Signal / Feature | Location | Status |
 |---|---|---|
-| `CollectionHeader.import_requested()` | `collection_header.py` | Emitted on click, not connected — import not implemented |
 | `MainWindow.run_action` | `main_window.py` | QAction created, not connected |
 | `CollectionWidget.item_name_changed` | `collection_widget.py` | Forwarded from tree, nothing connects in MainWindow |
 | Response viewer pane | `main_window.py` | Placeholder `QWidget` |
@@ -241,6 +265,9 @@ features.
 | `CollectionWidget.item_action_triggered` | `MainWindow._on_item_action` (opens request editor) |
 | Request editor pane | `RequestEditorWidget` — display-only, loaded via `MainWindow._open_request` |
 | `CollectionTree.selected_collection_changed` | `CollectionWidget` → `CollectionHeader.set_selected_collection_id` |
+| `CollectionHeader.import_requested` | `CollectionWidget._on_import_requested` → opens `ImportDialog` |
+| `ImportDialog.import_completed` | `CollectionWidget._start_fetch` (refresh tree) |
+| `MainWindow` File → Import (`Ctrl+I`) | `MainWindow._on_import` → opens `ImportDialog` |
 
 ## Implicit contracts
 
@@ -256,6 +283,10 @@ Every repository function opens and closes **its own session** via
 `get_session()`.  There is no way to batch multiple operations in a single
 transaction from the service or UI layer.  Each call auto-commits
 independently.
+
+**Exception:** `import_repository.import_collection_tree()` uses a **single
+session** for the entire collection tree so import is atomic — if any part
+fails, the whole import rolls back.
 
 ### 3. ORM objects and detached access
 
@@ -296,6 +327,17 @@ order (insertion order in Python 3.7+).
 | `update_request_collection(request_id, new_collection_id)` | `None` | Move request |
 | `update_collection_parent(collection_id, new_parent_id)` | `None` | Move collection |
 | `get_request_by_id(request_id)` | `RequestModel \| None` | PK lookup |
+| `import_collection_tree(parsed)` | `dict[str, int]` | Atomic bulk-import of a full collection tree |
+
+### Environment repository (`environment_repository.py`)
+
+| Function | Returns | Purpose |
+|----------|---------|----------|
+| `fetch_all_environments()` | `list[dict[str, Any]]` | All environments as dicts |
+| `create_environment(name, values?)` | `EnvironmentModel` | Create an environment |
+| `get_environment_by_id(id)` | `EnvironmentModel \| None` | PK lookup |
+| `rename_environment(id, new_name)` | `None` | Update name |
+| `delete_environment(id)` | `None` | Delete environment |
 
 ## Service method catalogue
 
@@ -316,6 +358,20 @@ the method delegates directly to the repository with no added logic.
 | `delete_request(id)` | Logging only |
 | `move_request(id, new_collection_id)` | Passthrough |
 
+### Import service (`ImportService`)
+
+All methods are `@staticmethod`.  Each parses the input, then persists via
+`import_collection_tree()` and `create_environment()`.  Returns an
+`ImportSummary` TypedDict with counts and errors.
+
+| Method | Input |
+|--------|-------|
+| `import_files(paths)` | List of JSON files (auto-detect collection vs environment) |
+| `import_folder(path)` | Postman archive folder or directory of JSON files |
+| `import_text(text)` | Raw text — auto-detects cURL, JSON, or URL |
+| `import_curl(text)` | One or more cURL commands |
+| `import_url(url)` | Fetch URL contents and parse |
+
 ## Known limitations
 
 1. **No cycle detection for collection moves** — `move_collection` only
@@ -326,8 +382,7 @@ the method delegates directly to the repository with no added logic.
 3. **`request_parameters` and `headers` are `String` columns** — unlike
    `scripts`, `settings`, and `events` (which are JSON columns), these store
    serialised strings.  Consuming code must handle string-to-dict conversion.
-4. **Send / import not implemented** — `RequestEditorWidget.send_requested`
-   and `CollectionHeader.import_requested` signals are emitted but not
-   connected to any backend logic.
+4. **Send not implemented** — `RequestEditorWidget.send_requested`
+   signal is emitted but not connected to any backend logic.
 5. **Navigation history is in-memory only** — back/forward stack in
    `MainWindow` is lost on restart.

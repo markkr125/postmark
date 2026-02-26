@@ -9,6 +9,7 @@ from sqlalchemy import ForeignKey, String, Text, func
 
 if TYPE_CHECKING:
     from .collection_model import CollectionModel
+    from .saved_response_model import SavedResponseModel
 
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
@@ -30,6 +31,22 @@ class RequestModel(Base):
     request_parameters: Mapped[str | None] = mapped_column(String, default=None)
     headers: Mapped[str | None] = mapped_column(String, default=None)
 
+    # Optional text fields
+    description: Mapped[str | None] = mapped_column(Text, default=None)
+
+    # Body format metadata
+    body_mode: Mapped[str | None] = mapped_column(
+        String(20), default=None
+    )  # "raw", "formdata", "urlencoded", "graphql", "file", "none"
+    body_options: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON, default=None
+    )  # e.g. {"raw": {"language": "json"}}
+
+    # Auth configuration
+    auth: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON, default=None
+    )  # e.g. {"type": "bearer", "bearer": [{"key": "token", "value": "..."}]}
+
     # Structured JSON data
     scripts: Mapped[dict[str, Any] | None] = mapped_column(
         JSON, default=None
@@ -40,6 +57,9 @@ class RequestModel(Base):
     events: Mapped[dict[str, Any] | None] = mapped_column(
         JSON, default=None
     )  # e.g. {"pre_request": "...", "test": "..."}
+    protocol_profile_behavior: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON, default=None
+    )  # Postman-specific request behavior overrides
 
     # Timestamps
     created_at: Mapped[datetime | None] = mapped_column(server_default=func.now())
@@ -49,6 +69,13 @@ class RequestModel(Base):
 
     # Relationship back to collection
     collection: Mapped[CollectionModel] = relationship(back_populates="requests")
+
+    # One-to-many to saved responses (Postman examples)
+    saved_responses: Mapped[list[SavedResponseModel]] = relationship(
+        back_populates="request",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
 
     def __repr__(self) -> str:
         """Return a developer-friendly string representation."""

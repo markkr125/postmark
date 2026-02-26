@@ -4,11 +4,17 @@ from __future__ import annotations
 
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QAction, QIcon
-from PySide6.QtWidgets import (QHBoxLayout, QLineEdit, QMenu, QSizePolicy,
-                               QToolButton, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QLineEdit,
+    QMenu,
+    QSizePolicy,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+)
 
-from ui.theme import (COLOR_BORDER, COLOR_HOVER_BG, COLOR_TEXT,
-                      COLOR_TEXT_MUTED, COLOR_WHITE)
+from ui.theme import COLOR_BORDER, COLOR_HOVER_BG, COLOR_TEXT, COLOR_TEXT_MUTED, COLOR_WHITE
 
 
 # ----------------------------------------------------------------------

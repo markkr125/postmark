@@ -44,9 +44,17 @@ src/
 ├── main.py                        # Entry point — QApplication + init_db()
 ├── database/                      # Engine, models, repository
 ├── services/                      # Service layer (UI ↔ DB bridge)
+│   ├── collection_service.py      # CollectionService (static methods)
+│   ├── import_service.py          # ImportService (parse + persist)
+│   └── import_parser/             # Parser sub-package
+│       ├── models.py              # TypedDict schemas for parsed data
+│       ├── postman_parser.py      # Postman collection/environment parser
+│       ├── curl_parser.py         # cURL command parser
+│       └── url_parser.py          # URL/raw-text auto-detect parser
 └── ui/                            # PySide6 widgets
     ├── main_window.py             # Top-level MainWindow
     ├── theme.py                   # Colours, method_color() helper
+    ├── import_dialog.py           # Import dialog (files, cURL, paste)
     └── collections/               # Collection sidebar
         ├── collection_header.py
         ├── collection_widget.py
@@ -58,12 +66,16 @@ tests/
 ├── conftest.py                    # Autouse fresh-DB fixture + qapp fixture
 ├── unit/                          # Repository & service layer tests
 │   ├── test_repository.py
-│   └── test_service.py
+│   ├── test_service.py
+│   ├── test_environment_repository.py
+│   ├── test_import_parser.py
+│   └── test_import_service.py
 └── ui/                            # End-to-end PySide6 widget tests
     ├── conftest.py                # _no_fetch (autouse) + helpers
     ├── test_collection_header.py
     ├── test_collection_tree.py
     ├── test_collection_widget.py
+    ├── test_import_dialog.py
     └── test_main_window.py
 ```
 
