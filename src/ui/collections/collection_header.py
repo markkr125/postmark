@@ -68,8 +68,11 @@ class CollectionHeader(QWidget):
 
         # Plus-menu
         self._plus_menu = QMenu(self)
-        new_act = QAction("New collection", self)
-        self._plus_menu.addAction(new_act)
+        new_coll_act = QAction("New collection", self)
+        self._plus_menu.addAction(new_coll_act)
+        self._new_req_act = QAction("New request", self)
+        self._new_req_act.setEnabled(False)
+        self._plus_menu.addAction(self._new_req_act)
         self._plus_menu.setStyleSheet(
             f"""
     QMenu {{
@@ -93,7 +96,10 @@ class CollectionHeader(QWidget):
                 self._plus_btn.mapToGlobal(self._plus_btn.rect().bottomLeft())
             )
         )
-        new_act.triggered.connect(lambda: self.new_collection_requested.emit(None))
+        new_coll_act.triggered.connect(lambda: self.new_collection_requested.emit(None))
+
+        self._selected_collection_id: int | None = None
+        self._new_req_act.triggered.connect(self._on_new_request_clicked)
 
         # Search box that expands
         self._search = QLineEdit(self)
@@ -120,3 +126,13 @@ class CollectionHeader(QWidget):
 
         # Emit search signal on each keystroke
         self._search.textChanged.connect(lambda txt: self.search_changed.emit(txt))
+
+    def set_selected_collection_id(self, collection_id: int | None) -> None:
+        """Update the currently selected collection for the 'New request' action."""
+        self._selected_collection_id = collection_id
+        self._new_req_act.setEnabled(collection_id is not None)
+
+    def _on_new_request_clicked(self) -> None:
+        """Emit ``new_request_requested`` with the currently selected collection."""
+        if self._selected_collection_id is not None:
+            self.new_request_requested.emit(self._selected_collection_id)

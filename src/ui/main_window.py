@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QAction, QCursor, QGuiApplication, QIcon, QKeySequence
 from PySide6.QtWidgets import QHBoxLayout, QMainWindow, QSplitter, QToolBar, QVBoxLayout, QWidget
 
+from services.collection_service import CollectionService
 from ui.collections.collection_widget import CollectionWidget
+from ui.request_editor import RequestEditorWidget
+
+logger = logging.getLogger(__name__)
+
+# Maximum number of entries in the back/forward navigation history
+_MAX_HISTORY = 50
 
 
 class MainWindow(QMainWindow):
@@ -28,9 +36,16 @@ class MainWindow(QMainWindow):
         self.collections: dict[str, Any] = {}
         self.environments: dict[str, Any] = {}
 
+        # Navigation history
+        self._history: list[int] = []  # request IDs
+        self._history_index: int = -1
+
         self.collection_widget = CollectionWidget(self)
 
         self._setup_ui()
+
+        # Wire sidebar → editor
+        self.collection_widget.item_action_triggered.connect(self._on_item_action)
 
         # ---- Move to the screen that contains the mouse --------------
         self._move_to_mouse_screen()
@@ -75,9 +90,8 @@ class MainWindow(QMainWindow):
     # Request/response area helpers
     # ------------------------------------------------------------------
     def _build_request_area(self) -> None:
-        """Create the placeholder widget for the request editor pane."""
-        self.request_widget = QWidget()
-        QVBoxLayout(self.request_widget)
+        """Create the request editor pane."""
+        self.request_widget = RequestEditorWidget()
 
     def _build_response_area(self) -> None:
         """Create the placeholder widget for the response viewer pane."""
@@ -96,10 +110,14 @@ class MainWindow(QMainWindow):
 
         self.back_action = QAction(QIcon.fromTheme("go-previous"), "Go back", self)
         self.back_action.setShortcut(QKeySequence("Alt+Left"))
+        self.back_action.setEnabled(False)
+        self.back_action.triggered.connect(self._navigate_back)
         toolbar.addAction(self.back_action)
 
         self.forward_action = QAction(QIcon.fromTheme("go-next"), "Go forward", self)
         self.forward_action.setShortcut(QKeySequence("Alt+Right"))
+        self.forward_action.setEnabled(False)
+        self.forward_action.triggered.connect(self._navigate_forward)
         toolbar.addAction(self.forward_action)
 
     # ------------------------------------------------------------------
@@ -134,3 +152,60 @@ class MainWindow(QMainWindow):
         # --- Response viewer area ---
         self._build_response_area()
         right_splitter.addWidget(self.response_widget)
+
+    # ------------------------------------------------------------------
+    # Sidebar → editor wiring
+    # ------------------------------------------------------------------
+    def _on_item_action(self, item_type: str, item_id: int, action: str) -> None:
+        """Handle actions triggered from the collection tree."""
+        if action == "Open" and item_type == "request":
+            self._open_request(item_id, push_history=True)
+
+    def _open_request(self, request_id: int, *, push_history: bool) -> None:
+        """Load a request from the DB and display it in the editor."""
+        request = CollectionService.get_request(request_id)
+        if request is None:
+            logger.warning("Request id=%s not found", request_id)
+            return
+
+        data = {
+            "name": request.name,
+            "method": request.method,
+            "url": request.url,
+            "body": request.body,
+            "request_parameters": request.request_parameters,
+            "headers": request.headers,
+            "scripts": request.scripts,
+        }
+        self.request_widget.load_request(data)
+
+        if push_history:
+            # Trim forward history when navigating to a new page
+            self._history = self._history[: self._history_index + 1]
+            self._history.append(request_id)
+            if len(self._history) > _MAX_HISTORY:
+                self._history = self._history[-_MAX_HISTORY:]
+            self._history_index = len(self._history) - 1
+            self._update_nav_actions()
+
+    # ------------------------------------------------------------------
+    # Navigation history
+    # ------------------------------------------------------------------
+    def _navigate_back(self) -> None:
+        """Go back to the previously viewed request."""
+        if self._history_index > 0:
+            self._history_index -= 1
+            self._open_request(self._history[self._history_index], push_history=False)
+            self._update_nav_actions()
+
+    def _navigate_forward(self) -> None:
+        """Go forward to the next request in the history."""
+        if self._history_index < len(self._history) - 1:
+            self._history_index += 1
+            self._open_request(self._history[self._history_index], push_history=False)
+            self._update_nav_actions()
+
+    def _update_nav_actions(self) -> None:
+        """Enable/disable back/forward actions based on history position."""
+        self.back_action.setEnabled(self._history_index > 0)
+        self.forward_action.setEnabled(self._history_index < len(self._history) - 1)

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from PySide6.QtCore import QEvent, Qt
+from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QApplication
 
 from ui.collections.tree import ROLE_ITEM_ID, ROLE_ITEM_TYPE, CollectionTree
@@ -191,3 +193,286 @@ class TestCollectionTree:
         assert req.data(0, ROLE_ITEM_ID) == 7
         assert req.data(1, ROLE_ITEM_TYPE) == "request"
         assert req.data(1, ROLE_ITEM_TYPE) == "request"
+
+
+class TestCollectionTreeFilter:
+    """Tests for search/filter functionality."""
+
+    def test_filter_hides_non_matching(self, qapp: QApplication, qtbot) -> None:
+        """Items that don't match the filter text are hidden."""
+        tree = CollectionTree()
+        qtbot.addWidget(tree)
+
+        data = make_collection_dict(
+            [
+                {"id": 1, "name": "Users API"},
+                {"id": 2, "name": "Products API"},
+            ]
+        )
+        tree.set_collections(data)
+
+        tree.filter_items("Users")
+        items = top_level_items(tree)
+        # Sorted alphabetically: Products API (0), Users API (1)
+        assert items[1].isHidden() is False  # "Users API" matches
+        assert items[0].isHidden() is True  # "Products API" hidden
+
+    def test_filter_empty_string_shows_all(self, qapp: QApplication, qtbot) -> None:
+        """Empty filter text restores all items."""
+        tree = CollectionTree()
+        qtbot.addWidget(tree)
+
+        data = make_collection_dict(
+            [
+                {"id": 1, "name": "Users API"},
+                {"id": 2, "name": "Products API"},
+            ]
+        )
+        tree.set_collections(data)
+
+        tree.filter_items("Users")
+        tree.filter_items("")
+
+        items = top_level_items(tree)
+        assert not items[0].isHidden()
+        assert not items[1].isHidden()
+
+    def test_filter_shows_parent_of_matching_child(
+        self, qapp: QApplication, qtbot
+    ) -> None:
+        """Folders remain visible when they contain matching children."""
+        tree = CollectionTree()
+        qtbot.addWidget(tree)
+
+        data = make_collection_dict(
+            [
+                {
+                    "id": 1,
+                    "name": "API",
+                    "requests": [
+                        {"id": 10, "name": "Get Users", "method": "GET"},
+                    ],
+                },
+            ]
+        )
+        tree.set_collections(data)
+
+        tree.filter_items("Users")
+        folder = top_level_items(tree)[0]
+        assert not folder.isHidden()  # parent stays visible
+        assert not folder.child(0).isHidden()  # matching request visible
+
+    def test_filter_case_insensitive(self, qapp: QApplication, qtbot) -> None:
+        """Filter matching is case-insensitive."""
+        tree = CollectionTree()
+        qtbot.addWidget(tree)
+
+        data = make_collection_dict([{"id": 1, "name": "Users API"}])
+        tree.set_collections(data)
+
+        tree.filter_items("users")
+        assert not top_level_items(tree)[0].isHidden()
+
+
+class TestCollectionTreeDoubleClick:
+    """Tests for double-click to open request."""
+
+    def test_double_click_request_emits_open(
+        self, qapp: QApplication, qtbot
+    ) -> None:
+        """Double-clicking a request item emits item_action_triggered."""
+        tree = CollectionTree()
+        qtbot.addWidget(tree)
+
+        data = make_collection_dict(
+            [
+                {
+                    "id": 1,
+                    "name": "Coll",
+                    "requests": [{"id": 10, "name": "Req", "method": "GET"}],
+                },
+            ]
+        )
+        tree.set_collections(data)
+
+        folder = top_level_items(tree)[0]
+        req_item = folder.child(0)
+
+        with qtbot.waitSignal(tree.item_action_triggered, timeout=1000) as blocker:
+            tree._on_item_double_clicked(req_item, 0)
+
+        assert blocker.args == ["request", 10, "Open"]
+
+
+class TestCollectionTreeKeyboardShortcuts:
+    """Tests for F2 and Delete keyboard shortcuts."""
+
+    def test_f2_triggers_rename_folder(
+        self, qapp: QApplication, qtbot
+    ) -> None:
+        """Pressing F2 on a folder triggers rename mode."""
+        tree = CollectionTree()
+        qtbot.addWidget(tree)
+
+        data = make_collection_dict([{"id": 1, "name": "MyFolder"}])
+        tree.set_collections(data)
+
+        folder_item = top_level_items(tree)[0]
+        tree._tree.setCurrentItem(folder_item)
+
+        # Simulate F2 key press via event filter
+        event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_F2, Qt.KeyboardModifier.NoModifier)
+        result = tree.eventFilter(tree._tree, event)
+        assert result is True  # event was handled
+
+    def test_delete_triggers_delete_request(
+        self, qapp: QApplication, qtbot, monkeypatch
+    ) -> None:
+        """Pressing Delete on a request triggers delete confirmation."""
+        tree = CollectionTree()
+        qtbot.addWidget(tree)
+
+        data = make_collection_dict(
+            [
+                {
+                    "id": 1,
+                    "name": "Coll",
+                    "requests": [{"id": 10, "name": "Req", "method": "GET"}],
+                },
+            ]
+        )
+        tree.set_collections(data)
+
+        folder = top_level_items(tree)[0]
+        req_item = folder.child(0)
+        tree._tree.setCurrentItem(req_item)
+
+        # Mock the confirmation dialog to auto-accept
+        from PySide6.QtWidgets import QMessageBox
+
+        monkeypatch.setattr(
+            QMessageBox,
+            "question",
+            lambda *args, **kwargs: QMessageBox.StandardButton.Yes,
+        )
+
+        with qtbot.waitSignal(tree.request_delete_requested, timeout=1000) as blocker:
+            event = QKeyEvent(
+                QEvent.Type.KeyPress, Qt.Key.Key_Delete, Qt.KeyboardModifier.NoModifier
+            )
+            tree.eventFilter(tree._tree, event)
+
+        assert blocker.args == [10]
+
+
+class TestCollectionTreeEmptyState:
+    """Tests for the empty-state placeholder."""
+
+    def test_empty_tree_shows_placeholder(self, qapp: QApplication, qtbot) -> None:
+        """When tree has no items, the empty-state page is shown."""
+        tree = CollectionTree()
+        qtbot.addWidget(tree)
+
+        tree.set_collections({})
+        assert tree._stack.currentIndex() == 0  # empty state
+
+    def test_populated_tree_shows_tree(self, qapp: QApplication, qtbot) -> None:
+        """When tree has items, the tree page is shown."""
+        tree = CollectionTree()
+        qtbot.addWidget(tree)
+
+        data = make_collection_dict([{"id": 1, "name": "Coll"}])
+        tree.set_collections(data)
+        assert tree._stack.currentIndex() == 1  # tree view
+
+    def test_remove_last_item_shows_placeholder(
+        self, qapp: QApplication, qtbot
+    ) -> None:
+        """Removing the last item switches back to the empty state."""
+        tree = CollectionTree()
+        qtbot.addWidget(tree)
+
+        data = make_collection_dict([{"id": 1, "name": "Coll"}])
+        tree.set_collections(data)
+        assert tree._stack.currentIndex() == 1
+
+        tree.remove_item(1, "folder")
+        assert tree._stack.currentIndex() == 0
+
+
+class TestCollectionTreeTooltips:
+    """Tests for tooltips on tree items."""
+
+    def test_folder_tooltip(self, qapp: QApplication, qtbot) -> None:
+        """Folder items have a tooltip with the folder name."""
+        tree = CollectionTree()
+        qtbot.addWidget(tree)
+
+        data = make_collection_dict([{"id": 1, "name": "My Folder"}])
+        tree.set_collections(data)
+
+        folder = top_level_items(tree)[0]
+        assert folder.toolTip(0) == "My Folder"
+
+    def test_request_tooltip(self, qapp: QApplication, qtbot) -> None:
+        """Request items have a tooltip with method and name."""
+        tree = CollectionTree()
+        qtbot.addWidget(tree)
+
+        data = make_collection_dict(
+            [
+                {
+                    "id": 1,
+                    "name": "Coll",
+                    "requests": [{"id": 10, "name": "Get Users", "method": "GET"}],
+                },
+            ]
+        )
+        tree.set_collections(data)
+
+        req = top_level_items(tree)[0].child(0)
+        assert req.toolTip(0) == "GET Get Users"
+
+
+class TestCollectionTreeSelectedCollection:
+    """Tests for the selected_collection_changed signal."""
+
+    def test_selecting_folder_emits_its_id(
+        self, qapp: QApplication, qtbot
+    ) -> None:
+        """Selecting a folder emits its ID via selected_collection_changed."""
+        tree = CollectionTree()
+        qtbot.addWidget(tree)
+
+        data = make_collection_dict([{"id": 1, "name": "Folder"}])
+        tree.set_collections(data)
+
+        folder = top_level_items(tree)[0]
+        with qtbot.waitSignal(tree.selected_collection_changed, timeout=1000) as blocker:
+            tree._tree.setCurrentItem(folder)
+
+        assert blocker.args == [1]
+
+    def test_selecting_request_emits_parent_id(
+        self, qapp: QApplication, qtbot
+    ) -> None:
+        """Selecting a request emits the parent folder's ID."""
+        tree = CollectionTree()
+        qtbot.addWidget(tree)
+
+        data = make_collection_dict(
+            [
+                {
+                    "id": 1,
+                    "name": "Folder",
+                    "requests": [{"id": 10, "name": "Req", "method": "GET"}],
+                },
+            ]
+        )
+        tree.set_collections(data)
+
+        req = top_level_items(tree)[0].child(0)
+        with qtbot.waitSignal(tree.selected_collection_changed, timeout=1000) as blocker:
+            tree._tree.setCurrentItem(req)
+
+        assert blocker.args == [1]

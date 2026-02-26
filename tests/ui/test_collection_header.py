@@ -39,3 +39,45 @@ class TestCollectionHeader:
             header._search.setText("hello")
 
         assert blocker.args == ["hello"]
+
+    def test_new_request_disabled_by_default(self, qapp: QApplication, qtbot) -> None:
+        """The 'New request' action is disabled when no collection is selected."""
+        header = CollectionHeader()
+        qtbot.addWidget(header)
+
+        assert not header._new_req_act.isEnabled()
+
+    def test_new_request_enabled_after_selection(
+        self, qapp: QApplication, qtbot
+    ) -> None:
+        """Setting a selected collection ID enables the 'New request' action."""
+        header = CollectionHeader()
+        qtbot.addWidget(header)
+
+        header.set_selected_collection_id(42)
+        assert header._new_req_act.isEnabled()
+
+    def test_new_request_emits_signal(self, qapp: QApplication, qtbot) -> None:
+        """Triggering 'New request' emits ``new_request_requested`` with the ID."""
+        header = CollectionHeader()
+        qtbot.addWidget(header)
+
+        header.set_selected_collection_id(42)
+
+        with qtbot.waitSignal(header.new_request_requested, timeout=1000) as blocker:
+            header._new_req_act.trigger()
+
+        assert blocker.args == [42]
+
+    def test_new_request_disabled_on_none_selection(
+        self, qapp: QApplication, qtbot
+    ) -> None:
+        """Clearing the selection disables the 'New request' action."""
+        header = CollectionHeader()
+        qtbot.addWidget(header)
+
+        header.set_selected_collection_id(42)
+        assert header._new_req_act.isEnabled()
+
+        header.set_selected_collection_id(None)
+        assert not header._new_req_act.isEnabled()

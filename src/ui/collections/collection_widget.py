@@ -4,7 +4,7 @@ import logging
 from typing import Any, TypedDict
 
 from PySide6.QtCore import QObject, QThread, Signal, Slot
-from PySide6.QtWidgets import QProgressBar, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QMessageBox, QProgressBar, QVBoxLayout, QWidget
 
 from services.collection_service import CollectionService
 from ui.collections.collection_header import CollectionHeader
@@ -89,6 +89,7 @@ class CollectionWidget(QWidget):
         self._header = CollectionHeader(self)
         self._header.new_collection_requested.connect(self._create_new_collection)
         self._header.new_request_requested.connect(self._create_new_request)
+        self._header.search_changed.connect(self._on_search_changed)
         main_layout.addWidget(self._header)
 
         # Tree
@@ -105,6 +106,9 @@ class CollectionWidget(QWidget):
         self._tree_widget.collection_moved.connect(self._on_collection_moved)
         self._tree_widget.new_collection_requested.connect(self._create_new_collection)
         self._tree_widget.new_request_requested.connect(self._create_new_request)
+        self._tree_widget.selected_collection_changed.connect(
+            self._header.set_selected_collection_id
+        )
 
         main_layout.addWidget(self._tree_widget, 1)
 
@@ -159,12 +163,22 @@ class CollectionWidget(QWidget):
     # ------------------------------------------------------------------
     # Service-layer slots (connected to tree signals)
     # ------------------------------------------------------------------
-    def _safe_svc_call(self, description: str, func: Any, *args: Any) -> None:
-        """Call *func* with *args*, logging any exception as *description*."""
+    def _safe_svc_call(self, description: str, func: Any, *args: Any) -> bool:
+        """Call *func* with *args*, showing a warning dialog on failure.
+
+        Returns ``True`` on success, ``False`` on failure.
+        """
         try:
             func(*args)
+            return True
         except Exception as exc:
             logger.error("Failed to %s: %s", description, exc)
+            QMessageBox.warning(
+                self,
+                "Operation Failed",
+                f"Failed to {description}:\n{exc}",
+            )
+            return False
 
     @Slot(int, str)
     def _on_collection_rename(self, collection_id: int, new_name: str) -> None:
@@ -214,7 +228,7 @@ class CollectionWidget(QWidget):
             },
             collection_id,
         )
-        self._tree_widget.select_item_by_id(new_request.id, "request")
+        self._tree_widget.start_rename_by_id(new_request.id, "request")
 
     def _create_new_collection(self, parent_id: int | None = None) -> None:
         """Create a new collection and add it to the tree."""
@@ -222,7 +236,7 @@ class CollectionWidget(QWidget):
         self._tree_widget.add_collection(
             {"name": new_collection.name, "id": new_collection.id}, parent_id
         )
-        self._tree_widget.select_item_by_id(new_collection.id, "folder")
+        self._tree_widget.start_rename_by_id(new_collection.id, "folder")
 
     # ------------------------------------------------------------------
     # Qt overrides & public API
@@ -236,3 +250,8 @@ class CollectionWidget(QWidget):
     def set_collections(self, data: dict[str, Any]) -> None:
         """Replace the displayed collection data with *data*."""
         self._tree_widget.set_collections(data)
+
+    @Slot(str)
+    def _on_search_changed(self, text: str) -> None:
+        """Filter tree items based on the search text."""
+        self._tree_widget.filter_items(text)

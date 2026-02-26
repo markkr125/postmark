@@ -170,6 +170,54 @@ CollectionWidget.__init__()
           → CollectionTree.set_collections(dict)
 ```
 
+### Search / filter
+
+```
+CollectionHeader.search_bar (QLineEdit) textChanged
+  → CollectionHeader.search_changed(str)
+    → CollectionWidget._on_search_changed(str)
+      → CollectionTree.filter_items(str)
+        → _filter_recursive per top-level item (hide non-matches)
+        → _update_stack_visibility (show empty-state when all hidden)
+```
+
+### Double-click open & keyboard shortcuts
+
+```
+CollectionTree.itemDoubleClicked (request item)
+  → _on_item_double_clicked
+    → item_action_triggered("request", id, "Open")
+
+eventFilter on tree_widget:
+  F2  → _start_rename on selected item
+  Del → _delete_item on selected item
+```
+
+### Request open & navigation
+
+```
+CollectionWidget.item_action_triggered("request", id, "Open")
+  → MainWindow._on_item_action
+    → _open_request(id)
+      → CollectionService.get_request(id) → dict
+      → RequestEditorWidget.load_request(dict)
+      → _history append + _update_nav_actions
+
+MainWindow back_action / forward_action
+  → _navigate_back / _navigate_forward
+    → _open_request(history[index])
+```
+
+### Selected-collection flow
+
+```
+CollectionTree.currentItemChanged
+  → _on_current_item_changed
+    → selected_collection_changed(collection_id | None)
+      → CollectionWidget → CollectionHeader.set_selected_collection_id
+        → enables / disables "New request" action in + menu
+```
+
 ## Unconnected signals and unimplemented features
 
 These signals exist in the code but are **not yet wired to anything**.
@@ -178,14 +226,21 @@ features.
 
 | Signal / Feature | Location | Status |
 |---|---|---|
-| `CollectionHeader.search_changed(str)` | `collection_header.py` | Emitted on keystrokes, not connected — search not implemented |
 | `CollectionHeader.import_requested()` | `collection_header.py` | Emitted on click, not connected — import not implemented |
-| `CollectionHeader.new_request_requested(object)` | `collection_header.py` | Declared and connected but never emitted from header |
 | `MainWindow.run_action` | `main_window.py` | QAction created, not connected |
-| `CollectionWidget.item_action_triggered` | `collection_widget.py` | Forwarded from tree, nothing connects in MainWindow |
 | `CollectionWidget.item_name_changed` | `collection_widget.py` | Forwarded from tree, nothing connects in MainWindow |
-| Request editor pane | `main_window.py` | Placeholder `QWidget` |
 | Response viewer pane | `main_window.py` | Placeholder `QWidget` |
+| `RequestEditorWidget.send_requested` | `request_editor.py` | Emitted on Send click, not connected — send not implemented |
+
+### Recently wired signals (no longer unconnected)
+
+| Signal / Feature | Wired in |
+|---|---|
+| `CollectionHeader.search_changed(str)` | `CollectionWidget` → `CollectionTree.filter_items` |
+| `CollectionHeader.new_request_requested(object)` | Emitted from header + menu when collection selected |
+| `CollectionWidget.item_action_triggered` | `MainWindow._on_item_action` (opens request editor) |
+| Request editor pane | `RequestEditorWidget` — display-only, loaded via `MainWindow._open_request` |
+| `CollectionTree.selected_collection_changed` | `CollectionWidget` → `CollectionHeader.set_selected_collection_id` |
 
 ## Implicit contracts
 
@@ -266,9 +321,13 @@ the method delegates directly to the repository with no added logic.
 1. **No cycle detection for collection moves** — `move_collection` only
    prevents direct self-reference (`id == new_parent_id`).  Moving a parent
    into its own descendant would create an infinite loop.
-2. **DELETE method has no colour** — `METHOD_COLORS` in `theme.py` maps GET,
-   POST, PUT, PATCH, HEAD, OPTIONS but not DELETE.  It falls back to
-   `DEFAULT_METHOD_COLOR` (`COLOR_MUTED`).
+2. ~~**DELETE method has no colour**~~ — Fixed: `COLOR_DELETE` (`#e67e22`)
+   added to `METHOD_COLORS` in `theme.py`.
 3. **`request_parameters` and `headers` are `String` columns** — unlike
    `scripts`, `settings`, and `events` (which are JSON columns), these store
    serialised strings.  Consuming code must handle string-to-dict conversion.
+4. **Send / import not implemented** — `RequestEditorWidget.send_requested`
+   and `CollectionHeader.import_requested` signals are emitted but not
+   connected to any backend logic.
+5. **Navigation history is in-memory only** — back/forward stack in
+   `MainWindow` is lost on restart.
