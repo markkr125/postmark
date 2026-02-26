@@ -17,9 +17,9 @@ Scoped instruction files (auto-applied by path):
 
 | File | Applies to |
 |------|------------|
-| [pyside6.instructions.md](instructions/pyside6.instructions.md) | `src/ui/**/*.py` |
-| [sqlalchemy.instructions.md](instructions/sqlalchemy.instructions.md) | `src/database/**/*.py` |
-| [testing.instructions.md](instructions/testing.instructions.md) | `tests/**/*.py` |
+| [pyside6.instructions.md](./instructions/pyside6.instructions.md) | `src/ui/**/*.py` |
+| [sqlalchemy.instructions.md](./instructions/sqlalchemy.instructions.md) | `src/database/**/*.py` |
+| [testing.instructions.md](./instructions/testing.instructions.md) | `tests/**/*.py` |
 
 ## Project overview
 
@@ -79,6 +79,13 @@ After **any** code change, run the **full** validation suite and confirm
 poetry run pytest                # all tests must pass
 poetry run ruff check src/ tests/  # linter clean
 poetry run mypy src/ tests/      # type checker clean
+```
+
+After **any** documentation change (`.md` files, instruction files, README),
+run the markdown link checker and confirm **zero broken links**:
+
+```bash
+python scripts/check_md_links.py
 ```
 
 Never skip a layer — repository, service, UI, and MainWindow tests all

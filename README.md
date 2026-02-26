@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="data/images/logo.png" alt="Postmark logo" width="200" />
+</p>
+
 # Postmark
 
 A native desktop API client for testing and managing HTTP requests, built with **PySide6** and **SQLAlchemy**.
