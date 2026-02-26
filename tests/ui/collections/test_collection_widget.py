@@ -8,7 +8,7 @@ from services.collection_service import CollectionService
 from ui.collections.collection_widget import CollectionWidget
 from ui.collections.tree import ROLE_ITEM_ID
 
-from .conftest import make_collection_dict, top_level_items
+from ..conftest import make_collection_dict, top_level_items
 
 
 class TestCollectionWidget:

@@ -96,32 +96,39 @@ src/
 tests/
 ├── conftest.py                    # Autouse fresh-DB fixture + qapp fixture
 ├── unit/                          # Repository & service layer tests
-│   ├── test_repository.py
-│   ├── test_service.py
-│   ├── test_environment_repository.py
-│   ├── test_environment_service.py
-│   ├── test_http_service.py
-│   ├── test_import_parser.py
-│   ├── test_import_service.py
-│   └── test_snippet_generator.py
+│   ├── database/                  # Repository tests
+│   │   ├── test_repository.py
+│   │   └── test_environment_repository.py
+│   └── services/                  # Service layer tests
+│       ├── test_service.py
+│       ├── test_environment_service.py
+│       ├── test_http_service.py
+│       ├── test_import_parser.py
+│       ├── test_import_service.py
+│       └── test_snippet_generator.py
 └── ui/                            # End-to-end PySide6 widget tests
     ├── conftest.py                # _no_fetch (autouse) + helpers
-    ├── test_breadcrumb_bar.py
-    ├── test_collection_header.py
-    ├── test_collection_tree.py
-    ├── test_collection_widget.py
-    ├── test_console_panel.py
-    ├── test_environment_editor.py
-    ├── test_environment_selector.py
-    ├── test_history_panel.py
-    ├── test_http_worker.py
-    ├── test_import_dialog.py
-    ├── test_key_value_table.py
     ├── test_main_window.py
-    ├── test_request_editor.py
-    ├── test_request_tab_bar.py
-    ├── test_response_viewer.py
-    └── test_tab_manager.py
+    ├── test_key_value_table.py
+    ├── collections/               # Collection sidebar tests
+    │   ├── test_collection_header.py
+    │   ├── test_collection_tree.py
+    │   └── test_collection_widget.py
+    ├── dialogs/                   # Dialog tests
+    │   └── test_import_dialog.py
+    ├── environments/              # Environment widget tests
+    │   ├── test_environment_editor.py
+    │   └── test_environment_selector.py
+    ├── panels/                    # Panel tests
+    │   ├── test_console_panel.py
+    │   └── test_history_panel.py
+    └── request/                   # Request/response editing tests
+        ├── test_breadcrumb_bar.py
+        ├── test_http_worker.py
+        ├── test_request_editor.py
+        ├── test_request_tab_bar.py
+        ├── test_response_viewer.py
+        └── test_tab_manager.py
 ```
 
 **Layering:** UI → signals → Service → Repository → `get_session()`.

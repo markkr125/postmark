@@ -108,9 +108,10 @@ class HistoryPanel(QWidget):
         # Remove old widgets (keep the trailing stretch)
         while self._scroll_layout.count() > 1:
             item = self._scroll_layout.takeAt(0)
-            w = item.widget()
-            if w is not None:
-                w.deleteLater()
+            if item is not None:
+                w = item.widget()
+                if w is not None:
+                    w.deleteLater()
 
         for entry in self._entries:
             row = self._make_entry_widget(entry)

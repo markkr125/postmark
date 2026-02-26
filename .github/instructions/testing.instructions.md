@@ -90,36 +90,63 @@ detail managed by `get_session()`.
 
 ## Directory layout
 
+Test directories **mirror the source tree**.  Keep them in sync — when a
+source file lives under `src/ui/request/`, its test lives under
+`tests/ui/request/`.  Never dump new test files into `tests/ui/` or
+`tests/unit/` root — always place them in the matching subfolder.
+
 ```
 tests/
 ├── conftest.py                    # Root: _fresh_db (autouse) + qapp (session)
 ├── unit/                          # Pure logic — no Qt widgets
-│   ├── test_repository.py         # TestCollectionCRUD, TestRequestCRUD
-│   ├── test_service.py            # TestCollectionService
-│   ├── test_environment_repository.py  # Environment CRUD tests
-│   ├── test_import_parser.py      # Postman/cURL/URL parser unit tests
-│   └── test_import_service.py     # ImportService integration tests
+│   ├── database/                  # Repository layer tests
+│   │   ├── test_repository.py
+│   │   └── test_environment_repository.py
+│   └── services/                  # Service layer tests
+│       ├── test_service.py
+│       ├── test_environment_service.py
+│       ├── test_http_service.py
+│       ├── test_import_parser.py
+│       ├── test_import_service.py
+│       └── test_snippet_generator.py
 └── ui/                            # PySide6 widget tests (need qapp + qtbot)
     ├── conftest.py                # _no_fetch (autouse) + helper functions
-    ├── test_collection_header.py
-    ├── test_collection_tree.py
-    ├── test_collection_widget.py
-    ├── test_import_dialog.py
-    ├── test_request_editor.py
-    └── test_main_window.py
+    ├── test_main_window.py        # Top-level MainWindow smoke tests
+    ├── test_key_value_table.py    # Shared key-value editor widget tests
+    ├── collections/               # Collection sidebar tests
+    │   ├── test_collection_header.py
+    │   ├── test_collection_tree.py
+    │   └── test_collection_widget.py
+    ├── dialogs/                   # Dialog tests
+    │   └── test_import_dialog.py
+    ├── environments/              # Environment widget tests
+    │   ├── test_environment_editor.py
+    │   └── test_environment_selector.py
+    ├── panels/                    # Panel tests
+    │   ├── test_console_panel.py
+    │   └── test_history_panel.py
+    └── request/                   # Request/response editing tests
+        ├── test_breadcrumb_bar.py
+        ├── test_http_worker.py
+        ├── test_request_editor.py
+        ├── test_request_tab_bar.py
+        ├── test_response_viewer.py
+        └── test_tab_manager.py
 ```
 
-- **unit/** — repository and service layer tests. No Qt dependency.
-- **ui/** — widget integration tests. Each widget gets its own file.
+- **unit/database/** — repository tests. No Qt dependency.
+- **unit/services/** — service layer tests. No Qt dependency.
+- **ui/** — widget integration tests grouped by source subpackage.
 
-When adding tests for a new widget, create `tests/ui/test_<widget>.py`.
-When adding tests for a new service or repository, add to or create a
-file under `tests/unit/`.
+When adding tests for a new widget, create the file in the matching
+`tests/ui/<subpackage>/` folder.  When adding tests for a new service or
+repository, add to the matching `tests/unit/<subpackage>/` folder.
 
 ## Test file and class naming
 
-- One test file per component: `tests/ui/test_<widget>.py`,
-  `tests/unit/test_<layer>.py`
+- One test file per component, placed in the matching subfolder:
+  `tests/ui/request/test_request_editor.py`,
+  `tests/unit/services/test_service.py`
 - Group related tests in classes: `TestCollectionCRUD`, `TestRequestCRUD`,
   `TestCollectionService`, `TestCollectionTree`, `TestCollectionWidget`
 - Prefix test methods with `test_`: `test_create_root_collection`
@@ -137,10 +164,11 @@ When testing PySide6 widgets:
    and verify the DB changed via `CollectionService`.
 
 Shared helpers (`make_collection_dict`, `top_level_items`) live in
-`tests/ui/conftest.py` and can be imported via relative import:
+`tests/ui/conftest.py` and can be imported via relative import from any
+subfolder:
 
 ```python
-from .conftest import make_collection_dict, top_level_items
+from ..conftest import make_collection_dict, top_level_items
 ```
 
 ## Assertions and error testing

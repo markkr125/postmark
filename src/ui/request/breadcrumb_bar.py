@@ -35,9 +35,10 @@ class BreadcrumbBar(QWidget):
         # Clear existing widgets
         while self._layout.count():
             item = self._layout.takeAt(0)
-            w = item.widget()
-            if w is not None:
-                w.deleteLater()
+            if item is not None:
+                w = item.widget()
+                if w is not None:
+                    w.deleteLater()
 
         for i, seg in enumerate(segments):
             if i > 0:
@@ -71,9 +72,10 @@ class BreadcrumbBar(QWidget):
         """Remove all breadcrumb segments."""
         while self._layout.count():
             item = self._layout.takeAt(0)
-            w = item.widget()
-            if w is not None:
-                w.deleteLater()
+            if item is not None:
+                w = item.widget()
+                if w is not None:
+                    w.deleteLater()
 
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
         """Emit ``item_clicked`` when a breadcrumb segment is pressed."""
