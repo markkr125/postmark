@@ -230,3 +230,5 @@ class MainWindow(QMainWindow):
         dialog = ImportDialog(self)
         dialog.import_completed.connect(self.collection_widget._start_fetch)
         dialog.exec()
+        dialog.import_completed.connect(self.collection_widget._start_fetch)
+        dialog.exec()

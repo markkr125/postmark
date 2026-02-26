@@ -128,7 +128,9 @@ class _DropZone(QFrame):
         layout.addWidget(icon_label)
 
         drop_label = QLabel("Drop anywhere to import")
-        drop_label.setStyleSheet(f"font-size: 14px; font-weight: bold; color: {COLOR_TEXT}; border: none;")
+        drop_label.setStyleSheet(
+            f"font-size: 14px; font-weight: bold; color: {COLOR_TEXT}; border: none;"
+        )
         drop_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(drop_label)
 
@@ -411,9 +413,7 @@ class ImportDialog(QDialog):
 
     def _on_select_folder(self) -> None:
         """Open a folder picker."""
-        folder = QFileDialog.getExistingDirectory(
-            self, "Select folder to import"
-        )
+        folder = QFileDialog.getExistingDirectory(self, "Select folder to import")
         if folder:
             self._start_import_folder(Path(folder))
 
@@ -502,9 +502,7 @@ class ImportDialog(QDialog):
             self._result_log.append("No data was imported.")
 
         for err in errors:
-            self._result_log.append(
-                f'<span style="color: {COLOR_IMPORT_ERROR};">{err}</span>'
-            )
+            self._result_log.append(f'<span style="color: {COLOR_IMPORT_ERROR};">{err}</span>')
 
         if parts:
             self.import_completed.emit()

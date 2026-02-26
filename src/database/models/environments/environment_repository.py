@@ -56,9 +56,7 @@ def get_environment_by_id(environment_id: int) -> EnvironmentModel | None:
     """Return the environment with the given *environment_id*, or ``None``."""
     with get_session() as session:
         return (
-            session.execute(
-                select(EnvironmentModel).where(EnvironmentModel.id == environment_id)
-            )
+            session.execute(select(EnvironmentModel).where(EnvironmentModel.id == environment_id))
             .scalars()
             .first()
         )

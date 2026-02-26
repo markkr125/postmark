@@ -35,17 +35,13 @@ class TestMainWindow:
         assert "&File" in menu_titles
         assert "&Collection" in menu_titles
 
-    def test_request_editor_is_request_editor_widget(
-        self, qapp: QApplication, qtbot
-    ) -> None:
+    def test_request_editor_is_request_editor_widget(self, qapp: QApplication, qtbot) -> None:
         """MainWindow uses RequestEditorWidget for the request pane."""
         window = MainWindow()
         qtbot.addWidget(window)
         assert isinstance(window.request_widget, RequestEditorWidget)
 
-    def test_back_forward_initially_disabled(
-        self, qapp: QApplication, qtbot
-    ) -> None:
+    def test_back_forward_initially_disabled(self, qapp: QApplication, qtbot) -> None:
         """Back and forward actions start disabled."""
         window = MainWindow()
         qtbot.addWidget(window)
@@ -106,9 +102,7 @@ class TestMainWindowNavigation:
 
         assert window.request_widget._url_input.text() == "http://b.com"
 
-    def test_item_action_open_triggers_editor(
-        self, qapp: QApplication, qtbot
-    ) -> None:
+    def test_item_action_open_triggers_editor(self, qapp: QApplication, qtbot) -> None:
         """Emitting item_action_triggered with 'Open' loads the editor."""
         svc = CollectionService()
         coll = svc.create_collection("Coll")

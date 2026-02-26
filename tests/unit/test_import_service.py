@@ -5,12 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from database.models.collections.collection_repository import (
-    fetch_all_collections,
-)
-from database.models.environments.environment_repository import (
-    fetch_all_environments,
-)
+from database.models.collections.collection_repository import fetch_all_collections
+from database.models.environments.environment_repository import fetch_all_environments
 from services.import_service import ImportService
 
 
@@ -132,9 +128,7 @@ class TestImportServiceCurl:
 
     def test_import_curl_command(self) -> None:
         """A cURL command becomes a persisted collection with one request."""
-        summary = ImportService.import_curl(
-            "curl -X GET https://api.example.com/items"
-        )
+        summary = ImportService.import_curl("curl -X GET https://api.example.com/items")
         assert summary["collections_imported"] == 1
         assert summary["requests_imported"] == 1
         assert not summary["errors"]
@@ -142,8 +136,7 @@ class TestImportServiceCurl:
     def test_import_multi_curl(self) -> None:
         """Multiple cURL commands create multiple requests in one collection."""
         text = (
-            "curl https://api.example.com/a\n"
-            "curl -X POST https://api.example.com/b -d '{\"x\": 1}'"
+            "curl https://api.example.com/a\ncurl -X POST https://api.example.com/b -d '{\"x\": 1}'"
         )
         summary = ImportService.import_curl(text)
         assert summary["requests_imported"] == 2
@@ -156,9 +149,7 @@ class TestImportServiceEnvironments:
         """Importing an environment JSON file persists to the database."""
         data = {
             "name": "Staging",
-            "values": [
-                {"key": "host", "value": "staging.example.com", "enabled": True}
-            ],
+            "values": [{"key": "host", "value": "staging.example.com", "enabled": True}],
         }
         f = tmp_path / "env.json"
         f.write_text(json.dumps(data))

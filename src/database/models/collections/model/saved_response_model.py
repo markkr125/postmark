@@ -48,6 +48,4 @@ class SavedResponseModel(Base):
 
     def __repr__(self) -> str:
         """Return a developer-friendly string representation."""
-        return (
-            f"<SavedResponseModel(id={self.id}, name={self.name!r}, code={self.code})>"
-        )
+        return f"<SavedResponseModel(id={self.id}, name={self.name!r}, code={self.code})>"

@@ -32,7 +32,9 @@ _POSTMAN_SCHEMA_V21 = "https://schema.getpostman.com/json/collection/v2.1.0/coll
 # ------------------------------------------------------------------
 
 
-def detect_postman_type(data: dict[str, Any]) -> Literal["collection", "environment", "archive", "unknown"]:
+def detect_postman_type(
+    data: dict[str, Any],
+) -> Literal["collection", "environment", "archive", "unknown"]:
     """Auto-detect whether *data* represents a collection, environment, or archive index.
 
     Returns one of ``"collection"``, ``"environment"``, ``"archive"``,
@@ -56,7 +58,9 @@ def parse_collection_file(path: Path) -> ImportResult:
     try:
         text = path.read_text(encoding="utf-8")
         if not text.strip():
-            return ImportResult(collections=[], environments=[], errors=[f"Empty file: {path.name}"])
+            return ImportResult(
+                collections=[], environments=[], errors=[f"Empty file: {path.name}"]
+            )
         data = json.loads(text)
     except (json.JSONDecodeError, OSError) as exc:
         return ImportResult(collections=[], environments=[], errors=[f"{path.name}: {exc}"])
@@ -69,7 +73,8 @@ def parse_collection_file(path: Path) -> ImportResult:
         env = _parse_environment_data(data)
         return ImportResult(collections=[], environments=[env], errors=[])
     return ImportResult(
-        collections=[], environments=[],
+        collections=[],
+        environments=[],
         errors=[f"{path.name}: unrecognised Postman format"],
     )
 
@@ -79,14 +84,17 @@ def parse_environment_file(path: Path) -> ImportResult:
     try:
         text = path.read_text(encoding="utf-8")
         if not text.strip():
-            return ImportResult(collections=[], environments=[], errors=[f"Empty file: {path.name}"])
+            return ImportResult(
+                collections=[], environments=[], errors=[f"Empty file: {path.name}"]
+            )
         data = json.loads(text)
     except (json.JSONDecodeError, OSError) as exc:
         return ImportResult(collections=[], environments=[], errors=[f"{path.name}: {exc}"])
 
     if detect_postman_type(data) != "environment":
         return ImportResult(
-            collections=[], environments=[],
+            collections=[],
+            environments=[],
             errors=[f"{path.name}: not a valid environment file"],
         )
 
@@ -159,7 +167,8 @@ def parse_json_text(text: str) -> ImportResult:
         env = _parse_environment_data(data)
         return ImportResult(collections=[], environments=[env], errors=[])
     return ImportResult(
-        collections=[], environments=[],
+        collections=[],
+        environments=[],
         errors=["Unrecognised JSON format — expected a Postman collection or environment"],
     )
 
@@ -203,12 +212,14 @@ def _parse_environment_data(data: dict[str, Any]) -> ParsedEnvironment:
     """Convert raw Postman environment JSON into a ``ParsedEnvironment``."""
     values: list[dict[str, Any]] = []
     for val in data.get("values", []):
-        values.append({
-            "key": val.get("key", ""),
-            "value": val.get("value", ""),
-            "enabled": val.get("enabled", True),
-            "type": val.get("type", "text"),
-        })
+        values.append(
+            {
+                "key": val.get("key", ""),
+                "value": val.get("value", ""),
+                "enabled": val.get("enabled", True),
+                "type": val.get("type", "text"),
+            }
+        )
     return ParsedEnvironment(
         name=data.get("name", "Untitled Environment"),
         values=values,
@@ -259,10 +270,7 @@ def _parse_request_item(item: dict[str, Any]) -> ParsedRequest:
     headers = _extract_key_value_list(req.get("header", []))
     query_params = _extract_query_params(req.get("url", {}))
 
-    saved_responses = [
-        _parse_saved_response(resp)
-        for resp in item.get("response", [])
-    ]
+    saved_responses = [_parse_saved_response(resp) for resp in item.get("response", [])]
 
     return ParsedRequest(
         type="request",

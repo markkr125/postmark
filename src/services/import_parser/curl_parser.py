@@ -42,7 +42,8 @@ def parse_curl(text: str) -> ImportResult:
     commands = _split_curl_commands(text)
     if not commands:
         return ImportResult(
-            collections=[], environments=[],
+            collections=[],
+            environments=[],
             errors=["No cURL commands found in the provided text"],
         )
 
@@ -141,7 +142,14 @@ def _parse_single_curl(cmd: str) -> ParsedRequest:
             i += 1
             if i < len(tokens):
                 user_agent = tokens[i]
-        elif token == "--compressed" or token in ("-k", "--insecure") or token in ("-L", "--location") or token in ("-s", "--silent") or token in ("-v", "--verbose") or token in ("-i", "--include"):
+        elif (
+            token == "--compressed"
+            or token in ("-k", "--insecure")
+            or token in ("-L", "--location")
+            or token in ("-s", "--silent")
+            or token in ("-v", "--verbose")
+            or token in ("-i", "--include")
+        ):
             pass  # Silently ignore
         elif not token.startswith("-") and url is None:
             url = token
@@ -160,7 +168,9 @@ def _parse_single_curl(cmd: str) -> ParsedRequest:
 
     # Add User-Agent as a header if specified
     if user_agent:
-        headers.append({"key": "User-Agent", "value": user_agent, "disabled": False, "type": "text"})
+        headers.append(
+            {"key": "User-Agent", "value": user_agent, "disabled": False, "type": "text"}
+        )
 
     # Build auth dict
     auth: dict[str, Any] | None = None
@@ -228,7 +238,13 @@ def _derive_name(url: str, method: str) -> str:
     if clean:
         # Take last two path segments for context
         segments = [s for s in clean.split("/") if s]
-        path = "/" + "/".join(segments[-2:]) if len(segments) > 1 else "/" + segments[-1] if segments else "/"
+        path = (
+            "/" + "/".join(segments[-2:])
+            if len(segments) > 1
+            else "/" + segments[-1]
+            if segments
+            else "/"
+        )
     else:
         path = "/"
 

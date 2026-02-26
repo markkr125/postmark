@@ -141,9 +141,7 @@ class TestParseCollectionFile:
                             "type": "bearer",
                             "bearer": [{"key": "token", "value": "abc123"}],
                         },
-                        "header": [
-                            {"key": "X-Custom", "value": "yes", "type": "text"}
-                        ],
+                        "header": [{"key": "X-Custom", "value": "yes", "type": "text"}],
                     },
                 }
             ],
@@ -403,7 +401,7 @@ class TestCurlParser:
     def test_post_with_data(self) -> None:
         """Parse a POST with --data and headers."""
         cmd = (
-            'curl -X POST https://api.example.com/login '
+            "curl -X POST https://api.example.com/login "
             '-H "Content-Type: application/json" '
             '-d \'{"user": "admin", "pass": "secret"}\''
         )
@@ -425,7 +423,7 @@ class TestCurlParser:
         """Multiple cURL commands are parsed into separate requests."""
         text = (
             "curl https://api.example.com/users\n"
-            "curl -X POST https://api.example.com/users -d '{\"name\": \"test\"}'"
+            'curl -X POST https://api.example.com/users -d \'{"name": "test"}\''
         )
         result = parse_curl(text)
         items: list[Any] = result["collections"][0]["items"]

@@ -29,14 +29,16 @@ class TestRequestEditorWidget:
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
 
-        editor.load_request({
-            "name": "Get Users",
-            "method": "GET",
-            "url": "https://api.example.com/users",
-            "body": "",
-            "request_parameters": "page=1",
-            "headers": "Accept: application/json",
-        })
+        editor.load_request(
+            {
+                "name": "Get Users",
+                "method": "GET",
+                "url": "https://api.example.com/users",
+                "body": "",
+                "request_parameters": "page=1",
+                "headers": "Accept: application/json",
+            }
+        )
 
         assert editor._empty_label.isHidden()
         assert not editor._tabs.isHidden()
@@ -46,9 +48,7 @@ class TestRequestEditorWidget:
         assert editor._params_edit.toPlainText() == "page=1"
         assert editor._headers_edit.toPlainText() == "Accept: application/json"
 
-    def test_clear_request_restores_empty_state(
-        self, qapp: QApplication, qtbot
-    ) -> None:
+    def test_clear_request_restores_empty_state(self, qapp: QApplication, qtbot) -> None:
         """Clearing resets to the empty state."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
@@ -60,19 +60,19 @@ class TestRequestEditorWidget:
         assert editor._tabs.isHidden()
         assert editor._url_input.text() == ""
 
-    def test_load_request_with_scripts_dict(
-        self, qapp: QApplication, qtbot
-    ) -> None:
+    def test_load_request_with_scripts_dict(self, qapp: QApplication, qtbot) -> None:
         """Scripts dict is displayed as formatted JSON."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
 
-        editor.load_request({
-            "name": "X",
-            "method": "GET",
-            "url": "http://x",
-            "scripts": {"pre": "console.log('hi')"},
-        })
+        editor.load_request(
+            {
+                "name": "X",
+                "method": "GET",
+                "url": "http://x",
+                "scripts": {"pre": "console.log('hi')"},
+            }
+        )
 
         text = editor._scripts_edit.toPlainText()
         assert "console.log" in text

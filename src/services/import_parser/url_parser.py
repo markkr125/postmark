@@ -52,7 +52,8 @@ def parse_raw_text(text: str) -> ImportResult:
         return _url_to_request(stripped)
 
     return ImportResult(
-        collections=[], environments=[],
+        collections=[],
+        environments=[],
         errors=["Could not detect format — expected cURL, JSON, or URL"],
     )
 
@@ -70,7 +71,8 @@ def fetch_and_parse_url(url: str) -> ImportResult:
             body = resp.read().decode("utf-8", errors="replace")
     except (URLError, OSError, ValueError) as exc:
         return ImportResult(
-            collections=[], environments=[],
+            collections=[],
+            environments=[],
             errors=[f"Failed to fetch URL: {exc}"],
         )
 
