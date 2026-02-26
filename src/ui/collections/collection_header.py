@@ -1,33 +1,30 @@
-from typing import Any
+"""Header widget with search bar and action buttons for the collection sidebar."""
+
+from __future__ import annotations
 
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QAction, QIcon
-from PySide6.QtWidgets import (
-    QHBoxLayout,
-    QLineEdit,
-    QMenu,
-    QSizePolicy,
-    QToolButton,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import (QHBoxLayout, QLineEdit, QMenu, QSizePolicy,
+                               QToolButton, QVBoxLayout, QWidget)
+
+from ui.theme import (COLOR_BORDER, COLOR_HOVER_BG, COLOR_TEXT,
+                      COLOR_TEXT_MUTED, COLOR_WHITE)
 
 
 # ----------------------------------------------------------------------
 # Header management subclass
 # ----------------------------------------------------------------------
 class CollectionHeader(QWidget):
-    """
-    Manages the header with add button and search. Composable into the parent CollectionWidget.
-    """
+    """Manages the header with add button and search."""
 
     # Accept any object (int or None)
-    new_collection_requested = Signal(object)   # parent_id or None
-    new_request_requested  = Signal(object)   # same for requests
+    new_collection_requested = Signal(object)  # parent_id or None
+    new_request_requested = Signal(object)  # same for requests
     search_changed = Signal(str)
     import_requested = Signal()
 
-    def __init__(self, parent: Any = None) -> None:
+    def __init__(self, parent: QWidget | None = None) -> None:
+        """Initialise header bar with search field and action buttons."""
         super().__init__(parent)
         self.setFixedHeight(75)
         self.setStyleSheet("background: transparent;")
@@ -43,9 +40,10 @@ class CollectionHeader(QWidget):
 
         # Import button (small, aligned to right)
         self._import_btn = QToolButton(self)
-        self._import_btn.setStyleSheet("background: #fff;")
+        self._import_btn.setStyleSheet(f"background: {COLOR_WHITE};")
         self._import_btn.setText("Import")
-        #self._import_btn.setIcon(QIcon.fromTheme("document-import"))
+        # TODO: set icon once a bundled asset is available
+        # self._import_btn.setIcon(QIcon.fromTheme("document-import"))
         self._import_btn.setToolTip("Import collections/requests")
         self._import_btn.clicked.connect(lambda: self.import_requested.emit())
         top_row.addWidget(self._import_btn)
@@ -58,36 +56,30 @@ class CollectionHeader(QWidget):
 
         # "+" button
         self._plus_btn = QToolButton(self)
-        self._plus_btn.setStyleSheet("background: #fff;")
+        self._plus_btn.setStyleSheet(f"background: {COLOR_WHITE};")
         self._plus_btn.setIcon(QIcon.fromTheme("list-add"))
         self._plus_btn.setToolTip("Add new collection")
         bottom_row.addWidget(self._plus_btn)
-
 
         # Plus-menu
         self._plus_menu = QMenu(self)
         new_act = QAction("New collection", self)
         self._plus_menu.addAction(new_act)
         self._plus_menu.setStyleSheet(
-            """
-    /* Menu background + border */
-    QMenu {
-        background: #fff;
-        border: 1px solid #ccc;
-    }
-
-    /* Normal items - set a default text color */
-    QMenu::item {
-        padding: 4px 12px;           /* optional, just to make it look nicer */
-        color: #444;
+            f"""
+    QMenu {{
+        background: {COLOR_WHITE};
+        border: 1px solid {COLOR_BORDER};
+    }}
+    QMenu::item {{
+        padding: 4px 12px;
+        color: {COLOR_TEXT};
         font-weight: bold;
-    }
-
-    /* Hover / selected item */
-    QMenu::item:selected:enabled {   /* :enabled ensures it only applies to hovered items */
-        background-color: #c7c7c7;      /* black background */
-        color: #fff;                 /* white text - this is the key line */
-    }
+    }}
+    QMenu::item:selected:enabled {{
+        background-color: {COLOR_HOVER_BG};
+        color: {COLOR_WHITE};
+    }}
         """
         )
 
@@ -102,9 +94,9 @@ class CollectionHeader(QWidget):
         self._search = QLineEdit(self)
         self._search.setPlaceholderText("Search collections")
         self._search.setStyleSheet(
-            """
-            background: #fff;
-            placeholder-text-color: #888;
+            f"""
+            background: {COLOR_WHITE};
+            placeholder-text-color: {COLOR_TEXT_MUTED};
         """
         )
         self._search.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
@@ -121,5 +113,5 @@ class CollectionHeader(QWidget):
         bottom_row.addWidget(self._search)
         main_layout.addLayout(bottom_row)
 
-        # Print query on each change
+        # Emit search signal on each keystroke
         self._search.textChanged.connect(lambda txt: self.search_changed.emit(txt))

@@ -73,3 +73,18 @@ Define roles at module level, not as inline magic numbers:
 ROLE_ITEM_ID   = Qt.ItemDataRole.UserRole      # column 0
 ROLE_ITEM_TYPE = Qt.ItemDataRole.UserRole + 1   # column 1
 ```
+
+## All colours live in ui/theme.py
+
+Never hardcode hex colour values in widget files. Import from `ui.theme`:
+
+```python
+from ui.theme import COLOR_ACCENT, METHOD_COLORS, DEFAULT_METHOD_COLOR
+```
+
+## Background workers use QThread + moveToThread
+
+For blocking operations (e.g. DB fetch), create a `QObject` worker, move it
+to a `QThread`, and connect `thread.started` to `worker.run`. Emit a signal
+with the result when done. See `_CollectionFetcher` in `collection_widget.py`
+for the canonical pattern.

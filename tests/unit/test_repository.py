@@ -1,19 +1,30 @@
-"""Tests for the collections repository layer (collections_utils)."""
+"""Unit tests for the collection repository CRUD layer."""
+
 from __future__ import annotations
 
 import pytest
 
-from database.models.collections.collections_utils import (
-    create_new_collection, create_new_request, delete_collection,
-    delete_request, fetch_all_collections, get_collection_by_id,
-    get_request_by_id, rename_collection, rename_request,
-    update_collection_parent, update_request_collection)
+from database.models.collections.collection_repository import (
+    create_new_collection,
+    create_new_request,
+    delete_collection,
+    delete_request,
+    fetch_all_collections,
+    get_collection_by_id,
+    get_request_by_id,
+    rename_collection,
+    rename_request,
+    update_collection_parent,
+    update_request_collection,
+)
 
 
 # ------------------------------------------------------------------
 # Collection CRUD
 # ------------------------------------------------------------------
 class TestCollectionCRUD:
+    """Tests for collection repository functions."""
+
     def test_create_root_collection(self):
         coll = create_new_collection("My Collection")
         assert coll.id is not None
@@ -73,6 +84,8 @@ class TestCollectionCRUD:
 # Request CRUD
 # ------------------------------------------------------------------
 class TestRequestCRUD:
+    """Tests for request repository functions."""
+
     def test_create_request(self):
         coll = create_new_collection("Coll")
         req = create_new_request(coll.id, "POST", "http://api.test/data", "Create Item")
@@ -128,33 +141,3 @@ class TestRequestCRUD:
         assert req.body == "hello"
         assert req.scripts == {"pre": "console.log(1)"}
         assert req.settings == {"timeout": 5000}
-
-
-# ------------------------------------------------------------------
-# Service layer (thin wrapper, smoke test)
-# ------------------------------------------------------------------
-class TestCollectionService:
-    def test_service_roundtrip(self):
-        from services.collection_service import CollectionService
-
-        svc = CollectionService()
-        coll = svc.create_collection("Via Service")
-        assert coll.id is not None
-
-        fetched = svc.get_collection(coll.id)
-        assert fetched is not None
-        assert fetched.name == "Via Service"
-
-        svc.rename_collection(coll.id, "Renamed")
-        renamed = svc.get_collection(coll.id)
-        assert renamed is not None
-        assert renamed.name == "Renamed"
-
-        req = svc.create_request(coll.id, "GET", "http://test", "Test Req")
-        assert req.id is not None
-
-        svc.delete_request(req.id)
-        assert svc.get_request(req.id) is None
-
-        svc.delete_collection(coll.id)
-        assert svc.get_collection(coll.id) is None

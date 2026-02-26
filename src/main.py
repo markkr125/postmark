@@ -1,19 +1,17 @@
 #!/usr/bin/env python3
+"""Application entry point -- QApplication, init_db(), and MainWindow."""
+
+from __future__ import annotations
 
 import sys
+from typing import Any
 
 # ── Qt imports ─────────────────────────────────────────────────────
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QAction, QCursor, QGuiApplication, QIcon, QKeySequence
-from PySide6.QtWidgets import (
-    QApplication,
-    QHBoxLayout,
-    QMainWindow,
-    QSplitter,
-    QToolBar,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtGui import (QAction, QCursor, QGuiApplication, QIcon,
+                           QKeySequence)
+from PySide6.QtWidgets import (QApplication, QHBoxLayout, QMainWindow,
+                               QSplitter, QToolBar, QVBoxLayout, QWidget)
 
 # ── Local imports ───────────────────────────────────────────────────
 from database.database import init_db
@@ -24,14 +22,21 @@ from ui.collections.collection_widget import CollectionWidget
 # Main window
 # --------------------------------------------------------------------------
 class MainWindow(QMainWindow):
+    """Top-level application window.
+
+    Sets up the menu bar, toolbar, and the three-pane layout
+    (collection sidebar | request editor | response viewer).
+    """
+
     def __init__(self) -> None:
+        """Initialise the main window, layout, and child widgets."""
         super().__init__()
         self.setWindowTitle("Postmark")
         self.resize(1200, 800)
 
-        # Place-holders for future persistence logic
-        self.collections: dict = {}
-        self.environments: dict = {}
+        # Placeholders for future persistence logic
+        self.collections: dict[str, Any] = {}
+        self.environments: dict[str, Any] = {}
 
         self.collection_widget = CollectionWidget(self)
 
@@ -40,21 +45,20 @@ class MainWindow(QMainWindow):
         # ---- Move to the screen that contains the mouse --------------
         self._move_to_mouse_screen()
 
-    def _move_to_mouse_screen(self):
+    def _move_to_mouse_screen(self) -> None:
         """Center the window on the monitor that the cursor is on."""
         # 1. Find the screen that the cursor is currently on
-        cursor_pos = QCursor.pos()                # global screen coordinates
+        cursor_pos = QCursor.pos()  # global screen coordinates
         screen = QGuiApplication.screenAt(cursor_pos)
 
         # 2. If we found a screen, move the window so it is centered there
         if screen is not None:
-            screen_geom = screen.availableGeometry()   # skip taskbars, docks…
-            win_geom   = self.frameGeometry()          # includes frame
+            screen_geom = screen.availableGeometry()  # skip taskbars, docks…
+            win_geom = self.frameGeometry()  # includes frame
             win_geom.moveCenter(screen_geom.center())
             self.move(win_geom.topLeft())
 
         # 3. If screen is None (rare), just leave the window where Qt chose
-
 
     # ----------------------------------------------------------------------
     # Menu creation
@@ -108,11 +112,11 @@ class MainWindow(QMainWindow):
     # UI construction
     # ----------------------------------------------------------------------
     def _setup_ui(self) -> None:
-        # 1️⃣ Menu & toolbar
+        # 1. Menu & toolbar
         self._create_menus()
         self._create_toolbar()
 
-        # 2️⃣ Main splitter: left (nav) + right (request+response)
+        # 2. Main splitter: left (nav) + right (request+response)
         central = QWidget()
         main_layout = QHBoxLayout(central)
         self.setCentralWidget(central)
@@ -126,7 +130,7 @@ class MainWindow(QMainWindow):
         # --- Right side (vertical splitter) ---
         right_splitter = QSplitter(Qt.Orientation.Vertical, central)
         splitter.addWidget(right_splitter)
-        splitter.setStretchFactor(1, 3)   # right side takes 3x the space
+        splitter.setStretchFactor(1, 3)  # right side takes 3x the space
 
         # --- Request editor area ---
         self._build_request_area()
@@ -135,8 +139,6 @@ class MainWindow(QMainWindow):
         # --- Response viewer area ---
         self._build_response_area()
         right_splitter.addWidget(self.response_widget)
-
-
 
 
 # --------------------------------------------------------------------------

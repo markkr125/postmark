@@ -22,8 +22,7 @@ _SessionLocal: scoped_session | None = None
 
 
 def init_db(db_path: Path | None = None) -> None:
-    """
-    Create the database engine, run DDL, and prepare the session factory.
+    """Create the database engine, run DDL, and prepare the session factory.
 
     Call this **once** at application startup (before any UI is constructed).
     If *db_path* is ``None`` the default location
@@ -42,15 +41,16 @@ def init_db(db_path: Path | None = None) -> None:
     Base.metadata.create_all(_engine)
 
     _SessionLocal = scoped_session(
-        sessionmaker(bind=_engine, autoflush=False, autocommit=False, expire_on_commit=False, future=True)
+        sessionmaker(
+            bind=_engine, autoflush=False, autocommit=False, expire_on_commit=False, future=True
+        )
     )
     logger.info("Database initialised: %s", database_url)
 
 
 @contextmanager
 def get_session() -> Generator[Session, None, None]:
-    """
-    Provide a transactional scope around a series of operations.
+    """Provide a transactional scope around a series of operations.
 
     Usage::
 

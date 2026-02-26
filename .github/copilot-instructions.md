@@ -46,12 +46,34 @@ src/
 ├── services/                      # Service layer (UI ↔ DB bridge)
 └── ui/                            # PySide6 widgets
 tests/
-├── conftest.py                    # Autouse fresh-DB fixture
-└── test_collections.py
+├── conftest.py                    # Autouse fresh-DB fixture + qapp fixture
+├── unit/                          # Repository & service layer tests
+│   ├── test_repository.py
+│   └── test_service.py
+└── ui/                            # End-to-end PySide6 widget tests
+    ├── conftest.py                # _no_fetch fixture + helpers
+    ├── test_collection_header.py
+    ├── test_collection_tree.py
+    ├── test_collection_widget.py
+    └── test_main_window.py
 ```
 
 **Layering:** UI → signals → Service → Repository → `get_session()`.
 UI must never import from `database/`.
+
+## CRITICAL — Verify after every change
+
+After **any** code change, run the **full** validation suite and confirm
+**zero failures** before considering the task complete:
+
+```bash
+poetry run pytest                # all tests must pass
+poetry run ruff check src/ tests/  # linter clean
+poetry run mypy src/ tests/      # type checker clean
+```
+
+Never skip a layer — repository, service, UI, and MainWindow tests all
+must stay green.  See `testing.instructions.md` for detailed conventions.
 
 ## Coding conventions
 
@@ -61,3 +83,7 @@ UI must never import from `database/`.
   First-party packages for isort: `database`, `ui`, `services`.
 - Named constants over magic numbers.
 - `init_db()` must be called before any DB access (app startup and test fixture).
+- Every module, class, and public function must have a docstring.
+- All hex colour values belong in `src/ui/theme.py` -- never inline.
+- Use `TypedDict` for dict schemas that cross module boundaries.
+- No emoji in code comments -- use plain numbered steps (e.g. `# 1.`).

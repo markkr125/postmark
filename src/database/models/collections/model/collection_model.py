@@ -1,3 +1,5 @@
+"""SQLAlchemy model for the ``collections`` table -- self-referencing tree."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -15,13 +17,17 @@ from ...base import Base
 
 
 class CollectionModel(Base):
+    """A folder in the collection hierarchy.
+
+    Collections form a self-referencing tree via ``parent_id``.  Deleting a
+    parent cascades to all children and their requests.
+    """
+
     __tablename__ = "collections"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String(255), index=True)
-    parent_id: Mapped[int | None] = mapped_column(
-        ForeignKey("collections.id"), default=None
-    )
+    parent_id: Mapped[int | None] = mapped_column(ForeignKey("collections.id"), default=None)
 
     # Date fields
     created_at: Mapped[datetime | None] = mapped_column(server_default=func.now())
@@ -30,8 +36,12 @@ class CollectionModel(Base):
     )
 
     # JSON fields
-    events: Mapped[Any | None] = mapped_column(JSON, default=None)
-    variables: Mapped[Any | None] = mapped_column(JSON, default=None)
+    events: Mapped[Any | None] = mapped_column(
+        JSON, default=None
+    )  # e.g. {"pre_request": "...", "test": "..."}
+    variables: Mapped[Any | None] = mapped_column(
+        JSON, default=None
+    )  # e.g. [{"key": "host", "value": "localhost"}]
 
     # Self-referencing relationship - gives you collection.children
     children: Mapped[list[CollectionModel]] = relationship(
@@ -48,4 +58,5 @@ class CollectionModel(Base):
     )
 
     def __repr__(self) -> str:
+        """Return a developer-friendly string representation."""
         return f"<CollectionModel(id={self.id}, name={self.name!r})>"

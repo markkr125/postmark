@@ -62,7 +62,7 @@ src/
 │   └── models/
 │       ├── base.py                  # SQLAlchemy DeclarativeBase
 │       └── collections/
-│           ├── collections_utils.py # Repository (CRUD operations)
+│           ├── collection_repository.py # Repository (CRUD operations)
 │           └── model/
 │               ├── collection_model.py
 │               └── request_model.py

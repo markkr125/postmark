@@ -68,6 +68,21 @@ obj = session.query(CollectionModel).get(collection_id)
 obj = session.get(CollectionModel, collection_id)
 ```
 
+## Use select() for multi-row queries
+
+Never use the legacy `session.query(Model).filter(...)` pattern. Use
+`select()` + `session.execute()` instead:
+
+```python
+# WRONG
+results = session.query(CollectionModel).filter(...).all()
+
+# CORRECT
+from sqlalchemy import select
+stmt = select(CollectionModel).where(CollectionModel.parent_id.is_(None))
+results = list(session.execute(stmt).scalars().all())
+```
+
 ## init_db() must be called before any DB access
 
 `main.py` calls `init_db(db_path)` at startup. Tests use an autouse fixture

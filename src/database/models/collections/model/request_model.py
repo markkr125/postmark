@@ -1,3 +1,5 @@
+"""SQLAlchemy model for the ``requests`` table."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -15,12 +17,12 @@ from ...base import Base
 
 
 class RequestModel(Base):
+    """A saved HTTP request belonging to a :class:`CollectionModel`."""
+
     __tablename__ = "requests"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
-    collection_id: Mapped[int] = mapped_column(
-        ForeignKey("collections.id")
-    )
+    collection_id: Mapped[int] = mapped_column(ForeignKey("collections.id"))
     name: Mapped[str] = mapped_column(String(255), index=True)
     method: Mapped[str] = mapped_column(String(10))  # GET, POST, ...
     url: Mapped[str] = mapped_column(Text, index=True)
@@ -29,9 +31,15 @@ class RequestModel(Base):
     headers: Mapped[str | None] = mapped_column(String, default=None)
 
     # Structured JSON data
-    scripts: Mapped[Any | None] = mapped_column(JSON, default=None)
-    settings: Mapped[Any | None] = mapped_column(JSON, default=None)
-    events: Mapped[Any | None] = mapped_column(JSON, default=None)
+    scripts: Mapped[Any | None] = mapped_column(
+        JSON, default=None
+    )  # e.g. {"pre_request": "...", "test": "..."}
+    settings: Mapped[Any | None] = mapped_column(
+        JSON, default=None
+    )  # e.g. {"timeout": 5000, "follow_redirects": true}
+    events: Mapped[Any | None] = mapped_column(
+        JSON, default=None
+    )  # e.g. {"pre_request": "...", "test": "..."}
 
     # Timestamps
     created_at: Mapped[datetime | None] = mapped_column(server_default=func.now())
@@ -43,4 +51,5 @@ class RequestModel(Base):
     collection: Mapped[CollectionModel] = relationship(back_populates="requests")
 
     def __repr__(self) -> str:
-        return f"<Request(id={self.id}, method={self.method!r}, url={self.url!r})>"
+        """Return a developer-friendly string representation."""
+        return f"<RequestModel(id={self.id}, method={self.method!r}, url={self.url!r})>"

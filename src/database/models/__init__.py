@@ -1,6 +1,8 @@
-"""
-Convenient re-exports of the two tables.
-Import like:  from src.models import Collection, Request
+"""Convenient re-exports of the two model classes.
+
+Usage::
+
+    from database.models import CollectionModel, RequestModel
 """
 
 from .collections.model.collection_model import CollectionModel

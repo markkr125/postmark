@@ -93,3 +93,4 @@ data/database/*.db
 *.bak
 *.tmp
 *.temp
+*.code-workspace
