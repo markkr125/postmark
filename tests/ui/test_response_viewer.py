@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QApplication
 
-from ui.response_viewer import ResponseViewerWidget
+from ui.request.response_viewer import ResponseViewerWidget
 
 
 class TestResponseViewerWidget:

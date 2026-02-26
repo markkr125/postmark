@@ -11,9 +11,9 @@ import logging
 
 from PySide6.QtCore import QThread
 
-from ui.http_worker import HttpSendWorker
-from ui.request_editor import RequestEditorWidget
-from ui.response_viewer import ResponseViewerWidget
+from ui.request.http_worker import HttpSendWorker
+from ui.request.request_editor import RequestEditorWidget
+from ui.request.response_viewer import ResponseViewerWidget
 
 logger = logging.getLogger(__name__)
 

@@ -61,13 +61,13 @@ class TestHttpServiceSendRequest:
 
         result = HttpService.send_request(method="GET", url="http://example.com")
 
-        assert result["status_code"] == 200
-        assert result["status_text"] == "OK"
-        assert result["body"] == '{"ok": true}'
-        assert result["size_bytes"] == 12
+        assert result.get("status_code") == 200
+        assert result.get("status_text") == "OK"
+        assert result.get("body") == '{"ok": true}'
+        assert result.get("size_bytes") == 12
         assert "elapsed_ms" in result
         assert "error" not in result
-        assert result["headers"] == [{"key": "content-type", "value": "application/json"}]
+        assert result.get("headers") == [{"key": "content-type", "value": "application/json"}]
 
     @patch("services.http_service.httpx.Client")
     def test_post_with_body_and_headers(self, mock_client_cls: MagicMock) -> None:
@@ -92,7 +92,7 @@ class TestHttpServiceSendRequest:
             body='{"name": "test"}',
         )
 
-        assert result["status_code"] == 201
+        assert result.get("status_code") == 201
         mock_client.request.assert_called_once()
         call_kwargs = mock_client.request.call_args
         assert call_kwargs.kwargs["content"] == b'{"name": "test"}'
@@ -175,5 +175,5 @@ class TestHttpServiceSendRequest:
 
         result = HttpService.send_request(method="GET", url="http://example.com/missing")
 
-        assert result["status_code"] == 404
+        assert result.get("status_code") == 404
         assert "error" not in result

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QApplication
 
-from ui.request_editor import RequestEditorWidget
+from ui.request.request_editor import RequestEditorWidget
 
 
 class TestRequestEditorWidget:
@@ -336,7 +336,7 @@ class TestApplyAuth:
 
     def test_bearer_auth_adds_header(self) -> None:
         """Bearer auth injects Authorization header."""
-        from ui.http_worker import HttpSendWorker
+        from ui.request.http_worker import HttpSendWorker
 
         auth_data = {
             "type": "bearer",
@@ -350,7 +350,7 @@ class TestApplyAuth:
         """Basic auth injects base64-encoded Authorization header."""
         import base64
 
-        from ui.http_worker import HttpSendWorker
+        from ui.request.http_worker import HttpSendWorker
 
         auth_data = {
             "type": "basic",
@@ -366,7 +366,7 @@ class TestApplyAuth:
 
     def test_apikey_header(self) -> None:
         """API key auth in header adds a custom header."""
-        from ui.http_worker import HttpSendWorker
+        from ui.request.http_worker import HttpSendWorker
 
         auth_data = {
             "type": "apikey",
@@ -382,7 +382,7 @@ class TestApplyAuth:
 
     def test_apikey_query(self) -> None:
         """API key auth in query appends to URL."""
-        from ui.http_worker import HttpSendWorker
+        from ui.request.http_worker import HttpSendWorker
 
         auth_data = {
             "type": "apikey",
@@ -397,7 +397,7 @@ class TestApplyAuth:
 
     def test_noauth_no_modification(self) -> None:
         """No auth leaves headers and URL unchanged."""
-        from ui.http_worker import HttpSendWorker
+        from ui.request.http_worker import HttpSendWorker
 
         url, headers = HttpSendWorker._apply_auth({"type": "noauth"}, "http://x", "H: v", {})
         assert url == "http://x"

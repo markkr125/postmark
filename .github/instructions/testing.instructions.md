@@ -157,7 +157,7 @@ All imports use bare module names relative to `src/` (configured via
 ```python
 from database.models.collections.collection_repository import create_new_collection
 from services.collection_service import CollectionService
-from ui.collections.collection_tree import CollectionTree, ROLE_ITEM_ID
+from ui.collections.tree import CollectionTree, ROLE_ITEM_ID
 ```
 
 ## Coding style

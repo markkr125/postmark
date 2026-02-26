@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QApplication
 
-from ui.environment_selector import EnvironmentSelector
+from ui.environments.environment_selector import EnvironmentSelector
 
 
 class TestEnvironmentSelector:

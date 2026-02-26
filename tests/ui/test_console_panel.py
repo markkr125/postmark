@@ -6,7 +6,7 @@ import logging
 
 from PySide6.QtWidgets import QApplication
 
-from ui.console_panel import ConsolePanel
+from ui.panels.console_panel import ConsolePanel
 
 
 class TestConsolePanel:

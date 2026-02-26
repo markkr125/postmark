@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from PySide6.QtWidgets import QApplication
 
-from ui.http_worker import HttpSendWorker
+from ui.request.http_worker import HttpSendWorker
 
 
 class TestHttpSendWorker:
@@ -26,7 +26,7 @@ class TestHttpSendWorker:
         assert worker._url == "http://example.com"
         assert worker._body == "data"
 
-    @patch("ui.http_worker.HttpService.send_request")
+    @patch("ui.request.http_worker.HttpService.send_request")
     def test_run_emits_finished(self, mock_send: MagicMock, qapp: QApplication) -> None:
         """Successful run emits the finished signal with response data."""
         mock_send.return_value = {
@@ -49,7 +49,7 @@ class TestHttpSendWorker:
         assert len(received) == 1
         assert received[0]["status_code"] == 200
 
-    @patch("ui.http_worker.HttpService.send_request")
+    @patch("ui.request.http_worker.HttpService.send_request")
     def test_run_emits_error_on_exception(self, mock_send: MagicMock, qapp: QApplication) -> None:
         """Worker emits error signal when HttpService raises."""
         mock_send.side_effect = RuntimeError("boom")
@@ -86,7 +86,7 @@ class TestHttpSendWorker:
         assert len(errors) == 1
         assert "cancelled" in errors[0].lower()
 
-    @patch("ui.http_worker.HttpService.send_request")
+    @patch("ui.request.http_worker.HttpService.send_request")
     def test_run_cancelled_after_request(self, mock_send: MagicMock, qapp: QApplication) -> None:
         """Worker emits error if cancelled after the HTTP call returns."""
         mock_send.return_value = {

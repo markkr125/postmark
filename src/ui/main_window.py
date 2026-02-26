@@ -6,26 +6,33 @@ import logging
 from typing import Any
 
 from PySide6.QtCore import QSize, Qt, QThread
-from PySide6.QtGui import (QAction, QCloseEvent, QCursor, QGuiApplication,
-                           QIcon, QKeySequence)
-from PySide6.QtWidgets import (QHBoxLayout, QMainWindow, QSizePolicy,
-                               QSplitter, QStackedWidget, QTabWidget, QToolBar,
-                               QVBoxLayout, QWidget)
+from PySide6.QtGui import QAction, QCloseEvent, QCursor, QGuiApplication, QIcon, QKeySequence
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QMainWindow,
+    QSizePolicy,
+    QSplitter,
+    QStackedWidget,
+    QTabWidget,
+    QToolBar,
+    QVBoxLayout,
+    QWidget,
+)
 
 from services.collection_service import CollectionService
-from ui.breadcrumb_bar import BreadcrumbBar
-from ui.code_snippet_dialog import CodeSnippetDialog
-from ui.collection_runner import CollectionRunnerDialog
 from ui.collections.collection_widget import CollectionWidget
-from ui.console_panel import ConsolePanel
-from ui.environment_editor import EnvironmentEditorDialog
-from ui.environment_selector import EnvironmentSelector
-from ui.history_panel import HistoryPanel
-from ui.http_worker import HttpSendWorker
-from ui.request_editor import RequestEditorWidget
-from ui.request_tab_bar import RequestTabBar
-from ui.response_viewer import ResponseViewerWidget
-from ui.tab_manager import TabContext
+from ui.dialogs.code_snippet_dialog import CodeSnippetDialog
+from ui.dialogs.collection_runner import CollectionRunnerDialog
+from ui.environments.environment_editor import EnvironmentEditorDialog
+from ui.environments.environment_selector import EnvironmentSelector
+from ui.panels.console_panel import ConsolePanel
+from ui.panels.history_panel import HistoryPanel
+from ui.request.breadcrumb_bar import BreadcrumbBar
+from ui.request.http_worker import HttpSendWorker
+from ui.request.request_editor import RequestEditorWidget
+from ui.request.request_tab_bar import RequestTabBar
+from ui.request.response_viewer import ResponseViewerWidget
+from ui.request.tab_manager import TabContext
 from ui.theme import COLOR_ACCENT, COLOR_DANGER, COLOR_WHITE
 
 logger = logging.getLogger(__name__)
@@ -743,7 +750,7 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     def _on_import(self) -> None:
         """Open the import dialog."""
-        from ui.import_dialog import ImportDialog
+        from ui.dialogs.import_dialog import ImportDialog
 
         dialog = ImportDialog(self)
         dialog.import_completed.connect(self.collection_widget._start_fetch)

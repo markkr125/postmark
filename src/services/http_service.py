@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 import httpx
 
@@ -19,20 +19,22 @@ logger = logging.getLogger(__name__)
 DEFAULT_TIMEOUT = 30.0
 
 
-class HttpResponseDict(TypedDict, total=False):
+class HttpResponseDict(TypedDict):
     """Structured HTTP response passed from the service to the UI.
 
-    All keys are optional so the dict can represent both successful
-    responses and error states.
+    ``elapsed_ms`` is always present.  Success responses carry
+    ``status_code``, ``status_text``, ``headers``, ``body``, and
+    ``size_bytes``.  Error responses carry ``error`` instead.
+    Keys that may be absent are marked ``NotRequired``.
     """
 
-    status_code: int
-    status_text: str
-    headers: list[dict[str, str]]
-    body: str
     elapsed_ms: float
-    size_bytes: int
-    error: str
+    status_code: NotRequired[int]
+    status_text: NotRequired[str]
+    headers: NotRequired[list[dict[str, str]]]
+    body: NotRequired[str]
+    size_bytes: NotRequired[int]
+    error: NotRequired[str]
 
 
 def _build_headers(raw: str | None) -> dict[str, str]:

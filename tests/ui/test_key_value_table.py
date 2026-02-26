@@ -138,6 +138,7 @@ class TestKeyValueTable:
         # Find the checkbox in row 0
         container = widget._table.cellWidget(0, 0)
         cb = container.findChild(QCheckBox)
+        assert cb is not None
 
         with qtbot.waitSignal(widget.data_changed, timeout=1000):
             cb.setChecked(False)

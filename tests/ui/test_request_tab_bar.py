@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QApplication
 
-from ui.request_tab_bar import RequestTabBar
+from ui.request.request_tab_bar import RequestTabBar
 
 
 class TestRequestTabBar:

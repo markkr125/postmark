@@ -66,6 +66,8 @@ disallow_untyped_defs = false          # relax for now; tighten later
 [tool.pyright]
 pythonVersion = "3.12"
 extraPaths = ["src"]
+reportOptionalSubscript = "error"
+reportTypedDictNotRequiredAccess = "error"
 
 # --------------------------------------------------------------------------
 # Pytest

@@ -10,8 +10,8 @@ from PySide6.QtWidgets import QApplication
 from services.collection_service import CollectionService
 from ui.collections.collection_widget import CollectionWidget
 from ui.main_window import MainWindow
-from ui.request_editor import RequestEditorWidget
-from ui.response_viewer import ResponseViewerWidget
+from ui.request.request_editor import RequestEditorWidget
+from ui.request.response_viewer import ResponseViewerWidget
 
 
 class TestMainWindow:

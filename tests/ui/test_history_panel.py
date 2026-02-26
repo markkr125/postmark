@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QApplication
 
-from ui.history_panel import HistoryPanel
+from ui.panels.history_panel import HistoryPanel
 
 
 class TestHistoryPanel:

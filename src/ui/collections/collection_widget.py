@@ -263,7 +263,7 @@ class CollectionWidget(QWidget):
 
     def _on_import_requested(self) -> None:
         """Open the import dialog and refresh the tree on success."""
-        from ui.import_dialog import ImportDialog
+        from ui.dialogs.import_dialog import ImportDialog
 
         dialog = ImportDialog(self)
         dialog.import_completed.connect(self._start_fetch)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QApplication, QTabWidget
 
-from ui.import_dialog import ImportDialog
+from ui.dialogs.import_dialog import ImportDialog
 
 
 class TestImportDialog:

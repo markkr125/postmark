@@ -190,4 +190,5 @@ class TestRequestCRUD:
         assert updated is not None
         assert updated.body_mode == "raw"
         assert updated.body_options == {"raw": {"language": "json"}}
+        assert updated.auth is not None
         assert updated.auth["type"] == "bearer"

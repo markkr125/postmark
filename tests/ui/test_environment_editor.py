@@ -5,7 +5,7 @@ from __future__ import annotations
 from PySide6.QtWidgets import QApplication
 
 from services.environment_service import EnvironmentService
-from ui.environment_editor import EnvironmentEditorDialog
+from ui.environments.environment_editor import EnvironmentEditorDialog
 
 
 class TestEnvironmentEditorDialog:
