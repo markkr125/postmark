@@ -15,6 +15,7 @@ from database.models.collections.collection_repository import (
     rename_collection,
     rename_request,
     update_collection_parent,
+    update_request,
     update_request_collection,
 )
 
@@ -142,3 +143,52 @@ class TestRequestCRUD:
         assert req.body == "hello"
         assert req.scripts == {"pre": "console.log(1)"}
         assert req.settings == {"timeout": 5000}
+
+    def test_update_request_body(self):
+        """update_request can change the body of a request."""
+        coll = create_new_collection("Coll")
+        req = create_new_request(coll.id, "POST", "http://x", "Updatable")
+        update_request(req.id, body="new body")
+        updated = get_request_by_id(req.id)
+        assert updated is not None
+        assert updated.body == "new body"
+
+    def test_update_request_multiple_fields(self):
+        """update_request can change several fields at once."""
+        coll = create_new_collection("Coll")
+        req = create_new_request(coll.id, "GET", "http://old", "Req")
+        update_request(req.id, method="PUT", url="http://new", body="payload")
+        updated = get_request_by_id(req.id)
+        assert updated is not None
+        assert updated.method == "PUT"
+        assert updated.url == "http://new"
+        assert updated.body == "payload"
+
+    def test_update_request_rejects_non_editable_fields(self):
+        """update_request rejects fields not in _EDITABLE_REQUEST_FIELDS."""
+        coll = create_new_collection("Coll")
+        req = create_new_request(coll.id, "GET", "http://x", "Req")
+        with pytest.raises(ValueError, match="Non-editable fields"):
+            update_request(req.id, id=999)
+
+    def test_update_request_nonexistent_raises(self):
+        """update_request raises ValueError for a missing request."""
+        with pytest.raises(ValueError, match="No request found"):
+            update_request(99999, body="nope")
+
+    def test_update_request_json_fields(self):
+        """update_request can set JSON fields like body_options and auth."""
+        coll = create_new_collection("Coll")
+        req = create_new_request(coll.id, "POST", "http://x", "JSON Req")
+        update_request(
+            req.id,
+            body_mode="raw",
+            body_options={"raw": {"language": "json"}},
+            auth={"type": "bearer", "bearer": [{"key": "token", "value": "abc"}]},
+        )
+        updated = get_request_by_id(req.id)
+        assert updated is not None
+        assert updated.body_mode == "raw"
+        assert updated.body_options == {"raw": {"language": "json"}}
+        assert updated.auth is not None
+        assert updated.auth["type"] == "bearer"

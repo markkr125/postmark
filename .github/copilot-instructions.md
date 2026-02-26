@@ -68,31 +68,67 @@ src/
 └── ui/                            # PySide6 widgets
     ├── main_window.py             # Top-level MainWindow
     ├── theme.py                   # Colours, badge geometry, method_color()
-    ├── request_editor.py          # Request editor pane (display-only)
-    ├── import_dialog.py           # Import dialog (files, cURL, paste)
-    └── collections/               # Collection sidebar
-        ├── collection_header.py
-        ├── collection_widget.py
-        └── tree/                  # Tree widget sub-package
-            ├── constants.py
-            ├── draggable_tree_widget.py
-            └── collection_tree.py
+    ├── key_value_table.py         # Reusable key-value editor widget
+    ├── collections/               # Collection sidebar
+    │   ├── collection_header.py
+    │   ├── collection_widget.py
+    │   └── tree/                  # Tree widget sub-package
+    │       ├── constants.py
+    │       ├── draggable_tree_widget.py
+    │       └── collection_tree.py
+    ├── dialogs/                   # Modal dialogs
+    │   ├── code_snippet_dialog.py
+    │   ├── collection_runner.py
+    │   └── import_dialog.py
+    ├── environments/              # Environment management widgets
+    │   ├── environment_editor.py
+    │   └── environment_selector.py
+    ├── panels/                    # Bottom / side panels
+    │   ├── console_panel.py
+    │   └── history_panel.py
+    └── request/                   # Request/response editing
+        ├── breadcrumb_bar.py
+        ├── http_worker.py
+        ├── request_editor.py
+        ├── request_tab_bar.py
+        ├── response_viewer.py
+        └── tab_manager.py
 tests/
 ├── conftest.py                    # Autouse fresh-DB fixture + qapp fixture
 ├── unit/                          # Repository & service layer tests
-│   ├── test_repository.py
-│   ├── test_service.py
-│   ├── test_environment_repository.py
-│   ├── test_import_parser.py
-│   └── test_import_service.py
+│   ├── database/                  # Repository tests
+│   │   ├── test_repository.py
+│   │   └── test_environment_repository.py
+│   └── services/                  # Service layer tests
+│       ├── test_service.py
+│       ├── test_environment_service.py
+│       ├── test_http_service.py
+│       ├── test_import_parser.py
+│       ├── test_import_service.py
+│       └── test_snippet_generator.py
 └── ui/                            # End-to-end PySide6 widget tests
     ├── conftest.py                # _no_fetch (autouse) + helpers
-    ├── test_collection_header.py
-    ├── test_collection_tree.py
-    ├── test_collection_widget.py
-    ├── test_import_dialog.py
-    ├── test_request_editor.py
-    └── test_main_window.py
+    ├── test_main_window.py
+    ├── test_key_value_table.py
+    ├── collections/               # Collection sidebar tests
+    │   ├── test_collection_header.py
+    │   ├── test_collection_tree.py
+    │   └── test_collection_widget.py
+    ├── dialogs/                   # Dialog tests
+    │   └── test_import_dialog.py
+    ├── environments/              # Environment widget tests
+    │   ├── test_environment_editor.py
+    │   └── test_environment_selector.py
+    ├── panels/                    # Panel tests
+    │   ├── test_console_panel.py
+    │   └── test_history_panel.py
+    └── request/                   # Request/response editing tests
+        ├── test_breadcrumb_bar.py
+        ├── test_http_worker.py
+        ├── test_request_editor.py
+        ├── test_request_tab_bar.py
+        ├── test_response_viewer.py
+        └── test_tab_manager.py
 ```
 
 **Layering:** UI → signals → Service → Repository → `get_session()`.
@@ -109,6 +145,13 @@ poetry run ruff check src/ tests/          # linter clean
 poetry run ruff format --check src/ tests/ # formatter clean
 poetry run mypy src/ tests/                # type checker clean
 ```
+
+**NEVER use `--fix` or auto-format as a substitute for the checks above.**
+Always run the check-only commands first. If they fail, fix the code
+manually (or with `--fix`), then **re-run the check-only commands** and
+confirm they pass. The goal is to surface every issue visibly — a silent
+auto-fix that is never re-verified can leave the working tree clean while
+the staged/committed version is still broken.
 
 After **any** documentation change (`.md` files, instruction files, README),
 run the markdown link checker and confirm **zero broken links**:

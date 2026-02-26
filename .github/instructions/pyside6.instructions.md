@@ -56,11 +56,21 @@ box = cast(QBoxLayout, widget.layout())
 box.insertWidget(1, new_widget)
 ```
 
-## QLayoutItem.widget() may return None
+## QLayout.takeAt() / itemAt() and QLayoutItem.widget() may return None
 
-Always null-check before using the return value:
+`QLayout.takeAt()` and `QLayout.itemAt()` return `QLayoutItem | None`.
+`QLayoutItem.widget()` also returns `QWidget | None`.  PySide6 stub
+versions vary — some mark these as non-optional, others as optional.
+**Always guard both levels** to stay safe across all environments:
 
 ```python
+item = layout.takeAt(0)
+if item is not None:
+    w = item.widget()
+    if w is not None:
+        w.deleteLater()
+
+# One-liner for read access:
 layout_item = layout.itemAt(1)
 widget = layout_item.widget() if layout_item else None
 if widget:

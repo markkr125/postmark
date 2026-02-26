@@ -252,6 +252,10 @@ class CollectionWidget(QWidget):
         """Replace the displayed collection data with *data*."""
         self._tree_widget.set_collections(data)
 
+    def selected_collection_id(self) -> int | None:
+        """Return the ID of the currently selected collection, or ``None``."""
+        return self._header._selected_collection_id
+
     @Slot(str)
     def _on_search_changed(self, text: str) -> None:
         """Filter tree items based on the search text."""
@@ -259,7 +263,7 @@ class CollectionWidget(QWidget):
 
     def _on_import_requested(self) -> None:
         """Open the import dialog and refresh the tree on success."""
-        from ui.import_dialog import ImportDialog
+        from ui.dialogs.import_dialog import ImportDialog
 
         dialog = ImportDialog(self)
         dialog.import_completed.connect(self._start_fetch)

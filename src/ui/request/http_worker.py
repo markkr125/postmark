@@ -1,0 +1,209 @@
+"""Background worker for sending HTTP requests on a dedicated QThread.
+
+Follows the ``QObject.moveToThread()`` pattern established by
+``_ImportWorker`` in ``import_dialog.py``.  Each worker is single-use:
+create, configure, move to a ``QThread``, start, and discard after the
+``finished`` or ``error`` signal fires.
+
+Supports **cancellation**: the owning tab calls ``cancel()`` which sets a
+``threading.Event`` flag checked before and after the network call.
+"""
+
+from __future__ import annotations
+
+import logging
+import threading
+
+from PySide6.QtCore import QObject, Signal, Slot
+
+from services.http_service import HttpResponseDict, HttpService
+
+logger = logging.getLogger(__name__)
+
+
+class HttpSendWorker(QObject):
+    """Execute a single HTTP request on a background thread.
+
+    Set request parameters via the setter methods **before** calling
+    ``moveToThread()``.  Connect ``finished`` and ``error`` signals,
+    then start the owning ``QThread``.
+
+    Optionally accepts *env_id* and *auth_data* so that variable
+    substitution and auth injection happen on the worker thread
+    rather than the GUI thread.
+
+    Signals:
+        finished(dict): Emitted with an :class:`HttpResponseDict` on success.
+        error(str): Emitted with an error message on failure.
+    """
+
+    finished = Signal(dict)  # HttpResponseDict
+    error = Signal(str)
+
+    def __init__(self) -> None:
+        """Initialise with empty request parameters."""
+        super().__init__()
+        self._method: str = "GET"
+        self._url: str = ""
+        self._headers: str | None = None
+        self._body: str | None = None
+        self._timeout: float = 30.0
+        self._env_id: int | None = None
+        self._auth_data: dict | None = None
+        self._cancel_event = threading.Event()
+
+    # -- Configuration (call before moveToThread) ----------------------
+
+    def set_request(
+        self,
+        *,
+        method: str,
+        url: str,
+        headers: str | None = None,
+        body: str | None = None,
+        timeout: float = 30.0,
+        env_id: int | None = None,
+        auth_data: dict | None = None,
+    ) -> None:
+        """Configure the HTTP request to send.
+
+        Must be called **before** the worker is moved to its thread.
+        When *env_id* or *auth_data* are provided, variable substitution
+        and auth injection happen on the worker thread.
+        """
+        self._method = method
+        self._url = url
+        self._headers = headers
+        self._body = body
+        self._timeout = timeout
+        self._env_id = env_id
+        self._auth_data = auth_data
+
+    def cancel(self) -> None:
+        """Request cancellation of the in-flight HTTP request.
+
+        Thread-safe — can be called from any thread.
+        """
+        self._cancel_event.set()
+
+    @property
+    def is_cancelled(self) -> bool:
+        """Return whether cancellation has been requested."""
+        return self._cancel_event.is_set()
+
+    # -- Execution (runs on the worker thread) -------------------------
+
+    @Slot()
+    def run(self) -> None:
+        """Send the HTTP request and emit the result signal.
+
+        Checks the cancellation flag before and after the network call.
+        When *env_id* or *auth_data* were provided, variable substitution
+        and auth injection happen here on the worker thread.
+        """
+        # 1. Check cancellation before starting the request
+        if self._cancel_event.is_set():
+            self.error.emit("Request cancelled")
+            return
+
+        try:
+            url = self._url
+            headers = self._headers
+            body = self._body
+
+            # 2. Resolve environment variables (DB access on worker thread)
+            variables: dict[str, str] = {}
+            if self._env_id is not None:
+                from services.environment_service import EnvironmentService
+
+                variables = EnvironmentService.build_variable_map(self._env_id)
+                if variables:
+                    url = EnvironmentService.substitute(url, variables)
+                    if headers:
+                        headers = EnvironmentService.substitute(headers, variables)
+                    if body:
+                        body = EnvironmentService.substitute(body, variables)
+
+            # 3. Apply auth configuration
+            if self._auth_data:
+                url, headers = self._apply_auth(self._auth_data, url, headers, variables)
+
+            result: HttpResponseDict = HttpService.send_request(
+                method=self._method,
+                url=url,
+                headers=headers,
+                body=body,
+                timeout=self._timeout,
+            )
+
+            # 4. Check cancellation after the request completes
+            if self._cancel_event.is_set():
+                self.error.emit("Request cancelled")
+                return
+
+            self.finished.emit(dict(result))
+        except Exception as exc:
+            logger.exception("HTTP send worker failed")
+            self.error.emit(str(exc))
+
+    @staticmethod
+    def _apply_auth(
+        auth_data: dict | None,
+        url: str,
+        headers: str | None,
+        variables: dict[str, str],
+    ) -> tuple[str, str | None]:
+        """Inject auth credentials into the URL or headers.
+
+        Returns the (possibly modified) ``url`` and ``headers``.
+        """
+        if not auth_data:
+            return url, headers
+
+        from services.environment_service import EnvironmentService
+
+        auth_type = auth_data.get("type", "noauth")
+        sub = EnvironmentService.substitute
+
+        if auth_type == "bearer":
+            token = ""
+            for entry in auth_data.get("bearer", []):
+                if entry.get("key") == "token":
+                    token = sub(entry.get("value", ""), variables)
+            if token:
+                auth_line = f"Authorization: Bearer {token}"
+                headers = f"{headers}\n{auth_line}" if headers else auth_line
+
+        elif auth_type == "basic":
+            import base64
+
+            username = password = ""
+            for entry in auth_data.get("basic", []):
+                if entry.get("key") == "username":
+                    username = sub(entry.get("value", ""), variables)
+                elif entry.get("key") == "password":
+                    password = sub(entry.get("value", ""), variables)
+            if username or password:
+                encoded = base64.b64encode(f"{username}:{password}".encode()).decode()
+                auth_line = f"Authorization: Basic {encoded}"
+                headers = f"{headers}\n{auth_line}" if headers else auth_line
+
+        elif auth_type == "apikey":
+            key = value = ""
+            add_to = "header"
+            for entry in auth_data.get("apikey", []):
+                if entry.get("key") == "key":
+                    key = sub(entry.get("value", ""), variables)
+                elif entry.get("key") == "value":
+                    value = sub(entry.get("value", ""), variables)
+                elif entry.get("key") == "in":
+                    add_to = entry.get("value", "header")
+            if key and value:
+                if add_to == "header":
+                    auth_line = f"{key}: {value}"
+                    headers = f"{headers}\n{auth_line}" if headers else auth_line
+                else:
+                    sep = "&" if "?" in url else "?"
+                    url = f"{url}{sep}{key}={value}"
+
+        return url, headers

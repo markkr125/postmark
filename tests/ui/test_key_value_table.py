@@ -1,0 +1,144 @@
+"""Tests for the KeyValueTableWidget reusable editor."""
+
+from __future__ import annotations
+
+from PySide6.QtWidgets import QCheckBox
+
+from ui.key_value_table import KeyValueTableWidget
+
+
+class TestKeyValueTable:
+    """Verify the key-value table widget behaviour."""
+
+    def test_starts_with_one_empty_row(self, qapp, qtbot):
+        """A fresh table has one empty row."""
+        widget = KeyValueTableWidget()
+        qtbot.addWidget(widget)
+        assert widget.row_count() == 1
+        assert widget.get_data() == []
+
+    def test_add_empty_row(self, qapp, qtbot):
+        """Adding an empty row increases the row count."""
+        widget = KeyValueTableWidget()
+        qtbot.addWidget(widget)
+        widget.add_empty_row()
+        assert widget.row_count() == 2
+
+    def test_set_data_populates_rows(self, qapp, qtbot):
+        """set_data should populate the table with the given rows."""
+        widget = KeyValueTableWidget()
+        qtbot.addWidget(widget)
+        rows = [
+            {"key": "Host", "value": "example.com"},
+            {"key": "Accept", "value": "application/json"},
+        ]
+        widget.set_data(rows)
+        assert widget.row_count() == 2
+        data = widget.get_data()
+        assert len(data) == 2
+        assert data[0]["key"] == "Host"
+        assert data[0]["value"] == "example.com"
+        assert data[1]["key"] == "Accept"
+
+    def test_get_data_skips_empty_keys(self, qapp, qtbot):
+        """get_data should exclude rows where the key is empty."""
+        widget = KeyValueTableWidget()
+        qtbot.addWidget(widget)
+        rows = [
+            {"key": "Host", "value": "example.com"},
+            {"key": "", "value": "ignored"},
+        ]
+        widget.set_data(rows)
+        data = widget.get_data()
+        assert len(data) == 1
+        assert data[0]["key"] == "Host"
+
+    def test_enabled_flag(self, qapp, qtbot):
+        """Disabled rows should have enabled=False in get_data."""
+        widget = KeyValueTableWidget()
+        qtbot.addWidget(widget)
+        rows = [
+            {"key": "X-Active", "value": "yes", "enabled": True},
+            {"key": "X-Inactive", "value": "no", "enabled": False},
+        ]
+        widget.set_data(rows)
+        data = widget.get_data()
+        assert data[0]["enabled"] is True
+        assert data[1]["enabled"] is False
+
+    def test_to_text_only_enabled_rows(self, qapp, qtbot):
+        """to_text should include only enabled rows."""
+        widget = KeyValueTableWidget()
+        qtbot.addWidget(widget)
+        rows = [
+            {"key": "Host", "value": "example.com", "enabled": True},
+            {"key": "X-Skip", "value": "hidden", "enabled": False},
+            {"key": "Accept", "value": "text/html", "enabled": True},
+        ]
+        widget.set_data(rows)
+        text = widget.to_text()
+        assert "Host: example.com" in text
+        assert "Accept: text/html" in text
+        assert "X-Skip" not in text
+
+    def test_from_text_colon_separator(self, qapp, qtbot):
+        """from_text should parse 'key: value' lines."""
+        widget = KeyValueTableWidget()
+        qtbot.addWidget(widget)
+        widget.from_text("Content-Type: application/json\nAccept: */*")
+        data = widget.get_data()
+        assert len(data) == 2
+        assert data[0]["key"] == "Content-Type"
+        assert data[0]["value"] == "application/json"
+        assert data[1]["key"] == "Accept"
+        assert data[1]["value"] == "*/*"
+
+    def test_from_text_equals_separator(self, qapp, qtbot):
+        """from_text should parse 'key=value' lines."""
+        widget = KeyValueTableWidget()
+        qtbot.addWidget(widget)
+        widget.from_text("page=1\nlimit=20")
+        data = widget.get_data()
+        assert len(data) == 2
+        assert data[0]["key"] == "page"
+        assert data[0]["value"] == "1"
+
+    def test_description_roundtrip(self, qapp, qtbot):
+        """Description field should survive a set_data/get_data roundtrip."""
+        widget = KeyValueTableWidget()
+        qtbot.addWidget(widget)
+        rows = [{"key": "X-Custom", "value": "val", "description": "A note"}]
+        widget.set_data(rows)
+        data = widget.get_data()
+        assert data[0]["description"] == "A note"
+
+    def test_set_data_empty_leaves_one_row(self, qapp, qtbot):
+        """Setting empty data should leave one blank row."""
+        widget = KeyValueTableWidget()
+        qtbot.addWidget(widget)
+        widget.set_data([])
+        assert widget.row_count() == 1
+        assert widget.get_data() == []
+
+    def test_data_changed_signal_on_set(self, qapp, qtbot):
+        """data_changed should NOT fire during programmatic set_data."""
+        widget = KeyValueTableWidget()
+        qtbot.addWidget(widget)
+        fired = []
+        widget.data_changed.connect(lambda: fired.append(True))
+        widget.set_data([{"key": "a", "value": "b"}])
+        assert len(fired) == 0
+
+    def test_checkbox_toggle_emits_data_changed(self, qapp, qtbot):
+        """Toggling a checkbox should emit data_changed."""
+        widget = KeyValueTableWidget()
+        qtbot.addWidget(widget)
+        widget.set_data([{"key": "X-Key", "value": "v", "enabled": True}])
+
+        # Find the checkbox in row 0
+        container = widget._table.cellWidget(0, 0)
+        cb = container.findChild(QCheckBox)
+        assert cb is not None
+
+        with qtbot.waitSignal(widget.data_changed, timeout=1000):
+            cb.setChecked(False)

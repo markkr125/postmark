@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock, patch
+
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
 from services.collection_service import CollectionService
 from ui.collections.collection_widget import CollectionWidget
 from ui.main_window import MainWindow
-from ui.request_editor import RequestEditorWidget
+from ui.request.request_editor import RequestEditorWidget
+from ui.request.response_viewer import ResponseViewerWidget
 
 
 class TestMainWindow:
@@ -40,6 +44,12 @@ class TestMainWindow:
         window = MainWindow()
         qtbot.addWidget(window)
         assert isinstance(window.request_widget, RequestEditorWidget)
+
+    def test_response_viewer_is_response_viewer_widget(self, qapp: QApplication, qtbot) -> None:
+        """MainWindow uses ResponseViewerWidget for the response pane."""
+        window = MainWindow()
+        qtbot.addWidget(window)
+        assert isinstance(window.response_widget, ResponseViewerWidget)
 
     def test_back_forward_initially_disabled(self, qapp: QApplication, qtbot) -> None:
         """Back and forward actions start disabled."""
@@ -114,3 +124,302 @@ class TestMainWindowNavigation:
         window.collection_widget.item_action_triggered.emit("request", req.id, "Open")
 
         assert window.request_widget._url_input.text() == "http://c.com"
+
+
+class TestMainWindowSendRequest:
+    """Tests for the HTTP send pipeline wiring."""
+
+    def test_send_with_empty_url_shows_error(self, qapp: QApplication, qtbot) -> None:
+        """Sending with an empty URL shows an error in the response viewer."""
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window.request_widget._url_input.setText("")
+        window._on_send_request()
+
+        assert not window.response_widget._error_label.isHidden()
+        assert "empty" in window.response_widget._error_label.text().lower()
+
+    @patch("ui.main_window.HttpSendWorker")
+    @patch("ui.main_window.QThread")
+    def test_send_creates_worker_and_thread(
+        self,
+        mock_thread_cls: MagicMock,
+        mock_worker_cls: MagicMock,
+        qapp: QApplication,
+        qtbot,
+    ) -> None:
+        """Sending a request creates a worker and thread."""
+        mock_worker = MagicMock()
+        mock_worker.finished = MagicMock()
+        mock_worker.error = MagicMock()
+        mock_worker_cls.return_value = mock_worker
+
+        mock_thread = MagicMock()
+        mock_thread.started = MagicMock()
+        mock_thread.isRunning.return_value = False
+        mock_thread_cls.return_value = mock_thread
+
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window.request_widget._url_input.setText("http://example.com")
+        window.request_widget._method_combo.setCurrentText("GET")
+        window._on_send_request()
+
+        mock_worker.set_request.assert_called_once()
+        mock_worker.moveToThread.assert_called_once_with(mock_thread)
+        mock_thread.start.assert_called_once()
+
+    def test_on_send_finished_populates_response(self, qapp: QApplication, qtbot) -> None:
+        """Receiving a finished signal populates the response viewer."""
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        data = {
+            "status_code": 200,
+            "status_text": "OK",
+            "headers": [],
+            "body": "hello",
+            "elapsed_ms": 10.0,
+            "size_bytes": 5,
+        }
+        window._on_send_finished(data)
+
+        assert "200" in window.response_widget._status_label.text()
+        assert window.response_widget._body_edit.toPlainText() == "hello"
+
+    def test_on_send_error_shows_error(self, qapp: QApplication, qtbot) -> None:
+        """Receiving an error signal shows the error state."""
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._on_send_error("Connection refused")
+
+        assert not window.response_widget._error_label.isHidden()
+        assert "Connection refused" in window.response_widget._error_label.text()
+
+    def test_send_disables_button(self, qapp: QApplication, qtbot) -> None:
+        """The Send button switches to Cancel while a request is in flight."""
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window.request_widget._url_input.setText("http://example.com")
+
+        # Directly simulate what _on_send_request does to the button
+        window._set_send_button_cancel(True)
+        assert window.request_widget._send_btn.text() == "Cancel"
+
+        # Simulate finished callback
+        window._on_send_finished(
+            {
+                "status_code": 200,
+                "status_text": "OK",
+                "headers": [],
+                "body": "",
+                "elapsed_ms": 1.0,
+                "size_bytes": 0,
+            }
+        )
+        assert window.request_widget._send_btn.text() == "Send"
+
+    def test_cleanup_send_thread(self, qapp: QApplication, qtbot) -> None:
+        """Cleanup releases thread and worker references."""
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._send_thread = MagicMock()
+        window._send_thread.isRunning.return_value = False
+        window._send_worker = MagicMock()
+
+        window._cleanup_send_thread()
+
+        assert window._send_thread is None
+        assert window._send_worker is None
+
+    def test_cancel_send_shows_cancelled_message(self, qapp: QApplication, qtbot) -> None:
+        """Cancelling a send shows the cancelled error message."""
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        mock_worker = MagicMock()
+        mock_thread = MagicMock()
+        mock_thread.isRunning.return_value = True
+        window._send_worker = mock_worker
+        window._send_thread = mock_thread
+
+        window._cancel_send()
+
+        mock_worker.cancel.assert_called_once()
+        assert "cancelled" in window.response_widget._error_label.text().lower()
+        assert window.request_widget._send_btn.text() == "Send"
+        assert window._send_thread is None
+        assert window._send_worker is None
+
+    def test_send_button_toggles_to_cancel(self, qapp: QApplication, qtbot) -> None:
+        """The button text toggles between Send and Cancel."""
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        assert window.request_widget._send_btn.text() == "Send"
+        window._set_send_button_cancel(True)
+        assert window.request_widget._send_btn.text() == "Cancel"
+        window._set_send_button_cancel(False)
+        assert window.request_widget._send_btn.text() == "Send"
+
+
+class TestMainWindowViewToggles:
+    """Tests for the View menu toggle actions."""
+
+    def test_view_menu_exists(self, qapp: QApplication, qtbot) -> None:
+        """MainWindow has a View menu."""
+        window = MainWindow()
+        qtbot.addWidget(window)
+        menubar = window.menuBar()
+        menu_titles = [a.text() for a in menubar.actions()]
+        assert "&View" in menu_titles
+
+    def test_toggle_response_pane(self, qapp: QApplication, qtbot) -> None:
+        """Toggling the response pane hides and shows it."""
+        window = MainWindow()
+        qtbot.addWidget(window)
+        assert not window._response_area.isHidden()
+        window._toggle_response_pane()
+        assert window._response_area.isHidden()
+        window._toggle_response_pane()
+        assert not window._response_area.isHidden()
+
+    def test_toggle_sidebar(self, qapp: QApplication, qtbot) -> None:
+        """Toggling the sidebar hides and shows the collection widget."""
+        window = MainWindow()
+        qtbot.addWidget(window)
+        assert not window.collection_widget.isHidden()
+        window._toggle_sidebar()
+        assert window.collection_widget.isHidden()
+        window._toggle_sidebar()
+        assert not window.collection_widget.isHidden()
+
+    def test_toggle_bottom_panel(self, qapp: QApplication, qtbot) -> None:
+        """Toggling the bottom panel hides and shows it."""
+        window = MainWindow()
+        qtbot.addWidget(window)
+        assert window._bottom_panel.isHidden()
+        window._toggle_bottom_panel()
+        assert not window._bottom_panel.isHidden()
+        window._toggle_bottom_panel()
+        assert window._bottom_panel.isHidden()
+
+    def test_toggle_layout_orientation(self, qapp: QApplication, qtbot) -> None:
+        """Toggling layout switches the right splitter between vertical and horizontal."""
+        window = MainWindow()
+        qtbot.addWidget(window)
+        assert window._right_splitter.orientation() == Qt.Orientation.Vertical
+        window._toggle_layout_orientation()
+        assert window._right_splitter.orientation() == Qt.Orientation.Horizontal
+        window._toggle_layout_orientation()
+        assert window._right_splitter.orientation() == Qt.Orientation.Vertical
+
+
+class TestMainWindowTabBugFix:
+    """Tests verifying the multi-tab bug is fixed."""
+
+    def test_open_creates_permanent_tab(self, qapp: QApplication, qtbot) -> None:
+        """Opening a request via Open action creates a permanent tab."""
+        svc = CollectionService()
+        coll = svc.create_collection("C")
+        req = svc.create_request(coll.id, "GET", "http://example.com", "R")
+
+        window = MainWindow()
+        qtbot.addWidget(window)
+        window._open_request(req.id, push_history=True, is_preview=False)
+
+        ctx = window._tabs.get(0)
+        assert ctx is not None
+        assert ctx.is_preview is False
+
+    def test_multiple_permanent_tabs(self, qapp: QApplication, qtbot) -> None:
+        """Multiple permanent tabs can be opened simultaneously."""
+        svc = CollectionService()
+        coll = svc.create_collection("C")
+        req1 = svc.create_request(coll.id, "GET", "http://a.com", "A")
+        req2 = svc.create_request(coll.id, "POST", "http://b.com", "B")
+
+        window = MainWindow()
+        qtbot.addWidget(window)
+        window._open_request(req1.id, push_history=True, is_preview=False)
+        window._open_request(req2.id, push_history=True, is_preview=False)
+
+        assert window._tab_bar.count() == 2
+
+    def test_preview_promoted_on_open(self, qapp: QApplication, qtbot) -> None:
+        """A preview tab is promoted when the same request is opened permanently."""
+        svc = CollectionService()
+        coll = svc.create_collection("C")
+        req = svc.create_request(coll.id, "GET", "http://x.com", "X")
+
+        window = MainWindow()
+        qtbot.addWidget(window)
+        window._open_request(req.id, push_history=True, is_preview=True)
+        ctx = window._tabs.get(0)
+        assert ctx is not None
+        assert ctx.is_preview is True
+
+        # Open the same request permanently — should promote, not create new
+        window._open_request(req.id, push_history=True, is_preview=False)
+        assert window._tab_bar.count() == 1
+        assert ctx.is_preview is False
+
+
+class TestMainWindowCloseEvent:
+    """Tests for MainWindow.closeEvent cleanup."""
+
+    def test_close_cleans_up_tabs(self, qapp: QApplication, qtbot) -> None:
+        """Closing the main window calls cleanup on all tab contexts."""
+        svc = CollectionService()
+        coll = svc.create_collection("C")
+        req = svc.create_request(coll.id, "GET", "http://x.com", "R")
+
+        window = MainWindow()
+        qtbot.addWidget(window)
+        window._open_request(req.id, push_history=True)
+        window.close()
+        # Verify console handler removed (closeEvent calls cleanup)
+        assert window._console_panel._handler not in __import__("logging").getLogger().handlers
+
+
+class TestMainWindowContextMenuHandlers:
+    """Tests for tab context menu handler methods."""
+
+    def test_close_others(self, qapp: QApplication, qtbot) -> None:
+        """Close Others closes all tabs except the specified one."""
+        svc = CollectionService()
+        coll = svc.create_collection("C")
+        req1 = svc.create_request(coll.id, "GET", "http://a.com", "A")
+        req2 = svc.create_request(coll.id, "POST", "http://b.com", "B")
+        req3 = svc.create_request(coll.id, "PUT", "http://c.com", "C")
+
+        window = MainWindow()
+        qtbot.addWidget(window)
+        window._open_request(req1.id, push_history=True)
+        window._open_request(req2.id, push_history=True)
+        window._open_request(req3.id, push_history=True)
+        assert window._tab_bar.count() == 3
+
+        window._close_others_tabs(1)
+        assert window._tab_bar.count() == 1
+
+    def test_close_all(self, qapp: QApplication, qtbot) -> None:
+        """Close All closes every tab."""
+        svc = CollectionService()
+        coll = svc.create_collection("C")
+        req1 = svc.create_request(coll.id, "GET", "http://a.com", "A")
+        req2 = svc.create_request(coll.id, "POST", "http://b.com", "B")
+
+        window = MainWindow()
+        qtbot.addWidget(window)
+        window._open_request(req1.id, push_history=True)
+        window._open_request(req2.id, push_history=True)
+        assert window._tab_bar.count() == 2
+
+        window._close_all_tabs()
+        assert window._tab_bar.count() == 0

@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QApplication
 
 from ui.collections.tree import ROLE_ITEM_ID, ROLE_ITEM_TYPE, CollectionTree
 
-from .conftest import make_collection_dict, top_level_items
+from ..conftest import make_collection_dict, top_level_items
 
 
 class TestCollectionTree:

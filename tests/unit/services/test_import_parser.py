@@ -196,10 +196,12 @@ class TestParseCollectionFile:
 
         result = parse_collection_file(f)
         coll = result["collections"][0]
-        assert coll["variables"] is not None
-        assert coll["variables"][0]["key"] == "host"
-        assert coll["events"] is not None
-        assert coll["events"][0]["listen"] == "prerequest"
+        variables = coll.get("variables")
+        assert variables is not None
+        assert variables[0]["key"] == "host"
+        events = coll.get("events")
+        assert events is not None
+        assert events[0]["listen"] == "prerequest"
 
     def test_body_modes(self, tmp_path: Path) -> None:
         """Different body modes are handled (raw, formdata, graphql)."""

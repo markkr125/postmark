@@ -80,3 +80,15 @@ def delete_environment(environment_id: int) -> None:
         if env is None:
             raise ValueError(f"No environment found with id={environment_id}")
         session.delete(env)
+
+
+def update_environment_values(
+    environment_id: int,
+    values: list[dict[str, Any]],
+) -> None:
+    """Replace the variable values of an existing environment."""
+    with get_session() as session:
+        env = session.get(EnvironmentModel, environment_id)
+        if env is None:
+            raise ValueError(f"No environment found with id={environment_id}")
+        env.values = values
