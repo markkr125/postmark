@@ -6,6 +6,18 @@ applyTo: "src/ui/**/*.py"
 
 # PySide6 coding conventions
 
+## Quick rules — read these first
+
+1. **Always use fully qualified enums:** `Qt.ItemDataRole.UserRole`, not
+   `Qt.UserRole`.
+2. **Wrap programmatic item edits in `blockSignals(True)` / `blockSignals(False)`**
+   or you will get infinite recursion from `itemChanged`.
+3. **Never hardcode hex colours** — import from `ui.theme`.
+4. **UI files must not import from `database/`** — use signals + service layer.
+5. **Use `exec()`, not `exec_()`** for menus, dialogs, and the app event loop.
+6. **Cast to `QBoxLayout`** before calling `insertWidget()` — `QLayout` does
+   not have it in the type stubs.
+
 ## Enum access must always be fully qualified
 
 PySide6 requires the scoped enum path. Short-form compiles at runtime but
@@ -57,8 +69,8 @@ if widget:
 
 ## Use exec() not exec_()
 
-`exec_()` was the Python 2 compatibility spelling. Use `exec()` for menus,
-dialogs, and the application event loop.
+`exec_()` is deprecated. Always use `exec()` for menus, dialogs, and the
+application event loop.
 
 ## UI widgets must not import from database/
 
@@ -88,6 +100,67 @@ Never hardcode hex colour values in widget files. Import from `ui.theme`:
 ```python
 from ui.theme import COLOR_ACCENT, METHOD_COLORS, DEFAULT_METHOD_COLOR, method_color
 ```
+
+## Wrap programmatic item edits in blockSignals
+
+`QTreeWidget` emits `itemChanged` whenever item text is modified — including
+programmatic changes.  If a slot connected to `itemChanged` also modifies
+items, you get infinite recursion or spurious rename signals.
+
+**Always** wrap bulk or programmatic updates:
+
+```python
+self._tree.blockSignals(True)
+try:
+    item.setText(0, new_name)
+    item.setData(1, ROLE_OLD_NAME, new_name)
+finally:
+    self._tree.blockSignals(False)
+```
+
+Every call to `blockSignals(True)` must have a matching
+`blockSignals(False)` — prefer a `try/finally` block.
+
+## Tree item column semantics differ by type
+
+The `CollectionTree` uses a **two-column** `QTreeWidget` with asymmetric
+semantics:
+
+| | Column 0 | Column 1 |
+|---|---|---|
+| **Folder** | Display name (text + icon) | Type metadata only (via data roles) |
+| **Request** | Custom widget (`setItemWidget` — method badge + label), text is `""` | Raw name text (used for rename storage) |
+
+Because of this asymmetry:
+- Folder rename uses Qt's built-in `editItem()` on column 0.
+- Request rename injects a manual `QLineEdit` into the custom widget layout.
+- Reading a request's display name requires fetching from the `QLabel` inside
+  the item widget, **not** from `item.text(0)` (which is always empty).
+
+## Data role layout on QTreeWidgetItems
+
+All constants are defined in `ui/collections/tree/constants.py`.
+
+| Role constant | Value | Stored on | Content |
+|---|---|---|---|
+| `ROLE_ITEM_ID` | `UserRole` | Column 0 | Database PK (`int`) |
+| `ROLE_ITEM_TYPE` | `UserRole + 1` | Column 1 | `"folder"` or `"request"` |
+| `ROLE_OLD_NAME` | `UserRole + 2` | Column 1 | Original name stashed during rename |
+| `ROLE_LINE_EDIT` | `UserRole + 3` | Column 1 | Temp `QLineEdit` ref during request rename |
+| `ROLE_NAME_LABEL` | `UserRole + 4` | Column 1 | `QLabel` ref during request rename |
+| `ROLE_MIME_DATA` | `UserRole + 5` | Column 3 | `QMimeData` for drag |
+| `ROLE_PLACEHOLDER` | `UserRole + 10` | Column 1 | `"placeholder"` marker string |
+
+Gap at `+6` through `+9` is reserved for future roles.
+
+## Context-menu state — `_current_item`
+
+`CollectionTree._current_item` is set on right-click and read by the
+triggered menu action.
+
+- It is **per-menu-invocation** state, not per-selection.
+- **DO NOT** read `_current_item` outside a context-menu handler — its value
+  is only reliable between the right-click and the menu action.
 
 ## Background workers use QThread + moveToThread
 

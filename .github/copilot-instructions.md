@@ -2,16 +2,15 @@
 
 ## CRITICAL — Keeping instructions in sync
 
-This file and the three scoped instruction files below form a single source of
-truth. **Before editing any instruction file, check the others for overlap or
-contradiction.** Never duplicate rules across files — reference the canonical
-location instead. When adding a new convention, place it in the most specific
-file that applies; only add it here if it is truly project-wide.
+This file and the scoped instruction files below form a single source of
+truth.
 
-**Prefer creating new scoped instruction files** over adding content to this
-file. This file should stay thin — project-wide basics only. If a rule applies
-to a specific path or technology, create (or extend) a dedicated file under
-`.github/instructions/` with an appropriate `applyTo` glob.
+- **Check all instruction files for overlap** before editing any of them.
+- **Never duplicate rules** across files — reference the canonical location.
+- **Place rules in the most specific file** that applies. Only add rules here
+  if they are truly project-wide.
+- **Prefer creating new scoped instruction files** (under
+  `.github/instructions/` with an `applyTo` glob) over adding to this file.
 
 Scoped instruction files (auto-applied by path):
 
@@ -19,6 +18,7 @@ Scoped instruction files (auto-applied by path):
 |------|------------|
 | [pyside6.instructions.md](./instructions/pyside6.instructions.md) | `src/ui/**/*.py` |
 | [sqlalchemy.instructions.md](./instructions/sqlalchemy.instructions.md) | `src/database/**/*.py` |
+| [architecture.instructions.md](./instructions/architecture.instructions.md) | `src/**/*.py` |
 | [testing.instructions.md](./instructions/testing.instructions.md) | `tests/**/*.py` |
 
 ## Project overview

@@ -6,21 +6,23 @@ applyTo: "tests/**/*.py"
 
 # Testing conventions
 
-## CRITICAL — Run the full suite after every change
+## Quick rules — read these first
 
-After **any** code change (bug fix, refactor, new feature) run the complete
-test suite and verify **zero failures** before considering the task done:
-
-```bash
-poetry run pytest
-```
-
-Also run the linter and type checker:
-
-```bash
-poetry run ruff check src/ tests/
-poetry run mypy src/ tests/
-```
+1. **Run `poetry run pytest` after every change** — all tests must pass.
+2. **Also run `poetry run ruff check src/ tests/` and
+   `poetry run mypy src/ tests/`** — see `copilot-instructions.md` for the
+   full validation checklist.
+3. **Each test gets a fresh SQLite database** — the `_fresh_db` autouse
+   fixture handles this.  Never share DB state between tests.
+4. **UI tests need `qapp` and `qtbot` fixtures.**  Register widgets with
+   `qtbot.addWidget(widget)`.
+5. **The `_no_fetch` fixture is autouse in `tests/ui/`** — it prevents
+   `CollectionWidget` from spawning a background thread.  You do not need
+   to apply it manually.
+6. **Use bare module imports** (e.g. `from database.database import init_db`)
+   — `src/` is on the Python path.
+7. **Do not test the session or engine directly** — test through the
+   repository or service layer.
 
 ## Fresh database per test (autouse fixture)
 
@@ -46,14 +48,22 @@ single `QApplication` instance. All UI tests must accept `qapp` and use
 
 ## `_no_fetch` fixture — avoiding background threads in tests
 
-`CollectionWidget.__init__` spawns a `QThread` to fetch collections from
-the database.  SQLite rejects cross-thread access by default, so tests that
-construct a `CollectionWidget` (or `MainWindow`) must apply the `_no_fetch`
-fixture (defined in `tests/ui/conftest.py`), which patches `_start_fetch`
-to a no-op:
+`CollectionWidget.__init__` spawns a `QThread` that queries the database.
+This breaks tests because:
 
-The `_no_fetch` fixture is **autouse** within `tests/ui/`, so every UI test
-automatically gets the patch.  No decorator is needed:
+1. **SQLite rejects cross-thread access** — the test DB is on the main
+   thread; the worker thread gets `sqlite3.ProgrammingError`.
+2. **The async fetch races with assertions** — the test may check the tree
+   before loading finishes.
+
+**How `_no_fetch` works:** It patches `CollectionWidget._start_fetch` to a
+no-op so no background thread starts.
+
+**How to populate the tree instead:** Call
+`widget._tree_widget.set_collections(make_collection_dict(...))` directly.
+
+`_no_fetch` is **autouse** within `tests/ui/` — every UI test gets the patch
+automatically.  No decorator is needed:
 
 ```python
 class TestCollectionWidget:

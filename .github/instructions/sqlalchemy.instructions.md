@@ -6,6 +6,23 @@ applyTo: "src/database/**/*.py"
 
 # SQLAlchemy coding conventions
 
+## Quick rules — read these first
+
+1. **Use `Mapped` + `mapped_column()`**, never legacy `Column()`.
+2. **Use `select()` + `session.execute()`**, never `session.query()`.
+3. **Use `session.get(Model, pk)`**, never `session.query(Model).get(pk)`.
+4. **Always use `get_session()` context manager** — never create sessions
+   manually.
+5. **Each repository function is its own transaction.** There is no way to
+   batch multiple calls into one commit.
+6. **Accessing relationships on a detached ORM object raises
+   `DetachedInstanceError`.**  Convert to dicts inside the session for
+   anything deeper than one level.
+7. **All models inherit from `Base`** in `database/models/base.py`. Do not
+   create a second base class.
+8. **`init_db()` must be called before any DB access** — at app startup and
+   in test fixtures.
+
 ## Use Mapped + mapped_column (2.0 style only)
 
 Never use the legacy `Column()` API. Pylance infers `Column[int]` instead of
@@ -87,6 +104,43 @@ results = list(session.execute(stmt).scalars().all())
 
 `main.py` calls `init_db(db_path)` at startup. Tests use an autouse fixture
 in `conftest.py` that resets the engine and calls `init_db()` per test.
+
+## Session-per-function — no cross-function transactions
+
+Every repository function opens and closes **its own session** via
+`get_session()`.  There is no way to batch multiple repository calls into a
+single transaction.  Each operation auto-commits independently.
+
+If you need atomic multi-step logic, do it inside **one** repository function
+with a single `with get_session() as session:` block.
+
+## expire_on_commit=False — detached object rules
+
+`get_session()` uses `expire_on_commit=False`.
+
+**What works:** Scalar attributes (e.g. `obj.name`, `obj.id`) remain
+readable after the session closes.
+
+**What breaks:** Accessing relationships (e.g. `collection.children`,
+`collection.requests`) on a detached object raises
+`DetachedInstanceError`.  Both relationships use `lazy="selectin"` which
+eagerly loads **one level** during the query — but deeper nesting fails.
+
+**Fix:** Convert ORM objects to dicts **inside** the open session.  See
+`_collections_to_dict` in `collection_repository.py`.
+
+```python
+# WRONG — accessing children after session close on a deep tree
+with get_session() as session:
+    roots = list(session.execute(stmt).scalars().all())
+# roots[0].children works (selectin loaded), but
+# roots[0].children[0].children may raise DetachedInstanceError
+
+# CORRECT — convert inside the session
+with get_session() as session:
+    roots = list(session.execute(stmt).scalars().all())
+    return _collections_to_dict(roots)   # runs while session is open
+```
 
 ## DeclarativeBase lives in base.py
 

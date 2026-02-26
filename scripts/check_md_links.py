@@ -21,6 +21,7 @@ _SCHEME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+\-.]*://")
 # Files to check (relative to project root)
 _MD_FILES = [
     ".github/copilot-instructions.md",
+    ".github/instructions/architecture.instructions.md",
     ".github/instructions/pyside6.instructions.md",
     ".github/instructions/sqlalchemy.instructions.md",
     ".github/instructions/testing.instructions.md",
