@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import (Column, DateTime, ForeignKey, Integer, String, Text,
+                        func)
 from sqlalchemy.orm import relationship
 from sqlalchemy.types import JSON
 

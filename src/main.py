@@ -4,16 +4,10 @@ import sys
 
 # ── Qt imports ─────────────────────────────────────────────────────
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QAction, QCursor, QGuiApplication, QIcon, QKeySequence
-from PySide6.QtWidgets import (
-    QApplication,
-    QHBoxLayout,
-    QMainWindow,
-    QSplitter,
-    QToolBar,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtGui import (QAction, QCursor, QGuiApplication, QIcon,
+                           QKeySequence)
+from PySide6.QtWidgets import (QApplication, QHBoxLayout, QMainWindow,
+                               QSplitter, QToolBar, QVBoxLayout, QWidget)
 
 # ── Local imports ───────────────────────────────────────────────────
 from database.database import init_db

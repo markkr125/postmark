@@ -4,18 +4,10 @@ from __future__ import annotations
 import pytest
 
 from database.models.collections.collections_utils import (
-    create_new_collection,
-    create_new_request,
-    delete_collection,
-    delete_request,
-    fetch_all_collections,
-    get_collection_by_id,
-    get_request_by_id,
-    rename_collection,
-    rename_request,
-    update_collection_parent,
-    update_request_collection,
-)
+    create_new_collection, create_new_request, delete_collection,
+    delete_request, fetch_all_collections, get_collection_by_id,
+    get_request_by_id, rename_collection, rename_request,
+    update_collection_parent, update_request_collection)
 
 
 # ------------------------------------------------------------------

@@ -3,32 +3,22 @@ from typing import Any
 
 from PySide6.QtCore import QMimeData, QPoint, Qt, Signal, Slot
 from PySide6.QtGui import QAction, QDropEvent, QIcon
-from PySide6.QtWidgets import (
-    QApplication,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QMenu,
-    QMessageBox,
-    QStyle,
-    QTreeWidget,
-    QTreeWidgetItem,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import (QApplication, QHBoxLayout, QLabel, QLineEdit,
+                               QMenu, QMessageBox, QStyle, QTreeWidget,
+                               QTreeWidgetItem, QVBoxLayout, QWidget)
 
 logger = logging.getLogger(__name__)
 
 # ----------------------------------------------------------------------
 # Data roles stored on QTreeWidgetItems
 # ----------------------------------------------------------------------
-ROLE_ITEM_ID = Qt.UserRole  # column 0 - database PK
-ROLE_ITEM_TYPE = Qt.UserRole + 1  # column 1 - "folder" or "request"
-ROLE_OLD_NAME = Qt.UserRole + 2  # column 1 - original name (rename rollback)
-ROLE_LINE_EDIT = Qt.UserRole + 3  # column 1 - QLineEdit ref during rename
-ROLE_NAME_LABEL = Qt.UserRole + 4  # column 1 - QLabel ref during rename
-ROLE_MIME_DATA = Qt.UserRole + 5  # column 3 - drag/drop QMimeData
-ROLE_PLACEHOLDER = Qt.UserRole + 10  # column 1 - "placeholder" marker
+ROLE_ITEM_ID = Qt.ItemDataRole.UserRole  # column 0 - database PK
+ROLE_ITEM_TYPE = Qt.ItemDataRole.UserRole + 1  # column 1 - "folder" or "request"
+ROLE_OLD_NAME = Qt.ItemDataRole.UserRole + 2  # column 1 - original name (rename rollback)
+ROLE_LINE_EDIT = Qt.ItemDataRole.UserRole + 3  # column 1 - QLineEdit ref during rename
+ROLE_NAME_LABEL = Qt.ItemDataRole.UserRole + 4  # column 1 - QLabel ref during rename
+ROLE_MIME_DATA = Qt.ItemDataRole.UserRole + 5  # column 3 - drag/drop QMimeData
+ROLE_PLACEHOLDER = Qt.ItemDataRole.UserRole + 10  # column 1 - "placeholder" marker
 
 # ----------------------------------------------------------------------
 # Helper constants
@@ -150,7 +140,7 @@ class CollectionTree(QWidget):
         layout.addWidget(self._tree)
 
         self._setup_context_menus()
-        self._tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._on_tree_context_menu)
 
     def _setup_context_menus(self) -> None:
@@ -183,9 +173,9 @@ class CollectionTree(QWidget):
         When the user selects a new item we make sure that any item that was
         left in “editable” state (because the edit was cancelled) is reset.
         """
-        if previous and previous.flags() & Qt.ItemIsEditable:
+        if previous and previous.flags() & Qt.ItemFlag.ItemIsEditable:
             # Undo the flag - the editor is gone
-            previous.setFlags(previous.flags() & ~Qt.ItemIsEditable)
+            previous.setFlags(previous.flags() & ~Qt.ItemFlag.ItemIsEditable)
     @Slot(QTreeWidgetItem)
     def _on_item_expanded(self, item: QTreeWidgetItem) -> None:
         """Show placeholder if folder is empty when expanded."""
@@ -218,14 +208,14 @@ class CollectionTree(QWidget):
 
         placeholder = QTreeWidgetItem(parent_item, [""])
         placeholder.setData(1, ROLE_PLACEHOLDER, "placeholder")
-        placeholder.setFlags(Qt.ItemIsEnabled)
+        placeholder.setFlags(Qt.ItemFlag.ItemIsEnabled)
 
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(5, 5, 5, 5)
 
         label = QLabel('This collection is empty.<br><a href="#" style="color: #3498db;">Add a request</a> to start working.')
-        label.setTextFormat(Qt.RichText)
+        label.setTextFormat(Qt.TextFormat.RichText)
         label.setStyleSheet("color: #888; font-style: italic;")
         label.setWordWrap(True)
         label.linkActivated.connect(lambda: self._on_placeholder_link_clicked(parent_item))
@@ -343,7 +333,7 @@ class CollectionTree(QWidget):
             # Block briefly to avoid interim signals
             self._tree.blockSignals(True)
             try:
-                tree_item.setFlags(tree_item.flags() | Qt.ItemIsEditable)
+                tree_item.setFlags(tree_item.flags() | Qt.ItemFlag.ItemIsEditable)
             finally:
                 self._tree.blockSignals(False)
             self._tree.editItem(tree_item, 0)
@@ -473,7 +463,7 @@ class CollectionTree(QWidget):
             self.item_name_changed.emit(item_type, item_id, new_name)
 
         finally:
-            item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self._tree.blockSignals(False)
 
     def _find_item_by_id(self,

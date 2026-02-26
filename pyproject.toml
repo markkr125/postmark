@@ -40,6 +40,7 @@ known-first-party = ["database", "ui", "services"]
 # --------------------------------------------------------------------------
 [tool.mypy]
 python_version = "3.12"
+mypy_path = "src"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false          # relax for now; tighten later
