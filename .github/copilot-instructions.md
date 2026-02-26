@@ -45,13 +45,22 @@ src/
 ├── database/                      # Engine, models, repository
 ├── services/                      # Service layer (UI ↔ DB bridge)
 └── ui/                            # PySide6 widgets
+    ├── main_window.py             # Top-level MainWindow
+    ├── theme.py                   # Colours, method_color() helper
+    └── collections/               # Collection sidebar
+        ├── collection_header.py
+        ├── collection_widget.py
+        └── tree/                  # Tree widget sub-package
+            ├── constants.py
+            ├── draggable_tree_widget.py
+            └── collection_tree.py
 tests/
 ├── conftest.py                    # Autouse fresh-DB fixture + qapp fixture
 ├── unit/                          # Repository & service layer tests
 │   ├── test_repository.py
 │   └── test_service.py
 └── ui/                            # End-to-end PySide6 widget tests
-    ├── conftest.py                # _no_fetch fixture + helpers
+    ├── conftest.py                # _no_fetch (autouse) + helpers
     ├── test_collection_header.py
     ├── test_collection_tree.py
     ├── test_collection_widget.py

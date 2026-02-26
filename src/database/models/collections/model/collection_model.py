@@ -36,10 +36,10 @@ class CollectionModel(Base):
     )
 
     # JSON fields
-    events: Mapped[Any | None] = mapped_column(
+    events: Mapped[dict[str, Any] | None] = mapped_column(
         JSON, default=None
     )  # e.g. {"pre_request": "...", "test": "..."}
-    variables: Mapped[Any | None] = mapped_column(
+    variables: Mapped[list[dict[str, Any]] | None] = mapped_column(
         JSON, default=None
     )  # e.g. [{"key": "host", "value": "localhost"}]
 
@@ -55,6 +55,7 @@ class CollectionModel(Base):
     requests: Mapped[list[RequestModel]] = relationship(
         back_populates="collection",
         cascade="all, delete-orphan",
+        lazy="selectin",
     )
 
     def __repr__(self) -> str:

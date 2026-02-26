@@ -67,19 +67,26 @@ The service layer (`src/services/`) connects those signals to the repository.
 
 ## Prefer named constants for custom data roles
 
-Define roles at module level, not as inline magic numbers:
+Define roles at module level in `ui/collections/tree/constants.py`, not as
+inline magic numbers:
 
 ```python
 ROLE_ITEM_ID   = Qt.ItemDataRole.UserRole      # column 0
 ROLE_ITEM_TYPE = Qt.ItemDataRole.UserRole + 1   # column 1
 ```
 
-## All colours live in ui/theme.py
+Import them where needed:
+
+```python
+from ui.collections.tree import ROLE_ITEM_ID, ROLE_ITEM_TYPE
+```
+
+## All colours and method_color() live in ui/theme.py
 
 Never hardcode hex colour values in widget files. Import from `ui.theme`:
 
 ```python
-from ui.theme import COLOR_ACCENT, METHOD_COLORS, DEFAULT_METHOD_COLOR
+from ui.theme import COLOR_ACCENT, METHOD_COLORS, DEFAULT_METHOD_COLOR, method_color
 ```
 
 ## Background workers use QThread + moveToThread

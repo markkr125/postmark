@@ -32,3 +32,8 @@ METHOD_COLORS: dict[str, str] = {
     "OPTIONS": COLOR_OPTIONS,
 }
 DEFAULT_METHOD_COLOR = COLOR_MUTED
+
+
+def method_color(method: str) -> str:
+    """Return the theme colour for a given HTTP method."""
+    return METHOD_COLORS.get(method.upper(), DEFAULT_METHOD_COLOR)

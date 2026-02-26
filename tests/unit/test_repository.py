@@ -37,15 +37,16 @@ class TestCollectionCRUD:
         assert child.parent_id == parent.id
 
     def test_fetch_all_returns_roots_only(self):
+        """fetch_all_collections returns a dict keyed by root collection IDs."""
         root1 = create_new_collection("Root A")
         root2 = create_new_collection("Root B")
         create_new_collection("Child of A", parent_id=root1.id)
 
-        roots = fetch_all_collections()
-        root_ids = {r.id for r in roots}
+        result = fetch_all_collections()
+        root_ids = {v["id"] for v in result.values()}
         assert root1.id in root_ids
         assert root2.id in root_ids
-        assert len(roots) == 2
+        assert len(result) == 2
 
     def test_rename_collection(self):
         coll = create_new_collection("Old Name")

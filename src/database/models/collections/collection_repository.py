@@ -8,6 +8,7 @@ layer (``services.collection_service``) instead.
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from sqlalchemy import select, update
 
@@ -19,15 +20,42 @@ from .model.request_model import RequestModel
 logger = logging.getLogger(__name__)
 
 
-def fetch_all_collections() -> list[CollectionModel]:
-    """Return every root collection (``parent_id IS NULL``).
+def _collections_to_dict(collections: list[CollectionModel]) -> dict[str, Any]:
+    """Recursively convert ORM collection objects to a nested dict.
 
-    The returned objects are fully populated with their ``children``
-    and ``requests`` relationships thanks to SQLAlchemy eager loading.
+    Must be called **inside** an open session so that lazy-loaded
+    relationships (children, requests) can be resolved at any depth.
+    """
+    result: dict[str, Any] = {}
+    for collection in collections:
+        children_dict = _collections_to_dict(list(collection.children or []))
+        for request in collection.requests or []:
+            children_dict[str(request.id)] = {
+                "type": "request",
+                "id": request.id,
+                "name": request.name,
+                "method": request.method,
+            }
+        result[str(collection.id)] = {
+            "id": collection.id,
+            "name": collection.name,
+            "type": "folder",
+            "children": children_dict,
+        }
+    return result
+
+
+def fetch_all_collections() -> dict[str, Any]:
+    """Return every root collection as a nested dict.
+
+    The ORM-to-dict conversion happens inside the session so that
+    self-referencing ``children`` relationships are resolved at
+    arbitrary depth without ``DetachedInstanceError``.
     """
     with get_session() as session:
         stmt = select(CollectionModel).where(CollectionModel.parent_id.is_(None))
-        return list(session.execute(stmt).scalars().all())
+        roots = list(session.execute(stmt).scalars().all())
+        return _collections_to_dict(roots)
 
 
 def create_new_collection(name: str, parent_id: int | None = None) -> CollectionModel:

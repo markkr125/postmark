@@ -6,98 +6,38 @@ import logging
 from typing import Any, cast
 
 from PySide6.QtCore import QMimeData, QPoint, Qt, Signal, Slot
-from PySide6.QtGui import QAction, QDropEvent, QIcon
-from PySide6.QtWidgets import (QApplication, QBoxLayout, QHBoxLayout, QLabel,
-                               QLineEdit, QMenu, QMessageBox, QStyle,
-                               QTreeWidget, QTreeWidgetItem, QVBoxLayout,
-                               QWidget)
+from PySide6.QtGui import QAction, QIcon
+from PySide6.QtWidgets import (
+    QApplication,
+    QBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMenu,
+    QMessageBox,
+    QStyle,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
-from ui.theme import (COLOR_ACCENT, COLOR_TEXT_MUTED, DEFAULT_METHOD_COLOR,
-                      METHOD_COLORS)
+from ui.collections.tree.constants import (
+    EMPTY_COLLECTION_HTML,
+    ICON_CACHE,
+    PLACEHOLDER_MARKER,
+    ROLE_ITEM_ID,
+    ROLE_ITEM_TYPE,
+    ROLE_LINE_EDIT,
+    ROLE_MIME_DATA,
+    ROLE_NAME_LABEL,
+    ROLE_OLD_NAME,
+    ROLE_PLACEHOLDER,
+)
+from ui.collections.tree.draggable_tree_widget import DraggableTreeWidget
+from ui.theme import COLOR_ACCENT, COLOR_TEXT_MUTED, method_color
 
 logger = logging.getLogger(__name__)
-
-# ----------------------------------------------------------------------
-# Data roles stored on QTreeWidgetItems
-# ----------------------------------------------------------------------
-ROLE_ITEM_ID = Qt.ItemDataRole.UserRole  # column 0 - database PK
-ROLE_ITEM_TYPE = Qt.ItemDataRole.UserRole + 1  # column 1 - "folder" or "request"
-ROLE_OLD_NAME = Qt.ItemDataRole.UserRole + 2  # column 1 - original name (rename rollback)
-ROLE_LINE_EDIT = Qt.ItemDataRole.UserRole + 3  # column 1 - QLineEdit ref during rename
-ROLE_NAME_LABEL = Qt.ItemDataRole.UserRole + 4  # column 1 - QLabel ref during rename
-ROLE_MIME_DATA = Qt.ItemDataRole.UserRole + 5  # column 3 - drag/drop QMimeData
-ROLE_PLACEHOLDER = Qt.ItemDataRole.UserRole + 10  # column 1 - "placeholder" marker
-
-# ----------------------------------------------------------------------
-# Helper constants
-# ----------------------------------------------------------------------
-_PLACEHOLDER_MARKER = "placeholder"
-
-_ICON_CACHE: dict[str, QIcon] = {}
-
-
-# ----------------------------------------------------------------------
-# Custom QTreeWidget to handle drop events
-# ----------------------------------------------------------------------
-class DraggableTreeWidget(QTreeWidget):
-    """QTreeWidget subclass that handles drag-and-drop between collections.
-
-    Emits ``request_moved`` / ``collection_moved`` signals so the service
-    layer can persist the change.  Drops onto request items are rejected.
-    """
-
-    # Signals emitted when a drop requires a DB update.
-    # The parent ``CollectionTree`` connects these to its own signals so the
-    # service layer (in ``CollectionWidget``) can do the actual persistence.
-    request_moved = Signal(int, int)  # request_id, new_collection_id
-    collection_moved = Signal(int, object)  # collection_id, new_parent_id (int | None)
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        """Initialise the draggable tree widget."""
-        super().__init__(parent)
-
-    def dropEvent(self, event: QDropEvent) -> None:
-        """Handle drop events with validation and parent_id updates."""
-        source_item = self.currentItem()
-        target_item = self.itemAt(event.pos())
-
-        if not source_item or not target_item:
-            event.ignore()
-            return
-
-        # Get item types
-        source_type = source_item.data(1, ROLE_ITEM_TYPE)
-        target_type = target_item.data(1, ROLE_ITEM_TYPE)
-
-        # Validation: Cannot drop request or folder into a request
-        if target_type == "request":
-            event.ignore()
-            return
-
-        # Get IDs
-        source_id = source_item.data(0, ROLE_ITEM_ID)
-        target_id = target_item.data(0, ROLE_ITEM_ID)
-
-        new_parent_id = target_id if target_type == "folder" else None
-
-        # Validation: Cannot drop request at root level
-        if source_type == "request" and new_parent_id is None:
-            event.ignore()
-            return
-
-        # Emit the appropriate signal — the service layer will persist this
-        try:
-            if source_type == "request":
-                self.request_moved.emit(source_id, new_parent_id)
-            elif source_type == "folder":
-                self.collection_moved.emit(source_id, new_parent_id)
-        except Exception as exc:
-            logger.error("Failed to emit move signal: %s", exc)
-            event.ignore()
-            return
-
-        # Accept the drop and let Qt handle the visual update
-        super().dropEvent(event)
 
 
 # ----------------------------------------------------------------------
@@ -126,6 +66,9 @@ class CollectionTree(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         """Initialise the collection tree widget and context menus."""
         super().__init__(parent)
+
+        self._current_item: QTreeWidgetItem | None = None
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -182,7 +125,7 @@ class CollectionTree(QWidget):
         """Reset any item left in editable state when the selection changes.
 
         When the user selects a new item we make sure that any item that was
-        left in “editable” state (because the edit was cancelled) is reset.
+        left in "editable" state (because the edit was cancelled) is reset.
         """
         if previous and previous.flags() & Qt.ItemFlag.ItemIsEditable:
             # Undo the flag - the editor is gone
@@ -207,7 +150,7 @@ class CollectionTree(QWidget):
         count = 0
         for i in range(item.childCount()):
             child = item.child(i)
-            if child.data(1, ROLE_PLACEHOLDER) != _PLACEHOLDER_MARKER:
+            if child.data(1, ROLE_PLACEHOLDER) != PLACEHOLDER_MARKER:
                 count += 1
         return count
 
@@ -215,23 +158,18 @@ class CollectionTree(QWidget):
         """Add a placeholder item to an empty folder."""
         for i in range(parent_item.childCount()):
             child = parent_item.child(i)
-            if child.data(1, ROLE_PLACEHOLDER) == _PLACEHOLDER_MARKER:
+            if child.data(1, ROLE_PLACEHOLDER) == PLACEHOLDER_MARKER:
                 return
 
         placeholder = QTreeWidgetItem(parent_item, [""])
-        placeholder.setData(1, ROLE_PLACEHOLDER, _PLACEHOLDER_MARKER)
+        placeholder.setData(1, ROLE_PLACEHOLDER, PLACEHOLDER_MARKER)
         placeholder.setFlags(Qt.ItemFlag.ItemIsEnabled)
 
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(5, 5, 5, 5)
 
-        _EMPTY_COLLECTION_HTML = (
-            "This collection is empty.<br>"
-            f'<a href="#" style="color: {COLOR_ACCENT};">Add a request</a>'
-            " to start working."
-        )
-        label = QLabel(_EMPTY_COLLECTION_HTML)
+        label = QLabel(EMPTY_COLLECTION_HTML)
         label.setTextFormat(Qt.TextFormat.RichText)
         label.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-style: italic;")
         label.setWordWrap(True)
@@ -244,7 +182,7 @@ class CollectionTree(QWidget):
         """Remove placeholder item from a folder."""
         for i in range(parent_item.childCount() - 1, -1, -1):
             child = parent_item.child(i)
-            if child.data(1, ROLE_PLACEHOLDER) == _PLACEHOLDER_MARKER:
+            if child.data(1, ROLE_PLACEHOLDER) == PLACEHOLDER_MARKER:
                 parent_item.removeChild(child)
 
     def _on_placeholder_link_clicked(self, parent_item: QTreeWidgetItem) -> None:
@@ -272,7 +210,7 @@ class CollectionTree(QWidget):
 
     def _emit_menu_action(self, action: QAction) -> None:
         """Dispatch context-menu actions to dedicated handler methods."""
-        if not hasattr(self, "_current_item") or not self._current_item:
+        if not self._current_item:
             return
 
         item_type = self._current_item.data(1, ROLE_ITEM_TYPE)
@@ -292,6 +230,8 @@ class CollectionTree(QWidget):
 
     def _handle_rename(self, item_id: int, item_type: str) -> None:
         """Start in-place rename for the current item."""
+        if self._current_item is None:
+            return
         if item_type == "folder":
             self._rename_folder(item_id, self._current_item)
         elif item_type == "request":
@@ -299,6 +239,8 @@ class CollectionTree(QWidget):
 
     def _handle_delete(self, item_id: int, item_type: str) -> None:
         """Show a confirmation dialog and delete the item if accepted."""
+        if self._current_item is None:
+            return
         if item_type == "folder":
             child_count = self._current_item.childCount()
             if child_count > 0:
@@ -463,7 +405,7 @@ class CollectionTree(QWidget):
         if column != 0:
             return
 
-        if item.data(1, ROLE_PLACEHOLDER) == _PLACEHOLDER_MARKER:
+        if item.data(1, ROLE_PLACEHOLDER) == PLACEHOLDER_MARKER:
             return
 
         item_type = item.data(1, ROLE_ITEM_TYPE)
@@ -542,12 +484,12 @@ class CollectionTree(QWidget):
                 self._add_items(root_item, value.get("children", {}))
         finally:
             self._tree.blockSignals(False)
-        # self._tree.expandAll()
 
     def _add_items(self, parent: QTreeWidgetItem, mapping: dict[str, Any]) -> None:
+        """Recursively add child items (folders and requests) under *parent*."""
         for _key, value in mapping.items():
             # Use the request name for the *visible* column,
-            # the empty string for the “hidden” column that will hold the badge.
+            # the empty string for the "hidden" column that will hold the badge.
             child = QTreeWidgetItem(
                 parent, [value["name"] if value.get("type") != "request" else "", value["name"]]
             )
@@ -569,6 +511,7 @@ class CollectionTree(QWidget):
                 self._add_items(child, value["children"])
 
     def _apply_item_properties(self, item: QTreeWidgetItem, spec: dict[str, Any]) -> None:
+        """Set icon/widget and MIME data for the given tree item."""
         item_type = spec.get("type", "folder")
         method = spec.get("method", "GET")
 
@@ -588,10 +531,6 @@ class CollectionTree(QWidget):
     # ----------------------------------------------------------------------
     # UI helpers (update setItemWidget and setIcon to use self._tree)
     # ----------------------------------------------------------------------
-    def _method_color(self, method: str) -> str:
-        """Return the theme colour for a given HTTP method."""
-        return METHOD_COLORS.get(method.upper(), DEFAULT_METHOD_COLOR)
-
     def _set_item_widget(self, item: QTreeWidgetItem, method: str, url: str) -> None:
         """Place a coloured badge (method) next to the request URL."""
         widget = QWidget()
@@ -601,7 +540,7 @@ class CollectionTree(QWidget):
         badge = QLabel(method.upper())
         badge.setStyleSheet(
             f"""
-            background-color: {self._method_color(method)};
+            background-color: {method_color(method)};
             color: white;
             padding: 0px 0px 0 2px;
             margin-right: 3px;
@@ -620,13 +559,13 @@ class CollectionTree(QWidget):
 
     def _set_item_icon(self, item: QTreeWidgetItem, i_type: str, method: str) -> None:
         """Use a system icon if available; otherwise use the Qt style's standard icon."""
-        if i_type not in _ICON_CACHE:
+        if i_type not in ICON_CACHE:
             theme_icon = QIcon.fromTheme(i_type)
             if theme_icon.isNull():
                 style = QApplication.style()
                 theme_icon = style.standardIcon(QStyle.StandardPixmap.SP_DirIcon)
-            _ICON_CACHE[i_type] = theme_icon
-        item.setIcon(0, _ICON_CACHE[i_type])
+            ICON_CACHE[i_type] = theme_icon
+        item.setIcon(0, ICON_CACHE[i_type])
 
     def select_item_by_id(self, item_id: int, item_type: str) -> None:
         """Select and scroll to the item with the given ID and type after data load."""
@@ -690,9 +629,7 @@ class CollectionTree(QWidget):
             # Remove placeholder if it exists
             self._remove_placeholder(parent_item)
 
-            child = QTreeWidgetItem(
-                parent_item, [spec["name"] if spec.get("type") != "request" else "", spec["name"]]
-            )
+            child = QTreeWidgetItem(parent_item, ["", spec["name"]])
             child.setData(0, ROLE_ITEM_ID, spec.get("id"))  # id
             child.setData(1, ROLE_ITEM_TYPE, spec.get("type"))  # type
             child.setChildIndicatorPolicy(QTreeWidgetItem.ChildIndicatorPolicy.DontShowIndicator)

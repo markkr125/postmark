@@ -67,12 +67,26 @@ src/
 │               ├── collection_model.py
 │               └── request_model.py
 ├── services/
-│   └── collection_service.py        # Service layer between UI ↔ DB
+│   └── collection_service.py        # Service layer between UI and DB
 └── ui/
+    ├── main_window.py               # Top-level MainWindow
+    ├── theme.py                     # Colours, method_color() helper
     └── collections/
         ├── collection_header.py     # Import / add / search bar
-        ├── collection_tree.py       # Tree widget with drag-and-drop
-        └── collection_widget.py     # Composite widget (header + tree)
+        ├── collection_widget.py     # Composite widget (header + tree)
+        └── tree/                    # Tree widget sub-package
+            ├── constants.py         # Shared roles and constants
+            ├── draggable_tree_widget.py # QTreeWidget with drag-and-drop
+            └── collection_tree.py   # Tree (context menus, rename)
 tests/
-└── ...
+├── conftest.py                      # Autouse fresh-DB fixture + qapp
+├── unit/                            # Repository & service layer tests
+│   ├── test_repository.py
+│   └── test_service.py
+└── ui/                              # PySide6 widget integration tests
+    ├── conftest.py                  # _no_fetch (autouse) + helpers
+    ├── test_collection_header.py
+    ├── test_collection_tree.py
+    ├── test_collection_widget.py
+    └── test_main_window.py
 ```

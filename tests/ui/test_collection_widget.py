@@ -2,23 +2,22 @@
 
 from __future__ import annotations
 
-import pytest
 from PySide6.QtWidgets import QApplication
 
 from services.collection_service import CollectionService
-from ui.collections.collection_tree import ROLE_ITEM_ID
 from ui.collections.collection_widget import CollectionWidget
+from ui.collections.tree import ROLE_ITEM_ID
 
 from .conftest import make_collection_dict, top_level_items
 
 
-@pytest.mark.usefixtures("_no_fetch")
 class TestCollectionWidget:
     """End-to-end tests that exercise the widget -> service -> DB chain.
 
-    The ``_no_fetch`` fixture patches out the background thread that
-    ``CollectionWidget.__init__`` normally starts, avoiding SQLite's
-    cross-thread restrictions while keeping every other code path live.
+    The autouse ``_no_fetch`` fixture (see ``conftest.py``) patches out the
+    background thread that ``CollectionWidget.__init__`` normally starts,
+    avoiding SQLite's cross-thread restrictions while keeping every other
+    code path live.
     """
 
     def test_construction(self, qapp: QApplication, qtbot) -> None:

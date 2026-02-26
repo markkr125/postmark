@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QApplication
 
-from ui.collections.collection_tree import ROLE_ITEM_ID, ROLE_ITEM_TYPE, CollectionTree
+from ui.collections.tree import ROLE_ITEM_ID, ROLE_ITEM_TYPE, CollectionTree
 
 from .conftest import make_collection_dict, top_level_items
 

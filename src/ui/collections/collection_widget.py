@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable
 from typing import Any, TypedDict
 
 from PySide6.QtCore import QObject, QThread, Signal, Slot
@@ -9,7 +8,7 @@ from PySide6.QtWidgets import QProgressBar, QVBoxLayout, QWidget
 
 from services.collection_service import CollectionService
 from ui.collections.collection_header import CollectionHeader
-from ui.collections.collection_tree import CollectionTree
+from ui.collections.tree import CollectionTree
 from ui.theme import COLOR_ACCENT
 
 logger = logging.getLogger(__name__)
@@ -56,33 +55,7 @@ class _CollectionFetcher(QObject):
     @Slot()
     def run(self) -> None:
         """Fetch all collections in a blocking call and emit the result."""
-        roots = CollectionService.fetch_all()
-        self.finished.emit(self._collections_to_dict(roots))
-
-    @staticmethod
-    def _collections_to_dict(collections: Iterable[Any]) -> dict[str, Any]:
-        """Recursively transform Collection objects into a nested dict.
-
-        The returned structure matches the format expected by
-        ``CollectionWidget``.
-        """
-        result: dict[str, Any] = {}
-        for collection in collections:
-            children_dict = _CollectionFetcher._collections_to_dict(collection.children or [])
-            for request in collection.requests or []:
-                children_dict[str(request.id)] = {
-                    "type": "request",
-                    "id": request.id,
-                    "name": request.name,
-                    "method": request.method,
-                }
-            result[str(collection.id)] = {
-                "id": collection.id,
-                "name": collection.name,
-                "type": "folder",
-                "children": children_dict,
-            }
-        return result
+        self.finished.emit(CollectionService.fetch_all())
 
 
 # ----------------------------------------------------------------------
@@ -94,9 +67,6 @@ class CollectionWidget(QWidget):
     Use :meth:`set_collections` to feed it data, and it will rebuild itself.
     """
 
-    _pending_select_id: int | None = None
-    _pending_select_request_id: int | None = None
-
     # Forwarded signals from the tree
     item_action_triggered = Signal(str, int, str)
     item_name_changed = Signal(str, int, str)
@@ -104,6 +74,9 @@ class CollectionWidget(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         """Initialise the collection widget with header, tree, and loading bar."""
         super().__init__(parent)
+
+        self._pending_select_id: int | None = None
+        self._pending_select_request_id: int | None = None
 
         self._svc = CollectionService()
 
@@ -135,8 +108,9 @@ class CollectionWidget(QWidget):
 
         main_layout.addWidget(self._tree_widget, 1)
 
-        # Loading bar
-        self._loading_bar = QProgressBar(self)
+        # Loading bar — overlaid at the top of the tree viewport
+        viewport = self._tree_widget._tree.viewport()
+        self._loading_bar = QProgressBar(viewport)
         self._loading_bar.setRange(0, 0)
         self._loading_bar.setTextVisible(False)
         self._loading_bar.setFixedHeight(4)
@@ -146,7 +120,7 @@ class CollectionWidget(QWidget):
             QProgressBar::chunk {{ background-color: {COLOR_ACCENT}; }}
             """
         )
-        self._loading_bar.setGeometry(0, 0, self.width(), self._loading_bar.height())
+        self._loading_bar.setGeometry(0, 0, viewport.width(), 4)
         self._loading_bar.hide()
 
         self._start_fetch()
@@ -256,7 +230,8 @@ class CollectionWidget(QWidget):
     def resizeEvent(self, event) -> None:
         """Reposition the loading bar on widget resize."""
         super().resizeEvent(event)
-        self._loading_bar.setGeometry(0, 0, self.width(), self._loading_bar.height())
+        viewport = self._tree_widget._tree.viewport()
+        self._loading_bar.setGeometry(0, 0, viewport.width(), 4)
 
     def set_collections(self, data: dict[str, Any]) -> None:
         """Replace the displayed collection data with *data*."""

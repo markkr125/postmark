@@ -8,7 +8,7 @@ from pathlib import Path
 
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
-from sqlalchemy.orm import Session, scoped_session, sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
 from .models.base import Base
 
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 # Module-level state (initialised lazily by ``init_db``)
 # ---------------------------------------------------------------------------
 _engine: Engine | None = None
-_SessionLocal: scoped_session | None = None
+_SessionLocal: sessionmaker[Session] | None = None
 
 
 def init_db(db_path: Path | None = None) -> None:
@@ -37,13 +37,11 @@ def init_db(db_path: Path | None = None) -> None:
     os.makedirs(db_path.parent, exist_ok=True)
     database_url = f"sqlite:///{db_path}"
 
-    _engine = create_engine(database_url, echo=False, future=True)
+    _engine = create_engine(database_url, echo=False)
     Base.metadata.create_all(_engine)
 
-    _SessionLocal = scoped_session(
-        sessionmaker(
-            bind=_engine, autoflush=False, autocommit=False, expire_on_commit=False, future=True
-        )
+    _SessionLocal = sessionmaker(
+        bind=_engine, autoflush=False, autocommit=False, expire_on_commit=False
     )
     logger.info("Database initialised: %s", database_url)
 

@@ -7,14 +7,14 @@ from typing import Any
 import pytest
 from PySide6.QtWidgets import QTreeWidgetItem
 
-from ui.collections.collection_tree import CollectionTree
 from ui.collections.collection_widget import CollectionWidget
+from ui.collections.tree import CollectionTree
 
 
 # ------------------------------------------------------------------
 # Fixtures
 # ------------------------------------------------------------------
-@pytest.fixture()
+@pytest.fixture(autouse=True)
 def _no_fetch(monkeypatch: pytest.MonkeyPatch) -> None:
     """Prevent CollectionWidget from spawning a background fetch thread.
 

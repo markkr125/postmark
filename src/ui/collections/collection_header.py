@@ -4,11 +4,17 @@ from __future__ import annotations
 
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QAction, QIcon
-from PySide6.QtWidgets import (QHBoxLayout, QLineEdit, QMenu, QSizePolicy,
-                               QToolButton, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QLineEdit,
+    QMenu,
+    QSizePolicy,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+)
 
-from ui.theme import (COLOR_BORDER, COLOR_HOVER_BG, COLOR_TEXT,
-                      COLOR_TEXT_MUTED, COLOR_WHITE)
+from ui.theme import COLOR_BORDER, COLOR_HOVER_BG, COLOR_TEXT, COLOR_TEXT_MUTED, COLOR_WHITE
 
 
 # ----------------------------------------------------------------------
@@ -42,10 +48,9 @@ class CollectionHeader(QWidget):
         self._import_btn = QToolButton(self)
         self._import_btn.setStyleSheet(f"background: {COLOR_WHITE};")
         self._import_btn.setText("Import")
-        # TODO: set icon once a bundled asset is available
-        # self._import_btn.setIcon(QIcon.fromTheme("document-import"))
         self._import_btn.setToolTip("Import collections/requests")
         self._import_btn.clicked.connect(lambda: self.import_requested.emit())
+        # TODO: set icon once a bundled asset is available
         top_row.addWidget(self._import_btn)
 
         main_layout.addLayout(top_row)

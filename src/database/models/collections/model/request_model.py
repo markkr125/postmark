@@ -31,13 +31,13 @@ class RequestModel(Base):
     headers: Mapped[str | None] = mapped_column(String, default=None)
 
     # Structured JSON data
-    scripts: Mapped[Any | None] = mapped_column(
+    scripts: Mapped[dict[str, Any] | None] = mapped_column(
         JSON, default=None
     )  # e.g. {"pre_request": "...", "test": "..."}
-    settings: Mapped[Any | None] = mapped_column(
+    settings: Mapped[dict[str, Any] | None] = mapped_column(
         JSON, default=None
     )  # e.g. {"timeout": 5000, "follow_redirects": true}
-    events: Mapped[Any | None] = mapped_column(
+    events: Mapped[dict[str, Any] | None] = mapped_column(
         JSON, default=None
     )  # e.g. {"pre_request": "...", "test": "..."}
 

@@ -52,13 +52,15 @@ construct a `CollectionWidget` (or `MainWindow`) must apply the `_no_fetch`
 fixture (defined in `tests/ui/conftest.py`), which patches `_start_fetch`
 to a no-op:
 
+The `_no_fetch` fixture is **autouse** within `tests/ui/`, so every UI test
+automatically gets the patch.  No decorator is needed:
+
 ```python
-@pytest.mark.usefixtures("_no_fetch")
 class TestCollectionWidget:
     ...
 ```
 
-Only omit `_no_fetch` for tests that intentionally verify the threading
+Only override `_no_fetch` for tests that intentionally verify the threading
 behaviour (and configure SQLite for cross-thread access).
 
 ## Test layers — what to test and how
@@ -67,8 +69,8 @@ behaviour (and configure SQLite for cross-thread access).
 |-------|-------------|-------|
 | Repository | `database.models.collections.collection_repository` | Direct function calls, assert return values and DB side-effects |
 | Service | `services.collection_service.CollectionService` | Instantiate the class, call methods, verify delegation works |
-| UI widgets | `ui.collections.*` | Use `qapp` + `qtbot` fixtures; apply `_no_fetch` for widgets that spawn threads |
-| MainWindow | `main.MainWindow` | Smoke tests only; apply `_no_fetch` |
+| UI widgets | `ui.collections.*` | Use `qapp` + `qtbot` fixtures; `_no_fetch` is autouse |
+| MainWindow | `ui.main_window.MainWindow` | Smoke tests only; `_no_fetch` is autouse |
 
 ### Do NOT test the database engine or session factory directly
 
@@ -84,7 +86,7 @@ tests/
 │   ├── test_repository.py         # TestCollectionCRUD, TestRequestCRUD
 │   └── test_service.py            # TestCollectionService
 └── ui/                            # PySide6 widget tests (need qapp + qtbot)
-    ├── conftest.py                # _no_fetch fixture + helper functions
+    ├── conftest.py                # _no_fetch (autouse) + helper functions
     ├── test_collection_header.py
     ├── test_collection_tree.py
     ├── test_collection_widget.py
