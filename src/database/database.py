@@ -11,12 +11,8 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 # Import all models so Base.metadata.create_all() discovers every table.
-from .models import (  # noqa: F401
-    CollectionModel,
-    EnvironmentModel,
-    RequestModel,
-    SavedResponseModel,
-)
+from .models import (CollectionModel, EnvironmentModel,  # noqa: F401
+                     RequestModel, SavedResponseModel)
 from .models.base import Base
 
 logger = logging.getLogger(__name__)
