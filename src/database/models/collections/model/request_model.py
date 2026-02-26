@@ -28,8 +28,8 @@ class RequestModel(Base):
     method: Mapped[str] = mapped_column(String(10))  # GET, POST, ...
     url: Mapped[str] = mapped_column(Text, index=True)
     body: Mapped[str | None] = mapped_column(Text, default=None)
-    request_parameters: Mapped[str | None] = mapped_column(String, default=None)
-    headers: Mapped[str | None] = mapped_column(String, default=None)
+    request_parameters: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, default=None)
+    headers: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, default=None)
 
     # Optional text fields
     description: Mapped[str | None] = mapped_column(Text, default=None)

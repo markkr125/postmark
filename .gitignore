@@ -72,7 +72,7 @@ ehthumbs.db
 # ========================
 # Application data
 # ========================
-data/database/*.db
+data/database/
 *.sqlite3
 *.sqlite
 

@@ -25,6 +25,16 @@ COLOR_HOVER_BG = "#c7c7c7"
 COLOR_HOVER_TREE_BG = "#e8e8e8"  # tree item hover
 COLOR_SELECTED_BG = "#d0e4f7"  # tree item selection
 
+# -- Sending state -----------------------------------------------------
+COLOR_SENDING = "#f39c12"  # amber pulse for in-flight requests
+
+# -- Console panel -----------------------------------------------------
+COLOR_CONSOLE_BG = "#1e1e1e"  # dark background for console
+COLOR_CONSOLE_TEXT = "#d4d4d4"  # light text for console
+
+# -- Breadcrumb --------------------------------------------------------
+COLOR_BREADCRUMB_SEP = "#aaa"  # separator colour in breadcrumb bar
+
 # -- Import dialog -----------------------------------------------------
 COLOR_DROP_ZONE_BORDER = "#b0b0b0"  # dashed border for the drag-and-drop area
 COLOR_DROP_ZONE_BG = "#fafafa"  # subtle background for the drop zone

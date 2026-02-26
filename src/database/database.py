@@ -42,7 +42,16 @@ def init_db(db_path: Path | None = None) -> None:
     os.makedirs(db_path.parent, exist_ok=True)
     database_url = f"sqlite:///{db_path}"
 
-    _engine = create_engine(database_url, echo=False)
+    _engine = create_engine(
+        database_url,
+        echo=False,
+        connect_args={"check_same_thread": False},
+    )
+
+    # Enable WAL journal mode for concurrent read access from worker threads.
+    with _engine.connect() as conn:
+        conn.execute(text("PRAGMA journal_mode=WAL"))
+        conn.commit()
     Base.metadata.create_all(_engine)
     _migrate_add_missing_columns(_engine)
 

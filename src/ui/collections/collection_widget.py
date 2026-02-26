@@ -252,6 +252,10 @@ class CollectionWidget(QWidget):
         """Replace the displayed collection data with *data*."""
         self._tree_widget.set_collections(data)
 
+    def selected_collection_id(self) -> int | None:
+        """Return the ID of the currently selected collection, or ``None``."""
+        return self._header._selected_collection_id
+
     @Slot(str)
     def _on_search_changed(self, text: str) -> None:
         """Filter tree items based on the search text."""

@@ -9,11 +9,13 @@ from typing import Any
 import pytest
 
 from services.import_parser.curl_parser import is_curl, parse_curl
-from services.import_parser.postman_parser import (detect_postman_type,
-                                                   parse_archive_folder,
-                                                   parse_collection_file,
-                                                   parse_environment_file,
-                                                   parse_json_text)
+from services.import_parser.postman_parser import (
+    detect_postman_type,
+    parse_archive_folder,
+    parse_collection_file,
+    parse_environment_file,
+    parse_json_text,
+)
 from services.import_parser.url_parser import parse_raw_text
 
 

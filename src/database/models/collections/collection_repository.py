@@ -217,3 +217,137 @@ def get_request_by_id(request_id: int) -> RequestModel | None:
             .scalars()
             .first()
         )
+
+
+def get_request_auth_chain(request_id: int) -> dict[str, Any] | None:
+    """Walk the parent collection chain to find the effective auth config.
+
+    Returns the request's own auth if set and not ``noauth``.  Otherwise
+    walks up through parent collections and returns the first auth found.
+    Returns ``None`` if no auth is configured anywhere in the chain.
+    """
+    with get_session() as session:
+        req = session.get(RequestModel, request_id)
+        if req is None:
+            return None
+        # 1. Check request's own auth
+        if req.auth and req.auth.get("type") not in (None, "noauth"):
+            return req.auth
+        # 2. Walk parent collection chain
+        coll = session.get(CollectionModel, req.collection_id)
+        while coll is not None:
+            if coll.auth and coll.auth.get("type") not in (None, "noauth"):
+                return coll.auth
+            if coll.parent_id is None:
+                break
+            coll = session.get(CollectionModel, coll.parent_id)
+        return None
+
+
+def get_request_breadcrumb(request_id: int) -> list[dict[str, Any]]:
+    """Return the breadcrumb path from root collection to the request.
+
+    Each entry has ``id``, ``name``, and ``type`` (``folder`` or
+    ``request``) keys.
+    """
+    with get_session() as session:
+        req = session.get(RequestModel, request_id)
+        if req is None:
+            return []
+        path: list[dict[str, Any]] = []
+        # Walk up the collection chain
+        coll = session.get(CollectionModel, req.collection_id)
+        while coll is not None:
+            path.append({"id": coll.id, "name": coll.name, "type": "folder"})
+            if coll.parent_id is None:
+                break
+            coll = session.get(CollectionModel, coll.parent_id)
+        path.reverse()
+        path.append({"id": req.id, "name": req.name, "type": "request"})
+        return path
+
+
+def get_saved_responses_for_request(request_id: int) -> list[dict[str, Any]]:
+    """Return all saved responses for a request as dicts."""
+    from .model.saved_response_model import SavedResponseModel
+
+    with get_session() as session:
+        stmt = select(SavedResponseModel).where(SavedResponseModel.request_id == request_id)
+        responses = list(session.execute(stmt).scalars().all())
+        return [
+            {
+                "id": sr.id,
+                "name": sr.name,
+                "status": sr.status,
+                "code": sr.code,
+                "headers": sr.headers,
+                "body": sr.body,
+            }
+            for sr in responses
+        ]
+
+
+def save_response(
+    request_id: int,
+    name: str,
+    status: str | None,
+    code: int | None,
+    headers: Any,
+    body: str | None,
+) -> int:
+    """Save a response as a named example and return its ID."""
+    from .model.saved_response_model import SavedResponseModel
+
+    with get_session() as session:
+        sr = SavedResponseModel(
+            request_id=request_id,
+            name=name,
+            status=status,
+            code=code,
+            headers=headers,
+            body=body,
+        )
+        session.add(sr)
+        session.flush()
+        return sr.id
+
+
+# Columns on RequestModel that may be updated via update_request().
+_EDITABLE_REQUEST_FIELDS = {
+    "name",
+    "method",
+    "url",
+    "body",
+    "request_parameters",
+    "headers",
+    "description",
+    "body_mode",
+    "body_options",
+    "auth",
+    "scripts",
+    "settings",
+    "events",
+    "protocol_profile_behavior",
+}
+
+
+def update_request(request_id: int, **fields: Any) -> None:
+    """Update one or more editable fields on a request.
+
+    Only columns listed in ``_EDITABLE_REQUEST_FIELDS`` are accepted.
+
+    Raises:
+        ValueError: If *request_id* does not exist or an unsupported
+            field is passed.
+    """
+    bad = set(fields) - _EDITABLE_REQUEST_FIELDS
+    if bad:
+        raise ValueError(f"Non-editable fields: {bad}")
+    if not fields:
+        return
+    with get_session() as session:
+        req = session.get(RequestModel, request_id)
+        if req is None:
+            raise ValueError(f"No request found with id={request_id}")
+        stmt = update(RequestModel).where(RequestModel.id == request_id).values(**fields)
+        session.execute(stmt)

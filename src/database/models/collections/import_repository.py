@@ -9,7 +9,6 @@ UI code must **not** import this directly -- use the service layer instead.
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
@@ -36,12 +35,6 @@ def _create_request_in_session(
     """
     headers_raw = req_data.get("headers")
     params_raw = req_data.get("request_parameters")
-
-    # Serialise structured lists to JSON strings for String columns.
-    if isinstance(headers_raw, list):
-        headers_raw = json.dumps(headers_raw)
-    if isinstance(params_raw, list):
-        params_raw = json.dumps(params_raw)
 
     request = RequestModel(
         collection_id=collection_id,

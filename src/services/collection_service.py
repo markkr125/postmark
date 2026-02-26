@@ -16,10 +16,15 @@ from database.models.collections.collection_repository import (
     delete_request,
     fetch_all_collections,
     get_collection_by_id,
+    get_request_auth_chain,
+    get_request_breadcrumb,
     get_request_by_id,
+    get_saved_responses_for_request,
     rename_collection,
     rename_request,
+    save_response,
     update_collection_parent,
+    update_request,
     update_request_collection,
 )
 from database.models.collections.model.collection_model import CollectionModel
@@ -168,3 +173,59 @@ class CollectionService:
         """Move a request to a different collection."""
         update_request_collection(request_id, new_collection_id)
         logger.info("Moved request id=%s to collection=%s", request_id, new_collection_id)
+
+    @staticmethod
+    def update_request(request_id: int, **fields: Any) -> None:
+        """Update one or more editable fields on a request.
+
+        Only columns listed in the repository's ``_EDITABLE_REQUEST_FIELDS``
+        are accepted.
+
+        Raises:
+            ValueError: If *request_id* does not exist or a field name is
+                invalid.
+        """
+        update_request(request_id, **fields)
+        logger.info("Updated request id=%s fields=%s", request_id, list(fields))
+
+    # ------------------------------------------------------------------
+    # Auth inheritance
+    # ------------------------------------------------------------------
+    @staticmethod
+    def get_request_auth_chain(request_id: int) -> dict[str, Any] | None:
+        """Return the effective auth for a request, walking parent chain.
+
+        Checks the request first, then walks up parent collections.
+        Returns ``None`` if no auth is configured anywhere in the chain.
+        """
+        return get_request_auth_chain(request_id)
+
+    # ------------------------------------------------------------------
+    # Breadcrumb
+    # ------------------------------------------------------------------
+    @staticmethod
+    def get_request_breadcrumb(request_id: int) -> list[dict[str, Any]]:
+        """Return the breadcrumb path from root collection to request."""
+        return get_request_breadcrumb(request_id)
+
+    # ------------------------------------------------------------------
+    # Saved responses
+    # ------------------------------------------------------------------
+    @staticmethod
+    def get_saved_responses(request_id: int) -> list[dict[str, Any]]:
+        """Return all saved responses (examples) for a request."""
+        return get_saved_responses_for_request(request_id)
+
+    @staticmethod
+    def save_response(
+        request_id: int,
+        name: str,
+        status: str | None,
+        code: int | None,
+        headers: Any,
+        body: str | None,
+    ) -> int:
+        """Save a response as a named example and return its ID."""
+        result = save_response(request_id, name, status, code, headers, body)
+        logger.info("Saved response for request id=%s", request_id)
+        return result

@@ -109,6 +109,7 @@ class CollectionTree(QWidget):
         self._tree.currentItemChanged.connect(self._on_current_item_changed)
         self._tree.itemExpanded.connect(self._on_item_expanded)
         self._tree.itemCollapsed.connect(self._on_item_collapsed)
+        self._tree.itemClicked.connect(self._on_item_clicked)
         self._tree.itemDoubleClicked.connect(self._on_item_double_clicked)
 
         # Forward drag-and-drop signals from the tree widget
@@ -254,6 +255,14 @@ class CollectionTree(QWidget):
     def _on_item_collapsed(self, item: QTreeWidgetItem) -> None:
         """Remove placeholder when folder is collapsed."""
         self._remove_placeholder(item)
+
+    @Slot(QTreeWidgetItem, int)
+    def _on_item_clicked(self, item: QTreeWidgetItem, column: int) -> None:
+        """Emit a Preview action on single-click for request items."""
+        item_type = item.data(1, ROLE_ITEM_TYPE)
+        if item_type == "request":
+            item_id = item.data(0, ROLE_ITEM_ID)
+            self.item_action_triggered.emit("request", item_id, "Preview")
 
     @Slot(QTreeWidgetItem, int)
     def _on_item_double_clicked(self, item: QTreeWidgetItem, column: int) -> None:
