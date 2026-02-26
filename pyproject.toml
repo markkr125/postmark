@@ -1,0 +1,53 @@
+[tool.poetry]
+name = "postmark"
+version = "0.1.0"
+description = "A desktop API client for testing and managing HTTP requests, built with PySide6."
+authors = ["Mark Krapivner <mark125@gmail.com>"]
+readme = "README.md"
+package-mode = false
+
+[tool.poetry.dependencies]
+python = ">=3.12,<3.14"
+pyside6 = "^6.10.0"
+sqlalchemy = "^2.0.44"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0"
+ruff = "^0.9"
+mypy = "^1.14"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+# --------------------------------------------------------------------------
+# Ruff (linter + formatter)
+# --------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+ignore = ["E501"]  # line length handled by formatter
+
+[tool.ruff.lint.isort]
+known-first-party = ["database", "ui", "services"]
+
+# --------------------------------------------------------------------------
+# Mypy
+# --------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false          # relax for now; tighten later
+
+# --------------------------------------------------------------------------
+# Pytest
+# --------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+

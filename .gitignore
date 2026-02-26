@@ -1,0 +1,95 @@
+# ========================
+# Python
+# ========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+*.manifest
+*.spec
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ========================
+# Virtual environments
+# ========================
+.venv/
+venv/
+ENV/
+env/
+
+# ========================
+# Poetry
+# ========================
+poetry.lock
+
+# ========================
+# Testing
+# ========================
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# ========================
+# Type checking / Linting
+# ========================
+.mypy_cache/
+.ruff_cache/
+.dmypy.json
+dmypy.json
+
+# ========================
+# IDEs and editors
+# ========================
+.vscode/*
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+*.sublime-project
+*.sublime-workspace
+
+# ========================
+# OS files
+# ========================
+.DS_Store
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+
+# ========================
+# Application data
+# ========================
+data/database/*.db
+*.sqlite3
+*.sqlite
+
+# ========================
+# Distribution / Packaging
+# ========================
+*.tar.gz
+*.whl
+
+# ========================
+# Logs
+# ========================
+*.log
+
+# ========================
+# Misc
+# ========================
+*.bak
+*.tmp
+*.temp
