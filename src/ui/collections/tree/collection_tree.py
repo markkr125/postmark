@@ -7,42 +7,19 @@ from typing import Any, cast
 
 from PySide6.QtCore import QEvent, QMimeData, QObject, QPoint, Qt, Signal, Slot
 from PySide6.QtGui import QAction, QIcon, QKeyEvent
-from PySide6.QtWidgets import (
-    QApplication,
-    QBoxLayout,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QMenu,
-    QMessageBox,
-    QStackedWidget,
-    QStyle,
-    QTreeWidget,
-    QTreeWidgetItem,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import (QApplication, QBoxLayout, QHBoxLayout, QLabel,
+                               QLineEdit, QMenu, QMessageBox, QStackedWidget,
+                               QStyle, QTreeWidget, QTreeWidgetItem,
+                               QVBoxLayout, QWidget)
 
-from ui.collections.tree.constants import (
-    EMPTY_COLLECTION_HTML,
-    ICON_CACHE,
-    PLACEHOLDER_MARKER,
-    ROLE_ITEM_ID,
-    ROLE_ITEM_TYPE,
-    ROLE_LINE_EDIT,
-    ROLE_MIME_DATA,
-    ROLE_NAME_LABEL,
-    ROLE_OLD_NAME,
-    ROLE_PLACEHOLDER,
-)
+from ui.collections.tree.constants import (EMPTY_COLLECTION_HTML, ICON_CACHE,
+                                           PLACEHOLDER_MARKER, ROLE_ITEM_ID,
+                                           ROLE_ITEM_TYPE, ROLE_LINE_EDIT,
+                                           ROLE_MIME_DATA, ROLE_NAME_LABEL,
+                                           ROLE_OLD_NAME, ROLE_PLACEHOLDER)
 from ui.collections.tree.draggable_tree_widget import DraggableTreeWidget
-from ui.theme import (
-    COLOR_ACCENT,
-    COLOR_HOVER_TREE_BG,
-    COLOR_SELECTED_BG,
-    COLOR_TEXT_MUTED,
-    method_color,
-)
+from ui.theme import (COLOR_ACCENT, COLOR_HOVER_TREE_BG, COLOR_SELECTED_BG,
+                      COLOR_TEXT_MUTED, method_color)
 
 logger = logging.getLogger(__name__)
 

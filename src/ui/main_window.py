@@ -6,8 +6,10 @@ import logging
 from typing import Any
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QAction, QCursor, QGuiApplication, QIcon, QKeySequence
-from PySide6.QtWidgets import QHBoxLayout, QMainWindow, QSplitter, QToolBar, QVBoxLayout, QWidget
+from PySide6.QtGui import (QAction, QCursor, QGuiApplication, QIcon,
+                           QKeySequence)
+from PySide6.QtWidgets import (QHBoxLayout, QMainWindow, QSplitter, QToolBar,
+                               QVBoxLayout, QWidget)
 
 from services.collection_service import CollectionService
 from ui.collections.collection_widget import CollectionWidget
@@ -207,5 +209,7 @@ class MainWindow(QMainWindow):
 
     def _update_nav_actions(self) -> None:
         """Enable/disable back/forward actions based on history position."""
+        self.back_action.setEnabled(self._history_index > 0)
+        self.forward_action.setEnabled(self._history_index < len(self._history) - 1)
         self.back_action.setEnabled(self._history_index > 0)
         self.forward_action.setEnabled(self._history_index < len(self._history) - 1)

@@ -3,20 +3,12 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (
-    QComboBox,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QPushButton,
-    QSizePolicy,
-    QTabWidget,
-    QTextEdit,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QLabel, QLineEdit,
+                               QPushButton, QSizePolicy, QTabWidget, QTextEdit,
+                               QVBoxLayout, QWidget)
 
-from ui.theme import COLOR_ACCENT, COLOR_BORDER, COLOR_TEXT, COLOR_TEXT_MUTED, COLOR_WHITE
+from ui.theme import (COLOR_ACCENT, COLOR_BORDER, COLOR_TEXT, COLOR_TEXT_MUTED,
+                      COLOR_WHITE)
 
 # HTTP methods shown in the dropdown
 _HTTP_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS")
