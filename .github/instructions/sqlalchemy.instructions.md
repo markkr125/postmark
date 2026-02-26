@@ -146,3 +146,58 @@ with get_session() as session:
 
 All models inherit from `Base` defined in `src/database/models/base.py`.
 Do not create a second base class.
+
+## Lightweight schema migration — forward-only column additions
+
+`database.py` contains `_migrate_add_missing_columns(engine)`, called by
+`init_db()` after `create_all()`.  It handles existing databases that were
+created before new columns were added to the ORM models.
+
+**How it works:**
+
+1. Inspects every mapped table with `sqlalchemy.inspect()`.
+2. Compares existing on-disk columns against the ORM model.
+3. Issues `ALTER TABLE <table> ADD COLUMN <col> <type>` for any missing
+   columns.
+
+**Rules:**
+
+- This is **forward-only** — it never drops, renames, or alters existing
+  columns.
+- New columns added to any model are automatically picked up — no manual
+  migration script needed.
+- `create_all()` handles brand-new tables; the migration only applies to
+  tables that already exist on disk but lack newly-added columns.
+- The type mapping uses `col.type.compile(dialect=engine.dialect)` to derive
+  the correct SQLite type string from the SQLAlchemy column type.
+
+**When adding new columns to a model:**
+
+1. Add the `Mapped` attribute with `mapped_column()` as usual.
+2. Give it a sensible default (`default=None` or `server_default`) so
+   existing rows with NULL values work correctly.
+3. Run the app or tests — `_migrate_add_missing_columns` will add the column
+   automatically.
+
+```python
+# Example: adding an optional "description" column to CollectionModel
+description: Mapped[str | None] = mapped_column(Text, default=None)
+```
+
+## Database model catalogue
+
+Four ORM models, all inheriting from `Base`:
+
+| Model | Table | File |
+|-------|-------|------|
+| `CollectionModel` | `collections` | `database/models/collections/model/collection_model.py` |
+| `RequestModel` | `requests` | `database/models/collections/model/request_model.py` |
+| `SavedResponseModel` | `saved_responses` | `database/models/collections/model/saved_response_model.py` |
+| `EnvironmentModel` | `environments` | `database/models/environments/model/environment_model.py` |
+
+### Re-exports in database.py
+
+`database.py` re-exports all four models using the `import X as X` pattern
+(PEP 484 explicit re-export) so that `Base.metadata.create_all()` discovers
+every table.  These imports must remain even though `database.py` itself
+does not use the models directly.

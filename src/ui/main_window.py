@@ -6,10 +6,8 @@ import logging
 from typing import Any
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import (QAction, QCursor, QGuiApplication, QIcon,
-                           QKeySequence)
-from PySide6.QtWidgets import (QHBoxLayout, QMainWindow, QSplitter, QToolBar,
-                               QVBoxLayout, QWidget)
+from PySide6.QtGui import QAction, QCursor, QGuiApplication, QIcon, QKeySequence
+from PySide6.QtWidgets import QHBoxLayout, QMainWindow, QSplitter, QToolBar, QVBoxLayout, QWidget
 
 from services.collection_service import CollectionService
 from ui.collections.collection_widget import CollectionWidget
@@ -76,6 +74,14 @@ class MainWindow(QMainWindow):
 
         # File menu
         file_menu = menubar.addMenu("&File")
+
+        import_act = QAction("&Import...", self)
+        import_act.setShortcut(QKeySequence("Ctrl+I"))
+        import_act.triggered.connect(self._on_import)
+        file_menu.addAction(import_act)
+
+        file_menu.addSeparator()
+
         exit_act = QAction("&Exit", self)
         exit_act.setShortcut(QKeySequence("Ctrl+Q"))
         exit_act.triggered.connect(self.close)
@@ -213,3 +219,16 @@ class MainWindow(QMainWindow):
         self.forward_action.setEnabled(self._history_index < len(self._history) - 1)
         self.back_action.setEnabled(self._history_index > 0)
         self.forward_action.setEnabled(self._history_index < len(self._history) - 1)
+
+    # ------------------------------------------------------------------
+    # Import
+    # ------------------------------------------------------------------
+    def _on_import(self) -> None:
+        """Open the import dialog."""
+        from ui.import_dialog import ImportDialog
+
+        dialog = ImportDialog(self)
+        dialog.import_completed.connect(self.collection_widget._start_fetch)
+        dialog.exec()
+        dialog.import_completed.connect(self.collection_widget._start_fetch)
+        dialog.exec()

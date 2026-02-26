@@ -7,19 +7,49 @@ from typing import Any, cast
 
 from PySide6.QtCore import QEvent, QMimeData, QObject, QPoint, Qt, Signal, Slot
 from PySide6.QtGui import QAction, QIcon, QKeyEvent
-from PySide6.QtWidgets import (QApplication, QBoxLayout, QHBoxLayout, QLabel,
-                               QLineEdit, QMenu, QMessageBox, QStackedWidget,
-                               QStyle, QTreeWidget, QTreeWidgetItem,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (
+    QApplication,
+    QBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMenu,
+    QMessageBox,
+    QStackedWidget,
+    QStyle,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
-from ui.collections.tree.constants import (EMPTY_COLLECTION_HTML, ICON_CACHE,
-                                           PLACEHOLDER_MARKER, ROLE_ITEM_ID,
-                                           ROLE_ITEM_TYPE, ROLE_LINE_EDIT,
-                                           ROLE_MIME_DATA, ROLE_NAME_LABEL,
-                                           ROLE_OLD_NAME, ROLE_PLACEHOLDER)
+from ui.collections.tree.constants import (
+    EMPTY_COLLECTION_HTML,
+    ICON_CACHE,
+    PLACEHOLDER_MARKER,
+    ROLE_ITEM_ID,
+    ROLE_ITEM_TYPE,
+    ROLE_LINE_EDIT,
+    ROLE_MIME_DATA,
+    ROLE_NAME_LABEL,
+    ROLE_OLD_NAME,
+    ROLE_PLACEHOLDER,
+)
 from ui.collections.tree.draggable_tree_widget import DraggableTreeWidget
-from ui.theme import (COLOR_ACCENT, COLOR_HOVER_TREE_BG, COLOR_SELECTED_BG,
-                      COLOR_TEXT_MUTED, method_color)
+from ui.theme import (
+    BADGE_BORDER_RADIUS,
+    BADGE_FONT_SIZE,
+    BADGE_HEIGHT,
+    BADGE_MIN_WIDTH,
+    COLOR_ACCENT,
+    COLOR_HOVER_TREE_BG,
+    COLOR_SELECTED_BG,
+    COLOR_TEXT,
+    COLOR_TEXT_MUTED,
+    TREE_ROW_HEIGHT,
+    method_color,
+    method_short_label,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -94,9 +124,13 @@ class CollectionTree(QWidget):
         # Column 1 holds metadata (name, type) via data roles — hide visually
         self._tree.hideColumn(1)
 
-        # Selection and hover styling
+        # Selection, hover, and row height styling
         self._tree.setStyleSheet(
             f"""
+            QTreeWidget::item {{
+                height: {TREE_ROW_HEIGHT}px;
+                padding: 0px 0px;
+            }}
             QTreeWidget::item:hover {{
                 background-color: {COLOR_HOVER_TREE_BG};
             }}
@@ -105,6 +139,7 @@ class CollectionTree(QWidget):
             }}
             """
         )
+        self._tree.setIndentation(16)
 
         layout.addWidget(self._stack)
         self._stack.addWidget(self._tree)  # index 1
@@ -692,26 +727,35 @@ class CollectionTree(QWidget):
         widget = QWidget()
         layout = QHBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(2)
-        badge = QLabel(method.upper())
+        layout.setSpacing(6)
+
+        badge = QLabel(method_short_label(method))
+        badge.setFixedWidth(BADGE_MIN_WIDTH)
+        badge.setFixedHeight(BADGE_HEIGHT)
+        badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         badge.setStyleSheet(
             f"""
             background-color: {method_color(method)};
             color: white;
-            padding: 0px 0px 0 2px;
-            margin-right: 3px;
-            border-radius: 3px;
+            border-radius: {BADGE_BORDER_RADIUS}px;
             font-weight: bold;
-            font-size: 8px;
-
+            font-size: {BADGE_FONT_SIZE}px;
+            font-family: monospace;
             """
         )
+
         label = QLabel(name)
-        label.setStyleSheet("padding-left: 0px;")
+        label.setStyleSheet(
+            f"""
+            color: {COLOR_TEXT};
+            font-size: 12px;
+            padding: 0px;
+            """
+        )
+
         layout.addWidget(badge)
-        layout.addWidget(label)
-        layout.addStretch(1)
-        self._tree.setItemWidget(item, 0, widget)  # <-- Use self._tree
+        layout.addWidget(label, stretch=1)
+        self._tree.setItemWidget(item, 0, widget)
 
     def _set_item_icon(self, item: QTreeWidgetItem, i_type: str, method: str) -> None:
         """Use a system icon if available; otherwise use the Qt style's standard icon."""

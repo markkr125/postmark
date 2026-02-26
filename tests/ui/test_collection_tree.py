@@ -237,9 +237,7 @@ class TestCollectionTreeFilter:
         assert not items[0].isHidden()
         assert not items[1].isHidden()
 
-    def test_filter_shows_parent_of_matching_child(
-        self, qapp: QApplication, qtbot
-    ) -> None:
+    def test_filter_shows_parent_of_matching_child(self, qapp: QApplication, qtbot) -> None:
         """Folders remain visible when they contain matching children."""
         tree = CollectionTree()
         qtbot.addWidget(tree)
@@ -277,9 +275,7 @@ class TestCollectionTreeFilter:
 class TestCollectionTreeDoubleClick:
     """Tests for double-click to open request."""
 
-    def test_double_click_request_emits_open(
-        self, qapp: QApplication, qtbot
-    ) -> None:
+    def test_double_click_request_emits_open(self, qapp: QApplication, qtbot) -> None:
         """Double-clicking a request item emits item_action_triggered."""
         tree = CollectionTree()
         qtbot.addWidget(tree)
@@ -307,9 +303,7 @@ class TestCollectionTreeDoubleClick:
 class TestCollectionTreeKeyboardShortcuts:
     """Tests for F2 and Delete keyboard shortcuts."""
 
-    def test_f2_triggers_rename_folder(
-        self, qapp: QApplication, qtbot
-    ) -> None:
+    def test_f2_triggers_rename_folder(self, qapp: QApplication, qtbot) -> None:
         """Pressing F2 on a folder triggers rename mode."""
         tree = CollectionTree()
         qtbot.addWidget(tree)
@@ -325,9 +319,7 @@ class TestCollectionTreeKeyboardShortcuts:
         result = tree.eventFilter(tree._tree, event)
         assert result is True  # event was handled
 
-    def test_delete_triggers_delete_request(
-        self, qapp: QApplication, qtbot, monkeypatch
-    ) -> None:
+    def test_delete_triggers_delete_request(self, qapp: QApplication, qtbot, monkeypatch) -> None:
         """Pressing Delete on a request triggers delete confirmation."""
         tree = CollectionTree()
         qtbot.addWidget(tree)
@@ -385,9 +377,7 @@ class TestCollectionTreeEmptyState:
         tree.set_collections(data)
         assert tree._stack.currentIndex() == 1  # tree view
 
-    def test_remove_last_item_shows_placeholder(
-        self, qapp: QApplication, qtbot
-    ) -> None:
+    def test_remove_last_item_shows_placeholder(self, qapp: QApplication, qtbot) -> None:
         """Removing the last item switches back to the empty state."""
         tree = CollectionTree()
         qtbot.addWidget(tree)
@@ -437,9 +427,7 @@ class TestCollectionTreeTooltips:
 class TestCollectionTreeSelectedCollection:
     """Tests for the selected_collection_changed signal."""
 
-    def test_selecting_folder_emits_its_id(
-        self, qapp: QApplication, qtbot
-    ) -> None:
+    def test_selecting_folder_emits_its_id(self, qapp: QApplication, qtbot) -> None:
         """Selecting a folder emits its ID via selected_collection_changed."""
         tree = CollectionTree()
         qtbot.addWidget(tree)
@@ -453,9 +441,7 @@ class TestCollectionTreeSelectedCollection:
 
         assert blocker.args == [1]
 
-    def test_selecting_request_emits_parent_id(
-        self, qapp: QApplication, qtbot
-    ) -> None:
+    def test_selecting_request_emits_parent_id(self, qapp: QApplication, qtbot) -> None:
         """Selecting a request emits the parent folder's ID."""
         tree = CollectionTree()
         qtbot.addWidget(tree)

@@ -47,9 +47,7 @@ class TestCollectionHeader:
 
         assert not header._new_req_act.isEnabled()
 
-    def test_new_request_enabled_after_selection(
-        self, qapp: QApplication, qtbot
-    ) -> None:
+    def test_new_request_enabled_after_selection(self, qapp: QApplication, qtbot) -> None:
         """Setting a selected collection ID enables the 'New request' action."""
         header = CollectionHeader()
         qtbot.addWidget(header)
@@ -69,9 +67,7 @@ class TestCollectionHeader:
 
         assert blocker.args == [42]
 
-    def test_new_request_disabled_on_none_selection(
-        self, qapp: QApplication, qtbot
-    ) -> None:
+    def test_new_request_disabled_on_none_selection(self, qapp: QApplication, qtbot) -> None:
         """Clearing the selection disables the 'New request' action."""
         header = CollectionHeader()
         qtbot.addWidget(header)

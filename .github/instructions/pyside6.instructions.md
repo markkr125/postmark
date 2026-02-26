@@ -101,6 +101,35 @@ Never hardcode hex colour values in widget files. Import from `ui.theme`:
 from ui.theme import COLOR_ACCENT, METHOD_COLORS, DEFAULT_METHOD_COLOR, method_color
 ```
 
+### Theme module contents
+
+`theme.py` provides three categories of exports:
+
+1. **Colour constants** — semantic (`COLOR_ACCENT`, `COLOR_SUCCESS`, etc.),
+   neutral (`COLOR_WHITE`, `COLOR_TEXT`, etc.), and import-dialog-specific
+   (`COLOR_DROP_ZONE_BORDER`, etc.).
+2. **Method colour mapping** — `METHOD_COLORS: dict[str, str]` maps HTTP
+   methods to colours. `DEFAULT_METHOD_COLOR` is the fallback.
+   `method_color(method)` returns the colour for a given method string.
+3. **Badge system** — constants and helpers for the tree item request badges:
+   - `METHOD_SHORT_LABELS: dict[str, str]` — compact labels (e.g.
+     `DELETE` → `DEL`, `PATCH` → `PAT`, `OPTIONS` → `OPT`).
+   - `BADGE_FONT_SIZE` (9px), `BADGE_MIN_WIDTH` (32px), `BADGE_HEIGHT`
+     (16px), `BADGE_BORDER_RADIUS` (3px), `TREE_ROW_HEIGHT` (24px).
+   - `method_short_label(method)` — returns the short label for a method.
+
+### Tree item badge rendering
+
+Request items in the collection tree use a **custom item widget** (set via
+`QTreeWidget.setItemWidget`).  The widget is an `HBoxLayout` containing:
+
+1. A fixed-width `QLabel` badge (32×16px, monospace font, centered text,
+   coloured background from `method_color()`).
+2. A `QLabel` showing the request name (elided).
+
+Folder items use **no custom widget** — they show standard `setText` content
+with a folder icon.
+
 ## Wrap programmatic item edits in blockSignals
 
 `QTreeWidget` emits `itemChanged` whenever item text is modified — including

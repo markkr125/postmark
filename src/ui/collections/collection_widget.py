@@ -90,6 +90,7 @@ class CollectionWidget(QWidget):
         self._header.new_collection_requested.connect(self._create_new_collection)
         self._header.new_request_requested.connect(self._create_new_request)
         self._header.search_changed.connect(self._on_search_changed)
+        self._header.import_requested.connect(self._on_import_requested)
         main_layout.addWidget(self._header)
 
         # Tree
@@ -255,3 +256,11 @@ class CollectionWidget(QWidget):
     def _on_search_changed(self, text: str) -> None:
         """Filter tree items based on the search text."""
         self._tree_widget.filter_items(text)
+
+    def _on_import_requested(self) -> None:
+        """Open the import dialog and refresh the tree on success."""
+        from ui.import_dialog import ImportDialog
+
+        dialog = ImportDialog(self)
+        dialog.import_completed.connect(self._start_fetch)
+        dialog.exec()

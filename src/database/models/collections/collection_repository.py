@@ -111,6 +111,12 @@ def create_new_request(
     headers: str | None = None,
     scripts: dict | None = None,
     settings: dict | None = None,
+    description: str | None = None,
+    auth: dict | None = None,
+    body_mode: str | None = None,
+    body_options: dict | None = None,
+    events: dict | None = None,
+    protocol_profile_behavior: dict | None = None,
 ) -> RequestModel:
     """Add a new request to the specified collection.
 
@@ -124,6 +130,12 @@ def create_new_request(
         headers: Optional serialised headers.
         scripts: Optional JSON-serialisable scripts.
         settings: Optional JSON-serialisable settings.
+        description: Optional description text.
+        auth: Optional auth configuration dict.
+        body_mode: Optional body mode (raw, formdata, etc.).
+        body_options: Optional body options (language, etc.).
+        events: Optional event scripts.
+        protocol_profile_behavior: Optional Postman behavior overrides.
 
     Returns:
         The newly created ``RequestModel`` instance.
@@ -143,6 +155,12 @@ def create_new_request(
             headers=headers,
             scripts=scripts,
             settings=settings,
+            description=description,
+            auth=auth,
+            body_mode=body_mode,
+            body_options=body_options,
+            events=events,
+            protocol_profile_behavior=protocol_profile_behavior,
         )
         session.add(new_request)
         session.flush()
