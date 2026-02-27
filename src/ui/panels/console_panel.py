@@ -10,7 +10,11 @@ from __future__ import annotations
 import logging
 
 from PySide6.QtCore import QObject, Signal, Slot
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QTextEdit, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (QHBoxLayout, QLabel, QPushButton, QTextEdit,
+                               QVBoxLayout, QWidget)
+
+# Maximum number of log lines kept in the console output.
+_MAX_LOG_LINES = 2000
 
 
 class _LogSignalBridge(QObject):
@@ -88,6 +92,20 @@ class ConsolePanel(QWidget):
     def _append_log(self, message: str) -> None:
         """Append a log message to the console output."""
         self._output.append(message)
+
+        # Cap the document size to avoid unbounded memory growth.
+        doc = self._output.document()
+        if doc and doc.blockCount() > _MAX_LOG_LINES:
+            cursor = self._output.textCursor()
+            cursor.movePosition(cursor.MoveOperation.Start)
+            cursor.movePosition(
+                cursor.MoveOperation.Down,
+                cursor.MoveMode.KeepAnchor,
+                doc.blockCount() - _MAX_LOG_LINES,
+            )
+            cursor.removeSelectedText()
+            cursor.deleteChar()  # remove the trailing newline
+
         # Auto-scroll to bottom
         sb = self._output.verticalScrollBar()
         if sb:
@@ -99,5 +117,6 @@ class ConsolePanel(QWidget):
 
     def cleanup(self) -> None:
         """Remove the log handler (call on shutdown)."""
+        logging.getLogger().removeHandler(self._handler)
         logging.getLogger().removeHandler(self._handler)
         logging.getLogger().removeHandler(self._handler)

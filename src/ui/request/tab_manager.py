@@ -109,3 +109,16 @@ class TabContext:
             self.worker.deleteLater()
             self.worker = None
         self.is_sending = False
+
+    def dispose(self) -> None:
+        """Release all Python references held by this context.
+
+        Call after the widgets have been removed from their parent
+        layouts and scheduled for deletion.  Clearing the Python-side
+        attributes allows the garbage collector to reclaim the PySide6
+        wrapper objects without waiting for ``deleteLater`` to fire.
+        """
+        self.cleanup_thread()
+        self.editor = None  # type: ignore[assignment]
+        self.response_viewer = None  # type: ignore[assignment]
+        self.request_id = None

@@ -13,9 +13,17 @@ from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication, QStyleFactory
 
-from ui.theme import (BADGE_BORDER_RADIUS, BADGE_FONT_SIZE, BADGE_HEIGHT,
-                      BADGE_MIN_WIDTH, DARK_PALETTE, LIGHT_PALETTE,
-                      TREE_ROW_HEIGHT, ThemePalette, set_active_palette)
+from ui.theme import (
+    BADGE_BORDER_RADIUS,
+    BADGE_FONT_SIZE,
+    BADGE_HEIGHT,
+    BADGE_MIN_WIDTH,
+    DARK_PALETTE,
+    LIGHT_PALETTE,
+    TREE_ROW_HEIGHT,
+    ThemePalette,
+    set_active_palette,
+)
 
 logger = logging.getLogger(__name__)
 

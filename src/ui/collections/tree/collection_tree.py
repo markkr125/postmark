@@ -5,45 +5,20 @@ from __future__ import annotations
 import logging
 from typing import Any, cast
 
-from PySide6.QtCore import QEvent, QMimeData, QObject, QPoint, Qt, QTimer, Signal, Slot
+from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QAction, QIcon, QKeyEvent
-from PySide6.QtWidgets import (
-    QApplication,
-    QBoxLayout,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QMenu,
-    QMessageBox,
-    QStackedWidget,
-    QStyle,
-    QTreeWidget,
-    QTreeWidgetItem,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import (QApplication, QLabel, QLineEdit, QMenu,
+                               QMessageBox, QStackedWidget, QStyle,
+                               QTreeWidget, QTreeWidgetItem, QVBoxLayout,
+                               QWidget)
 
-from ui.collections.tree.constants import (
-    EMPTY_COLLECTION_HTML,
-    ICON_CACHE,
-    PLACEHOLDER_MARKER,
-    ROLE_ITEM_ID,
-    ROLE_ITEM_TYPE,
-    ROLE_LINE_EDIT,
-    ROLE_MIME_DATA,
-    ROLE_NAME_LABEL,
-    ROLE_OLD_NAME,
-    ROLE_PLACEHOLDER,
-)
+from ui.collections.tree.collection_tree_delegate import CollectionTreeDelegate
+from ui.collections.tree.constants import (EMPTY_COLLECTION_HTML, ICON_CACHE,
+                                           PLACEHOLDER_MARKER, ROLE_ITEM_ID,
+                                           ROLE_ITEM_TYPE, ROLE_METHOD,
+                                           ROLE_OLD_NAME, ROLE_PLACEHOLDER)
 from ui.collections.tree.draggable_tree_widget import DraggableTreeWidget
-from ui.theme import (
-    BADGE_HEIGHT,
-    BADGE_MIN_WIDTH,
-    COLOR_ACCENT,
-    COLOR_WHITE,
-    method_color,
-    method_short_label,
-)
+from ui.theme import COLOR_ACCENT
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +73,7 @@ class CollectionTree(QWidget):
         self._stack.addWidget(empty_widget)  # index 0
 
         self._tree = DraggableTreeWidget()
+        self._tree.setItemDelegate(CollectionTreeDelegate(self._tree))
         self._tree.setHeaderHidden(True)
         self._tree.itemChanged.connect(self._on_item_changed)
         self._tree.currentItemChanged.connect(self._on_current_item_changed)
@@ -438,58 +414,34 @@ class CollectionTree(QWidget):
     def _rename_request(self, item_id: int, tree_item: QTreeWidgetItem) -> None:
         """Initiate in-place renaming of a request item in the UI tree.
 
-        Parameters
-        ----------
-        item_id : Any
-            The identifier of the item being renamed (unused in the current implementation but kept for API consistency).
-        tree_item : QTreeWidgetItem
-            The tree item that the user has selected to rename.
-
-        Notes:
-        -----
-        The method temporarily blocks signals to prevent unwanted side-effects,
-        sets the item to be editable, and triggers the built-in editor widget
-        for the item. The original name is stored in the item's data for later
-        reference or rollback if needed.
+        An overlay ``QLineEdit`` is positioned over the item's visual
+        rectangle inside the tree viewport.  This avoids relying on
+        ``setItemWidget`` which is no longer used for request items.
         """
-        if tree_item is not None:
-            old_name = tree_item.text(1)  # Requests store name in column 1
-            tree_item.setData(1, ROLE_OLD_NAME, old_name)
+        if tree_item is None:
+            return
 
-            # Get the widget and replace the label with a line edit
-            widget = self._tree.itemWidget(tree_item, 0)
-            if widget:
-                layout = widget.layout()
-                if layout and layout.count() >= 2:
-                    # Get and hide the name label
-                    layout_item = layout.itemAt(1)
-                    name_label = layout_item.widget() if layout_item else None
-                    if name_label:
-                        name_label.hide()
+        old_name = tree_item.text(1)  # Requests store name in column 1
+        tree_item.setData(1, ROLE_OLD_NAME, old_name)
 
-                        # Create a line edit for editing
-                        line_edit = QLineEdit(old_name)
-                        line_edit.setStyleSheet(
-                            f"padding-left: 0px; border: 1px solid {COLOR_ACCENT};"
-                        )
-                        line_edit.selectAll()
+        # Calculate geometry inside the viewport
+        item_rect = self._tree.visualItemRect(tree_item)
+        viewport = self._tree.viewport()
 
-                        # Store references
-                        tree_item.setData(1, ROLE_LINE_EDIT, line_edit)
-                        tree_item.setData(1, ROLE_NAME_LABEL, name_label)
+        line_edit = QLineEdit(old_name, viewport)
+        line_edit.setStyleSheet(f"padding-left: 2px; border: 1px solid {COLOR_ACCENT};")
+        line_edit.setGeometry(item_rect)
+        line_edit.selectAll()
+        line_edit.show()
+        line_edit.setFocus()
 
-                        # Connect signals
-                        line_edit.returnPressed.connect(
-                            lambda: self._finish_request_rename(tree_item, line_edit, True)
-                        )
-                        line_edit.editingFinished.connect(
-                            lambda: self._finish_request_rename(tree_item, line_edit, False)
-                        )
-
-                        # Insert the line edit after the badge
-                        box_layout = cast(QBoxLayout, layout)
-                        box_layout.insertWidget(1, line_edit)
-                        line_edit.setFocus()
+        # Connect signals
+        line_edit.returnPressed.connect(
+            lambda: self._finish_request_rename(tree_item, line_edit, True)
+        )
+        line_edit.editingFinished.connect(
+            lambda: self._finish_request_rename(tree_item, line_edit, False)
+        )
 
     def _finish_request_rename(
         self,
@@ -507,12 +459,8 @@ class CollectionTree(QWidget):
 
         new_name = line_edit.text().strip()
         old_name = tree_item.data(1, ROLE_OLD_NAME)
-        name_label = tree_item.data(1, ROLE_NAME_LABEL)
 
-        if not name_label:
-            return
-
-        # Remove the line edit
+        # Remove the overlay line edit
         line_edit.hide()
         line_edit.deleteLater()
 
@@ -520,17 +468,9 @@ class CollectionTree(QWidget):
         if new_name and new_name != old_name:
             item_id = tree_item.data(0, ROLE_ITEM_ID)
             tree_item.setText(1, new_name)
-            name_label.setText(new_name)
             self.request_rename_requested.emit(item_id, new_name)
-        else:
-            # Revert to old name
-            name_label.setText(old_name)
 
-        # Show the label again
-        name_label.show()
         tree_item.setData(1, ROLE_OLD_NAME, None)
-        tree_item.setData(1, ROLE_LINE_EDIT, None)
-        tree_item.setData(1, ROLE_NAME_LABEL, None)
 
     @Slot(QTreeWidgetItem, int)
     def _on_item_changed(self, item: QTreeWidgetItem, column: int) -> None:
@@ -664,7 +604,8 @@ class CollectionTree(QWidget):
 
                 # 2. Store the ID on the root item
                 root_item.setData(0, ROLE_ITEM_ID, value.get("id"))  # id
-                root_item.setData(1, ROLE_ITEM_TYPE, value.get("type"))  # type
+                root_item.setData(0, ROLE_ITEM_TYPE, value.get("type"))  # type (col 0 for delegate)
+                root_item.setData(1, ROLE_ITEM_TYPE, value.get("type"))  # type (col 1 legacy)
 
                 # 3. Apply icon / widget
                 self._apply_item_properties(root_item, value)
@@ -688,7 +629,8 @@ class CollectionTree(QWidget):
 
             # Store the ID on the item (folder or request)
             child.setData(0, ROLE_ITEM_ID, value.get("id"))  # id
-            child.setData(1, ROLE_ITEM_TYPE, value.get("type"))  # type
+            child.setData(0, ROLE_ITEM_TYPE, value.get("type"))  # type (col 0 for delegate)
+            child.setData(1, ROLE_ITEM_TYPE, value.get("type"))  # type (col 1 legacy)
 
             # Only show indicator for folders
             if value.get("type") == "folder":
@@ -703,7 +645,7 @@ class CollectionTree(QWidget):
                 self._add_items(child, value["children"])
 
     def _apply_item_properties(self, item: QTreeWidgetItem, spec: dict[str, Any]) -> None:
-        """Set icon/widget, tooltip, and MIME data for the given tree item."""
+        """Set icon, tooltip, and data roles for the given tree item."""
         item_type = spec.get("type", "folder")
         method = spec.get("method", "GET")
         name = spec.get("name", "")
@@ -711,44 +653,14 @@ class CollectionTree(QWidget):
         # Tooltip — show full name (and method for requests)
         if item_type == "request":
             item.setToolTip(0, f"{method} {name}")
+            item.setData(0, ROLE_METHOD, method)
         else:
             item.setToolTip(0, name)
-
-        # Store the data that will be read in dropEvent
-        mime = QMimeData()
-        mime.setText(str(spec["id"]))  # the id of the item
-        mime.setData("application/x-itemtype", item_type.encode())  # "folder" or "request"
-
-        # Tell the widget to use that mime data for the drag
-        item.setData(3, ROLE_MIME_DATA, mime)  # a custom role just for drag data
-
-        if item_type == "folder":
             self._set_item_icon(item, item_type, method)
-        else:
-            self._set_item_widget(item, method, item.text(1))
 
     # ----------------------------------------------------------------------
-    # UI helpers (update setItemWidget and setIcon to use self._tree)
+    # UI helpers
     # ----------------------------------------------------------------------
-    def _set_item_widget(self, item: QTreeWidgetItem, method: str, name: str) -> None:
-        """Place a coloured badge (method) next to the request name."""
-        widget = QWidget()
-        layout = QHBoxLayout(widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
-
-        badge = QLabel(method_short_label(method))
-        badge.setObjectName("methodBadge")
-        badge.setFixedWidth(BADGE_MIN_WIDTH)
-        badge.setFixedHeight(BADGE_HEIGHT)
-        badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        badge.setStyleSheet(f"background-color: {method_color(method)}; color: {COLOR_WHITE};")
-
-        label = QLabel(name)
-
-        layout.addWidget(badge)
-        layout.addWidget(label, stretch=1)
-        self._tree.setItemWidget(item, 0, widget)
 
     def _set_item_icon(self, item: QTreeWidgetItem, i_type: str, method: str) -> None:
         """Use a system icon if available; otherwise use the Qt style's standard icon."""
@@ -793,7 +705,8 @@ class CollectionTree(QWidget):
             if parent_id is None:
                 root_item = QTreeWidgetItem(self._tree, [spec["name"]])
                 root_item.setData(0, ROLE_ITEM_ID, spec["id"])
-                root_item.setData(1, ROLE_ITEM_TYPE, spec["type"])
+                root_item.setData(0, ROLE_ITEM_TYPE, spec["type"])  # col 0 for delegate
+                root_item.setData(1, ROLE_ITEM_TYPE, spec["type"])  # col 1 legacy
                 self._apply_item_properties(root_item, spec)
                 self._tree.addTopLevelItem(root_item)
             else:
@@ -806,7 +719,8 @@ class CollectionTree(QWidget):
                 self._remove_placeholder(parent_item)
                 child = QTreeWidgetItem(parent_item, [spec["name"]])
                 child.setData(0, ROLE_ITEM_ID, spec["id"])
-                child.setData(1, ROLE_ITEM_TYPE, spec["type"])
+                child.setData(0, ROLE_ITEM_TYPE, spec["type"])  # col 0 for delegate
+                child.setData(1, ROLE_ITEM_TYPE, spec["type"])  # col 1 legacy
                 child.setChildIndicatorPolicy(QTreeWidgetItem.ChildIndicatorPolicy.ShowIndicator)
                 self._apply_item_properties(child, spec)
                 parent_item.setExpanded(True)
@@ -835,7 +749,8 @@ class CollectionTree(QWidget):
 
             child = QTreeWidgetItem(parent_item, ["", spec["name"]])
             child.setData(0, ROLE_ITEM_ID, spec.get("id"))  # id
-            child.setData(1, ROLE_ITEM_TYPE, spec.get("type"))  # type
+            child.setData(0, ROLE_ITEM_TYPE, spec.get("type"))  # type (col 0 for delegate)
+            child.setData(1, ROLE_ITEM_TYPE, spec.get("type"))  # type (col 1 legacy)
             child.setChildIndicatorPolicy(QTreeWidgetItem.ChildIndicatorPolicy.DontShowIndicator)
 
             self._apply_item_properties(child, spec)

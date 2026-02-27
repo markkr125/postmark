@@ -204,8 +204,9 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._editor_stack, 1)
 
         # Default editor (also reachable as self.request_widget)
-        self.request_widget = RequestEditorWidget()
-        self._editor_stack.addWidget(self.request_widget)
+        self._default_editor = RequestEditorWidget()
+        self.request_widget = self._default_editor
+        self._editor_stack.addWidget(self._default_editor)
 
         # Wire send for the default editor
         self.request_widget.send_requested.connect(self._on_send_request)
@@ -226,8 +227,9 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._response_stack, 1)
 
         # Default response viewer
-        self.response_widget = ResponseViewerWidget()
-        self._response_stack.addWidget(self.response_widget)
+        self._default_response_viewer = ResponseViewerWidget()
+        self.response_widget = self._default_response_viewer
+        self._response_stack.addWidget(self._default_response_viewer)
 
         return wrapper
 
@@ -496,6 +498,13 @@ class MainWindow(QMainWindow):
             if ctx.request_id is not None:
                 saved = CollectionService.get_saved_responses(ctx.request_id)
                 ctx.response_viewer.load_saved_responses(saved)
+        else:
+            # No active tab — fall back to the default widgets.
+            self._editor_stack.setCurrentWidget(self._default_editor)
+            self._response_stack.setCurrentWidget(self._default_response_viewer)
+            self.request_widget = self._default_editor
+            self.response_widget = self._default_response_viewer
+            self._breadcrumb_bar.clear()
 
     def _on_tab_close(self, index: int) -> None:
         """Close a tab and clean up its context."""
@@ -506,10 +515,32 @@ class MainWindow(QMainWindow):
         ctx.cancel_send()
         ctx.cleanup_thread()
 
-        self._editor_stack.removeWidget(ctx.editor)
-        self._response_stack.removeWidget(ctx.response_viewer)
-        ctx.editor.deleteLater()
-        ctx.response_viewer.deleteLater()
+        # Grab local references before dispose() nulls the context.
+        editor = ctx.editor
+        viewer = ctx.response_viewer
+
+        # Disconnect signals that reference MainWindow slots so the
+        # sender objects can be garbage-collected.
+        editor.send_requested.disconnect(self._on_send_request)
+        editor.save_requested.disconnect(self._on_save_request)
+        viewer.save_response_requested.disconnect(self._on_save_response)
+
+        # Remove from stacked widgets and detach from parent hierarchy.
+        self._editor_stack.removeWidget(editor)
+        self._response_stack.removeWidget(viewer)
+
+        # Clear heavy data so memory is freed even before the C++
+        # destructor runs.
+        viewer.clear()
+
+        # Detach from any Qt parent so the C++ side is destroyed when
+        # the Python wrapper is garbage-collected.
+        editor.setParent(None)
+        viewer.setParent(None)
+
+        # Release all Python references held by the TabContext.
+        ctx.dispose()
+        del editor, viewer, ctx
 
         self._tab_bar.remove_request_tab(index)
 
@@ -519,6 +550,12 @@ class MainWindow(QMainWindow):
             new_idx = old_idx if old_idx < index else old_idx - 1
             new_tabs[new_idx] = old_ctx
         self._tabs = new_tabs
+
+        # Reset widget references so closed widgets can be collected.
+        # _on_tab_changed may already have run (triggered by removeTab),
+        # but the re-indexing above can leave stale refs.  Force a sync.
+        current = self._tab_bar.currentIndex()
+        self._on_tab_changed(current)
 
     def _on_tab_double_click(self, index: int) -> None:
         """Promote a preview tab to a permanent tab."""

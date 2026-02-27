@@ -198,15 +198,23 @@ For everything else, use `setObjectName()` and let the global QSS handle it.
 
 ### Tree item badge rendering
 
-Request items in the collection tree use a **custom item widget** (set via
-`QTreeWidget.setItemWidget`).  The widget is an `HBoxLayout` containing:
+Request items in the collection tree use a **custom delegate**
+(`CollectionTreeDelegate`, a `QStyledItemDelegate` subclass) that paints the
+method badge and request name directly — no per-row `QWidget` is created.
+This saves ~50-60 KB per request item compared to `setItemWidget`.
 
-1. A fixed-width `QLabel` badge (32×16px, monospace font, centered text,
-   coloured background from `method_color()`).
-2. A `QLabel` showing the request name (elided).
+The delegate reads `ROLE_METHOD` (column 0) for the HTTP method and column 1
+display text for the request name.  It paints:
 
-Folder items use **no custom widget** — they show standard `setText` content
-with a folder icon.
+1. A rounded-rect badge (`BADGE_MIN_WIDTH` x `BADGE_HEIGHT`, background from
+   `method_color()`, white text from `method_short_label()`).
+2. The request name (elided, palette-aware text colour).
+
+Folder items fall through to the default `QStyledItemDelegate` rendering
+(standard `setText` content with a folder icon).
+
+**Placeholder items** (empty-folder prompts) still use `setItemWidget`
+because they contain clickable HTML links.
 
 ## Wrap programmatic item edits in blockSignals
 
@@ -236,13 +244,12 @@ semantics:
 | | Column 0 | Column 1 |
 |---|---|---|
 | **Folder** | Display name (text + icon) | Type metadata only (via data roles) |
-| **Request** | Custom widget (`setItemWidget` — method badge + label), text is `""` | Raw name text (used for rename storage) |
+| **Request** | Empty text `""` (delegate paints badge + name) | Raw name text (used for rename and delegate display) |
 
 Because of this asymmetry:
 - Folder rename uses Qt's built-in `editItem()` on column 0.
-- Request rename injects a manual `QLineEdit` into the custom widget layout.
-- Reading a request's display name requires fetching from the `QLabel` inside
-  the item widget, **not** from `item.text(0)` (which is always empty).
+- Request rename creates an overlay `QLineEdit` on the tree viewport.
+- Reading a request's display name: use `item.text(1)` (column 1).
 
 ## Data role layout on QTreeWidgetItems
 
@@ -253,12 +260,13 @@ All constants are defined in `ui/collections/tree/constants.py`.
 | `ROLE_ITEM_ID` | `UserRole` | Column 0 | Database PK (`int`) |
 | `ROLE_ITEM_TYPE` | `UserRole + 1` | Column 1 | `"folder"` or `"request"` |
 | `ROLE_OLD_NAME` | `UserRole + 2` | Column 1 | Original name stashed during rename |
-| `ROLE_LINE_EDIT` | `UserRole + 3` | Column 1 | Temp `QLineEdit` ref during request rename |
-| `ROLE_NAME_LABEL` | `UserRole + 4` | Column 1 | `QLabel` ref during request rename |
-| `ROLE_MIME_DATA` | `UserRole + 5` | Column 3 | `QMimeData` for drag |
+| `ROLE_LINE_EDIT` | `UserRole + 3` | Column 1 | (legacy — unused with delegate approach) |
+| `ROLE_NAME_LABEL` | `UserRole + 4` | Column 1 | (legacy — unused with delegate approach) |
+| `ROLE_MIME_DATA` | `UserRole + 5` | Column 3 | (legacy — unused, drag reads data roles directly) |
+| `ROLE_METHOD` | `UserRole + 6` | Column 0 | HTTP method string (requests only) |
 | `ROLE_PLACEHOLDER` | `UserRole + 10` | Column 1 | `"placeholder"` marker string |
 
-Gap at `+6` through `+9` is reserved for future roles.
+Gap at `+7` through `+9` is reserved for future roles.
 
 ## Context-menu state — `_current_item`
 

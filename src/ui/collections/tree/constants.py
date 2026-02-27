@@ -21,6 +21,7 @@ ROLE_OLD_NAME = Qt.ItemDataRole.UserRole + 2  # column 1 - original name (rename
 ROLE_LINE_EDIT = Qt.ItemDataRole.UserRole + 3  # column 1 - QLineEdit ref during rename
 ROLE_NAME_LABEL = Qt.ItemDataRole.UserRole + 4  # column 1 - QLabel ref during rename
 ROLE_MIME_DATA = Qt.ItemDataRole.UserRole + 5  # column 3 - drag/drop QMimeData
+ROLE_METHOD = Qt.ItemDataRole.UserRole + 6  # column 0 - HTTP method for requests
 ROLE_PLACEHOLDER = Qt.ItemDataRole.UserRole + 10  # column 1 - "placeholder" marker
 
 # ----------------------------------------------------------------------

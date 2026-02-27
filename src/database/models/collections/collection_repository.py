@@ -20,42 +20,80 @@ from .model.request_model import RequestModel
 logger = logging.getLogger(__name__)
 
 
-def _collections_to_dict(collections: list[CollectionModel]) -> dict[str, Any]:
-    """Recursively convert ORM collection objects to a nested dict.
+def _build_tree_dict_lightweight() -> dict[str, Any]:
+    """Build the sidebar tree dict by streaming two lightweight queries.
 
-    Must be called **inside** an open session so that lazy-loaded
-    relationships (children, requests) can be resolved at any depth.
+    Rows are consumed one at a time via ``yield_per`` and written directly
+    into the target dict, so the intermediate SQLAlchemy ``Row`` objects
+    are discarded immediately rather than being held alongside the final
+    dict.  Only columns needed for the tree display are fetched:
+
+    - collections: ``id``, ``name``, ``parent_id``
+    - requests: ``id``, ``name``, ``method``, ``collection_id``
+
+    Heavy columns (body, headers, JSON blobs) and ``saved_responses`` are
+    never touched.
     """
-    result: dict[str, Any] = {}
-    for collection in collections:
-        children_dict = _collections_to_dict(list(collection.children or []))
-        for request in collection.requests or []:
-            children_dict[str(request.id)] = {
-                "type": "request",
-                "id": request.id,
-                "name": request.name,
-                "method": request.method,
+    _YIELD_CHUNK = 500
+
+    col_by_id: dict[int, dict[str, Any]] = {}
+
+    with get_session() as session:
+        # 1. Stream collections into the lookup dict
+        col_stmt = select(
+            CollectionModel.id,
+            CollectionModel.name,
+            CollectionModel.parent_id,
+        )
+        for cid, cname, pid in session.execute(col_stmt).yield_per(_YIELD_CHUNK):
+            col_by_id[cid] = {
+                "id": cid,
+                "name": cname,
+                "parent_id": pid,
+                "type": "folder",
+                "children": {},
             }
-        result[str(collection.id)] = {
-            "id": collection.id,
-            "name": collection.name,
-            "type": "folder",
-            "children": children_dict,
-        }
-    return result
+
+        # 2. Stream requests directly into their parent collection
+        req_stmt = select(
+            RequestModel.id,
+            RequestModel.name,
+            RequestModel.method,
+            RequestModel.collection_id,
+        )
+        for rid, rname, rmethod, rcol_id in session.execute(req_stmt).yield_per(_YIELD_CHUNK):
+            parent = col_by_id.get(rcol_id)
+            if parent is not None:
+                parent["children"][str(rid)] = {
+                    "type": "request",
+                    "id": rid,
+                    "name": rname,
+                    "method": rmethod,
+                }
+
+    # 3. Build the tree by nesting children under parents
+    roots: dict[str, Any] = {}
+    for cid, node in col_by_id.items():
+        pid = node.pop("parent_id")  # no longer needed in output
+        if pid is None:
+            roots[str(cid)] = node
+        else:
+            parent = col_by_id.get(pid)
+            if parent is not None:
+                parent["children"][str(cid)] = node
+
+    return roots
 
 
 def fetch_all_collections() -> dict[str, Any]:
     """Return every root collection as a nested dict.
 
-    The ORM-to-dict conversion happens inside the session so that
-    self-referencing ``children`` relationships are resolved at
-    arbitrary depth without ``DetachedInstanceError``.
+    Uses two streamed scalar queries (``yield_per``) that build the tree
+    dict in place, so intermediate ``Row`` objects are discarded
+    immediately.  Only the columns needed for the sidebar tree are
+    fetched — heavy columns and relationships are never touched.
     """
-    with get_session() as session:
-        stmt = select(CollectionModel).where(CollectionModel.parent_id.is_(None))
-        roots = list(session.execute(stmt).scalars().all())
-        return _collections_to_dict(roots)
+    return _build_tree_dict_lightweight()
 
 
 def create_new_collection(name: str, parent_id: int | None = None) -> CollectionModel:
