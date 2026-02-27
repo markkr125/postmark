@@ -39,6 +39,22 @@ class TestMainWindow:
         assert "&File" in menu_titles
         assert "&Collection" in menu_titles
 
+    def test_file_menu_has_settings(self, qapp: QApplication, qtbot) -> None:
+        """File menu contains a Settings action."""
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        menubar = window.menuBar()
+        assert menubar is not None
+        file_menu = None
+        for action in menubar.actions():
+            if action.text() == "&File":
+                file_menu = action.menu()
+                break
+        assert file_menu is not None
+        action_texts = [a.text() for a in file_menu.actions()]  # type: ignore[attr-defined]
+        assert "&Settings\u2026" in action_texts
+
     def test_request_editor_is_request_editor_widget(self, qapp: QApplication, qtbot) -> None:
         """MainWindow uses RequestEditorWidget for the request pane."""
         window = MainWindow()
@@ -57,6 +73,22 @@ class TestMainWindow:
         qtbot.addWidget(window)
         assert not window.back_action.isEnabled()
         assert not window.forward_action.isEnabled()
+
+    def test_loading_screen_transitions_to_main_ui(self, qapp: QApplication, qtbot) -> None:
+        """MainWindow starts on loading screen and switches when load finishes."""
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        # Initially on loading screen (index 0)
+        assert window._main_stack.currentIndex() == 0
+        assert window.menuBar().isHidden()
+
+        # Simulate load finished
+        window.collection_widget.load_finished.emit()
+
+        # Switches to main UI (index 1)
+        assert window._main_stack.currentIndex() == 1
+        assert not window.menuBar().isHidden()
 
 
 class TestMainWindowNavigation:

@@ -24,14 +24,10 @@ from PySide6.QtWidgets import (
 )
 
 from ui.theme import (
-    COLOR_ACCENT,
-    COLOR_BORDER,
     COLOR_DANGER,
     COLOR_DELETE,
     COLOR_IMPORT_ERROR,
     COLOR_SUCCESS,
-    COLOR_TEXT,
-    COLOR_TEXT_MUTED,
     COLOR_WARNING,
     COLOR_WHITE,
 )
@@ -86,9 +82,7 @@ class ResponseViewerWidget(QWidget):
 
         # -- Response label -------------------------------------------
         self._response_label = QLabel("Response")
-        self._response_label.setStyleSheet(
-            f"font-size: 12px; font-weight: bold; color: {COLOR_TEXT};"
-        )
+        self._response_label.setObjectName("panelTitle")
         root.addWidget(self._response_label)
 
         # -- Status bar row -------------------------------------------
@@ -100,11 +94,11 @@ class ResponseViewerWidget(QWidget):
         status_row.addWidget(self._status_label)
 
         self._time_label = QLabel()
-        self._time_label.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px;")
+        self._time_label.setObjectName("mutedLabel")
         status_row.addWidget(self._time_label)
 
         self._size_label = QLabel()
-        self._size_label.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px;")
+        self._size_label.setObjectName("mutedLabel")
         status_row.addWidget(self._size_label)
 
         status_row.addStretch()
@@ -118,34 +112,11 @@ class ResponseViewerWidget(QWidget):
         self._progress_bar.setRange(0, 0)  # indeterminate
         self._progress_bar.setFixedHeight(_PROGRESS_HEIGHT)
         self._progress_bar.setTextVisible(False)
-        self._progress_bar.setStyleSheet(
-            f"""
-            QProgressBar {{
-                border: none;
-                background: transparent;
-            }}
-            QProgressBar::chunk {{
-                background: {COLOR_ACCENT};
-            }}
-            """
-        )
         self._progress_bar.hide()
         root.addWidget(self._progress_bar)
 
         # -- Tabbed area: Body, Headers -------------------------------
         self._tabs = QTabWidget()
-        self._tabs.setStyleSheet(
-            f"""
-            QTabBar::tab {{
-                padding: 6px 14px;
-                color: {COLOR_TEXT_MUTED};
-            }}
-            QTabBar::tab:selected {{
-                color: {COLOR_TEXT};
-                border-bottom: 2px solid {COLOR_ACCENT};
-            }}
-            """
-        )
 
         # Body tab with format selector
         body_tab = QWidget()
@@ -156,16 +127,6 @@ class ResponseViewerWidget(QWidget):
         self._format_combo.addItems(["Pretty", "Raw", "JSON", "XML", "HTML"])
         self._format_combo.setFixedWidth(90)
         self._format_combo.currentTextChanged.connect(self._on_format_changed)
-        self._format_combo.setStyleSheet(
-            f"""
-            QComboBox {{
-                background: {COLOR_WHITE};
-                border: 1px solid {COLOR_BORDER};
-                padding: 2px 6px;
-                font-size: 11px;
-            }}
-            """
-        )
 
         format_row = QHBoxLayout()
         format_row.addWidget(self._format_combo)
@@ -173,21 +134,14 @@ class ResponseViewerWidget(QWidget):
         self._beautify_btn = QPushButton("Beautify")
         self._beautify_btn.setFixedWidth(70)
         self._beautify_btn.setToolTip("Format and beautify the response body")
-        self._beautify_btn.setStyleSheet(
-            f"background: {COLOR_ACCENT}; color: {COLOR_WHITE};"
-            f" border: none; padding: 2px 8px; font-size: 11px;"
-            f" border-radius: 3px;"
-        )
+        self._beautify_btn.setObjectName("smallPrimaryButton")
         self._beautify_btn.clicked.connect(self._on_beautify)
         format_row.addWidget(self._beautify_btn)
 
         self._save_response_btn = QPushButton("Save")
         self._save_response_btn.setFixedWidth(50)
         self._save_response_btn.setToolTip("Save this response as a named example")
-        self._save_response_btn.setStyleSheet(
-            f"border: 1px solid {COLOR_BORDER}; padding: 2px 8px;"
-            f" font-size: 11px; border-radius: 3px;"
-        )
+        self._save_response_btn.setObjectName("outlineButton")
         self._save_response_btn.clicked.connect(self._on_save_response)
         format_row.addWidget(self._save_response_btn)
 
@@ -197,16 +151,7 @@ class ResponseViewerWidget(QWidget):
         self._body_edit = QTextEdit()
         self._body_edit.setReadOnly(True)
         self._body_edit.setPlaceholderText("Response body")
-        self._body_edit.setStyleSheet(
-            f"""
-            QTextEdit {{
-                border: 1px solid {COLOR_BORDER};
-                background: {COLOR_WHITE};
-                font-family: monospace;
-                font-size: 12px;
-            }}
-            """
-        )
+        self._body_edit.setObjectName("monoEdit")
         body_layout.addWidget(self._body_edit, 1)
 
         # Search bar for body (toggle with Ctrl+F)
@@ -217,36 +162,27 @@ class ResponseViewerWidget(QWidget):
 
         self._search_input = QLineEdit()
         self._search_input.setPlaceholderText("Find in response\u2026")
-        self._search_input.setStyleSheet(
-            f"background: {COLOR_WHITE}; border: 1px solid {COLOR_BORDER};"
-            f" padding: 3px 6px; font-size: 11px; color: {COLOR_TEXT};"
-        )
         self._search_input.textChanged.connect(self._on_search_text_changed)
         search_layout.addWidget(self._search_input, 1)
 
         self._search_count_label = QLabel("")
-        self._search_count_label.setStyleSheet(
-            f"color: {COLOR_TEXT_MUTED}; font-size: 11px; min-width: 60px;"
-        )
+        self._search_count_label.setObjectName("mutedLabel")
         search_layout.addWidget(self._search_count_label)
 
         prev_btn = QPushButton("\u25b2")
         prev_btn.setFixedWidth(24)
-        prev_btn.setStyleSheet("border: none; font-size: 10px;")
         prev_btn.setToolTip("Previous match")
         prev_btn.clicked.connect(self._search_prev)
         search_layout.addWidget(prev_btn)
 
         next_btn = QPushButton("\u25bc")
         next_btn.setFixedWidth(24)
-        next_btn.setStyleSheet("border: none; font-size: 10px;")
         next_btn.setToolTip("Next match")
         next_btn.clicked.connect(self._search_next)
         search_layout.addWidget(next_btn)
 
         close_btn = QPushButton("\u2715")
         close_btn.setFixedWidth(24)
-        close_btn.setStyleSheet("border: none; font-size: 10px;")
         close_btn.setToolTip("Close search")
         close_btn.clicked.connect(self._close_search)
         search_layout.addWidget(close_btn)
@@ -267,48 +203,21 @@ class ResponseViewerWidget(QWidget):
         self._headers_edit = QTextEdit()
         self._headers_edit.setReadOnly(True)
         self._headers_edit.setPlaceholderText("Response headers")
-        self._headers_edit.setStyleSheet(
-            f"""
-            QTextEdit {{
-                border: 1px solid {COLOR_BORDER};
-                background: {COLOR_WHITE};
-                font-family: monospace;
-                font-size: 12px;
-            }}
-            """
-        )
+        self._headers_edit.setObjectName("monoEdit")
         self._tabs.addTab(self._headers_edit, "Headers")
 
         # Cookies tab (placeholder)
         self._cookies_edit = QTextEdit()
         self._cookies_edit.setReadOnly(True)
         self._cookies_edit.setPlaceholderText("Response cookies")
-        self._cookies_edit.setStyleSheet(
-            f"""
-            QTextEdit {{
-                border: 1px solid {COLOR_BORDER};
-                background: {COLOR_WHITE};
-                font-family: monospace;
-                font-size: 12px;
-            }}
-            """
-        )
+        self._cookies_edit.setObjectName("monoEdit")
         self._tabs.addTab(self._cookies_edit, "Cookies")
 
         # Saved responses tab
         self._saved_list = QTextEdit()
         self._saved_list.setReadOnly(True)
         self._saved_list.setPlaceholderText("No saved responses")
-        self._saved_list.setStyleSheet(
-            f"""
-            QTextEdit {{
-                border: 1px solid {COLOR_BORDER};
-                background: {COLOR_WHITE};
-                font-family: monospace;
-                font-size: 12px;
-            }}
-            """
-        )
+        self._saved_list.setObjectName("monoEdit")
         self._tabs.addTab(self._saved_list, "Saved")
 
         root.addWidget(self._tabs, 1)
@@ -316,9 +225,7 @@ class ResponseViewerWidget(QWidget):
         # -- Empty state label ----------------------------------------
         self._empty_label = QLabel("Send a request to see the response.")
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._empty_label.setStyleSheet(
-            f"color: {COLOR_TEXT_MUTED}; font-style: italic; font-size: 13px;"
-        )
+        self._empty_label.setObjectName("emptyStateLabel")
         self._empty_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         root.addWidget(self._empty_label)
 

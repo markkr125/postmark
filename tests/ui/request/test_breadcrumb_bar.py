@@ -55,9 +55,7 @@ class TestBreadcrumbBar:
         bar.set_path(segments)
 
         # The first label (index 0) is clickable ("Root")
-        first_item = bar._layout.itemAt(0)
-        assert first_item is not None
-        label = first_item.widget()
+        label = bar._layout.itemAt(0).widget()
         with qtbot.waitSignal(bar.item_clicked, timeout=1000) as sig:
             qtbot.mouseClick(label, Qt.MouseButton.LeftButton)
         assert sig.args == ["folder", 1]

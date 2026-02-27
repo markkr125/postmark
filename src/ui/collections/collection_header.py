@@ -2,26 +2,17 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QAction, QIcon
-from PySide6.QtWidgets import (
-    QHBoxLayout,
-    QLineEdit,
-    QMenu,
-    QSizePolicy,
-    QToolButton,
-    QVBoxLayout,
-    QWidget,
-)
-
-from ui.theme import COLOR_BORDER, COLOR_HOVER_BG, COLOR_TEXT, COLOR_TEXT_MUTED, COLOR_WHITE
+from PySide6.QtWidgets import (QHBoxLayout, QLabel, QLineEdit, QMenu,
+                               QSizePolicy, QToolButton, QVBoxLayout, QWidget)
 
 
 # ----------------------------------------------------------------------
 # Header management subclass
 # ----------------------------------------------------------------------
 class CollectionHeader(QWidget):
-    """Manages the header with add button and search."""
+    """Manages the header with section label, New/Import buttons, and search."""
 
     # Accept any object (int or None)
     new_collection_requested = Signal(object)  # parent_id or None
@@ -32,39 +23,28 @@ class CollectionHeader(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         """Initialise header bar with search field and action buttons."""
         super().__init__(parent)
-        self.setFixedHeight(75)
-        self.setStyleSheet("background: transparent;")
+        self.setFixedHeight(70)
 
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 10)
-        main_layout.setSpacing(8)
+        main_layout.setContentsMargins(8, 6, 8, 6)
+        main_layout.setSpacing(6)
 
-        # Top row: import button aligned to right
+        # -- Row 1: section label + action buttons --------------------
         top_row = QHBoxLayout()
-        top_row.setSpacing(6)
+        top_row.setSpacing(4)
+
+        section_label = QLabel("Collections")
+        section_label.setObjectName("sidebarSectionLabel")
+        section_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        top_row.addWidget(section_label)
         top_row.addStretch()
 
-        # Import button (small, aligned to right)
-        self._import_btn = QToolButton(self)
-        self._import_btn.setStyleSheet(f"background: {COLOR_WHITE};")
-        self._import_btn.setText("Import")
-        self._import_btn.setToolTip("Import collections/requests")
-        self._import_btn.clicked.connect(lambda: self.import_requested.emit())
-        # TODO: set icon once a bundled asset is available
-        top_row.addWidget(self._import_btn)
-
-        main_layout.addLayout(top_row)
-
-        # Bottom row: + button and search
-        bottom_row = QHBoxLayout()
-        bottom_row.setSpacing(6)
-
-        # "+" button
+        # "New" button with dropdown menu
         self._plus_btn = QToolButton(self)
-        self._plus_btn.setStyleSheet(f"background: {COLOR_WHITE};")
-        self._plus_btn.setIcon(QIcon.fromTheme("list-add"))
-        self._plus_btn.setToolTip("Add new collection")
-        bottom_row.addWidget(self._plus_btn)
+        self._plus_btn.setText("New")
+        self._plus_btn.setObjectName("sidebarToolButton")
+        self._plus_btn.setToolTip("Create new collection or request")
+        top_row.addWidget(self._plus_btn)
 
         # Plus-menu
         self._plus_menu = QMenu(self)
@@ -73,23 +53,6 @@ class CollectionHeader(QWidget):
         self._new_req_act = QAction("New request", self)
         self._new_req_act.setEnabled(False)
         self._plus_menu.addAction(self._new_req_act)
-        self._plus_menu.setStyleSheet(
-            f"""
-    QMenu {{
-        background: {COLOR_WHITE};
-        border: 1px solid {COLOR_BORDER};
-    }}
-    QMenu::item {{
-        padding: 4px 12px;
-        color: {COLOR_TEXT};
-        font-weight: bold;
-    }}
-    QMenu::item:selected:enabled {{
-        background-color: {COLOR_HOVER_BG};
-        color: {COLOR_WHITE};
-    }}
-        """
-        )
 
         self._plus_btn.clicked.connect(
             lambda: self._plus_menu.exec(
@@ -101,28 +64,29 @@ class CollectionHeader(QWidget):
         self._selected_collection_id: int | None = None
         self._new_req_act.triggered.connect(self._on_new_request_clicked)
 
-        # Search box that expands
+        # "Import" button
+        self._import_btn = QToolButton(self)
+        self._import_btn.setText("Import")
+        self._import_btn.setObjectName("sidebarToolButton")
+        self._import_btn.setToolTip("Import collections or requests")
+        self._import_btn.clicked.connect(lambda: self.import_requested.emit())
+        top_row.addWidget(self._import_btn)
+
+        main_layout.addLayout(top_row)
+
+        # -- Row 2: search bar ----------------------------------------
         self._search = QLineEdit(self)
         self._search.setPlaceholderText("Search collections")
-        self._search.setStyleSheet(
-            f"""
-            background: {COLOR_WHITE};
-            placeholder-text-color: {COLOR_TEXT_MUTED};
-        """
-        )
+        self._search.setObjectName("sidebarSearch")
+        self._search.setMinimumHeight(28)
         self._search.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
 
-        # Use a theme icon if available; fall back to a bundled SVG/PNG if needed.
-        magnify_icon = QIcon.fromTheme("search")  # typical theme name
+        magnify_icon = QIcon.fromTheme("search")
         if magnify_icon.isNull():
-            # e.g. use a local SVG file shipped with the app:
             magnify_icon = QIcon(":/icons/magnifier.svg")
-
-        # Add the icon as an action positioned *leading* (left) inside the QLineEdit
         self._search.addAction(magnify_icon, QLineEdit.ActionPosition.LeadingPosition)
 
-        bottom_row.addWidget(self._search)
-        main_layout.addLayout(bottom_row)
+        main_layout.addWidget(self._search)
 
         # Emit search signal on each keystroke
         self._search.textChanged.connect(lambda txt: self.search_changed.emit(txt))

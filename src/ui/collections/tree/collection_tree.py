@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any, cast
 
-from PySide6.QtCore import QEvent, QMimeData, QObject, QPoint, Qt, Signal, Slot
+from PySide6.QtCore import QEvent, QMimeData, QObject, QPoint, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QAction, QIcon, QKeyEvent
 from PySide6.QtWidgets import (
     QApplication,
@@ -37,16 +37,10 @@ from ui.collections.tree.constants import (
 )
 from ui.collections.tree.draggable_tree_widget import DraggableTreeWidget
 from ui.theme import (
-    BADGE_BORDER_RADIUS,
-    BADGE_FONT_SIZE,
     BADGE_HEIGHT,
     BADGE_MIN_WIDTH,
     COLOR_ACCENT,
-    COLOR_HOVER_TREE_BG,
-    COLOR_SELECTED_BG,
-    COLOR_TEXT,
-    COLOR_TEXT_MUTED,
-    TREE_ROW_HEIGHT,
+    COLOR_WHITE,
     method_color,
     method_short_label,
 )
@@ -88,7 +82,7 @@ class CollectionTree(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Stacked widget: page 0 = empty state, page 1 = tree
+        # Stacked widget: page 0 = empty state, page 1 = tree, page 2 = loading
         self._stack = QStackedWidget()
 
         # Empty state placeholder
@@ -97,7 +91,7 @@ class CollectionTree(QWidget):
         empty_layout.setContentsMargins(20, 40, 20, 20)
         self._empty_label = QLabel("No collections yet.\nClick + to create one.")
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._empty_label.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-style: italic;")
+        self._empty_label.setObjectName("emptyStateLabel")
         self._empty_label.setWordWrap(True)
         empty_layout.addWidget(self._empty_label)
         empty_layout.addStretch()
@@ -125,26 +119,31 @@ class CollectionTree(QWidget):
         # Column 1 holds metadata (name, type) via data roles — hide visually
         self._tree.hideColumn(1)
 
-        # Selection, hover, and row height styling
-        self._tree.setStyleSheet(
-            f"""
-            QTreeWidget::item {{
-                height: {TREE_ROW_HEIGHT}px;
-                padding: 0px 0px;
-            }}
-            QTreeWidget::item:hover {{
-                background-color: {COLOR_HOVER_TREE_BG};
-            }}
-            QTreeWidget::item:selected {{
-                background-color: {COLOR_SELECTED_BG};
-            }}
-            """
-        )
+        # Selection, hover, and row height styling is handled by global QSS
         self._tree.setIndentation(16)
 
-        layout.addWidget(self._stack)
         self._stack.addWidget(self._tree)  # index 1
-        self._stack.setCurrentIndex(0)  # start with empty state
+
+        # Loading state placeholder
+        loading_widget = QWidget()
+        loading_layout = QVBoxLayout(loading_widget)
+        loading_layout.setContentsMargins(20, 40, 20, 20)
+        self._loading_label = QLabel("Loading collections")
+        self._loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._loading_label.setObjectName("emptyStateLabel")
+        self._loading_label.setWordWrap(True)
+        loading_layout.addWidget(self._loading_label)
+        loading_layout.addStretch()
+        self._stack.addWidget(loading_widget)  # index 2
+
+        # Animated dots timer for the loading label
+        self._loading_dot_count = 0
+        self._loading_timer = QTimer(self)
+        self._loading_timer.setInterval(400)
+        self._loading_timer.timeout.connect(self._animate_loading_dots)
+
+        layout.addWidget(self._stack)
+        self._stack.setCurrentIndex(2)  # start with loading state
 
         self._setup_context_menus()
         self._tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -298,7 +297,7 @@ class CollectionTree(QWidget):
 
         label = QLabel(EMPTY_COLLECTION_HTML)
         label.setTextFormat(Qt.TextFormat.RichText)
-        label.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-style: italic;")
+        label.setObjectName("emptyStateLabel")
         label.setWordWrap(True)
         label.linkActivated.connect(lambda: self._on_placeholder_link_clicked(parent_item))
 
@@ -739,28 +738,13 @@ class CollectionTree(QWidget):
         layout.setSpacing(6)
 
         badge = QLabel(method_short_label(method))
+        badge.setObjectName("methodBadge")
         badge.setFixedWidth(BADGE_MIN_WIDTH)
         badge.setFixedHeight(BADGE_HEIGHT)
         badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        badge.setStyleSheet(
-            f"""
-            background-color: {method_color(method)};
-            color: white;
-            border-radius: {BADGE_BORDER_RADIUS}px;
-            font-weight: bold;
-            font-size: {BADGE_FONT_SIZE}px;
-            font-family: monospace;
-            """
-        )
+        badge.setStyleSheet(f"background-color: {method_color(method)}; color: {COLOR_WHITE};")
 
         label = QLabel(name)
-        label.setStyleSheet(
-            f"""
-            color: {COLOR_TEXT};
-            font-size: 12px;
-            padding: 0px;
-            """
-        )
 
         layout.addWidget(badge)
         layout.addWidget(label, stretch=1)
@@ -870,6 +854,26 @@ class CollectionTree(QWidget):
             else:
                 self._tree.takeTopLevelItem(self._tree.indexOfTopLevelItem(item))
         self._update_stack_visibility()
+
+    # ------------------------------------------------------------------
+    # Loading state
+    # ------------------------------------------------------------------
+    def show_loading(self) -> None:
+        """Switch the stack to the loading page and start the dot animation."""
+        self._loading_dot_count = 0
+        self._loading_label.setText("Loading collections")
+        self._stack.setCurrentIndex(2)
+        self._loading_timer.start()
+
+    def hide_loading(self) -> None:
+        """Stop the loading animation (caller should set the real page next)."""
+        self._loading_timer.stop()
+
+    def _animate_loading_dots(self) -> None:
+        """Cycle the trailing dots on the loading label (0-3)."""
+        self._loading_dot_count = (self._loading_dot_count + 1) % 4
+        dots = "." * self._loading_dot_count
+        self._loading_label.setText(f"Loading collections{dots}")
 
     def _update_stack_visibility(self) -> None:
         """Switch between the empty-state placeholder and the tree."""

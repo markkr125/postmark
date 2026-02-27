@@ -16,10 +16,7 @@ from ui.theme import (
     BADGE_FONT_SIZE,
     BADGE_HEIGHT,
     BADGE_MIN_WIDTH,
-    COLOR_ACCENT,
-    COLOR_BORDER,
     COLOR_SENDING,
-    COLOR_TEXT,
     COLOR_WHITE,
     method_color,
     method_short_label,
@@ -53,20 +50,14 @@ class _TabLabel(QWidget):
 
         # Method badge
         self._badge = QLabel(method_short_label(method))
+        self._badge.setObjectName("methodBadge")
         self._badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._badge.setFixedSize(BADGE_MIN_WIDTH, BADGE_HEIGHT)
-        color = method_color(method)
-        self._badge.setStyleSheet(
-            f"background: {color}; color: {COLOR_WHITE};"
-            f" font-size: {BADGE_FONT_SIZE}px; font-weight: bold;"
-            f" border-radius: {BADGE_BORDER_RADIUS}px;"
-            f" font-family: monospace;"
-        )
+        self._apply_badge_color(method_color(method))
         layout.addWidget(self._badge)
 
         # Request name
         self._name_label = QLabel(name)
-        self._name_label.setStyleSheet(f"color: {COLOR_TEXT}; font-size: 11px;")
         self._name_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         layout.addWidget(self._name_label)
 
@@ -84,17 +75,20 @@ class _TabLabel(QWidget):
 
         self._apply_style()
 
-    def set_method(self, method: str) -> None:
-        """Update the method badge."""
-        self._method = method
-        self._badge.setText(method_short_label(method))
-        color = method_color(method)
+    def _apply_badge_color(self, color: str) -> None:
+        """Set the badge background colour (dynamic per-method)."""
         self._badge.setStyleSheet(
             f"background: {color}; color: {COLOR_WHITE};"
             f" font-size: {BADGE_FONT_SIZE}px; font-weight: bold;"
             f" border-radius: {BADGE_BORDER_RADIUS}px;"
             f" font-family: monospace;"
         )
+
+    def set_method(self, method: str) -> None:
+        """Update the method badge."""
+        self._method = method
+        self._badge.setText(method_short_label(method))
+        self._apply_badge_color(method_color(method))
 
     def set_name(self, name: str) -> None:
         """Update the request name."""
@@ -151,35 +145,13 @@ class RequestTabBar(QTabBar):
         self.setDrawBase(False)
         self.setDocumentMode(True)
 
-        self.setStyleSheet(
-            f"""
-            QTabBar {{
-                border-bottom: 1px solid {COLOR_BORDER};
-            }}
-            QTabBar::tab {{
-                height: {_TAB_HEIGHT}px;
-                padding: 0 12px;
-                border: none;
-                border-bottom: 2px solid transparent;
-                background: transparent;
-            }}
-            QTabBar::tab:selected {{
-                border-bottom: 2px solid {COLOR_ACCENT};
-            }}
-            QTabBar::tab:hover {{
-                background: rgba(0, 0, 0, 0.04);
-            }}
-            QTabBar::close-button {{
-                image: none;
-                subcontrol-position: right;
-                padding: 2px;
-            }}
-            """
-        )
+        # Styling is handled by the global QSS via the ``RequestTabBar``
+        # selector in ThemeManager._build_global_qss.  No per-widget
+        # setStyleSheet needed.
 
         self.tabCloseRequested.connect(self.tab_close_requested.emit)
 
-        # Map tab index → _TabLabel for custom styling
+        # Map tab index -> _TabLabel for custom styling
         self._tab_labels: dict[int, _TabLabel] = {}
 
     # -- Public API ----------------------------------------------------

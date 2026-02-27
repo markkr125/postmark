@@ -25,7 +25,6 @@ from PySide6.QtWidgets import (
 
 from services.collection_service import CollectionService
 from services.http_service import HttpService
-from ui.theme import COLOR_ACCENT, COLOR_DANGER, COLOR_TEXT, COLOR_WHITE
 
 logger = logging.getLogger(__name__)
 
@@ -111,14 +110,12 @@ class CollectionRunnerDialog(QDialog):
 
         # Header
         self._info_label = QLabel("Preparing\u2026")
-        self._info_label.setStyleSheet(f"font-size: 13px; color: {COLOR_TEXT}; padding: 4px;")
         root.addWidget(self._info_label)
 
         # Progress bar
         self._progress = QProgressBar()
         self._progress.setFixedHeight(6)
         self._progress.setTextVisible(False)
-        self._progress.setStyleSheet(f"QProgressBar::chunk {{ background: {COLOR_ACCENT}; }}")
         root.addWidget(self._progress)
 
         # Results table
@@ -136,18 +133,12 @@ class CollectionRunnerDialog(QDialog):
         btn_row = QHBoxLayout()
         btn_row.addStretch()
         self._run_btn = QPushButton("Run")
-        self._run_btn.setStyleSheet(
-            f"background: {COLOR_ACCENT}; color: {COLOR_WHITE}; border: none;"
-            f" padding: 6px 20px; font-weight: bold; border-radius: 3px;"
-        )
+        self._run_btn.setObjectName("primaryButton")
         self._run_btn.clicked.connect(self._start_run)
         btn_row.addWidget(self._run_btn)
 
         self._cancel_btn = QPushButton("Cancel")
-        self._cancel_btn.setStyleSheet(
-            f"background: {COLOR_DANGER}; color: {COLOR_WHITE}; border: none;"
-            f" padding: 6px 20px; font-weight: bold; border-radius: 3px;"
-        )
+        self._cancel_btn.setObjectName("dangerButton")
         self._cancel_btn.clicked.connect(self._cancel_run)
         self._cancel_btn.setEnabled(False)
         btn_row.addWidget(self._cancel_btn)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QTabBar
 
 from ui.request.request_tab_bar import RequestTabBar
 
@@ -123,6 +123,27 @@ class TestRequestTabBar:
         assert label_b._name == "B"
         assert label_c is not None
         assert label_c._name == "C"
+
+
+class TestRequestTabBarCloseButton:
+    """Tests that tab close buttons are visible and functional."""
+
+    def test_tabs_closable(self, qapp: QApplication, qtbot) -> None:
+        """Tab bar has close buttons enabled."""
+        bar = RequestTabBar()
+        qtbot.addWidget(bar)
+        assert bar.tabsClosable()
+
+    def test_close_button_not_hidden(self, qapp: QApplication, qtbot) -> None:
+        """Close button widget on a tab is not force-hidden."""
+        bar = RequestTabBar()
+        qtbot.addWidget(bar)
+        bar.add_request_tab("GET", "Test")
+
+        # The close button is on the RightSide by default
+        close_btn = bar.tabButton(0, QTabBar.ButtonPosition.RightSide)
+        if close_btn is not None:
+            assert not close_btn.isHidden()
 
 
 class TestMainWindowMultiTab:

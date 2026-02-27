@@ -27,7 +27,6 @@ from PySide6.QtWidgets import (
 )
 
 from ui.key_value_table import KeyValueTableWidget
-from ui.theme import COLOR_ACCENT, COLOR_BORDER, COLOR_TEXT, COLOR_TEXT_MUTED, COLOR_WHITE
 
 # HTTP methods shown in the dropdown
 _HTTP_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS")
@@ -78,60 +77,29 @@ class RequestEditorWidget(QWidget):
 
         # -- Title label (shows request name + dirty indicator) --
         self._title_label = QLabel()
-        self._title_label.setStyleSheet(f"font-size: 14px; font-weight: bold; color: {COLOR_TEXT};")
+        self._title_label.setObjectName("titleLabel")
         root.addWidget(self._title_label)
 
         # -- Top bar: method dropdown + URL + Send --
         top_bar = QHBoxLayout()
-        top_bar.setSpacing(6)
+        top_bar.setSpacing(8)
+        top_bar.setContentsMargins(0, 4, 0, 8)
 
         self._method_combo = QComboBox()
         self._method_combo.addItems(list(_HTTP_METHODS))
-        self._method_combo.setFixedWidth(90)
-        self._method_combo.setStyleSheet(
-            f"""
-            QComboBox {{
-                background: {COLOR_WHITE};
-                border: 1px solid {COLOR_BORDER};
-                padding: 4px 8px;
-                font-weight: bold;
-                color: {COLOR_TEXT};
-            }}
-            """
-        )
+        self._method_combo.setFixedWidth(100)
         self._method_combo.currentTextChanged.connect(self._on_field_changed)
         top_bar.addWidget(self._method_combo)
 
         self._url_input = QLineEdit()
         self._url_input.setPlaceholderText("Enter request URL")
-        self._url_input.setStyleSheet(
-            f"""
-            background: {COLOR_WHITE};
-            border: 1px solid {COLOR_BORDER};
-            padding: 4px 8px;
-            color: {COLOR_TEXT};
-            """
-        )
         self._url_input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self._url_input.textChanged.connect(self._on_field_changed)
         top_bar.addWidget(self._url_input)
 
         self._send_btn = QPushButton("Send")
-        self._send_btn.setStyleSheet(
-            f"""
-            QPushButton {{
-                background: {COLOR_ACCENT};
-                color: {COLOR_WHITE};
-                border: none;
-                padding: 6px 16px;
-                font-weight: bold;
-                border-radius: 3px;
-            }}
-            QPushButton:hover {{
-                opacity: 0.9;
-            }}
-            """
-        )
+        self._send_btn.setObjectName("primaryButton")
+        self._send_btn.setFixedWidth(80)
         self._send_btn.clicked.connect(self.send_requested.emit)
         top_bar.addWidget(self._send_btn)
 
@@ -139,18 +107,6 @@ class RequestEditorWidget(QWidget):
 
         # -- Tabbed area: Params, Headers, Body, Scripts --
         self._tabs = QTabWidget()
-        self._tabs.setStyleSheet(
-            f"""
-            QTabBar::tab {{
-                padding: 6px 14px;
-                color: {COLOR_TEXT_MUTED};
-            }}
-            QTabBar::tab:selected {{
-                color: {COLOR_TEXT};
-                border-bottom: 2px solid {COLOR_ACCENT};
-            }}
-            """
-        )
 
         self._params_table = KeyValueTableWidget(
             placeholder_key="Parameter", placeholder_value="Value"
@@ -187,16 +143,6 @@ class RequestEditorWidget(QWidget):
         self._raw_format_combo = QComboBox()
         self._raw_format_combo.addItems(list(_RAW_FORMATS))
         self._raw_format_combo.setFixedWidth(80)
-        self._raw_format_combo.setStyleSheet(
-            f"""
-            QComboBox {{
-                background: {COLOR_WHITE};
-                border: 1px solid {COLOR_BORDER};
-                padding: 2px 6px;
-                font-size: 11px;
-            }}
-            """
-        )
         self._raw_format_combo.currentTextChanged.connect(self._on_field_changed)
         self._raw_format_combo.hide()
         mode_row.addWidget(self._raw_format_combo)
@@ -218,22 +164,12 @@ class RequestEditorWidget(QWidget):
         auth_type_row = QHBoxLayout()
         auth_type_row.setSpacing(8)
         auth_type_label = QLabel("Type:")
-        auth_type_label.setStyleSheet(f"color: {COLOR_TEXT}; font-size: 12px;")
+        auth_type_label.setObjectName("sectionLabel")
         auth_type_row.addWidget(auth_type_label)
 
         self._auth_type_combo = QComboBox()
         self._auth_type_combo.addItems(list(_AUTH_TYPES))
         self._auth_type_combo.setFixedWidth(140)
-        self._auth_type_combo.setStyleSheet(
-            f"""
-            QComboBox {{
-                background: {COLOR_WHITE};
-                border: 1px solid {COLOR_BORDER};
-                padding: 4px 8px;
-                color: {COLOR_TEXT};
-            }}
-            """
-        )
         self._auth_type_combo.currentTextChanged.connect(self._on_auth_type_changed)
         auth_type_row.addWidget(self._auth_type_combo)
         auth_type_row.addStretch()
@@ -245,7 +181,7 @@ class RequestEditorWidget(QWidget):
         # No Auth page (empty)
         no_auth_page = QLabel("This request does not use any authorization.")
         no_auth_page.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        no_auth_page.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-style: italic; padding: 20px;")
+        no_auth_page.setObjectName("emptyStateLabel")
         self._auth_fields_stack.addWidget(no_auth_page)
 
         # Bearer Token page
@@ -253,14 +189,10 @@ class RequestEditorWidget(QWidget):
         bearer_layout = QVBoxLayout(bearer_page)
         bearer_layout.setContentsMargins(0, 8, 0, 0)
         token_label = QLabel("Token")
-        token_label.setStyleSheet(f"color: {COLOR_TEXT}; font-size: 12px;")
+        token_label.setObjectName("sectionLabel")
         bearer_layout.addWidget(token_label)
         self._bearer_token_input = QLineEdit()
         self._bearer_token_input.setPlaceholderText("Enter bearer token")
-        self._bearer_token_input.setStyleSheet(
-            f"background: {COLOR_WHITE}; border: 1px solid {COLOR_BORDER};"
-            f" padding: 4px 8px; color: {COLOR_TEXT};"
-        )
         self._bearer_token_input.textChanged.connect(self._on_field_changed)
         bearer_layout.addWidget(self._bearer_token_input)
         bearer_layout.addStretch()
@@ -271,26 +203,18 @@ class RequestEditorWidget(QWidget):
         basic_layout = QVBoxLayout(basic_page)
         basic_layout.setContentsMargins(0, 8, 0, 0)
         username_label = QLabel("Username")
-        username_label.setStyleSheet(f"color: {COLOR_TEXT}; font-size: 12px;")
+        username_label.setObjectName("sectionLabel")
         basic_layout.addWidget(username_label)
         self._basic_username_input = QLineEdit()
         self._basic_username_input.setPlaceholderText("Username")
-        self._basic_username_input.setStyleSheet(
-            f"background: {COLOR_WHITE}; border: 1px solid {COLOR_BORDER};"
-            f" padding: 4px 8px; color: {COLOR_TEXT};"
-        )
         self._basic_username_input.textChanged.connect(self._on_field_changed)
         basic_layout.addWidget(self._basic_username_input)
         password_label = QLabel("Password")
-        password_label.setStyleSheet(f"color: {COLOR_TEXT}; font-size: 12px;")
+        password_label.setObjectName("sectionLabel")
         basic_layout.addWidget(password_label)
         self._basic_password_input = QLineEdit()
         self._basic_password_input.setPlaceholderText("Password")
         self._basic_password_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self._basic_password_input.setStyleSheet(
-            f"background: {COLOR_WHITE}; border: 1px solid {COLOR_BORDER};"
-            f" padding: 4px 8px; color: {COLOR_TEXT};"
-        )
         self._basic_password_input.textChanged.connect(self._on_field_changed)
         basic_layout.addWidget(self._basic_password_input)
         basic_layout.addStretch()
@@ -301,30 +225,22 @@ class RequestEditorWidget(QWidget):
         apikey_layout = QVBoxLayout(apikey_page)
         apikey_layout.setContentsMargins(0, 8, 0, 0)
         key_label = QLabel("Key")
-        key_label.setStyleSheet(f"color: {COLOR_TEXT}; font-size: 12px;")
+        key_label.setObjectName("sectionLabel")
         apikey_layout.addWidget(key_label)
         self._apikey_key_input = QLineEdit()
         self._apikey_key_input.setPlaceholderText("Header or query parameter name")
-        self._apikey_key_input.setStyleSheet(
-            f"background: {COLOR_WHITE}; border: 1px solid {COLOR_BORDER};"
-            f" padding: 4px 8px; color: {COLOR_TEXT};"
-        )
         self._apikey_key_input.textChanged.connect(self._on_field_changed)
         apikey_layout.addWidget(self._apikey_key_input)
         value_label = QLabel("Value")
-        value_label.setStyleSheet(f"color: {COLOR_TEXT}; font-size: 12px;")
+        value_label.setObjectName("sectionLabel")
         apikey_layout.addWidget(value_label)
         self._apikey_value_input = QLineEdit()
         self._apikey_value_input.setPlaceholderText("API key value")
-        self._apikey_value_input.setStyleSheet(
-            f"background: {COLOR_WHITE}; border: 1px solid {COLOR_BORDER};"
-            f" padding: 4px 8px; color: {COLOR_TEXT};"
-        )
         self._apikey_value_input.textChanged.connect(self._on_field_changed)
         apikey_layout.addWidget(self._apikey_value_input)
 
         add_to_label = QLabel("Add to")
-        add_to_label.setStyleSheet(f"color: {COLOR_TEXT}; font-size: 12px;")
+        add_to_label.setObjectName("sectionLabel")
         apikey_layout.addWidget(add_to_label)
         self._apikey_add_to_combo = QComboBox()
         self._apikey_add_to_combo.addItems(["Header", "Query Params"])
@@ -339,16 +255,6 @@ class RequestEditorWidget(QWidget):
 
         self._description_edit = QTextEdit()
         self._description_edit.setPlaceholderText("Add a description for this request\u2026")
-        self._description_edit.setStyleSheet(
-            f"""
-            QTextEdit {{
-                border: 1px solid {COLOR_BORDER};
-                background: {COLOR_WHITE};
-                font-size: 12px;
-                color: {COLOR_TEXT};
-            }}
-            """
-        )
         self._description_edit.textChanged.connect(self._on_field_changed)
         self._tabs.addTab(self._description_edit, "Description")
 
@@ -362,9 +268,7 @@ class RequestEditorWidget(QWidget):
         # -- Empty state --
         self._empty_label = QLabel("Select a request to view its details.")
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._empty_label.setStyleSheet(
-            f"color: {COLOR_TEXT_MUTED}; font-style: italic; font-size: 13px;"
-        )
+        self._empty_label.setObjectName("emptyStateLabel")
         root.addWidget(self._empty_label)
 
         # Start in empty state

@@ -111,17 +111,85 @@ Never hardcode hex colour values in widget files. Import from `ui.theme`:
 from ui.theme import COLOR_ACCENT, METHOD_COLORS, DEFAULT_METHOD_COLOR, method_color
 ```
 
+## Theme system — ThemeManager + global QSS + QPalette
+
+The application uses a centralised theme system with three layers:
+
+1. **ThemeManager** (`ui/theme_manager.py`) — singleton `QObject` created
+   in `main.py` right after `QApplication`.  Reads/writes `QSettings`,
+   resolves light/dark palette, applies `QApplication.setStyle()`,
+   `QApplication.setPalette()`, and `QApplication.setStyleSheet()`.
+2. **Global QSS** — a single application-wide stylesheet built by
+   `ThemeManager._build_global_qss()` using `objectName` selectors.
+   Widgets do **not** call `setStyleSheet()` for static styling; instead
+   they set `setObjectName("primaryButton")` etc.
+3. **QPalette** — built from a `ThemePalette` dict (`ui/theme.py`) via
+   `ThemeManager._build_qpalette()`.  Two palettes exist: `LIGHT_PALETTE`
+   and `DARK_PALETTE`.  `set_active_palette()` updates the mutable
+   module-level colour aliases (`COLOR_ACCENT`, `COLOR_TEXT`, etc.).
+
+### objectName conventions for styling
+
+Widgets use `setObjectName()` to opt into global QSS rules.  These are the
+standard object names:
+
+| objectName | Widget type | Visual role |
+|---|---|---|
+| `primaryButton` | `QPushButton` | Accent-coloured action button |
+| `dangerButton` | `QPushButton` | Red destructive action |
+| `smallPrimaryButton` | `QPushButton` | Compact accent button |
+| `outlineButton` | `QPushButton` | Border-only button |
+| `linkButton` | `QPushButton` | Text-only accent link |
+| `flatAccentButton` | `QPushButton` | Borderless accent text |
+| `flatMutedButton` | `QPushButton` | Borderless muted text |
+| `importLinkButton` | `QPushButton` | Underlined import link |
+| `dismissButton` | `QPushButton` | Dialog dismiss button |
+| `titleLabel` | `QLabel` | Bold 14px heading |
+| `sectionLabel` | `QLabel` | 12px section heading |
+| `panelTitle` | `QLabel` | Bold 12px panel title with padding |
+| `mutedLabel` | `QLabel` | Small muted text |
+| `emptyStateLabel` | `QLabel` | Italic muted empty-state message |
+| `methodBadge` | `QLabel` | HTTP method badge (tree + tabs) |
+| `monoEdit` | `QTextEdit` | Monospace text editor |
+| `consoleOutput` | `QTextEdit` | Dark console output area |
+| `importTabs` | `QTabWidget` | Box-style tabs in import dialog |
+
+### When inline setStyleSheet() is still acceptable
+
+Only use `setStyleSheet()` for **dynamic per-instance** styling that
+varies at runtime and cannot be expressed with objectName selectors:
+
+- Method badge background-color (varies by HTTP method)
+- Status label colour (varies by HTTP status code)
+- History row method colour
+- Breadcrumb per-segment colour
+- Spinner animation colours
+- Drop-zone active hover overlay
+
+For everything else, use `setObjectName()` and let the global QSS handle it.
+
+### Adding new styled widgets
+
+1. Choose an appropriate `objectName` from the table above, or create a new
+   one if none fits.
+2. Call `widget.setObjectName("yourName")` in the widget constructor.
+3. Add the corresponding QSS rule in `ThemeManager._build_global_qss()`.
+4. Do **not** call `setStyleSheet()` on the widget.
+
 ### Theme module contents
 
-`theme.py` provides three categories of exports:
+`theme.py` provides four categories of exports:
 
-1. **Colour constants** — semantic (`COLOR_ACCENT`, `COLOR_SUCCESS`, etc.),
-   neutral (`COLOR_WHITE`, `COLOR_TEXT`, etc.), and import-dialog-specific
-   (`COLOR_DROP_ZONE_BORDER`, etc.).
-2. **Method colour mapping** — `METHOD_COLORS: dict[str, str]` maps HTTP
+1. **Palette definitions** — `ThemePalette` (TypedDict schema),
+   `LIGHT_PALETTE`, `DARK_PALETTE`.  `set_active_palette(palette)` updates
+   the mutable colour aliases.  `current_palette()` returns the active dict.
+2. **Colour constants** — mutable module-level aliases
+   (`COLOR_ACCENT`, `COLOR_SUCCESS`, `COLOR_TEXT`, etc.) that reflect the
+   currently active palette.
+3. **Method colour mapping** — `METHOD_COLORS: dict[str, str]` maps HTTP
    methods to colours. `DEFAULT_METHOD_COLOR` is the fallback.
    `method_color(method)` returns the colour for a given method string.
-3. **Badge system** — constants and helpers for the tree item request badges:
+4. **Badge system** — constants and helpers for the tree item request badges:
    - `METHOD_SHORT_LABELS: dict[str, str]` — compact labels (e.g.
      `DELETE` → `DEL`, `PATCH` → `PAT`, `OPTIONS` → `OPT`).
    - `BADGE_FONT_SIZE` (9px), `BADGE_MIN_WIDTH` (32px), `BADGE_HEIGHT`

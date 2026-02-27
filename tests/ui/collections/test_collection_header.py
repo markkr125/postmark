@@ -15,7 +15,7 @@ class TestCollectionHeader:
         header = CollectionHeader()
         qtbot.addWidget(header)
         assert header is not None
-        assert header.height() == 75
+        assert header.height() == 70
 
     def test_new_collection_signal(self, qapp: QApplication, qtbot) -> None:
         """Clicking the + menu emits ``new_collection_requested(None)``."""

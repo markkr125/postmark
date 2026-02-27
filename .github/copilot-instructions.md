@@ -67,7 +67,8 @@ src/
 │       └── url_parser.py          # URL/raw-text auto-detect parser
 └── ui/                            # PySide6 widgets
     ├── main_window.py             # Top-level MainWindow
-    ├── theme.py                   # Colours, badge geometry, method_color()
+    ├── theme.py                   # Palettes, colours, badge geometry, method_color()
+    ├── theme_manager.py           # ThemeManager — QPalette + global QSS + QSettings
     ├── key_value_table.py         # Reusable key-value editor widget
     ├── collections/               # Collection sidebar
     │   ├── collection_header.py
@@ -79,7 +80,8 @@ src/
     ├── dialogs/                   # Modal dialogs
     │   ├── code_snippet_dialog.py
     │   ├── collection_runner.py
-    │   └── import_dialog.py
+    │   ├── import_dialog.py
+    │   └── settings_dialog.py     # Settings (theme, colour scheme)
     ├── environments/              # Environment management widgets
     │   ├── environment_editor.py
     │   └── environment_selector.py
@@ -109,13 +111,15 @@ tests/
 └── ui/                            # End-to-end PySide6 widget tests
     ├── conftest.py                # _no_fetch (autouse) + helpers
     ├── test_main_window.py
+    ├── test_theme_manager.py
     ├── test_key_value_table.py
     ├── collections/               # Collection sidebar tests
     │   ├── test_collection_header.py
     │   ├── test_collection_tree.py
     │   └── test_collection_widget.py
     ├── dialogs/                   # Dialog tests
-    │   └── test_import_dialog.py
+    │   ├── test_import_dialog.py
+    │   └── test_settings_dialog.py
     ├── environments/              # Environment widget tests
     │   ├── test_environment_editor.py
     │   └── test_environment_selector.py

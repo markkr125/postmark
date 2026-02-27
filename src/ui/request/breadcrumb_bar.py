@@ -22,8 +22,8 @@ class BreadcrumbBar(QWidget):
         """Initialise the breadcrumb bar."""
         super().__init__(parent)
         self._layout = QHBoxLayout(self)
-        self._layout.setContentsMargins(8, 2, 8, 2)
-        self._layout.setSpacing(4)
+        self._layout.setContentsMargins(12, 8, 12, 8)
+        self._layout.setSpacing(6)
         self._layout.addStretch()
 
     def set_path(self, segments: list[dict]) -> None:
@@ -42,16 +42,17 @@ class BreadcrumbBar(QWidget):
 
         for i, seg in enumerate(segments):
             if i > 0:
-                sep = QLabel("\u203a")
+                sep = QLabel("/")
                 sep.setStyleSheet(
-                    f"color: {COLOR_BREADCRUMB_SEP}; font-size: 12px; padding: 0 2px;"
+                    f"color: {COLOR_BREADCRUMB_SEP}; font-size: 13px; padding: 0 4px; font-weight: bold;"
                 )
                 self._layout.addWidget(sep)
 
             label = QLabel(seg["name"])
             is_last = i == len(segments) - 1
             color = COLOR_TEXT_MUTED if is_last else COLOR_ACCENT
-            style = f"color: {color}; font-size: 12px;"
+            weight = "normal" if is_last else "500"
+            style = f"color: {color}; font-size: 13px; font-weight: {weight};"
             if not is_last:
                 style += " text-decoration: none;"
             label.setStyleSheet(style)

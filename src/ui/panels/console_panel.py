@@ -12,8 +12,6 @@ import logging
 from PySide6.QtCore import QObject, Signal, Slot
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QTextEdit, QVBoxLayout, QWidget
 
-from ui.theme import COLOR_ACCENT, COLOR_CONSOLE_BG, COLOR_CONSOLE_TEXT, COLOR_TEXT
-
 
 class _LogSignalBridge(QObject):
     """Bridge between Python logging and Qt signals.
@@ -59,15 +57,11 @@ class ConsolePanel(QWidget):
         # Header
         header = QHBoxLayout()
         title = QLabel("Console")
-        title.setStyleSheet(
-            f"font-weight: bold; font-size: 12px; color: {COLOR_TEXT}; padding: 8px;"
-        )
+        title.setObjectName("panelTitle")
         header.addWidget(title)
         header.addStretch()
         clear_btn = QPushButton("Clear")
-        clear_btn.setStyleSheet(
-            f"color: {COLOR_ACCENT}; border: none; font-size: 11px; padding: 8px;"
-        )
+        clear_btn.setObjectName("linkButton")
         clear_btn.clicked.connect(self._clear)
         header.addWidget(clear_btn)
         root.addLayout(header)
@@ -75,10 +69,7 @@ class ConsolePanel(QWidget):
         # Console output
         self._output = QTextEdit()
         self._output.setReadOnly(True)
-        self._output.setStyleSheet(
-            f"background: {COLOR_CONSOLE_BG}; color: {COLOR_CONSOLE_TEXT};"
-            f" font-family: monospace; font-size: 11px; border: none;"
-        )
+        self._output.setObjectName("consoleOutput")
         root.addWidget(self._output, 1)
 
         # Set up log handler
@@ -108,4 +99,5 @@ class ConsolePanel(QWidget):
 
     def cleanup(self) -> None:
         """Remove the log handler (call on shutdown)."""
+        logging.getLogger().removeHandler(self._handler)
         logging.getLogger().removeHandler(self._handler)

@@ -462,3 +462,73 @@ class TestCollectionTreeSelectedCollection:
             tree._tree.setCurrentItem(req)
 
         assert blocker.args == [1]
+
+
+class TestCollectionTreeLoadingState:
+    """Tests for the loading / empty-state stack transitions."""
+
+    def test_initial_state_shows_loading_page(self, qapp: QApplication, qtbot) -> None:
+        """Freshly constructed tree starts on the loading page (index 2)."""
+        tree = CollectionTree()
+        qtbot.addWidget(tree)
+
+        assert tree._stack.currentIndex() == 2
+
+    def test_show_loading_activates_timer(self, qapp: QApplication, qtbot) -> None:
+        """``show_loading`` sets the stack to the loading page and starts the timer."""
+        tree = CollectionTree()
+        qtbot.addWidget(tree)
+
+        tree.show_loading()
+
+        assert tree._stack.currentIndex() == 2
+        assert tree._loading_timer.isActive()
+
+    def test_hide_loading_stops_timer(self, qapp: QApplication, qtbot) -> None:
+        """``hide_loading`` stops the dot-animation timer."""
+        tree = CollectionTree()
+        qtbot.addWidget(tree)
+
+        tree.show_loading()
+        assert tree._loading_timer.isActive()
+
+        tree.hide_loading()
+        assert not tree._loading_timer.isActive()
+
+    def test_set_collections_transitions_to_tree(self, qapp: QApplication, qtbot) -> None:
+        """After ``set_collections`` with data the stack shows the tree (index 1)."""
+        tree = CollectionTree()
+        qtbot.addWidget(tree)
+
+        data = make_collection_dict([{"id": 1, "name": "Col"}])
+        tree.hide_loading()
+        tree.set_collections(data)
+
+        assert tree._stack.currentIndex() == 1
+
+    def test_set_collections_empty_shows_empty_state(self, qapp: QApplication, qtbot) -> None:
+        """After ``set_collections`` with no data the stack shows empty state (index 0)."""
+        tree = CollectionTree()
+        qtbot.addWidget(tree)
+
+        tree.hide_loading()
+        tree.set_collections({})
+
+        assert tree._stack.currentIndex() == 0
+
+    def test_animate_loading_dots_cycles_text(self, qapp: QApplication, qtbot) -> None:
+        """Each call to ``_animate_loading_dots`` appends one more dot (wraps at 4)."""
+        tree = CollectionTree()
+        qtbot.addWidget(tree)
+
+        tree.show_loading()
+
+        expected = [
+            "Loading collections.",
+            "Loading collections..",
+            "Loading collections...",
+            "Loading collections",
+        ]
+        for text in expected:
+            tree._animate_loading_dots()
+            assert tree._loading_label.text() == text

@@ -30,18 +30,7 @@ from PySide6.QtWidgets import (
 
 from services.import_parser.models import ImportSummary
 from services.import_service import ImportService
-from ui.theme import (
-    COLOR_ACCENT,
-    COLOR_BORDER,
-    COLOR_DROP_ZONE_ACTIVE_BG,
-    COLOR_DROP_ZONE_BG,
-    COLOR_DROP_ZONE_BORDER,
-    COLOR_IMPORT_ERROR,
-    COLOR_IMPORT_SUCCESS,
-    COLOR_TEXT,
-    COLOR_TEXT_MUTED,
-    COLOR_WHITE,
-)
+from ui.theme import COLOR_ACCENT, COLOR_IMPORT_ERROR, COLOR_IMPORT_SUCCESS
 
 logger = logging.getLogger(__name__)
 
@@ -123,14 +112,14 @@ class _DropZone(QFrame):
 
         # Icon/text
         icon_label = QLabel("\U0001f4e5")  # inbox tray emoji
-        icon_label.setStyleSheet(f"font-size: 36px; color: {COLOR_TEXT_MUTED}; border: none;")
+        icon_label.setObjectName("emptyStateLabel")
+        icon_label.setStyleSheet("font-size: 36px; border: none;")
         icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(icon_label)
 
         drop_label = QLabel("Drop anywhere to import")
-        drop_label.setStyleSheet(
-            f"font-size: 14px; font-weight: bold; color: {COLOR_TEXT}; border: none;"
-        )
+        drop_label.setObjectName("titleLabel")
+        drop_label.setStyleSheet("border: none;")
         drop_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(drop_label)
 
@@ -139,42 +128,39 @@ class _DropZone(QFrame):
         links_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         or_label = QLabel("Or select")
-        or_label.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; border: none;")
+        or_label.setObjectName("mutedLabel")
+        or_label.setStyleSheet("border: none;")
         links_row.addWidget(or_label)
 
         self.files_btn = QPushButton("files")
         self.files_btn.setFlat(True)
         self.files_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.files_btn.setStyleSheet(
-            f"color: {COLOR_ACCENT}; text-decoration: underline; border: none; font-weight: bold;"
-        )
+        self.files_btn.setObjectName("importLinkButton")
         links_row.addWidget(self.files_btn)
 
         or2_label = QLabel("or")
-        or2_label.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; border: none;")
+        or2_label.setObjectName("mutedLabel")
+        or2_label.setStyleSheet("border: none;")
         links_row.addWidget(or2_label)
 
         self.folders_btn = QPushButton("folders")
         self.folders_btn.setFlat(True)
         self.folders_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.folders_btn.setStyleSheet(
-            f"color: {COLOR_ACCENT}; text-decoration: underline; border: none; font-weight: bold;"
-        )
+        self.folders_btn.setObjectName("importLinkButton")
         links_row.addWidget(self.folders_btn)
 
         layout.addLayout(links_row)
 
     def _set_default_style(self) -> None:
         """Apply the default (non-hover) drop zone styling."""
-        self.setStyleSheet(
-            f"_DropZone {{ background: {COLOR_DROP_ZONE_BG}; "
-            f"border: 2px dashed {COLOR_DROP_ZONE_BORDER}; border-radius: 8px; }}"
-        )
+        self.setObjectName("_DropZone")
+        self.style().unpolish(self)
+        self.style().polish(self)
 
     def _set_active_style(self) -> None:
         """Apply the active (hovering) drop zone styling."""
         self.setStyleSheet(
-            f"_DropZone {{ background: {COLOR_DROP_ZONE_ACTIVE_BG}; "
+            f"_DropZone {{ background: {COLOR_ACCENT}20; "
             f"border: 2px dashed {COLOR_ACCENT}; border-radius: 8px; }}"
         )
 
@@ -234,7 +220,6 @@ class ImportDialog(QDialog):
         self.setWindowTitle("Import")
         self.setMinimumSize(620, 520)
         self.resize(660, 560)
-        self.setStyleSheet(f"background: {COLOR_WHITE}; color: {COLOR_TEXT};")
 
         self._thread: QThread | None = None
         self._worker: _ImportWorker | None = None
@@ -253,23 +238,13 @@ class ImportDialog(QDialog):
 
         # Title
         title = QLabel("Import your API or Local Files")
-        title.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {COLOR_TEXT};")
+        title.setObjectName("titleLabel")
+        title.setStyleSheet("font-size: 16px;")
         root.addWidget(title)
 
         # Tab widget
         self._tabs = QTabWidget()
-        self._tabs.setStyleSheet(
-            f"""
-            QTabWidget::pane {{ border: 1px solid {COLOR_BORDER}; border-top: none; }}
-            QTabBar::tab {{
-                padding: 6px 16px; border: 1px solid {COLOR_BORDER};
-                border-bottom: none; background: {COLOR_DROP_ZONE_BG};
-            }}
-            QTabBar::tab:selected {{
-                background: {COLOR_WHITE}; font-weight: bold;
-            }}
-            """
-        )
+        self._tabs.setObjectName("importTabs")
 
         # Tab 1: Postmark Import
         self._import_tab = QWidget()
@@ -281,7 +256,7 @@ class ImportDialog(QDialog):
         other_layout = QVBoxLayout(other_tab)
         other_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         placeholder = QLabel("Other import sources coming soon.")
-        placeholder.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 13px;")
+        placeholder.setObjectName("emptyStateLabel")
         other_layout.addWidget(placeholder)
         self._tabs.addTab(other_tab, "Other Sources")
 
@@ -295,16 +270,7 @@ class ImportDialog(QDialog):
         btn_row.addStretch()
 
         self._dismiss_btn = QPushButton("Dismiss")
-        self._dismiss_btn.setStyleSheet(
-            f"""
-            QPushButton {{
-                padding: 6px 20px; border: 1px solid {COLOR_BORDER};
-                border-radius: 4px; background: {COLOR_DROP_ZONE_BG};
-                font-weight: bold;
-            }}
-            QPushButton:hover {{ background: {COLOR_BORDER}; }}
-            """
-        )
+        self._dismiss_btn.setObjectName("dismissButton")
         self._dismiss_btn.clicked.connect(self.accept)
         btn_row.addWidget(self._dismiss_btn)
 
@@ -320,29 +286,11 @@ class ImportDialog(QDialog):
         paste_row = QHBoxLayout()
         self._paste_input = QLineEdit()
         self._paste_input.setPlaceholderText("Paste cURL, Raw text or URL...")
-        self._paste_input.setStyleSheet(
-            f"""
-            QLineEdit {{
-                padding: 8px 12px; border: 1px solid {COLOR_BORDER};
-                border-radius: 4px; font-size: 13px;
-            }}
-            QLineEdit:focus {{ border-color: {COLOR_ACCENT}; }}
-            """
-        )
         self._paste_input.returnPressed.connect(self._on_paste_submit)
         paste_row.addWidget(self._paste_input, stretch=1)
 
         go_btn = QPushButton("Import")
-        go_btn.setStyleSheet(
-            f"""
-            QPushButton {{
-                padding: 8px 18px; background: {COLOR_ACCENT};
-                color: white; border: none; border-radius: 4px;
-                font-weight: bold;
-            }}
-            QPushButton:hover {{ opacity: 0.9; }}
-            """
-        )
+        go_btn.setObjectName("primaryButton")
         go_btn.clicked.connect(self._on_paste_submit)
         paste_row.addWidget(go_btn)
 
@@ -350,7 +298,7 @@ class ImportDialog(QDialog):
 
         # Tip label
         tip = QLabel("Tip: You can also paste a full JSON collection or environment here.")
-        tip.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 11px;")
+        tip.setObjectName("mutedLabel")
         layout.addWidget(tip)
 
         # 2. Drag-and-drop zone
@@ -365,10 +313,6 @@ class ImportDialog(QDialog):
         self._progress_bar = QProgressBar()
         self._progress_bar.setRange(0, 0)  # indeterminate
         self._progress_bar.setFixedHeight(4)
-        self._progress_bar.setStyleSheet(
-            f"QProgressBar {{ border: none; background: {COLOR_DROP_ZONE_BG}; }}"
-            f"QProgressBar::chunk {{ background: {COLOR_ACCENT}; }}"
-        )
         self._progress_bar.hide()
         parent_layout.addWidget(self._progress_bar)
 
@@ -376,16 +320,10 @@ class ImportDialog(QDialog):
         self._result_scroll = QScrollArea()
         self._result_scroll.setWidgetResizable(True)
         self._result_scroll.setMaximumHeight(120)
-        self._result_scroll.setStyleSheet(
-            f"QScrollArea {{ border: 1px solid {COLOR_BORDER}; border-radius: 4px; }}"
-        )
         self._result_scroll.hide()
 
         self._result_log = QTextEdit()
         self._result_log.setReadOnly(True)
-        self._result_log.setStyleSheet(
-            f"QTextEdit {{ font-size: 12px; color: {COLOR_TEXT}; border: none; padding: 6px; }}"
-        )
         self._result_scroll.setWidget(self._result_log)
         parent_layout.addWidget(self._result_scroll)
 

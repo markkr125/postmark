@@ -11,8 +11,6 @@ import logging
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QComboBox, QWidget
 
-from ui.theme import COLOR_BORDER, COLOR_TEXT, COLOR_WHITE
-
 logger = logging.getLogger(__name__)
 
 # Sentinel text for "No Environment" option
@@ -38,17 +36,6 @@ class EnvironmentSelector(QComboBox):
         super().__init__(parent)
         self._prev_index: int = 0
         self.setFixedWidth(180)
-        self.setStyleSheet(
-            f"""
-            QComboBox {{
-                background: {COLOR_WHITE};
-                border: 1px solid {COLOR_BORDER};
-                padding: 4px 8px;
-                color: {COLOR_TEXT};
-                font-size: 12px;
-            }}
-            """
-        )
         self.addItem(_NO_ENVIRONMENT, userData=None)
         self.currentIndexChanged.connect(self._on_index_changed)
 

@@ -112,13 +112,15 @@ tests/
 └── ui/                            # PySide6 widget tests (need qapp + qtbot)
     ├── conftest.py                # _no_fetch (autouse) + helper functions
     ├── test_main_window.py        # Top-level MainWindow smoke tests
+    ├── test_theme_manager.py      # ThemeManager tests
     ├── test_key_value_table.py    # Shared key-value editor widget tests
     ├── collections/               # Collection sidebar tests
     │   ├── test_collection_header.py
     │   ├── test_collection_tree.py
     │   └── test_collection_widget.py
     ├── dialogs/                   # Dialog tests
-    │   └── test_import_dialog.py
+    │   ├── test_import_dialog.py
+    │   └── test_settings_dialog.py
     ├── environments/              # Environment widget tests
     │   ├── test_environment_editor.py
     │   └── test_environment_selector.py

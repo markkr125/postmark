@@ -20,8 +20,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ui.theme import COLOR_ACCENT, COLOR_BORDER, COLOR_TEXT, COLOR_TEXT_MUTED, COLOR_WHITE
-
 # Column indices
 _COL_ENABLED = 0
 _COL_KEY = 1
@@ -74,24 +72,6 @@ class KeyValueTableWidget(QWidget):
         self._table.setColumnWidth(_COL_ENABLED, 30)
         self._table.verticalHeader().setVisible(False)
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self._table.setStyleSheet(
-            f"""
-            QTableWidget {{
-                background: {COLOR_WHITE};
-                border: 1px solid {COLOR_BORDER};
-                gridline-color: {COLOR_BORDER};
-                color: {COLOR_TEXT};
-            }}
-            QHeaderView::section {{
-                background: {COLOR_WHITE};
-                border: none;
-                border-bottom: 1px solid {COLOR_BORDER};
-                padding: 4px;
-                font-size: 11px;
-                color: {COLOR_TEXT_MUTED};
-            }}
-            """
-        )
         self._table.cellChanged.connect(self._on_cell_changed)
         layout.addWidget(self._table, 1)
 
@@ -100,24 +80,18 @@ class KeyValueTableWidget(QWidget):
         btn_row.setSpacing(6)
 
         add_btn = QPushButton("+ Add")
-        add_btn.setStyleSheet(
-            f"padding: 3px 10px; font-size: 11px; color: {COLOR_ACCENT};"
-            " border: none; background: transparent;"
-        )
+        add_btn.setObjectName("flatAccentButton")
         add_btn.clicked.connect(self.add_empty_row)
         btn_row.addWidget(add_btn)
 
         self._remove_btn = QPushButton("- Remove")
-        self._remove_btn.setStyleSheet(
-            f"padding: 3px 10px; font-size: 11px; color: {COLOR_TEXT_MUTED};"
-            " border: none; background: transparent;"
-        )
+        self._remove_btn.setObjectName("flatMutedButton")
         self._remove_btn.clicked.connect(self._remove_selected)
         btn_row.addWidget(self._remove_btn)
 
         # Bulk actions
         self._bulk_label = QLabel("")
-        self._bulk_label.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 11px;")
+        self._bulk_label.setObjectName("mutedLabel")
         btn_row.addWidget(self._bulk_label)
         btn_row.addStretch()
 

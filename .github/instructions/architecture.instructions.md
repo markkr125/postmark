@@ -14,16 +14,20 @@ and what implicit contracts exist.
 1. **UI must never import from `database/`.**  Go through the service layer.
 2. **Call `init_db()` before creating `MainWindow`** — the constructor
    immediately starts a background DB query.
-3. **Every repository function is its own transaction.** You cannot batch
+3. **Create `ThemeManager(app)` before creating `MainWindow`** — it applies
+   the global stylesheet, QPalette, and widget style on construction.
+4. **Every repository function is its own transaction.** You cannot batch
    multiple calls into one commit.
-4. **Always wrap programmatic tree-item edits in `blockSignals(True/False)`**
+5. **Always wrap programmatic tree-item edits in `blockSignals(True/False)`**
    — see `pyside6.instructions.md`.
-5. **The data interchange format is a nested `dict[str, Any]`**, not ORM
+6. **The data interchange format is a nested `dict[str, Any]`**, not ORM
    objects.  See the schema below.
-6. **`_safe_svc_call` swallows all exceptions.**  Errors are logged but never
+7. **`_safe_svc_call` swallows all exceptions.**  Errors are logged but never
    shown to the user.
-7. **`CollectionService` methods are all `@staticmethod`.**  Do not add
+8. **`CollectionService` methods are all `@staticmethod`.**  Do not add
    instance state.
+9. **Never call `setStyleSheet()` for static widget styling** — use
+   `setObjectName()` and global QSS.  See `pyside6.instructions.md`.
 
 ## Layering recap
 
@@ -37,10 +41,17 @@ UI widgets  ──signals──►  CollectionWidget  ──calls──►  Coll
                                                      get_session() context mgr
                                                              │
                                                          SQLite file
+
+ThemeManager  ──QPalette + global QSS──►  QApplication
+              ──theme_changed signal──►   widgets (refresh dynamic styles)
+              ──QSettings──►              persistent user preferences
 ```
 
 - **DO NOT** import from `database/` in any UI file.  The service layer is
   the only bridge between UI and repository.
+- `ThemeManager` is created once in `main.py` and passed to `MainWindow`.
+  It owns the app-wide stylesheet, QPalette, and QSettings persistence for
+  theme preferences.  See `pyside6.instructions.md` for widget styling rules.
 - `CollectionService` is instantiated as `self._svc = CollectionService()` in
   `CollectionWidget.__init__`, but **every method is `@staticmethod`**.
   Do not add instance state without updating every call site.

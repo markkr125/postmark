@@ -6,25 +6,20 @@ import logging
 from typing import Any
 
 from PySide6.QtCore import QSize, Qt, QThread
-from PySide6.QtGui import QAction, QCloseEvent, QCursor, QGuiApplication, QIcon, QKeySequence
-from PySide6.QtWidgets import (
-    QHBoxLayout,
-    QMainWindow,
-    QSizePolicy,
-    QSplitter,
-    QStackedWidget,
-    QTabWidget,
-    QToolBar,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtGui import (QAction, QCloseEvent, QCursor, QGuiApplication,
+                           QIcon, QKeySequence)
+from PySide6.QtWidgets import (QHBoxLayout, QMainWindow, QSizePolicy,
+                               QSplitter, QStackedWidget, QTabWidget, QToolBar,
+                               QVBoxLayout, QWidget)
 
 from services.collection_service import CollectionService
 from ui.collections.collection_widget import CollectionWidget
 from ui.dialogs.code_snippet_dialog import CodeSnippetDialog
 from ui.dialogs.collection_runner import CollectionRunnerDialog
+from ui.dialogs.settings_dialog import SettingsDialog
 from ui.environments.environment_editor import EnvironmentEditorDialog
 from ui.environments.environment_selector import EnvironmentSelector
+from ui.loading_screen import LoadingScreen
 from ui.panels.console_panel import ConsolePanel
 from ui.panels.history_panel import HistoryPanel
 from ui.request.breadcrumb_bar import BreadcrumbBar
@@ -33,7 +28,7 @@ from ui.request.request_editor import RequestEditorWidget
 from ui.request.request_tab_bar import RequestTabBar
 from ui.request.response_viewer import ResponseViewerWidget
 from ui.request.tab_manager import TabContext
-from ui.theme import COLOR_ACCENT, COLOR_DANGER, COLOR_WHITE
+from ui.theme_manager import ThemeManager
 
 logger = logging.getLogger(__name__)
 
@@ -48,9 +43,10 @@ class MainWindow(QMainWindow):
     (collection sidebar | request editor | response viewer).
     """
 
-    def __init__(self) -> None:
+    def __init__(self, theme_manager: ThemeManager | None = None) -> None:
         """Initialise the main window, layout, and child widgets."""
         super().__init__()
+        self._theme_manager = theme_manager
         self.setWindowTitle("Postmark")
         self.resize(1200, 800)
 
@@ -89,6 +85,9 @@ class MainWindow(QMainWindow):
 
         # Wire environment editor
         self._env_selector.manage_requested.connect(self._on_manage_environments)
+
+        # Wire loading screen
+        self.collection_widget.load_finished.connect(self._on_load_finished)
 
         # ---- Move to the screen that contains the mouse --------------
         self._move_to_mouse_screen()
@@ -134,6 +133,13 @@ class MainWindow(QMainWindow):
         snippet_act.setShortcut(QKeySequence("Ctrl+Shift+C"))
         snippet_act.triggered.connect(self._on_code_snippet)
         file_menu.addAction(snippet_act)
+
+        file_menu.addSeparator()
+
+        settings_act = QAction("&Settings\u2026", self)
+        settings_act.setShortcut(QKeySequence("Ctrl+,"))
+        settings_act.triggered.connect(self._on_settings)
+        file_menu.addAction(settings_act)
 
         file_menu.addSeparator()
 
@@ -266,12 +272,29 @@ class MainWindow(QMainWindow):
         self._create_menus()
         self._create_toolbar()
 
-        # 2. Main splitter: left (nav) + right (request+response)
+        # Hide them initially during loading
+        self.menuBar().hide()
+        # We need to hide the toolbar, but we didn't save a reference to it.
+        # Let's find it.
+        for tb in self.findChildren(QToolBar):
+            tb.hide()
+
+        # 2. Main stack: loading screen vs main UI
+        self._main_stack = QStackedWidget()
+        self.setCentralWidget(self._main_stack)
+
+        self._loading_screen = LoadingScreen()
+        self._main_stack.addWidget(self._loading_screen)
+        self._loading_screen.start_animation()
+
+        # 3. Main splitter: left (nav) + right (request+response)
         central = QWidget()
         main_layout = QHBoxLayout(central)
-        self.setCentralWidget(central)
+        main_layout.setContentsMargins(9, 0, 0, 0)
+        self._main_stack.addWidget(central)
 
         self._main_splitter = QSplitter(Qt.Orientation.Horizontal, central)
+        self._main_splitter.setHandleWidth(6)
         main_layout.addWidget(self._main_splitter)
 
         # --- Left navigation pane ---
@@ -299,6 +322,14 @@ class MainWindow(QMainWindow):
         self._bottom_panel.addTab(self._console_panel, "Console")
         self._bottom_panel.hide()
         self._right_splitter.addWidget(self._bottom_panel)
+
+    def _on_load_finished(self) -> None:
+        """Switch from the loading screen to the main UI."""
+        self._loading_screen.stop_animation()
+        self._main_stack.setCurrentIndex(1)
+        self.menuBar().show()
+        for tb in self.findChildren(QToolBar):
+            tb.show()
 
     # ------------------------------------------------------------------
     # Sidebar → editor wiring
@@ -557,6 +588,12 @@ class MainWindow(QMainWindow):
         )
         dialog.exec()
 
+    def _on_settings(self) -> None:
+        """Open the settings dialog."""
+        if self._theme_manager is not None:
+            dialog = SettingsDialog(self._theme_manager, parent=self)
+            dialog.exec()
+
     # ------------------------------------------------------------------
     # HTTP send pipeline
     # ------------------------------------------------------------------
@@ -700,38 +737,13 @@ class MainWindow(QMainWindow):
         btn = editor._send_btn
         if is_cancel:
             btn.setText("Cancel")
-            btn.setStyleSheet(
-                f"""
-                QPushButton {{
-                    background: {COLOR_DANGER};
-                    color: {COLOR_WHITE};
-                    border: none;
-                    padding: 6px 16px;
-                    font-weight: bold;
-                    border-radius: 3px;
-                }}
-                QPushButton:hover {{
-                    opacity: 0.9;
-                }}
-                """
-            )
+            btn.setObjectName("dangerButton")
         else:
             btn.setText("Send")
-            btn.setStyleSheet(
-                f"""
-                QPushButton {{
-                    background: {COLOR_ACCENT};
-                    color: {COLOR_WHITE};
-                    border: none;
-                    padding: 6px 16px;
-                    font-weight: bold;
-                    border-radius: 3px;
-                }}
-                QPushButton:hover {{
-                    opacity: 0.9;
-                }}
-                """
-            )
+            btn.setObjectName("primaryButton")
+        # Force style recalculation after objectName change
+        btn.style().unpolish(btn)
+        btn.style().polish(btn)
 
     def _cleanup_send_thread(self) -> None:
         """Clean up the background send thread and worker."""
