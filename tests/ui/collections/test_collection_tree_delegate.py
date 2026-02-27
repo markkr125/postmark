@@ -14,8 +14,7 @@ class TestCollectionTreeDelegate:
 
     def test_delegate_is_set_on_tree(self, qapp: QApplication, qtbot) -> None:
         """The tree widget has the custom delegate installed."""
-        from ui.collections.tree.collection_tree_delegate import \
-            CollectionTreeDelegate
+        from ui.collections.tree.collection_tree_delegate import CollectionTreeDelegate
 
         tree = CollectionTree()
         qtbot.addWidget(tree)

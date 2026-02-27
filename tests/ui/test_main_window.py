@@ -172,7 +172,7 @@ class TestMainWindowSendRequest:
         assert not window.response_widget._error_label.isHidden()
         assert "empty" in window.response_widget._error_label.text().lower()
 
-    @patch("ui.main_window.HttpSendWorker")
+    @patch("ui.request.http_worker.HttpSendWorker")
     @patch("ui.main_window.QThread")
     def test_send_creates_worker_and_thread(
         self,

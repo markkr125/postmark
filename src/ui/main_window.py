@@ -3,27 +3,32 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QSize, Qt, QThread
-from PySide6.QtGui import (QAction, QCloseEvent, QCursor, QGuiApplication,
-                           QIcon, QKeySequence)
-from PySide6.QtWidgets import (QHBoxLayout, QMainWindow, QSizePolicy,
-                               QSplitter, QStackedWidget, QTabWidget, QToolBar,
-                               QVBoxLayout, QWidget)
+from PySide6.QtGui import QAction, QCloseEvent, QCursor, QGuiApplication, QIcon, QKeySequence
+
+if TYPE_CHECKING:
+    from ui.request.http_worker import HttpSendWorker
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QMainWindow,
+    QSizePolicy,
+    QSplitter,
+    QStackedWidget,
+    QTabWidget,
+    QToolBar,
+    QVBoxLayout,
+    QWidget,
+)
 
 from services.collection_service import CollectionService
 from ui.collections.collection_widget import CollectionWidget
-from ui.dialogs.code_snippet_dialog import CodeSnippetDialog
-from ui.dialogs.collection_runner import CollectionRunnerDialog
-from ui.dialogs.settings_dialog import SettingsDialog
-from ui.environments.environment_editor import EnvironmentEditorDialog
 from ui.environments.environment_selector import EnvironmentSelector
 from ui.loading_screen import LoadingScreen
 from ui.panels.console_panel import ConsolePanel
 from ui.panels.history_panel import HistoryPanel
 from ui.request.breadcrumb_bar import BreadcrumbBar
-from ui.request.http_worker import HttpSendWorker
 from ui.request.request_editor import RequestEditorWidget
 from ui.request.request_tab_bar import RequestTabBar
 from ui.request.response_viewer import ResponseViewerWidget
@@ -610,6 +615,8 @@ class MainWindow(QMainWindow):
 
     def _on_code_snippet(self) -> None:
         """Open the code snippet dialog for the current request."""
+        from ui.dialogs.code_snippet_dialog import CodeSnippetDialog
+
         ctx = self._current_tab_context()
         editor = ctx.editor if ctx else self.request_widget
         method = editor._method_combo.currentText()
@@ -627,6 +634,8 @@ class MainWindow(QMainWindow):
 
     def _on_settings(self) -> None:
         """Open the settings dialog."""
+        from ui.dialogs.settings_dialog import SettingsDialog
+
         if self._theme_manager is not None:
             dialog = SettingsDialog(self._theme_manager, parent=self)
             dialog.exec()
@@ -686,6 +695,8 @@ class MainWindow(QMainWindow):
             self._tab_bar.update_tab(idx, is_sending=True)
 
         # 5. Create worker — variable resolution + auth on worker thread
+        from ui.request.http_worker import HttpSendWorker
+
         worker = HttpSendWorker()
         worker.set_request(
             method=method,
@@ -870,6 +881,8 @@ class MainWindow(QMainWindow):
         if coll_id is None:
             logger.warning("No collection selected for runner")
             return
+        from ui.dialogs.collection_runner import CollectionRunnerDialog
+
         dialog = CollectionRunnerDialog(coll_id, parent=self)
         dialog.exec()
 
@@ -878,6 +891,8 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     def _on_manage_environments(self) -> None:
         """Open the environment editor dialog."""
+        from ui.environments.environment_editor import EnvironmentEditorDialog
+
         dialog = EnvironmentEditorDialog(parent=self)
         dialog.environments_changed.connect(self._env_selector.refresh)
         dialog.exec()

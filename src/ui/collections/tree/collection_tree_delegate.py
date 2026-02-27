@@ -9,13 +9,24 @@ from __future__ import annotations
 
 from PySide6.QtCore import QModelIndex, QPersistentModelIndex, QRect, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QIcon, QPainter, QPen
-from PySide6.QtWidgets import (QStyle, QStyledItemDelegate,
-                               QStyleOptionViewItem, QTreeWidget, QWidget)
+from PySide6.QtWidgets import (
+    QStyle,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
+    QTreeWidget,
+    QWidget,
+)
 
 from ui.collections.tree.constants import ROLE_ITEM_TYPE, ROLE_METHOD
-from ui.theme import (BADGE_BORDER_RADIUS, BADGE_FONT_SIZE, BADGE_HEIGHT,
-                      BADGE_MIN_WIDTH, TREE_ROW_HEIGHT, method_color,
-                      method_short_label)
+from ui.theme import (
+    BADGE_BORDER_RADIUS,
+    BADGE_FONT_SIZE,
+    BADGE_HEIGHT,
+    BADGE_MIN_WIDTH,
+    TREE_ROW_HEIGHT,
+    method_color,
+    method_short_label,
+)
 
 # Horizontal gap between badge and name label (px).
 _BADGE_NAME_SPACING = 6

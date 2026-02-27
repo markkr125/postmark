@@ -10,8 +10,7 @@ from __future__ import annotations
 import logging
 
 from PySide6.QtCore import QObject, Signal, Slot
-from PySide6.QtWidgets import (QHBoxLayout, QLabel, QPushButton, QTextEdit,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QTextEdit, QVBoxLayout, QWidget
 
 # Maximum number of log lines kept in the console output.
 _MAX_LOG_LINES = 2000

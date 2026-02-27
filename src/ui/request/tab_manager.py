@@ -8,10 +8,13 @@ tab indices to their contexts.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QThread
 
-from ui.request.http_worker import HttpSendWorker
+if TYPE_CHECKING:
+    from ui.request.http_worker import HttpSendWorker
+
 from ui.request.request_editor import RequestEditorWidget
 from ui.request.response_viewer import ResponseViewerWidget
 
@@ -71,6 +74,8 @@ class TabContext:
         """
         # Tear down any previous send
         self.cleanup_thread()
+
+        from ui.request.http_worker import HttpSendWorker
 
         worker = HttpSendWorker()
         worker.set_request(method=method, url=url, headers=headers, body=body)
