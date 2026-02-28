@@ -249,6 +249,7 @@ def _parse_folder_item(item: dict[str, Any]) -> ParsedFolder:
         description=item.get("description"),
         auth=item.get("auth"),
         events=item.get("event"),
+        variables=item.get("variable"),
         children=children,
     )
 

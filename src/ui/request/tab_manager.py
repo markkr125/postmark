@@ -1,8 +1,10 @@
 """Per-tab state management for the request tab bar.
 
 Each ``TabContext`` bundles the widgets, thread, and worker that belong
-to a single request tab.  The ``TabManager`` maintains the mapping from
-tab indices to their contexts.
+to a single request tab.  Folder tabs reuse the same context with
+``tab_type="folder"`` and a ``folder_editor`` widget instead of a
+request editor.  The ``TabManager`` maintains the mapping from tab
+indices to their contexts.
 """
 
 from __future__ import annotations
@@ -13,6 +15,7 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QThread
 
 if TYPE_CHECKING:
+    from ui.request.folder_editor import FolderEditorWidget
     from ui.request.http_worker import HttpSendWorker
 
 from ui.request.request_editor import RequestEditorWidget
@@ -28,9 +31,11 @@ class TabContext:
     """Bundle of per-tab state: widgets, thread lifecycle, and dirty flag.
 
     Attributes:
-        request_id: Database PK of the loaded request, or ``None`` for
-            new/unsaved requests.
-        editor: The request editor widget for this tab.
+        tab_type: ``"request"`` or ``"folder"``.
+        request_id: Database PK of the loaded request, or ``None``.
+        collection_id: Database PK of the loaded folder, or ``None``.
+        editor: The request editor widget (request tabs only).
+        folder_editor: The folder editor widget (folder tabs only).
         response_viewer: The response viewer widget for this tab.
         thread: The ``QThread`` running the current request, if any.
         worker: The ``HttpSendWorker`` for the current request, if any.
@@ -42,14 +47,20 @@ class TabContext:
     def __init__(
         self,
         *,
+        tab_type: str = "request",
         request_id: int | None = None,
+        collection_id: int | None = None,
         editor: RequestEditorWidget | None = None,
+        folder_editor: FolderEditorWidget | None = None,
         response_viewer: ResponseViewerWidget | None = None,
         is_preview: bool = False,
     ) -> None:
         """Create a new tab context with optional pre-built widgets."""
+        self.tab_type = tab_type
         self.request_id = request_id
+        self.collection_id = collection_id
         self.editor = editor or RequestEditorWidget()
+        self.folder_editor = folder_editor
         self.response_viewer = response_viewer or ResponseViewerWidget()
         self.thread: QThread | None = None
         self.worker: HttpSendWorker | None = None
@@ -116,14 +127,20 @@ class TabContext:
         self.is_sending = False
 
     def dispose(self) -> None:
-        """Release all Python references held by this context.
+        """Release thread resources held by this context.
 
         Call after the widgets have been removed from their parent
-        layouts and scheduled for deletion.  Clearing the Python-side
-        attributes allows the garbage collector to reclaim the PySide6
-        wrapper objects without waiting for ``deleteLater`` to fire.
+        layouts and scheduled for deletion.  The caller should
+        ``del`` the ``TabContext`` immediately after calling this so
+        the garbage collector can reclaim the PySide6 wrapper objects.
+
+        Note: ``editor`` and ``response_viewer`` are intentionally
+        **not** set to ``None`` here — doing so would widen their
+        inferred types to ``X | None`` and force every access site
+        to add a redundant None-guard.  The subsequent ``del`` of the
+        ``TabContext`` releases those references just as effectively.
         """
         self.cleanup_thread()
-        self.editor = None  # type: ignore[assignment]
-        self.response_viewer = None  # type: ignore[assignment]
+        self.folder_editor = None
         self.request_id = None
+        self.collection_id = None

@@ -252,6 +252,14 @@ class CollectionWidget(QWidget):
         """Replace the displayed collection data with *data*."""
         self._tree_widget.set_collections(data)
 
+    def update_item_name(self, item_id: int, item_type: str, new_name: str) -> None:
+        """Update the display text of a tree item without triggering signals."""
+        self._tree_widget.update_item_name(item_id, item_type, new_name)
+
+    def select_and_scroll_to(self, item_id: int, item_type: str) -> None:
+        """Select and scroll to the item with the given ID and type."""
+        self._tree_widget.select_item_by_id(item_id, item_type)
+
     def selected_collection_id(self) -> int | None:
         """Return the ID of the currently selected collection, or ``None``."""
         return self._header._selected_collection_id

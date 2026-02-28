@@ -6,21 +6,15 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QSize, Qt, QThread
-from PySide6.QtGui import QAction, QCloseEvent, QCursor, QGuiApplication, QIcon, QKeySequence
+from PySide6.QtGui import (QAction, QCloseEvent, QCursor, QGuiApplication,
+                           QIcon, QKeySequence)
 
 if TYPE_CHECKING:
     from ui.request.http_worker import HttpSendWorker
-from PySide6.QtWidgets import (
-    QHBoxLayout,
-    QMainWindow,
-    QSizePolicy,
-    QSplitter,
-    QStackedWidget,
-    QTabWidget,
-    QToolBar,
-    QVBoxLayout,
-    QWidget,
-)
+
+from PySide6.QtWidgets import (QHBoxLayout, QMainWindow, QSizePolicy,
+                               QSplitter, QStackedWidget, QTabWidget, QToolBar,
+                               QVBoxLayout, QWidget)
 
 from services.collection_service import CollectionService
 from ui.collections.collection_widget import CollectionWidget
@@ -93,6 +87,13 @@ class MainWindow(QMainWindow):
 
         # Wire loading screen
         self.collection_widget.load_finished.connect(self._on_load_finished)
+
+        # Wire breadcrumb navigation & rename
+        self._breadcrumb_bar.item_clicked.connect(self._on_breadcrumb_clicked)
+        self._breadcrumb_bar.last_segment_renamed.connect(self._on_breadcrumb_rename)
+
+        # Wire tree rename → update open tabs
+        self.collection_widget.item_name_changed.connect(self._on_item_name_changed)
 
         # ---- Move to the screen that contains the mouse --------------
         self._move_to_mouse_screen()
@@ -348,6 +349,8 @@ class MainWindow(QMainWindow):
                 self._open_request(item_id, push_history=True, is_preview=False)
             elif action == "Preview":
                 self._open_request(item_id, push_history=True, is_preview=True)
+        elif item_type == "folder" and action == "Open":
+            self._open_folder(item_id)
 
     def _open_request(
         self,
@@ -488,11 +491,23 @@ class MainWindow(QMainWindow):
     def _on_tab_changed(self, index: int) -> None:
         """Switch the stacked widgets when the active tab changes."""
         ctx = self._tabs.get(index)
-        if ctx is not None:
+        if ctx is not None and ctx.tab_type == "folder":
+            # Folder tab — show folder editor, hide response pane
+            if ctx.folder_editor is not None:
+                self._editor_stack.setCurrentWidget(ctx.folder_editor)
+            self._response_area.hide()
+            # Update breadcrumb for folder
+            if ctx.collection_id is not None:
+                crumbs = CollectionService.get_collection_breadcrumb(ctx.collection_id)
+                self._breadcrumb_bar.set_path(crumbs)
+            else:
+                self._breadcrumb_bar.clear()
+        elif ctx is not None:
             self._editor_stack.setCurrentWidget(ctx.editor)
             self._response_stack.setCurrentWidget(ctx.response_viewer)
             self.request_widget = ctx.editor
             self.response_widget = ctx.response_viewer
+            self._response_area.show()
             # Update breadcrumb
             if ctx.request_id is not None:
                 crumbs = CollectionService.get_request_breadcrumb(ctx.request_id)
@@ -520,34 +535,48 @@ class MainWindow(QMainWindow):
         ctx.cancel_send()
         ctx.cleanup_thread()
 
-        # Grab local references before dispose() nulls the context.
-        editor = ctx.editor
-        viewer = ctx.response_viewer
+        if ctx.tab_type == "folder":
+            # Folder tab cleanup
+            folder_editor = ctx.folder_editor
+            if folder_editor is not None:
+                folder_editor.collection_changed.disconnect(self._on_folder_auto_save)
+                self._editor_stack.removeWidget(folder_editor)
+                folder_editor.setParent(None)
 
-        # Disconnect signals that reference MainWindow slots so the
-        # sender objects can be garbage-collected.
-        editor.send_requested.disconnect(self._on_send_request)
-        editor.save_requested.disconnect(self._on_save_request)
-        viewer.save_response_requested.disconnect(self._on_save_response)
+            ctx.dispose()
+            del ctx
 
-        # Remove from stacked widgets and detach from parent hierarchy.
-        self._editor_stack.removeWidget(editor)
-        self._response_stack.removeWidget(viewer)
+            self._tab_bar.remove_request_tab(index)
+        else:
+            # Request tab cleanup
+            # Grab local references before dispose() nulls the context.
+            editor = ctx.editor
+            viewer = ctx.response_viewer
 
-        # Clear heavy data so memory is freed even before the C++
-        # destructor runs.
-        viewer.clear()
+            # Disconnect signals that reference MainWindow slots so the
+            # sender objects can be garbage-collected.
+            editor.send_requested.disconnect(self._on_send_request)
+            editor.save_requested.disconnect(self._on_save_request)
+            viewer.save_response_requested.disconnect(self._on_save_response)
 
-        # Detach from any Qt parent so the C++ side is destroyed when
-        # the Python wrapper is garbage-collected.
-        editor.setParent(None)
-        viewer.setParent(None)
+            # Remove from stacked widgets and detach from parent hierarchy.
+            self._editor_stack.removeWidget(editor)
+            self._response_stack.removeWidget(viewer)
 
-        # Release all Python references held by the TabContext.
-        ctx.dispose()
-        del editor, viewer, ctx
+            # Clear heavy data so memory is freed even before the C++
+            # destructor runs.
+            viewer.clear()
 
-        self._tab_bar.remove_request_tab(index)
+            # Detach from any Qt parent so the C++ side is destroyed when
+            # the Python wrapper is garbage-collected.
+            editor.setParent(None)
+            viewer.setParent(None)
+
+            # Release all Python references held by the TabContext.
+            ctx.dispose()
+            del editor, viewer, ctx
+
+            self._tab_bar.remove_request_tab(index)
 
         # Re-index remaining tabs
         new_tabs: dict[int, TabContext] = {}
@@ -568,6 +597,163 @@ class MainWindow(QMainWindow):
         if ctx is not None and ctx.is_preview:
             ctx.is_preview = False
             self._tab_bar.update_tab(index, is_preview=False)
+
+    # ------------------------------------------------------------------
+    # Folder tab management
+    # ------------------------------------------------------------------
+    def _open_folder(self, collection_id: int) -> None:
+        """Open a folder detail view in a tab.
+
+        If an existing tab for this folder is already open, switch to it.
+        Otherwise create a new folder tab.
+        """
+        collection = CollectionService.get_collection(collection_id)
+        if collection is None:
+            logger.warning("Collection id=%s not found", collection_id)
+            return
+
+        data: dict = {
+            "name": collection.name,
+            "description": collection.description,
+            "auth": collection.auth,
+            "events": collection.events,
+            "variables": collection.variables,
+        }
+
+        request_count = CollectionService.get_folder_request_count(collection_id)
+        recent_requests = CollectionService.get_recent_requests(collection_id)
+
+        # Format timestamps for display
+        created_at = (
+            collection.created_at.strftime("%Y-%m-%d %H:%M") if collection.created_at else None
+        )
+        updated_at = (
+            collection.updated_at.strftime("%Y-%m-%d %H:%M") if collection.updated_at else None
+        )
+
+        # 1. Check if already open in a tab
+        for idx, ctx in self._tabs.items():
+            if ctx.tab_type == "folder" and ctx.collection_id == collection_id:
+                self._tab_bar.setCurrentIndex(idx)
+                return
+
+        # 2. Open a new folder tab
+        self._create_folder_tab(
+            collection_id,
+            data,
+            request_count,
+            created_at=created_at,
+            updated_at=updated_at,
+            recent_requests=recent_requests,
+        )
+
+    def _create_folder_tab(
+        self,
+        collection_id: int,
+        data: dict,
+        request_count: int,
+        *,
+        created_at: str | None = None,
+        updated_at: str | None = None,
+        recent_requests: list[dict] | None = None,
+    ) -> int:
+        """Create a new folder tab and switch to it."""
+        from ui.request.folder_editor import FolderEditorWidget
+
+        folder_editor = FolderEditorWidget()
+
+        self._editor_stack.addWidget(folder_editor)
+
+        ctx = TabContext(
+            tab_type="folder",
+            collection_id=collection_id,
+            folder_editor=folder_editor,
+        )
+
+        # Block signals while adding the tab to avoid premature
+        # _on_tab_changed before ctx is stored.
+        self._tab_bar.blockSignals(True)
+        try:
+            idx = self._tab_bar.add_folder_tab(data.get("name", ""))
+        finally:
+            self._tab_bar.blockSignals(False)
+
+        self._tabs[idx] = ctx
+        folder_editor.collection_changed.connect(self._on_folder_auto_save)
+
+        # Switch to the new tab BEFORE loading data so that the folder
+        # editor is visible even if load_collection raises.
+        self._tab_bar.setCurrentIndex(idx)
+        self._on_tab_changed(idx)
+
+        folder_editor.load_collection(
+            data,
+            collection_id=collection_id,
+            request_count=request_count,
+            created_at=created_at,
+            updated_at=updated_at,
+            recent_requests=recent_requests,
+        )
+        return idx
+
+    def _on_folder_auto_save(self, data: dict) -> None:
+        """Auto-save folder changes triggered by the debounced signal."""
+        ctx = self._current_tab_context()
+        if ctx is None or ctx.tab_type != "folder" or ctx.collection_id is None:
+            return
+        try:
+            CollectionService.update_collection(ctx.collection_id, **data)
+            logger.info("Auto-saved collection id=%s", ctx.collection_id)
+        except Exception:
+            logger.exception("Failed to auto-save collection id=%s", ctx.collection_id)
+
+    # ------------------------------------------------------------------
+    # Breadcrumb navigation & rename
+    # ------------------------------------------------------------------
+    def _on_breadcrumb_clicked(self, item_type: str, item_id: int) -> None:
+        """Navigate to a parent breadcrumb segment and scroll in the tree."""
+        if item_type == "folder":
+            self._open_folder(item_id)
+            self.collection_widget.select_and_scroll_to(item_id, "folder")
+
+    def _on_breadcrumb_rename(self, new_name: str) -> None:
+        """Rename the current request/folder from the breadcrumb bar."""
+        seg = self._breadcrumb_bar.last_segment_info
+        if seg is None:
+            return
+        item_type = seg["type"]
+        item_id = seg["id"]
+        try:
+            if item_type == "request":
+                CollectionService.rename_request(item_id, new_name)
+            else:
+                CollectionService.rename_collection(item_id, new_name)
+        except Exception:
+            logger.exception("Failed to rename %s id=%s", item_type, item_id)
+            return
+        # 1. Update the tab bar label
+        self._sync_name_across_tabs(item_type, item_id, new_name)
+        # 2. Update the collection tree sidebar
+        self.collection_widget.update_item_name(item_id, item_type, new_name)
+
+    def _on_item_name_changed(self, item_type: str, item_id: int, new_name: str) -> None:
+        """Sync open tab names when the tree emits a rename."""
+        self._sync_name_across_tabs(item_type, item_id, new_name)
+
+    def _sync_name_across_tabs(self, item_type: str, item_id: int, new_name: str) -> None:
+        """Update the tab label and breadcrumb for any open tab matching the item."""
+        for idx, ctx in self._tabs.items():
+            if item_type == "request" and ctx.request_id == item_id:
+                self._tab_bar.update_tab(idx, name=new_name)
+                # Refresh breadcrumb if this is the active tab
+                if idx == self._tab_bar.currentIndex():
+                    self._breadcrumb_bar.update_last_segment_text(new_name)
+            elif (
+                item_type == "folder" and ctx.tab_type == "folder" and ctx.collection_id == item_id
+            ):
+                self._tab_bar.update_tab(idx, name=new_name)
+                if idx == self._tab_bar.currentIndex():
+                    self._breadcrumb_bar.update_last_segment_text(new_name)
 
     # ------------------------------------------------------------------
     # Navigation history
@@ -618,6 +804,8 @@ class MainWindow(QMainWindow):
         from ui.dialogs.code_snippet_dialog import CodeSnippetDialog
 
         ctx = self._current_tab_context()
+        if ctx is not None and ctx.tab_type == "folder":
+            return
         editor = ctx.editor if ctx else self.request_widget
         method = editor._method_combo.currentText()
         url = editor._url_input.text().strip()
@@ -650,6 +838,10 @@ class MainWindow(QMainWindow):
     def _on_send_request(self) -> None:
         """Send the current request on a background thread."""
         ctx = self._current_tab_context()
+
+        # Folder tabs cannot send requests
+        if ctx is not None and ctx.tab_type == "folder":
+            return
 
         # If already sending, treat as cancel
         if ctx is not None and ctx.is_sending:
@@ -781,6 +973,8 @@ class MainWindow(QMainWindow):
     def _set_send_button_cancel(self, is_cancel: bool) -> None:
         """Toggle the Send button between Send and Cancel states."""
         ctx = self._current_tab_context()
+        if ctx is not None and ctx.tab_type == "folder":
+            return
         editor = ctx.editor if ctx else self.request_widget
         btn = editor._send_btn
         if is_cancel:
@@ -820,8 +1014,19 @@ class MainWindow(QMainWindow):
     # Save
     # ------------------------------------------------------------------
     def _on_save_request(self) -> None:
-        """Save the current request editor contents to the database."""
+        """Save the current request editor contents to the database.
+
+        For folder tabs, triggers an immediate auto-save instead.
+        """
         ctx = self._current_tab_context()
+
+        # Folder tabs use auto-save — trigger immediately on Ctrl+S
+        if ctx is not None and ctx.tab_type == "folder":
+            if ctx.folder_editor is not None and ctx.collection_id is not None:
+                data = ctx.folder_editor.get_collection_data()
+                self._on_folder_auto_save(data)
+            return
+
         editor = ctx.editor if ctx else self.request_widget
 
         request_id = editor.request_id

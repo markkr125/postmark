@@ -194,6 +194,45 @@ class TestCollectionTree:
         assert req.data(1, ROLE_ITEM_TYPE) == "request"
         assert req.data(1, ROLE_ITEM_TYPE) == "request"
 
+    def test_update_item_name_request(self, qapp: QApplication, qtbot) -> None:
+        """update_item_name updates column 1 for request items."""
+        tree = CollectionTree()
+        qtbot.addWidget(tree)
+
+        data = make_collection_dict(
+            [
+                {
+                    "id": 1,
+                    "name": "Coll",
+                    "requests": [{"id": 10, "name": "OldReq", "method": "GET"}],
+                },
+            ]
+        )
+        tree.set_collections(data)
+
+        # Before update
+        folder = top_level_items(tree)[0]
+        req = folder.child(0)
+        assert req.text(1) == "OldReq"
+
+        # Rename via update_item_name
+        tree.update_item_name(10, "request", "NewReq")
+        assert req.text(1) == "NewReq"
+
+    def test_update_item_name_folder(self, qapp: QApplication, qtbot) -> None:
+        """update_item_name updates column 0 for folder items."""
+        tree = CollectionTree()
+        qtbot.addWidget(tree)
+
+        data = make_collection_dict([{"id": 1, "name": "OldFolder"}])
+        tree.set_collections(data)
+
+        folder = top_level_items(tree)[0]
+        assert folder.text(0) == "OldFolder"
+
+        tree.update_item_name(1, "folder", "NewFolder")
+        assert folder.text(0) == "NewFolder"
+
 
 class TestCollectionTreeFilter:
     """Tests for search/filter functionality."""
@@ -273,7 +312,7 @@ class TestCollectionTreeFilter:
 
 
 class TestCollectionTreeDoubleClick:
-    """Tests for double-click to open request."""
+    """Tests for double-click to open request and folder."""
 
     def test_double_click_request_emits_open(self, qapp: QApplication, qtbot) -> None:
         """Double-clicking a request item emits item_action_triggered."""
@@ -298,6 +337,121 @@ class TestCollectionTreeDoubleClick:
             tree._on_item_double_clicked(req_item, 0)
 
         assert blocker.args == ["request", 10, "Open"]
+
+    def test_double_click_folder_does_not_emit_signal(self, qapp: QApplication, qtbot) -> None:
+        """Double-clicking a folder does not emit item_action_triggered.
+
+        Expand/collapse is handled by Qt's built-in ``expandsOnDoubleClick``.
+        """
+        tree = CollectionTree()
+        qtbot.addWidget(tree)
+
+        data = make_collection_dict(
+            [
+                {
+                    "id": 5,
+                    "name": "Folder",
+                    "children": [{"id": 6, "name": "SubFolder"}],
+                },
+            ]
+        )
+        tree.set_collections(data)
+
+        folder = top_level_items(tree)[0]
+
+        emitted: list[list] = []
+        tree.item_action_triggered.connect(lambda *args: emitted.append(list(args)))
+        tree._on_item_double_clicked(folder, 0)
+        assert emitted == []
+
+
+class TestCollectionTreeContextMenuOverview:
+    """Tests for the Overview context-menu action on folders."""
+
+    def test_overview_action_emits_folder_open(self, qapp: QApplication, qtbot) -> None:
+        """Selecting Overview from folder context menu emits folder Open."""
+        tree = CollectionTree()
+        qtbot.addWidget(tree)
+
+        data = make_collection_dict(
+            [
+                {
+                    "id": 7,
+                    "name": "MyFolder",
+                },
+            ]
+        )
+        tree.set_collections(data)
+
+        folder = top_level_items(tree)[0]
+        tree._current_item = folder
+
+        # Find the Overview action in the folder menu
+        overview_action = None
+        for action in tree._folder_menu.actions():
+            if action.data() == "Overview":
+                overview_action = action
+                break
+        assert overview_action is not None
+
+        with qtbot.waitSignal(tree.item_action_triggered, timeout=1000) as blocker:
+            tree._emit_menu_action(overview_action)
+
+        assert blocker.args == ["folder", 7, "Open"]
+
+
+class TestCollectionTreeSingleClick:
+    """Tests for single-click behaviour on tree items."""
+
+    def test_single_click_folder_does_not_expand(self, qapp: QApplication, qtbot) -> None:
+        """Single-clicking a folder does not toggle expand."""
+        tree = CollectionTree()
+        qtbot.addWidget(tree)
+
+        data = make_collection_dict(
+            [
+                {
+                    "id": 1,
+                    "name": "Folder",
+                    "requests": [{"id": 10, "name": "Req", "method": "GET"}],
+                },
+            ]
+        )
+        tree.set_collections(data)
+
+        folder = top_level_items(tree)[0]
+        folder.setExpanded(False)
+
+        emitted: list[list] = []
+        tree.item_action_triggered.connect(lambda *args: emitted.append(list(args)))
+        tree._on_item_clicked(folder, 0)
+
+        assert not folder.isExpanded()
+        assert emitted == []
+
+    def test_single_click_request_emits_preview(self, qapp: QApplication, qtbot) -> None:
+        """Single-clicking a request emits Preview action."""
+        tree = CollectionTree()
+        qtbot.addWidget(tree)
+
+        data = make_collection_dict(
+            [
+                {
+                    "id": 1,
+                    "name": "Coll",
+                    "requests": [{"id": 10, "name": "Req", "method": "GET"}],
+                },
+            ]
+        )
+        tree.set_collections(data)
+
+        folder = top_level_items(tree)[0]
+        req_item = folder.child(0)
+
+        with qtbot.waitSignal(tree.item_action_triggered, timeout=1000) as blocker:
+            tree._on_item_clicked(req_item, 0)
+
+        assert blocker.args == ["request", 10, "Preview"]
 
 
 class TestCollectionTreeKeyboardShortcuts:

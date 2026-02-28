@@ -28,6 +28,13 @@ and what implicit contracts exist.
    instance state.
 9. **Never call `setStyleSheet()` for static widget styling** — use
    `setObjectName()` and global QSS.  See `pyside6.instructions.md`.
+10. **Never use `# type: ignore` to assign `None` to a non-optional
+    attribute.**  This silences mypy but Pylance still widens the inferred
+    type to `X | None`, propagating false errors everywhere the attribute
+    is read.  If a field truly needs to become `None`, declare it as
+    `X | None` from the start and add proper guards at usage sites.
+    If you only need to drop the reference for GC, `del` the owning
+    object instead.
 
 ## Layering recap
 

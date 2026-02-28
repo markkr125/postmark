@@ -7,31 +7,16 @@ from typing import Any, cast
 
 from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QAction, QIcon, QKeyEvent
-from PySide6.QtWidgets import (
-    QApplication,
-    QLabel,
-    QLineEdit,
-    QMenu,
-    QMessageBox,
-    QStackedWidget,
-    QStyle,
-    QTreeWidget,
-    QTreeWidgetItem,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import (QApplication, QLabel, QLineEdit, QMenu,
+                               QMessageBox, QStackedWidget, QStyle,
+                               QTreeWidget, QTreeWidgetItem, QVBoxLayout,
+                               QWidget)
 
 from ui.collections.tree.collection_tree_delegate import CollectionTreeDelegate
-from ui.collections.tree.constants import (
-    EMPTY_COLLECTION_HTML,
-    ICON_CACHE,
-    PLACEHOLDER_MARKER,
-    ROLE_ITEM_ID,
-    ROLE_ITEM_TYPE,
-    ROLE_METHOD,
-    ROLE_OLD_NAME,
-    ROLE_PLACEHOLDER,
-)
+from ui.collections.tree.constants import (EMPTY_COLLECTION_HTML, ICON_CACHE,
+                                           PLACEHOLDER_MARKER, ROLE_ITEM_ID,
+                                           ROLE_ITEM_TYPE, ROLE_METHOD,
+                                           ROLE_OLD_NAME, ROLE_PLACEHOLDER)
 from ui.collections.tree.draggable_tree_widget import DraggableTreeWidget
 from ui.theme import COLOR_ACCENT
 
@@ -189,6 +174,8 @@ class CollectionTree(QWidget):
         # --- Folder menu ---
         self._folder_menu = QMenu(self._tree)
         for act_name in (
+            "Overview",
+            "|",
             "Add folder",
             "Add request",
             "|",
@@ -248,7 +235,7 @@ class CollectionTree(QWidget):
 
     @Slot(QTreeWidgetItem, int)
     def _on_item_clicked(self, item: QTreeWidgetItem, column: int) -> None:
-        """Emit a Preview action on single-click for request items."""
+        """Emit Preview for single-clicked request items."""
         item_type = item.data(1, ROLE_ITEM_TYPE)
         if item_type == "request":
             item_id = item.data(0, ROLE_ITEM_ID)
@@ -256,7 +243,11 @@ class CollectionTree(QWidget):
 
     @Slot(QTreeWidgetItem, int)
     def _on_item_double_clicked(self, item: QTreeWidgetItem, column: int) -> None:
-        """Emit an 'Open' action when a request item is double-clicked."""
+        """Open requests on double-click.
+
+        Folder expand/collapse is handled by Qt's built-in
+        ``expandsOnDoubleClick`` behaviour — no manual toggle needed.
+        """
         item_type = item.data(1, ROLE_ITEM_TYPE)
         if item_type == "request":
             item_id = item.data(0, ROLE_ITEM_ID)
@@ -350,6 +341,8 @@ class CollectionTree(QWidget):
             self.new_collection_requested.emit(item_id)
         elif action_name == "Add request" and item_type == "folder":
             self.new_request_requested.emit(item_id)
+        elif action_name == "Overview" and item_type == "folder":
+            self.item_action_triggered.emit("folder", item_id, "Open")
         elif action_name == "Expand all" and item_type == "folder":
             self._expand_all_recursive(self._current_item, expand=True)
         elif action_name == "Collapse all" and item_type == "folder":
@@ -703,6 +696,27 @@ class CollectionTree(QWidget):
         self._tree.scrollToItem(target, QTreeWidget.ScrollHint.EnsureVisible)
         self._current_item = target
         self._handle_rename(item_id, item_type)
+
+    def update_item_name(self, item_id: int, item_type: str, new_name: str) -> None:
+        """Programmatically update the display text of a tree item.
+
+        Finds the item by *item_id* / *item_type* and sets its text
+        without triggering rename signals.  Requests use column 1
+        (read by the delegate), folders use column 0.
+        """
+        target = self._find_item_by_id(self._tree.invisibleRootItem(), item_id, item_type)
+        if target is None:
+            return
+        col = 1 if item_type == "request" else 0
+        self._tree.blockSignals(True)
+        try:
+            target.setText(col, new_name)
+        finally:
+            self._tree.blockSignals(False)
+
+        # Force an immediate repaint — the delegate reads column 1 but
+        # paints in column 0, so Qt may not schedule a repaint on its own.
+        self._tree.viewport().update()
 
         # --- Incremental helpers ---
 

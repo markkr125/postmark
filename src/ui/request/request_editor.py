@@ -10,21 +10,10 @@ from __future__ import annotations
 import json
 
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtWidgets import (
-    QButtonGroup,
-    QComboBox,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QPushButton,
-    QRadioButton,
-    QSizePolicy,
-    QStackedWidget,
-    QTabWidget,
-    QTextEdit,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import (QButtonGroup, QComboBox, QHBoxLayout, QLabel,
+                               QLineEdit, QPushButton, QRadioButton,
+                               QSizePolicy, QStackedWidget, QTabWidget,
+                               QTextEdit, QVBoxLayout, QWidget)
 
 from ui.key_value_table import KeyValueTableWidget
 
@@ -74,11 +63,6 @@ class RequestEditorWidget(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 12)
         root.setSpacing(10)
-
-        # -- Title label (shows request name + dirty indicator) --
-        self._title_label = QLabel()
-        self._title_label.setObjectName("titleLabel")
-        root.addWidget(self._title_label)
 
         # -- Top bar: method dropdown + URL + Send --
         top_bar = QHBoxLayout()
@@ -278,7 +262,6 @@ class RequestEditorWidget(QWidget):
 
     def _set_content_visible(self, visible: bool) -> None:
         """Toggle between the editor content and the empty-state label."""
-        self._title_label.setVisible(visible)
         self._method_combo.setVisible(visible)
         self._url_input.setVisible(visible)
         self._send_btn.setVisible(visible)
@@ -308,8 +291,6 @@ class RequestEditorWidget(QWidget):
         try:
             self._request_id = request_id
             self._set_content_visible(True)
-
-            self._title_label.setText(data.get("name", ""))
 
             method = data.get("method", "GET").upper()
             idx = self._method_combo.findText(method)
@@ -424,7 +405,6 @@ class RequestEditorWidget(QWidget):
         try:
             self._request_id = None
             self._set_content_visible(False)
-            self._title_label.setText("")
             self._method_combo.setCurrentIndex(0)
             self._url_input.clear()
             self._params_table.set_data([])
@@ -448,13 +428,8 @@ class RequestEditorWidget(QWidget):
     # -- Dirty tracking -----------------------------------------------
 
     def _set_dirty(self, dirty: bool) -> None:
-        """Update the dirty flag and title indicator."""
+        """Update the dirty flag."""
         self._is_dirty = dirty
-        title = self._title_label.text()
-        if dirty and not title.startswith("\u2022 "):
-            self._title_label.setText(f"\u2022 {title}")
-        elif not dirty and title.startswith("\u2022 "):
-            self._title_label.setText(title[2:])
 
     def _on_field_changed(self) -> None:
         """Handle any field modification -- mark dirty and start debounce."""

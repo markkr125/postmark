@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from sqlalchemy import func as sa_func
 from sqlalchemy import select, update
 
 from database.database import get_session
@@ -350,6 +351,83 @@ def save_response(
         return sr.id
 
 
+# Columns on CollectionModel that may be updated via update_collection().
+_EDITABLE_COLLECTION_FIELDS = {
+    "description",
+    "auth",
+    "events",
+    "variables",
+}
+
+
+def update_collection(collection_id: int, **fields: Any) -> None:
+    """Update one or more editable fields on a collection.
+
+    Only columns listed in ``_EDITABLE_COLLECTION_FIELDS`` are accepted.
+
+    Raises:
+        ValueError: If *collection_id* does not exist or an unsupported
+            field is passed.
+    """
+    bad = set(fields) - _EDITABLE_COLLECTION_FIELDS
+    if bad:
+        raise ValueError(f"Non-editable fields: {bad}")
+    if not fields:
+        return
+    with get_session() as session:
+        coll = session.get(CollectionModel, collection_id)
+        if coll is None:
+            raise ValueError(f"No collection found with id={collection_id}")
+        stmt = update(CollectionModel).where(CollectionModel.id == collection_id).values(**fields)
+        session.execute(stmt)
+
+
+def get_collection_breadcrumb(collection_id: int) -> list[dict[str, Any]]:
+    """Return the breadcrumb path from root collection to the given folder.
+
+    Each entry has ``id``, ``name``, and ``type`` (always ``folder``) keys.
+    """
+    with get_session() as session:
+        coll = session.get(CollectionModel, collection_id)
+        if coll is None:
+            return []
+        path: list[dict[str, Any]] = []
+        while coll is not None:
+            path.append({"id": coll.id, "name": coll.name, "type": "folder"})
+            if coll.parent_id is None:
+                break
+            coll = session.get(CollectionModel, coll.parent_id)
+        path.reverse()
+        return path
+
+
+def count_collection_requests(collection_id: int) -> int:
+    """Count all requests recursively under a collection.
+
+    Walks the collection subtree (children and their descendants) and
+    returns the total number of requests contained.
+    """
+    with get_session() as session:
+        # 1. Gather all descendant collection IDs (BFS)
+        queue = [collection_id]
+        all_ids: list[int] = [collection_id]
+        while queue:
+            current = queue.pop(0)
+            stmt = select(CollectionModel.id).where(CollectionModel.parent_id == current)
+            children = list(session.execute(stmt).scalars().all())
+            all_ids.extend(children)
+            queue.extend(children)
+
+        # 2. Count requests in all collected collection IDs
+        count_stmt = (
+            select(sa_func.count())
+            .select_from(RequestModel)
+            .where(RequestModel.collection_id.in_(all_ids))
+        )
+        result = session.execute(count_stmt).scalar()
+        return result or 0
+
+
 # Columns on RequestModel that may be updated via update_request().
 _EDITABLE_REQUEST_FIELDS = {
     "name",
@@ -389,3 +467,48 @@ def update_request(request_id: int, **fields: Any) -> None:
             raise ValueError(f"No request found with id={request_id}")
         stmt = update(RequestModel).where(RequestModel.id == request_id).values(**fields)
         session.execute(stmt)
+
+
+def get_recent_requests_for_collection(
+    collection_id: int,
+    limit: int = 10,
+) -> list[dict[str, Any]]:
+    """Return the most recently updated requests under *collection_id*.
+
+    Walks the collection subtree (BFS) and returns up to *limit*
+    requests ordered by ``updated_at DESC``.  Each entry is a dict with
+    ``name``, ``method``, and ``updated_at`` keys.
+    """
+    with get_session() as session:
+        # 1. Gather all descendant collection IDs (BFS)
+        queue = [collection_id]
+        all_ids: list[int] = [collection_id]
+        while queue:
+            current = queue.pop(0)
+            stmt = select(CollectionModel.id).where(
+                CollectionModel.parent_id == current,
+            )
+            children = list(session.execute(stmt).scalars().all())
+            all_ids.extend(children)
+            queue.extend(children)
+
+        # 2. Fetch recently-updated requests
+        req_stmt = (
+            select(
+                RequestModel.name,
+                RequestModel.method,
+                RequestModel.updated_at,
+            )
+            .where(RequestModel.collection_id.in_(all_ids))
+            .order_by(RequestModel.updated_at.desc())
+            .limit(limit)
+        )
+        rows = session.execute(req_stmt).all()
+        return [
+            {
+                "name": r.name,
+                "method": r.method,
+                "updated_at": r.updated_at,
+            }
+            for r in rows
+        ]

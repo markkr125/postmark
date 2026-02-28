@@ -13,17 +13,9 @@ from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication, QStyleFactory
 
-from ui.theme import (
-    BADGE_BORDER_RADIUS,
-    BADGE_FONT_SIZE,
-    BADGE_HEIGHT,
-    BADGE_MIN_WIDTH,
-    DARK_PALETTE,
-    LIGHT_PALETTE,
-    TREE_ROW_HEIGHT,
-    ThemePalette,
-    set_active_palette,
-)
+from ui.theme import (BADGE_BORDER_RADIUS, BADGE_FONT_SIZE, BADGE_HEIGHT,
+                      BADGE_MIN_WIDTH, DARK_PALETTE, LIGHT_PALETTE,
+                      TREE_ROW_HEIGHT, ThemePalette, set_active_palette)
 
 logger = logging.getLogger(__name__)
 
@@ -378,8 +370,7 @@ class ThemeManager(QObject):
 
         /* ---- Tab bars (underline style) ----------------------------- */
         QTabWidget::pane {{
-            border: 1px solid {p["border"]};
-            border-top: none;
+            border: none;
             background: {p["bg"]};
             border-radius: 0px;
         }}
@@ -458,6 +449,7 @@ class ThemeManager(QObject):
         }}
         RequestTabBar::tab {{
             height: 34px;
+            max-width: 200px;
             padding: 0 16px;
             border: none;
             border-right: 1px solid {p["border"]};
@@ -474,15 +466,11 @@ class ThemeManager(QObject):
             background: {"rgba(255,255,255,0.06)" if p is DARK_PALETTE else "rgba(0,0,0,0.04)"};
         }}
         RequestTabBar::close-button {{
-            image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16'><path d='M5 5l6 6m0-6l-6 6' stroke='{p["text_muted"].replace("#", "%23")}' stroke-width='1.5' stroke-linecap='round'/></svg>");
             subcontrol-position: right;
             margin: 4px;
             padding: 2px;
-        }}
-        RequestTabBar::close-button:hover {{
-            background: {"rgba(255,255,255,0.15)" if p is DARK_PALETTE else "rgba(0,0,0,0.1)"};
-            border-radius: 4px;
-            image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16'><path d='M5 5l6 6m0-6l-6 6' stroke='{p["text"].replace("#", "%23")}' stroke-width='1.5' stroke-linecap='round'/></svg>");
+            width: 12px;
+            height: 12px;
         }}
 
         /* ---- Menus -------------------------------------------------- */

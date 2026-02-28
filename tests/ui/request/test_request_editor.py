@@ -42,7 +42,6 @@ class TestRequestEditorWidget:
 
         assert editor._empty_label.isHidden()
         assert not editor._tabs.isHidden()
-        assert editor._title_label.text() == "Get Users"
         assert editor._url_input.text() == "https://api.example.com/users"
         assert editor._method_combo.currentText() == "GET"
         # Params and headers are now key-value tables
@@ -115,23 +114,23 @@ class TestRequestEditorDirtyTracking:
         assert editor.is_dirty
 
     def test_dirty_indicator_in_title(self, qapp: QApplication, qtbot) -> None:
-        """Dirty state shows a bullet in the title label."""
+        """Dirty state is tracked via the is_dirty flag."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
 
         editor.load_request({"name": "My Request", "method": "GET", "url": "http://x"})
         editor._url_input.setText("http://changed")
-        assert editor._title_label.text().startswith("\u2022 ")
+        assert editor.is_dirty
 
     def test_set_dirty_false_removes_indicator(self, qapp: QApplication, qtbot) -> None:
-        """Clearing dirty state removes the bullet from the title."""
+        """Clearing dirty state resets the flag."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
 
         editor.load_request({"name": "My Request", "method": "GET", "url": "http://x"})
         editor._url_input.setText("http://changed")
         editor._set_dirty(False)
-        assert not editor._title_label.text().startswith("\u2022 ")
+        assert not editor.is_dirty
 
     def test_request_id_stored(self, qapp: QApplication, qtbot) -> None:
         """load_request stores the request_id."""

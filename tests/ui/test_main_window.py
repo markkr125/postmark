@@ -106,7 +106,7 @@ class TestMainWindowNavigation:
         window._open_request(req.id, push_history=True)
 
         assert window.request_widget._url_input.text() == "https://example.com"
-        assert window.request_widget._title_label.text() == "My Req"
+        assert window.request_widget._method_combo.currentText() == "POST"
 
     def test_navigation_history_back(self, qapp: QApplication, qtbot) -> None:
         """Navigating back goes to the previous request."""
@@ -455,3 +455,79 @@ class TestMainWindowContextMenuHandlers:
 
         window._close_all_tabs()
         assert window._tab_bar.count() == 0
+
+
+class TestMainWindowFolderTabs:
+    """Tests for opening and closing folder tabs."""
+
+    def test_open_folder_creates_tab(self, qapp: QApplication, qtbot) -> None:
+        """Opening a folder creates a new tab in the tab bar."""
+        svc = CollectionService()
+        coll = svc.create_collection("MyFolder")
+
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._open_folder(coll.id)
+
+        assert window._tab_bar.count() == 1
+        ctx = window._tabs[0]
+        assert ctx.tab_type == "folder"
+        assert ctx.collection_id == coll.id
+
+    def test_open_folder_shows_editor(self, qapp: QApplication, qtbot) -> None:
+        """Opening a folder shows the folder editor widget."""
+        svc = CollectionService()
+        coll = svc.create_collection("Folder")
+
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._open_folder(coll.id)
+
+        ctx = window._tabs[0]
+        assert ctx.folder_editor is not None
+        assert ctx.folder_editor._title_label.text() == "Folder"
+
+    def test_open_same_folder_twice_switches_tab(self, qapp: QApplication, qtbot) -> None:
+        """Opening the same folder twice switches to the existing tab."""
+        svc = CollectionService()
+        coll = svc.create_collection("Folder")
+
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._open_folder(coll.id)
+        window._open_folder(coll.id)
+
+        assert window._tab_bar.count() == 1
+
+    def test_close_folder_tab(self, qapp: QApplication, qtbot) -> None:
+        """Closing a folder tab removes it cleanly."""
+        svc = CollectionService()
+        coll = svc.create_collection("Folder")
+
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._open_folder(coll.id)
+        assert window._tab_bar.count() == 1
+
+        window._on_tab_close(0)
+        assert window._tab_bar.count() == 0
+
+    def test_folder_and_request_tabs_coexist(self, qapp: QApplication, qtbot) -> None:
+        """Folder and request tabs can coexist in the tab bar."""
+        svc = CollectionService()
+        coll = svc.create_collection("Folder")
+        req = svc.create_request(coll.id, "GET", "http://x", "Req")
+
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._open_request(req.id, push_history=True)
+        window._open_folder(coll.id)
+
+        assert window._tab_bar.count() == 2
+        assert window._tabs[0].tab_type == "request"
+        assert window._tabs[1].tab_type == "folder"
