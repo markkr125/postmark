@@ -111,6 +111,29 @@ Never hardcode hex colour values in widget files. Import from `ui.theme`:
 from ui.theme import COLOR_ACCENT, METHOD_COLORS, DEFAULT_METHOD_COLOR, method_color
 ```
 
+## Icons — Phosphor font glyphs via ui/icons.py
+
+Use the `phi()` helper from `ui.icons` for all button and menu icons.
+**Never** use `QIcon.fromTheme()` — it is unreliable across platforms.
+
+```python
+from ui.icons import phi
+
+button.setIcon(phi("paper-plane-right"))
+action.setIcon(phi("trash", color="#e74c3c", size=16))
+```
+
+- `phi(name)` returns a cached `QIcon` rendered from the bundled Phosphor
+  TTF font (`data/fonts/phosphor.ttf`).
+- Default colour is `COLOR_TEXT_MUTED`; override with the `color` kwarg.
+- Default size is 16 px; override with `size`.
+- Icons are cached by `(name, color, size)` — each unique combo is created
+  once.
+- `load_font()` is called once in `main.py` after `QApplication` is created.
+- `clear_cache()` is called automatically by `ThemeManager.apply()` on theme
+  change so icon colours refresh.
+- Browse available icon names in `data/fonts/phosphor-charmap.json`.
+
 ## Theme system — ThemeManager + global QSS + QPalette
 
 The application uses a centralised theme system with three layers:

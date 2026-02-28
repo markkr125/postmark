@@ -69,6 +69,7 @@ src/
     ├── main_window.py             # Top-level MainWindow
     ├── theme.py                   # Palettes, colours, badge geometry, method_color()
     ├── theme_manager.py           # ThemeManager — QPalette + global QSS + QSettings
+    ├── icons.py                   # Phosphor font-glyph icon provider (phi())
     ├── key_value_table.py         # Reusable key-value editor widget
     ├── collections/               # Collection sidebar
     │   ├── collection_header.py
@@ -112,6 +113,7 @@ tests/
     ├── conftest.py                # _no_fetch (autouse) + helpers
     ├── test_main_window.py
     ├── test_theme_manager.py
+    ├── test_icons.py
     ├── test_key_value_table.py
     ├── collections/               # Collection sidebar tests
     │   ├── test_collection_header.py

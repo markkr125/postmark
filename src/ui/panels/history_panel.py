@@ -9,6 +9,7 @@ from __future__ import annotations
 from PySide6.QtCore import QEvent, QObject, Qt, Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget
 
+from ui.icons import phi
 from ui.theme import COLOR_BORDER, method_color
 
 # Maximum number of history entries to keep
@@ -56,6 +57,7 @@ class HistoryPanel(QWidget):
         header.addWidget(title)
         header.addStretch()
         clear_btn = QPushButton("Clear")
+        clear_btn.setIcon(phi("eraser"))
         clear_btn.setObjectName("linkButton")
         clear_btn.clicked.connect(self.clear)
         header.addWidget(clear_btn)
@@ -158,5 +160,6 @@ class HistoryPanel(QWidget):
             if method is not None and url is not None:
                 self.entry_clicked.emit(str(method), str(url))
                 return True
+        return super().eventFilter(obj, event)
         return super().eventFilter(obj, event)
         return super().eventFilter(obj, event)

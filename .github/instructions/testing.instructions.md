@@ -113,6 +113,7 @@ tests/
     ├── conftest.py                # _no_fetch (autouse) + helper functions
     ├── test_main_window.py        # Top-level MainWindow smoke tests
     ├── test_theme_manager.py      # ThemeManager tests
+    ├── test_icons.py              # Phosphor icon provider tests
     ├── test_key_value_table.py    # Shared key-value editor widget tests
     ├── collections/               # Collection sidebar tests
     │   ├── test_collection_header.py

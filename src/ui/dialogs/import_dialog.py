@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 
 from services.import_parser.models import ImportSummary
 from services.import_service import ImportService
+from ui.icons import phi
 from ui.theme import COLOR_ACCENT, COLOR_IMPORT_ERROR, COLOR_IMPORT_SUCCESS
 
 logger = logging.getLogger(__name__)
@@ -290,6 +291,7 @@ class ImportDialog(QDialog):
         paste_row.addWidget(self._paste_input, stretch=1)
 
         go_btn = QPushButton("Import")
+        go_btn.setIcon(phi("download-simple"))
         go_btn.setObjectName("primaryButton")
         go_btn.clicked.connect(self._on_paste_submit)
         paste_row.addWidget(go_btn)

@@ -8,9 +8,10 @@ display an italic style when in preview mode.
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFontMetrics, QIcon, QMouseEvent
+from PySide6.QtGui import QFontMetrics, QMouseEvent
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QMenu, QSizePolicy, QTabBar, QWidget
 
+from ui.icons import phi
 from ui.theme import (
     BADGE_BORDER_RADIUS,
     BADGE_FONT_SIZE,
@@ -151,7 +152,7 @@ class _FolderTabLabel(QWidget):
 
         # Folder icon
         self._icon_label = QLabel()
-        icon = QIcon.fromTheme("folder")
+        icon = phi("folder-simple")
         self._icon_label.setPixmap(icon.pixmap(BADGE_HEIGHT, BADGE_HEIGHT))
         self._icon_label.setFixedSize(BADGE_MIN_WIDTH, BADGE_HEIGHT)
         self._icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)

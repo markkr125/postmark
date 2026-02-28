@@ -142,6 +142,11 @@ class ThemeManager(QObject):
         qss = self._build_global_qss(palette)
         self._app.setStyleSheet(qss)
 
+        # 5. Flush icon cache so colours are re-rendered
+        from ui.icons import clear_cache
+
+        clear_cache()
+
         self.theme_changed.emit()
 
     # -- Internals -----------------------------------------------------

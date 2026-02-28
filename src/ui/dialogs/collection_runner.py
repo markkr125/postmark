@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 
 from services.collection_service import CollectionService
 from services.http_service import HttpService
+from ui.icons import phi
 
 logger = logging.getLogger(__name__)
 
@@ -133,11 +134,13 @@ class CollectionRunnerDialog(QDialog):
         btn_row = QHBoxLayout()
         btn_row.addStretch()
         self._run_btn = QPushButton("Run")
+        self._run_btn.setIcon(phi("play"))
         self._run_btn.setObjectName("primaryButton")
         self._run_btn.clicked.connect(self._start_run)
         btn_row.addWidget(self._run_btn)
 
         self._cancel_btn = QPushButton("Cancel")
+        self._cancel_btn.setIcon(phi("stop"))
         self._cancel_btn.setObjectName("dangerButton")
         self._cancel_btn.clicked.connect(self._cancel_run)
         self._cancel_btn.setEnabled(False)

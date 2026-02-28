@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from services.snippet_generator import SnippetGenerator
+from ui.icons import phi
 
 
 class CodeSnippetDialog(QDialog):
@@ -76,6 +77,7 @@ class CodeSnippetDialog(QDialog):
         btn_row.addStretch()
 
         self._copy_btn = QPushButton("Copy to Clipboard")
+        self._copy_btn.setIcon(phi("clipboard"))
         self._copy_btn.setObjectName("primaryButton")
         self._copy_btn.clicked.connect(self._copy_to_clipboard)
         btn_row.addWidget(self._copy_btn)

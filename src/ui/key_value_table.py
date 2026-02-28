@@ -11,9 +11,19 @@ from typing import cast
 
 from PySide6.QtCore import QEvent, QObject, Qt, Signal
 from PySide6.QtGui import QMouseEvent
-from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QHBoxLayout,
-                               QHeaderView, QPushButton, QTableWidget,
-                               QTableWidgetItem, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QCheckBox,
+    QHBoxLayout,
+    QHeaderView,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
+
+from ui.icons import phi
 
 # Column indices
 _COL_ENABLED = 0
@@ -83,6 +93,7 @@ class KeyValueTableWidget(QWidget):
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.setMouseTracking(True)
         self._table.cellChanged.connect(self._on_cell_changed)
+        self._table.selectionModel().selectionChanged.connect(self._on_selection_changed)
         self._table.viewport().installEventFilter(self)
         layout.addWidget(self._table, 1)
 
@@ -190,7 +201,8 @@ class KeyValueTableWidget(QWidget):
 
     def _make_delete_button(self) -> QPushButton:
         """Create a small inline delete button for a row."""
-        btn = QPushButton("\u00d7")
+        btn = QPushButton()
+        btn.setIcon(phi("trash"))
         btn.setObjectName("rowDeleteButton")
         btn.setFixedSize(_DELETE_COL_WIDTH, 22)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -217,11 +229,22 @@ class KeyValueTableWidget(QWidget):
 
     def _update_delete_button_visibility(self) -> None:
         """Show the delete button only on the hovered non-ghost row."""
+        selected_rows = {idx.row() for idx in self._table.selectionModel().selectedRows()}
         for r in range(self._table.rowCount()):
             btn = self._table.cellWidget(r, _COL_DELETE)
             if isinstance(btn, QPushButton):
                 show = r == self._hovered_row and not self._is_ghost_row(r)
                 btn.setVisible(show)
+                # Use white icon on selected rows so it stays visible
+                # against the highlight background.
+                if r in selected_rows:
+                    btn.setIcon(phi("trash", color="#ffffff"))
+                else:
+                    btn.setIcon(phi("trash"))
+
+    def _on_selection_changed(self) -> None:
+        """Refresh delete-button icons when the selected row changes."""
+        self._update_delete_button_visibility()
 
     # -- Event filter for hover tracking -------------------------------
 

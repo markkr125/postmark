@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ui.icons import phi
 from ui.key_value_table import KeyValueTableWidget
 
 # HTTP methods shown in the dropdown
@@ -93,8 +94,10 @@ class RequestEditorWidget(QWidget):
         top_bar.addWidget(self._url_input)
 
         self._send_btn = QPushButton("Send")
+        self._send_btn.setIcon(phi("paper-plane-right", color="#ffffff"))
         self._send_btn.setObjectName("primaryButton")
-        self._send_btn.setFixedWidth(80)
+        self._send_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._send_btn.setFixedWidth(90)
         self._send_btn.clicked.connect(self.send_requested.emit)
         top_bar.addWidget(self._send_btn)
 

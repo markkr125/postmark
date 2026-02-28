@@ -6,7 +6,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QSize, Qt, QThread
-from PySide6.QtGui import QAction, QCloseEvent, QCursor, QGuiApplication, QIcon, QKeySequence
+from PySide6.QtGui import QAction, QCloseEvent, QCursor, QGuiApplication, QKeySequence
 
 if TYPE_CHECKING:
     from ui.request.http_worker import HttpSendWorker
@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 from services.collection_service import CollectionService
 from ui.collections.collection_widget import CollectionWidget
 from ui.environments.environment_selector import EnvironmentSelector
+from ui.icons import phi
 from ui.loading_screen import LoadingScreen
 from ui.panels.console_panel import ConsolePanel
 from ui.panels.history_panel import HistoryPanel
@@ -131,11 +132,13 @@ class MainWindow(QMainWindow):
         file_menu = menubar.addMenu("&File")
 
         import_act = QAction("&Import...", self)
+        import_act.setIcon(phi("download-simple"))
         import_act.setShortcut(QKeySequence("Ctrl+I"))
         import_act.triggered.connect(self._on_import)
         file_menu.addAction(import_act)
 
         save_act = QAction("&Save", self)
+        save_act.setIcon(phi("floppy-disk"))
         save_act.setShortcut(QKeySequence("Ctrl+S"))
         save_act.triggered.connect(self._on_save_request)
         file_menu.addAction(save_act)
@@ -143,6 +146,7 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
 
         snippet_act = QAction("Generate Code &Snippet\u2026", self)
+        snippet_act.setIcon(phi("code"))
         snippet_act.setShortcut(QKeySequence("Ctrl+Shift+C"))
         snippet_act.triggered.connect(self._on_code_snippet)
         file_menu.addAction(snippet_act)
@@ -150,6 +154,7 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
 
         settings_act = QAction("&Settings\u2026", self)
+        settings_act.setIcon(phi("gear"))
         settings_act.setShortcut(QKeySequence("Ctrl+,"))
         settings_act.triggered.connect(self._on_settings)
         file_menu.addAction(settings_act)
@@ -157,6 +162,7 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
 
         exit_act = QAction("&Exit", self)
+        exit_act.setIcon(phi("sign-out"))
         exit_act.setShortcut(QKeySequence("Ctrl+Q"))
         exit_act.triggered.connect(self.close)
         file_menu.addAction(exit_act)
@@ -164,6 +170,7 @@ class MainWindow(QMainWindow):
         # Collection menu
         coll_menu = menubar.addMenu("&Collection")
         run_act = QAction("Run &All", self)
+        run_act.setIcon(phi("play"))
         run_act.setShortcut(QKeySequence("Ctrl+R"))
         self.run_action = run_act
         coll_menu.addAction(run_act)
@@ -256,13 +263,13 @@ class MainWindow(QMainWindow):
         toolbar.setMovable(False)
         self.addToolBar(toolbar)
 
-        self.back_action = QAction(QIcon.fromTheme("go-previous"), "Go back", self)
+        self.back_action = QAction(phi("arrow-left", size=20), "Go back", self)
         self.back_action.setShortcut(QKeySequence("Alt+Left"))
         self.back_action.setEnabled(False)
         self.back_action.triggered.connect(self._navigate_back)
         toolbar.addAction(self.back_action)
 
-        self.forward_action = QAction(QIcon.fromTheme("go-next"), "Go forward", self)
+        self.forward_action = QAction(phi("arrow-right", size=20), "Go forward", self)
         self.forward_action.setShortcut(QKeySequence("Alt+Right"))
         self.forward_action.setEnabled(False)
         self.forward_action.triggered.connect(self._navigate_forward)

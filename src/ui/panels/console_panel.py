@@ -12,6 +12,8 @@ import logging
 from PySide6.QtCore import QObject, Signal, Slot
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QTextEdit, QVBoxLayout, QWidget
 
+from ui.icons import phi
+
 # Maximum number of log lines kept in the console output.
 _MAX_LOG_LINES = 2000
 
@@ -64,6 +66,7 @@ class ConsolePanel(QWidget):
         header.addWidget(title)
         header.addStretch()
         clear_btn = QPushButton("Clear")
+        clear_btn.setIcon(phi("eraser"))
         clear_btn.setObjectName("linkButton")
         clear_btn.clicked.connect(self._clear)
         header.addWidget(clear_btn)
@@ -116,6 +119,7 @@ class ConsolePanel(QWidget):
 
     def cleanup(self) -> None:
         """Remove the log handler (call on shutdown)."""
+        logging.getLogger().removeHandler(self._handler)
         logging.getLogger().removeHandler(self._handler)
         logging.getLogger().removeHandler(self._handler)
         logging.getLogger().removeHandler(self._handler)

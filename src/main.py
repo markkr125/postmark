@@ -8,6 +8,7 @@ import sys
 from PySide6.QtWidgets import QApplication
 
 from database.database import init_db
+from ui.icons import load_font
 from ui.main_window import MainWindow
 from ui.theme_manager import ThemeManager
 
@@ -19,6 +20,9 @@ if __name__ == "__main__":
 
     # Apply theme (reads QSettings, sets style + palette + global QSS)
     theme_manager = ThemeManager(app)
+
+    # Load the Phosphor icon font (must happen after QApplication)
+    load_font()
 
     # Initialise the database before any widget accesses it
     init_db()

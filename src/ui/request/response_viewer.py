@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ui.icons import phi
 from ui.theme import (
     COLOR_DANGER,
     COLOR_DELETE,
@@ -132,6 +133,7 @@ class ResponseViewerWidget(QWidget):
         format_row.addWidget(self._format_combo)
 
         self._beautify_btn = QPushButton("Beautify")
+        self._beautify_btn.setIcon(phi("magic-wand"))
         self._beautify_btn.setFixedWidth(70)
         self._beautify_btn.setToolTip("Format and beautify the response body")
         self._beautify_btn.setObjectName("smallPrimaryButton")
@@ -139,6 +141,7 @@ class ResponseViewerWidget(QWidget):
         format_row.addWidget(self._beautify_btn)
 
         self._save_response_btn = QPushButton("Save")
+        self._save_response_btn.setIcon(phi("floppy-disk"))
         self._save_response_btn.setFixedWidth(50)
         self._save_response_btn.setToolTip("Save this response as a named example")
         self._save_response_btn.setObjectName("outlineButton")
@@ -169,19 +172,22 @@ class ResponseViewerWidget(QWidget):
         self._search_count_label.setObjectName("mutedLabel")
         search_layout.addWidget(self._search_count_label)
 
-        prev_btn = QPushButton("\u25b2")
+        prev_btn = QPushButton()
+        prev_btn.setIcon(phi("caret-up"))
         prev_btn.setFixedWidth(24)
         prev_btn.setToolTip("Previous match")
         prev_btn.clicked.connect(self._search_prev)
         search_layout.addWidget(prev_btn)
 
-        next_btn = QPushButton("\u25bc")
+        next_btn = QPushButton()
+        next_btn.setIcon(phi("caret-down"))
         next_btn.setFixedWidth(24)
         next_btn.setToolTip("Next match")
         next_btn.clicked.connect(self._search_next)
         search_layout.addWidget(next_btn)
 
-        close_btn = QPushButton("\u2715")
+        close_btn = QPushButton()
+        close_btn.setIcon(phi("x"))
         close_btn.setFixedWidth(24)
         close_btn.setToolTip("Close search")
         close_btn.clicked.connect(self._close_search)

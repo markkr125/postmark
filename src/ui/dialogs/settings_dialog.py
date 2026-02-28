@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ui.icons import phi
 from ui.theme_manager import (
     SCHEME_AUTO,
     SCHEME_DARK,
@@ -76,11 +77,13 @@ class SettingsDialog(QDialog):
         btn_row.addStretch()
 
         apply_btn = QPushButton("Apply")
+        apply_btn.setIcon(phi("check"))
         apply_btn.setObjectName("primaryButton")
         apply_btn.clicked.connect(self._on_apply)
         btn_row.addWidget(apply_btn)
 
         close_btn = QPushButton("Close")
+        close_btn.setIcon(phi("x"))
         close_btn.setObjectName("outlineButton")
         close_btn.clicked.connect(self.accept)
         btn_row.addWidget(close_btn)

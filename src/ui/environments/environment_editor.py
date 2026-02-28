@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from services.environment_service import EnvironmentService
+from ui.icons import phi
 from ui.key_value_table import KeyValueTableWidget
 
 
@@ -60,11 +61,13 @@ class EnvironmentEditorDialog(QDialog):
 
         btn_row = QHBoxLayout()
         self._add_btn = QPushButton("+ Add")
+        self._add_btn.setIcon(phi("plus"))
         self._add_btn.setObjectName("primaryButton")
         self._add_btn.clicked.connect(self._on_add)
         btn_row.addWidget(self._add_btn)
 
         self._del_btn = QPushButton("Delete")
+        self._del_btn.setIcon(phi("trash"))
         self._del_btn.setObjectName("dangerButton")
         self._del_btn.clicked.connect(self._on_delete)
         btn_row.addWidget(self._del_btn)
@@ -95,6 +98,7 @@ class EnvironmentEditorDialog(QDialog):
 
         # Save button
         self._save_btn = QPushButton("Save Variables")
+        self._save_btn.setIcon(phi("floppy-disk"))
         self._save_btn.setObjectName("primaryButton")
         self._save_btn.clicked.connect(self._on_save_vars)
         right_layout.addWidget(self._save_btn)

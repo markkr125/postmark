@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QAction, QIcon
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -14,6 +14,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from ui.icons import phi
 
 
 # ----------------------------------------------------------------------
@@ -50,15 +52,17 @@ class CollectionHeader(QWidget):
         # "New" button with dropdown menu
         self._plus_btn = QToolButton(self)
         self._plus_btn.setText("New")
+        self._plus_btn.setIcon(phi("plus"))
+        self._plus_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self._plus_btn.setObjectName("sidebarToolButton")
         self._plus_btn.setToolTip("Create new collection or request")
         top_row.addWidget(self._plus_btn)
 
         # Plus-menu
         self._plus_menu = QMenu(self)
-        new_coll_act = QAction("New collection", self)
+        new_coll_act = QAction(phi("folder-plus"), "New collection", self)
         self._plus_menu.addAction(new_coll_act)
-        self._new_req_act = QAction("New request", self)
+        self._new_req_act = QAction(phi("file-plus"), "New request", self)
         self._new_req_act.setEnabled(False)
         self._plus_menu.addAction(self._new_req_act)
 
@@ -75,6 +79,8 @@ class CollectionHeader(QWidget):
         # "Import" button
         self._import_btn = QToolButton(self)
         self._import_btn.setText("Import")
+        self._import_btn.setIcon(phi("download-simple"))
+        self._import_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self._import_btn.setObjectName("sidebarToolButton")
         self._import_btn.setToolTip("Import collections or requests")
         self._import_btn.clicked.connect(lambda: self.import_requested.emit())
@@ -89,9 +95,7 @@ class CollectionHeader(QWidget):
         self._search.setMinimumHeight(28)
         self._search.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
 
-        magnify_icon = QIcon.fromTheme("search")
-        if magnify_icon.isNull():
-            magnify_icon = QIcon(":/icons/magnifier.svg")
+        magnify_icon = phi("magnifying-glass")
         self._search.addAction(magnify_icon, QLineEdit.ActionPosition.LeadingPosition)
 
         main_layout.addWidget(self._search)

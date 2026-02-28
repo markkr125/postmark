@@ -33,6 +33,7 @@ from ui.collections.tree.constants import (
     ROLE_PLACEHOLDER,
 )
 from ui.collections.tree.draggable_tree_widget import DraggableTreeWidget
+from ui.icons import phi
 from ui.theme import COLOR_ACCENT
 
 logger = logging.getLogger(__name__)
@@ -177,17 +178,34 @@ class CollectionTree(QWidget):
         """Create the request- and folder-specific menus and connect actions."""
         # --- Request menu ---
         self._request_menu = QMenu(self._tree)
+        _req_icons = {
+            "Open": "eye",
+            "Copy": "clipboard",
+            "Rename": "pencil-simple",
+            "Delete": "trash",
+        }
         for act_name in ("Open", "Copy", "|", "Rename", "Delete"):
             if act_name == "|":
                 self._request_menu.addSeparator()
             else:
                 act = QAction(act_name, self._tree)
                 act.setData(act_name)  # <-- store action type as the action's data
+                if act_name in _req_icons:
+                    act.setIcon(phi(_req_icons[act_name]))
                 act.triggered.connect(lambda checked, a=act: self._emit_menu_action(a))
                 self._request_menu.addAction(act)
 
         # --- Folder menu ---
         self._folder_menu = QMenu(self._tree)
+        _folder_icons = {
+            "Overview": "eye",
+            "Add folder": "folder-plus",
+            "Add request": "file-plus",
+            "Rename": "pencil-simple",
+            "Delete": "trash",
+            "Expand all": "arrows-out-simple",
+            "Collapse all": "arrows-in-simple",
+        }
         for act_name in (
             "Overview",
             "|",
@@ -205,6 +223,8 @@ class CollectionTree(QWidget):
             else:
                 act = QAction(act_name, self._tree)
                 act.setData(act_name)  # <-- same here
+                if act_name in _folder_icons:
+                    act.setIcon(phi(_folder_icons[act_name]))
                 act.triggered.connect(lambda checked, a=act: self._emit_menu_action(a))
                 self._folder_menu.addAction(act)
 
