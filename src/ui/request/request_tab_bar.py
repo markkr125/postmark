@@ -9,12 +9,18 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFontMetrics, QIcon, QMouseEvent
-from PySide6.QtWidgets import (QHBoxLayout, QLabel, QMenu, QSizePolicy,
-                               QTabBar, QWidget)
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QMenu, QSizePolicy, QTabBar, QWidget
 
-from ui.theme import (BADGE_BORDER_RADIUS, BADGE_FONT_SIZE, BADGE_HEIGHT,
-                      BADGE_MIN_WIDTH, COLOR_SENDING, COLOR_WHITE,
-                      method_color, method_short_label)
+from ui.theme import (
+    BADGE_BORDER_RADIUS,
+    BADGE_FONT_SIZE,
+    BADGE_HEIGHT,
+    BADGE_MIN_WIDTH,
+    COLOR_SENDING,
+    COLOR_WHITE,
+    method_color,
+    method_short_label,
+)
 
 # Dirty indicator bullet prefix
 _DIRTY_BULLET = "\u2022 "

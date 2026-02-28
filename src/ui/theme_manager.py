@@ -13,9 +13,17 @@ from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication, QStyleFactory
 
-from ui.theme import (BADGE_BORDER_RADIUS, BADGE_FONT_SIZE, BADGE_HEIGHT,
-                      BADGE_MIN_WIDTH, DARK_PALETTE, LIGHT_PALETTE,
-                      TREE_ROW_HEIGHT, ThemePalette, set_active_palette)
+from ui.theme import (
+    BADGE_BORDER_RADIUS,
+    BADGE_FONT_SIZE,
+    BADGE_HEIGHT,
+    BADGE_MIN_WIDTH,
+    DARK_PALETTE,
+    LIGHT_PALETTE,
+    TREE_ROW_HEIGHT,
+    ThemePalette,
+    set_active_palette,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -348,6 +356,17 @@ class ThemeManager(QObject):
         QPushButton[objectName="flatMutedButton"]:hover {{
             background: {"rgba(255,255,255,0.06)" if p is DARK_PALETTE else "rgba(0,0,0,0.04)"};
             color: {p["text"]};
+        }}
+        QPushButton[objectName="rowDeleteButton"] {{
+            border: none;
+            background: transparent;
+            color: {p["text_muted"]};
+            font-size: 14px;
+            font-weight: bold;
+            padding: 0;
+        }}
+        QPushButton[objectName="rowDeleteButton"]:hover {{
+            color: {p["danger"]};
         }}
         QPushButton[objectName="importLinkButton"] {{
             color: {p["accent"]};

@@ -10,10 +10,21 @@ from __future__ import annotations
 import json
 
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtWidgets import (QButtonGroup, QComboBox, QHBoxLayout, QLabel,
-                               QLineEdit, QPushButton, QRadioButton,
-                               QSizePolicy, QStackedWidget, QTabWidget,
-                               QTextEdit, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (
+    QButtonGroup,
+    QComboBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QRadioButton,
+    QSizePolicy,
+    QStackedWidget,
+    QTabWidget,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ui.key_value_table import KeyValueTableWidget
 

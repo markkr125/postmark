@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QCheckBox
+from PySide6.QtWidgets import QCheckBox, QPushButton
 
-from ui.key_value_table import KeyValueTableWidget
+from ui.key_value_table import _COL_DELETE, _COL_KEY, KeyValueTableWidget
 
 
 class TestKeyValueTable:
@@ -22,6 +22,7 @@ class TestKeyValueTable:
         widget = KeyValueTableWidget()
         qtbot.addWidget(widget)
         widget.add_empty_row()
+        # 1 inserted empty + 1 ghost = 2
         assert widget.row_count() == 2
 
     def test_set_data_populates_rows(self, qapp, qtbot):
@@ -33,7 +34,8 @@ class TestKeyValueTable:
             {"key": "Accept", "value": "application/json"},
         ]
         widget.set_data(rows)
-        assert widget.row_count() == 2
+        # 2 data rows + 1 ghost row
+        assert widget.row_count() == 3
         data = widget.get_data()
         assert len(data) == 2
         assert data[0]["key"] == "Host"
@@ -142,3 +144,49 @@ class TestKeyValueTable:
 
         with qtbot.waitSignal(widget.data_changed, timeout=1000):
             cb.setChecked(False)
+
+    def test_ghost_row_auto_appends(self, qapp, qtbot):
+        """Typing a key in the ghost row should auto-append a new ghost."""
+        widget = KeyValueTableWidget()
+        qtbot.addWidget(widget)
+        assert widget.row_count() == 1  # Only ghost
+
+        # Simulate typing into the ghost row's key cell
+        ghost_row = widget.row_count() - 1
+        widget._table.item(ghost_row, _COL_KEY).setText("NewKey")
+
+        # Ghost was promoted; a new ghost was added
+        assert widget.row_count() == 2
+        assert widget.get_data()[0]["key"] == "NewKey"
+
+    def test_inline_delete_removes_row(self, qapp, qtbot):
+        """Clicking the inline delete button removes the target row."""
+        widget = KeyValueTableWidget()
+        qtbot.addWidget(widget)
+        widget.set_data(
+            [
+                {"key": "A", "value": "1"},
+                {"key": "B", "value": "2"},
+            ]
+        )
+        assert widget.row_count() == 3  # 2 data + 1 ghost
+
+        # Get delete button for row 0, make it visible, and click
+        btn = widget._table.cellWidget(0, _COL_DELETE)
+        assert isinstance(btn, QPushButton)
+        btn.show()
+        btn.click()
+
+        assert widget.row_count() == 2  # 1 data + 1 ghost
+        data = widget.get_data()
+        assert len(data) == 1
+        assert data[0]["key"] == "B"
+
+    def test_delete_button_hidden_on_ghost(self, qapp, qtbot):
+        """The ghost row's delete button should always be hidden."""
+        widget = KeyValueTableWidget()
+        qtbot.addWidget(widget)
+        ghost_row = widget.row_count() - 1
+        btn = widget._table.cellWidget(ghost_row, _COL_DELETE)
+        assert isinstance(btn, QPushButton)
+        assert not btn.isVisible()

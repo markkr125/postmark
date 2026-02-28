@@ -8,9 +8,16 @@ from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import QApplication
 
 from ui.theme import DARK_PALETTE, LIGHT_PALETTE, current_palette
-from ui.theme_manager import (_APP, _ORG, SCHEME_AUTO, SCHEME_DARK,
-                              SCHEME_LIGHT, STYLE_FUSION, STYLE_NATIVE,
-                              ThemeManager)
+from ui.theme_manager import (
+    _APP,
+    _ORG,
+    SCHEME_AUTO,
+    SCHEME_DARK,
+    SCHEME_LIGHT,
+    STYLE_FUSION,
+    STYLE_NATIVE,
+    ThemeManager,
+)
 
 
 @pytest.fixture(autouse=True)

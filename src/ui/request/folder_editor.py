@@ -10,9 +10,18 @@ from __future__ import annotations
 from typing import Any
 
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtWidgets import (QComboBox, QFrame, QHBoxLayout, QLabel,
-                               QLineEdit, QStackedWidget, QTabWidget,
-                               QTextEdit, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (
+    QComboBox,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QStackedWidget,
+    QTabWidget,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ui.key_value_table import KeyValueTableWidget
 
