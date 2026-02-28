@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (QButtonGroup, QComboBox, QHBoxLayout, QLabel,
 
 from ui.icons import phi
 from ui.key_value_table import KeyValueTableWidget
+from ui.theme import method_color
 
 # HTTP methods shown in the dropdown
 _HTTP_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS")
@@ -74,7 +75,9 @@ class RequestEditorWidget(QWidget):
         self._method_combo.addItems(list(_HTTP_METHODS))
         self._method_combo.setFixedWidth(100)
         self._method_combo.currentTextChanged.connect(self._on_field_changed)
+        self._method_combo.currentTextChanged.connect(self._update_method_color)
         top_bar.addWidget(self._method_combo)
+        self._update_method_color(self._method_combo.currentText())
 
         self._url_input = QLineEdit()
         self._url_input.setPlaceholderText("Enter request URL")
@@ -249,6 +252,11 @@ class RequestEditorWidget(QWidget):
         self._scripts_edit.setPlaceholderText("Scripts")
         self._scripts_edit.textChanged.connect(self._on_field_changed)
         self._tabs.addTab(self._scripts_edit, "Scripts")
+
+        # Let the tab content area shrink to just the tab header row so the
+        # user can maximise the response viewer via the splitter.
+        tab_header_h = self._tabs.tabBar().sizeHint().height()
+        self._tabs.setMinimumHeight(tab_header_h + 4)
 
         root.addWidget(self._tabs, 1)
 
@@ -440,6 +448,11 @@ class RequestEditorWidget(QWidget):
             return
         self._set_dirty(True)
         self._debounce_timer.start()
+
+    def _update_method_color(self, method: str) -> None:
+        """Tint the method combo box text to match the HTTP method colour."""
+        color = method_color(method)
+        self._method_combo.setStyleSheet(f"QComboBox {{ color: {color}; font-weight: bold; }}")
 
     def _on_body_mode_changed(self, checked: bool) -> None:
         """Toggle raw format combo visibility and mark dirty."""
