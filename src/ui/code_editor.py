@@ -53,7 +53,8 @@ from ui.theme import (COLOR_EDITOR_ACTIVE_INDENT_GUIDE,
                       COLOR_EDITOR_FOLD_BADGE_TEXT,
                       COLOR_EDITOR_FOLD_HIGHLIGHT, COLOR_EDITOR_FOLD_INDICATOR,
                       COLOR_EDITOR_GUTTER_BG, COLOR_EDITOR_GUTTER_TEXT,
-                      COLOR_EDITOR_INDENT_GUIDE, current_palette)
+                      COLOR_EDITOR_INDENT_GUIDE, COLOR_EDITOR_WHITESPACE_DOT,
+                      current_palette)
 
 # -- Data structures ---------------------------------------------------
 
@@ -100,6 +101,7 @@ _FOLD_BADGE_H_PAD = 4  # horizontal padding inside the badge
 _FOLD_BADGE_V_PAD = 1  # vertical padding inside the badge
 _FOLD_BADGE_RADIUS = 3  # corner radius of the badge pill
 _FOLD_BADGE_GAP = 6  # gap between end of line text and badge
+_WHITESPACE_DOT_RADIUS = 1.5  # px — small centered dot on selected spaces
 
 # Regex for XML/HTML fold detection
 _XML_OPEN_TAG = re.compile(r"<(\w[\w.\-:]*)(?:\s[^>]*)?\s*>")
@@ -608,6 +610,80 @@ class CodeEditorWidget(QPlainTextEdit):
             self._active_fold_start = best_start
             self.viewport().update()
 
+    # -- Selection whitespace dots --------------------------------------
+
+    def _paint_selection_whitespace(self, cursor: QTextCursor) -> None:
+        """Draw small dots at each space character inside the current selection.
+
+        Called from ``paintEvent`` when the cursor has an active selection.
+        The dots are small filled circles centred within each space glyph,
+        similar to Postman's selection whitespace indicator.
+        """
+        sel_start = cursor.selectionStart()
+        sel_end = cursor.selectionEnd()
+
+        fm = self.fontMetrics()
+        space_px = fm.horizontalAdvance(" ")
+        if space_px <= 0:
+            return
+
+        content_offset = self.contentOffset()
+        vp_top = self.viewport().rect().top()
+        vp_bottom = self.viewport().rect().bottom()
+
+        dot_color = QColor(COLOR_EDITOR_WHITESPACE_DOT)
+        radius = _WHITESPACE_DOT_RADIUS
+
+        painter = QPainter(self.viewport())
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(dot_color)
+
+        # Iterate only visible blocks that overlap the selection.
+        block = self.firstVisibleBlock()
+        while block.isValid():
+            geom = self.blockBoundingGeometry(block).translated(content_offset)
+            if geom.top() > vp_bottom:
+                break
+            block_pos = block.position()
+            block_len = block.length() - 1  # exclude trailing newline
+            block_end = block_pos + block_len
+
+            # Skip blocks entirely outside the selection.
+            if block_end < sel_start or block_pos > sel_end:
+                block = block.next()
+                continue
+
+            if block.isVisible() and geom.bottom() >= vp_top:
+                text = block.text()
+                layout = block.layout()
+                # Local character range that is selected in this block.
+                local_start = max(0, sel_start - block_pos)
+                local_end = min(len(text), sel_end - block_pos)
+
+                for i in range(local_start, local_end):
+                    if text[i] != " ":
+                        continue
+                    line = layout.lineForTextPosition(i)
+                    if not line.isValid():
+                        continue
+                    x_tuple: tuple[float, int] = line.cursorToX(i)  # type: ignore[assignment]
+                    x = content_offset.x() + x_tuple[0]
+                    cx = x + space_px / 2.0
+                    cy = geom.top() + line.y() + line.height() / 2.0
+                    painter.drawEllipse(
+                        QRectF(
+                            cx - radius,
+                            cy - radius,
+                            radius * 2,
+                            radius * 2,
+                        )
+                    )
+
+            block = block.next()
+
+        painter.end()
+
     # -- Gutter geometry ------------------------------------------------
 
     def line_number_area_width(self) -> int:
@@ -661,6 +737,13 @@ class CodeEditorWidget(QPlainTextEdit):
         are cached in ``_fold_badge_rects`` for click hit-testing.
         """
         super().paintEvent(event)
+
+        # 0. Whitespace dots — small centered circles at each space
+        #    character within the current text selection (all languages).
+        cursor = self.textCursor()
+        if cursor.hasSelection():
+            self._paint_selection_whitespace(cursor)
+
         if self._language not in _FOLDABLE_LANGUAGES:
             self._fold_badge_rects = {}
             return

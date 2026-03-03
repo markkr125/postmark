@@ -74,6 +74,7 @@ class ThemePalette(TypedDict):
     editor_error_gutter_bg: str
     editor_fold_badge_bg: str
     editor_fold_badge_text: str
+    editor_whitespace_dot: str
 
 
 # -- Light palette -----------------------------------------------------
@@ -122,6 +123,7 @@ LIGHT_PALETTE: ThemePalette = {
     "editor_error_gutter_bg": "#fce4e4",
     "editor_fold_badge_bg": "#e0e6ed",
     "editor_fold_badge_text": "#6a737d",
+    "editor_whitespace_dot": "#b0b0b0",
 }
 
 # -- Dark palette ------------------------------------------------------
@@ -170,6 +172,7 @@ DARK_PALETTE: ThemePalette = {
     "editor_error_gutter_bg": "#4a2020",
     "editor_fold_badge_bg": "#3a3d4a",
     "editor_fold_badge_text": "#a0a0a0",
+    "editor_whitespace_dot": "#606060",
 }
 
 
@@ -233,6 +236,7 @@ COLOR_EDITOR_ACTIVE_INDENT_GUIDE: str = _active["editor_active_indent_guide"]
 COLOR_EDITOR_ERROR_GUTTER_BG: str = _active["editor_error_gutter_bg"]
 COLOR_EDITOR_FOLD_BADGE_BG: str = _active["editor_fold_badge_bg"]
 COLOR_EDITOR_FOLD_BADGE_TEXT: str = _active["editor_fold_badge_text"]
+COLOR_EDITOR_WHITESPACE_DOT: str = _active["editor_whitespace_dot"]
 
 
 def set_active_palette(palette: ThemePalette) -> None:
@@ -262,6 +266,7 @@ def set_active_palette(palette: ThemePalette) -> None:
     global COLOR_EDITOR_ACTIVE_INDENT_GUIDE
     global COLOR_EDITOR_ERROR_GUTTER_BG
     global COLOR_EDITOR_FOLD_BADGE_BG, COLOR_EDITOR_FOLD_BADGE_TEXT
+    global COLOR_EDITOR_WHITESPACE_DOT
 
     _active = palette
 
@@ -313,6 +318,7 @@ def set_active_palette(palette: ThemePalette) -> None:
     COLOR_EDITOR_ERROR_GUTTER_BG = palette["editor_error_gutter_bg"]
     COLOR_EDITOR_FOLD_BADGE_BG = palette["editor_fold_badge_bg"]
     COLOR_EDITOR_FOLD_BADGE_TEXT = palette["editor_fold_badge_text"]
+    COLOR_EDITOR_WHITESPACE_DOT = palette["editor_whitespace_dot"]
 
 
 def current_palette() -> ThemePalette:

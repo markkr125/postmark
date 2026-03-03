@@ -986,3 +986,111 @@ class TestBlockIndentOutdent:
         )
         editor.keyPressEvent(event)
         assert editor.toPlainText() == "  hello"
+
+
+class TestWhitespaceDots:
+    """Whitespace dot rendering on selected text."""
+
+    def test_no_dots_without_selection(self, qapp: QApplication, qtbot) -> None:
+        """No whitespace dots are painted when there is no selection."""
+        editor = CodeEditorWidget()
+        qtbot.addWidget(editor)
+        editor.set_language("text")
+        editor.set_text("a b c")
+        editor.show()
+        qapp.processEvents()
+
+        # No selection — calling _paint_selection_whitespace should
+        # not draw any ellipses because cursor.hasSelection() is False
+        # and paintEvent will not call the method at all.
+        cursor = editor.textCursor()
+        assert not cursor.hasSelection()
+
+    def test_dots_only_on_spaces(self, qapp: QApplication, qtbot) -> None:
+        """Dots are drawn only for space characters, not other text."""
+        editor = CodeEditorWidget()
+        qtbot.addWidget(editor)
+        editor.set_language("text")
+        editor.set_text("a b c")
+        editor.show()
+        qapp.processEvents()
+
+        # Select the full text: "a b c" contains 2 spaces.
+        cursor = editor.textCursor()
+        cursor.select(QTextCursor.SelectionType.Document)
+        editor.setTextCursor(cursor)
+
+        # Spy on QPainter.drawEllipse to count dot draws.
+        from PySide6.QtGui import QPainter
+
+        original_draw = QPainter.drawEllipse
+        call_count = 0
+
+        def counting_draw(self_painter, *args, **kwargs):  # type: ignore[no-untyped-def]
+            nonlocal call_count
+            call_count += 1
+            return original_draw(self_painter, *args, **kwargs)
+
+        with patch.object(QPainter, "drawEllipse", counting_draw):
+            editor._paint_selection_whitespace(cursor)
+
+        # Exactly 2 spaces => 2 dots.
+        assert call_count == 2
+
+    def test_no_dots_for_non_space_chars(self, qapp: QApplication, qtbot) -> None:
+        """No dots drawn when selected text has no spaces."""
+        editor = CodeEditorWidget()
+        qtbot.addWidget(editor)
+        editor.set_language("text")
+        editor.set_text("abcdef")
+        editor.show()
+        qapp.processEvents()
+
+        cursor = editor.textCursor()
+        cursor.select(QTextCursor.SelectionType.Document)
+        editor.setTextCursor(cursor)
+
+        from PySide6.QtGui import QPainter
+
+        original_draw = QPainter.drawEllipse
+        call_count = 0
+
+        def counting_draw(self_painter, *args, **kwargs):  # type: ignore[no-untyped-def]
+            nonlocal call_count
+            call_count += 1
+            return original_draw(self_painter, *args, **kwargs)
+
+        with patch.object(QPainter, "drawEllipse", counting_draw):
+            editor._paint_selection_whitespace(cursor)
+
+        assert call_count == 0
+
+    def test_dots_with_leading_spaces(self, qapp: QApplication, qtbot) -> None:
+        """Dots appear for leading whitespace when selected."""
+        editor = CodeEditorWidget()
+        qtbot.addWidget(editor)
+        editor.set_language("json")
+        editor.set_text('    "key": "val"')
+        editor.show()
+        qapp.processEvents()
+
+        cursor = editor.textCursor()
+        cursor.select(QTextCursor.SelectionType.Document)
+        editor.setTextCursor(cursor)
+
+        from PySide6.QtGui import QPainter
+
+        original_draw = QPainter.drawEllipse
+        call_count = 0
+
+        def counting_draw(self_painter, *args, **kwargs):  # type: ignore[no-untyped-def]
+            nonlocal call_count
+            call_count += 1
+            return original_draw(self_painter, *args, **kwargs)
+
+        with patch.object(QPainter, "drawEllipse", counting_draw):
+            editor._paint_selection_whitespace(cursor)
+
+        # 4 leading spaces + 1 after colon = 5 total.
+        # '    "key": "val"' has spaces at indices 0, 1, 2, 3, 10.
+        assert call_count == 5
