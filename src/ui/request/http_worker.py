@@ -1,9 +1,13 @@
-"""Background worker for sending HTTP requests on a dedicated QThread.
+"""Background workers for HTTP requests on a dedicated QThread.
 
 Follows the ``QObject.moveToThread()`` pattern established by
 ``_ImportWorker`` in ``import_dialog.py``.  Each worker is single-use:
 create, configure, move to a ``QThread``, start, and discard after the
 ``finished`` or ``error`` signal fires.
+
+Workers:
+    HttpSendWorker — send a regular HTTP request.
+    SchemaFetchWorker — fetch a GraphQL schema via introspection.
 
 Supports **cancellation**: the owning tab calls ``cancel()`` which sets a
 ``threading.Event`` flag checked before and after the network call.
@@ -207,3 +211,57 @@ class HttpSendWorker(QObject):
                     url = f"{url}{sep}{key}={value}"
 
         return url, headers
+
+
+class SchemaFetchWorker(QObject):
+    """Fetch a GraphQL schema via introspection on a background thread.
+
+    Set the endpoint via :meth:`set_endpoint` **before** calling
+    ``moveToThread()``.  Connect ``finished`` and ``error`` signals,
+    then start the owning ``QThread``.
+
+    Signals:
+        finished(dict): Emitted with a :class:`SchemaResultDict` on success.
+        error(str): Emitted with an error message on failure.
+    """
+
+    finished = Signal(dict)  # SchemaResultDict
+    error = Signal(str)
+
+    def __init__(self) -> None:
+        """Initialise with empty endpoint parameters."""
+        super().__init__()
+        self._url: str = ""
+        self._headers: dict[str, str] | None = None
+
+    # -- Configuration (call before moveToThread) ----------------------
+
+    def set_endpoint(
+        self,
+        *,
+        url: str,
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        """Configure the GraphQL endpoint to introspect.
+
+        Must be called **before** the worker is moved to its thread.
+        """
+        self._url = url
+        self._headers = headers
+
+    # -- Execution (runs on the worker thread) -------------------------
+
+    @Slot()
+    def run(self) -> None:
+        """Send the introspection query and emit the result signal."""
+        try:
+            from services.graphql_schema_service import GraphQLSchemaService
+
+            result = GraphQLSchemaService.fetch_schema(
+                self._url,
+                headers=self._headers,
+            )
+            self.finished.emit(dict(result))
+        except Exception as exc:
+            logger.exception("Schema fetch worker failed")
+            self.error.emit(str(exc))

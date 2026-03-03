@@ -9,28 +9,17 @@ from __future__ import annotations
 
 import json
 
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtWidgets import (
-    QButtonGroup,
-    QComboBox,
-    QFileDialog,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QPushButton,
-    QRadioButton,
-    QSizePolicy,
-    QSplitter,
-    QStackedWidget,
-    QTabWidget,
-    QTextEdit,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtCore import Qt, QThread, QTimer, Signal
+from PySide6.QtWidgets import (QButtonGroup, QComboBox, QFileDialog,
+                               QHBoxLayout, QLabel, QLineEdit, QPushButton,
+                               QRadioButton, QSizePolicy, QSplitter,
+                               QStackedWidget, QTabWidget, QTextEdit,
+                               QVBoxLayout, QWidget)
 
 from ui.code_editor import CodeEditorWidget
 from ui.icons import phi
 from ui.key_value_table import KeyValueTableWidget
+from ui.request.http_worker import SchemaFetchWorker
 from ui.theme import method_color
 
 # HTTP methods shown in the dropdown
@@ -69,6 +58,9 @@ class RequestEditorWidget(QWidget):
         self._request_id: int | None = None
         self._is_dirty: bool = False
         self._loading: bool = False  # suppress signals during load_request
+        self._schema_thread: QThread | None = None
+        self._schema_worker: SchemaFetchWorker | None = None
+        self._gql_schema: dict | None = None  # SchemaResultDict when fetched
 
         # Debounce timer for request_changed
         self._debounce_timer = QTimer(self)
@@ -258,9 +250,27 @@ class RequestEditorWidget(QWidget):
         gql_toolbar.addWidget(self._gql_error_label)
 
         gql_toolbar.addStretch()
+
+        self._gql_schema_label = QPushButton("No schema")
+        self._gql_schema_label.setObjectName("outlineButton")
+        self._gql_schema_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._gql_schema_label.setFlat(True)
+        self._gql_schema_label.clicked.connect(self._on_schema_label_clicked)
+        gql_toolbar.addWidget(self._gql_schema_label)
+
+        self._gql_fetch_schema_btn = QPushButton()
+        self._gql_fetch_schema_btn.setIcon(phi("arrow-clockwise"))
+        self._gql_fetch_schema_btn.setObjectName("outlineButton")
+        self._gql_fetch_schema_btn.setToolTip("Fetch schema via introspection")
+        self._gql_fetch_schema_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._gql_fetch_schema_btn.setFixedWidth(30)
+        self._gql_fetch_schema_btn.clicked.connect(self._on_fetch_schema)
+        gql_toolbar.addWidget(self._gql_fetch_schema_btn)
+
         gql_layout.addLayout(gql_toolbar)
 
         gql_splitter = QSplitter(Qt.Orientation.Horizontal)
+        gql_splitter.setHandleWidth(8)
 
         # Left pane: QUERY
         gql_query_pane = QWidget()
@@ -639,6 +649,9 @@ class RequestEditorWidget(QWidget):
             self._binary_file_label.setText("No file selected.")
             self._gql_query_editor.setPlainText("")
             self._gql_variables_editor.setPlainText("")
+            self._gql_schema = None
+            self._gql_schema_label.setText("No schema")
+            self._gql_schema_label.setToolTip("")
             self._description_edit.clear()
             self._scripts_edit.clear()
             self._body_mode_buttons["none"].setChecked(True)
@@ -753,6 +766,108 @@ class RequestEditorWidget(QWidget):
         else:
             self._gql_error_label.setText("")
             self._gql_error_label.hide()
+
+    # -- GraphQL schema introspection ----------------------------------
+
+    def _on_fetch_schema(self) -> None:
+        """Start a background introspection query to fetch the schema."""
+        url = self._url_input.text().strip()
+        if not url:
+            self._gql_schema_label.setText("No URL")
+            self._gql_schema_label.setToolTip("")
+            return
+
+        # Abort any in-flight schema fetch.
+        if self._schema_thread is not None and self._schema_thread.isRunning():
+            self._schema_thread.quit()
+            self._schema_thread.wait()
+
+        # Build headers dict from the headers table.
+        headers: dict[str, str] = {}
+        for row in self._headers_table.get_data() or []:
+            key = row.get("key", "").strip()
+            value = row.get("value", "")
+            enabled = row.get("enabled", True)
+            if key and enabled:
+                headers[key] = value
+
+        worker = SchemaFetchWorker()
+        worker.set_endpoint(url=url, headers=headers or None)
+
+        thread = QThread()
+        worker.moveToThread(thread)
+
+        thread.started.connect(worker.run)
+        worker.finished.connect(self._on_schema_fetched)
+        worker.error.connect(self._on_schema_error)
+        worker.finished.connect(thread.quit)
+        worker.error.connect(thread.quit)
+
+        self._schema_thread = thread
+        self._schema_worker = worker
+
+        self._gql_schema_label.setText("Fetching\u2026")
+        self._gql_schema_label.setToolTip("")
+        self._gql_fetch_schema_btn.setEnabled(False)
+
+        thread.start()
+
+    def _on_schema_fetched(self, result: dict) -> None:
+        """Handle a successful schema introspection response."""
+        self._gql_fetch_schema_btn.setEnabled(True)
+        self._gql_schema = result
+
+        types = result.get("types", [])
+        count = len(types)
+        self._gql_schema_label.setText(f"Schema ({count} types)")
+
+        # Build tooltip from the schema summary.
+        from services.graphql_schema_service import GraphQLSchemaService
+
+        summary = GraphQLSchemaService.format_schema_summary(result)  # type: ignore[arg-type]
+        self._gql_schema_label.setToolTip(summary)
+
+    def _on_schema_error(self, message: str) -> None:
+        """Handle a schema introspection failure."""
+        self._gql_fetch_schema_btn.setEnabled(True)
+        self._gql_schema = None
+        self._gql_schema_label.setText("Schema error")
+        self._gql_schema_label.setToolTip(message)
+
+    def _on_schema_label_clicked(self) -> None:
+        """Show schema details when the label is clicked.
+
+        If no schema has been fetched, trigger a fetch instead.
+        """
+        if self._gql_schema is None:
+            self._on_fetch_schema()
+            return
+
+        from services.graphql_schema_service import GraphQLSchemaService
+
+        summary = GraphQLSchemaService.format_schema_summary(self._gql_schema)  # type: ignore[arg-type]
+        self._show_schema_dialog(summary)
+
+    def _show_schema_dialog(self, summary: str) -> None:
+        """Display a modal dialog with the fetched schema summary."""
+        from PySide6.QtWidgets import QDialog, QDialogButtonBox
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("GraphQL Schema")
+        dialog.resize(520, 480)
+        layout = QVBoxLayout(dialog)
+
+        viewer = CodeEditorWidget()
+        viewer.set_language("text")
+        viewer.setPlainText(summary)
+        viewer.setReadOnly(True)
+        layout.addWidget(viewer, 1)
+
+        btn_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        btn_box.rejected.connect(dialog.reject)
+        layout.addWidget(btn_box)
+
+        dialog.exec()
 
     def _on_select_binary_file(self) -> None:
         """Open a file dialog and store the selected file path."""

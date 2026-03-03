@@ -40,21 +40,40 @@ from pygments import token as T
 from pygments.lexer import Lexer
 from pygments.lexers import TextLexer, get_lexer_by_name
 from PySide6.QtCore import QEvent, QRect, QRectF, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import (QColor, QFont, QHelpEvent, QKeyEvent, QMouseEvent,
-                           QPainter, QPaintEvent, QPen, QSyntaxHighlighter,
-                           QTextBlock, QTextBlockUserData, QTextCharFormat,
-                           QTextCursor, QTextDocument)
+from PySide6.QtGui import (
+    QColor,
+    QFont,
+    QHelpEvent,
+    QKeyEvent,
+    QMouseEvent,
+    QPainter,
+    QPaintEvent,
+    QPen,
+    QSyntaxHighlighter,
+    QTextBlock,
+    QTextBlockUserData,
+    QTextCharFormat,
+    QTextCursor,
+    QTextDocument,
+)
 from PySide6.QtWidgets import QPlainTextEdit, QTextEdit, QToolTip, QWidget
 
 from ui.icons import font_family, glyph_char
-from ui.theme import (COLOR_EDITOR_ACTIVE_INDENT_GUIDE,
-                      COLOR_EDITOR_BRACKET_MATCH, COLOR_EDITOR_ERROR_GUTTER_BG,
-                      COLOR_EDITOR_ERROR_UNDERLINE, COLOR_EDITOR_FOLD_BADGE_BG,
-                      COLOR_EDITOR_FOLD_BADGE_TEXT,
-                      COLOR_EDITOR_FOLD_HIGHLIGHT, COLOR_EDITOR_FOLD_INDICATOR,
-                      COLOR_EDITOR_GUTTER_BG, COLOR_EDITOR_GUTTER_TEXT,
-                      COLOR_EDITOR_INDENT_GUIDE, COLOR_EDITOR_WHITESPACE_DOT,
-                      current_palette)
+from ui.theme import (
+    COLOR_EDITOR_ACTIVE_INDENT_GUIDE,
+    COLOR_EDITOR_BRACKET_MATCH,
+    COLOR_EDITOR_ERROR_GUTTER_BG,
+    COLOR_EDITOR_ERROR_UNDERLINE,
+    COLOR_EDITOR_FOLD_BADGE_BG,
+    COLOR_EDITOR_FOLD_BADGE_TEXT,
+    COLOR_EDITOR_FOLD_HIGHLIGHT,
+    COLOR_EDITOR_FOLD_INDICATOR,
+    COLOR_EDITOR_GUTTER_BG,
+    COLOR_EDITOR_GUTTER_TEXT,
+    COLOR_EDITOR_INDENT_GUIDE,
+    COLOR_EDITOR_WHITESPACE_DOT,
+    current_palette,
+)
 
 # -- Data structures ---------------------------------------------------
 
