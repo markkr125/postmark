@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ui.code_editor import CodeEditorWidget
 from ui.key_value_table import KeyValueTableWidget
 
 # Authorization type identifiers (same as RequestEditorWidget)
@@ -255,8 +256,8 @@ class FolderEditorWidget(QWidget):
         pre_label = QLabel("Pre-request Script")
         pre_label.setObjectName("sectionLabel")
         scripts_layout.addWidget(pre_label)
-        self._pre_request_edit = QTextEdit()
-        self._pre_request_edit.setObjectName("monoEdit")
+        self._pre_request_edit = CodeEditorWidget()
+        self._pre_request_edit.set_language("javascript")
         self._pre_request_edit.setPlaceholderText("Script to run before the request is sent\u2026")
         self._pre_request_edit.textChanged.connect(self._on_field_changed)
         scripts_layout.addWidget(self._pre_request_edit, 1)
@@ -264,8 +265,8 @@ class FolderEditorWidget(QWidget):
         post_label = QLabel("Tests / Post-response Script")
         post_label.setObjectName("sectionLabel")
         scripts_layout.addWidget(post_label)
-        self._test_script_edit = QTextEdit()
-        self._test_script_edit.setObjectName("monoEdit")
+        self._test_script_edit = CodeEditorWidget()
+        self._test_script_edit.set_language("javascript")
         self._test_script_edit.setPlaceholderText(
             "Script to run after the response is received\u2026"
         )

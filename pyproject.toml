@@ -11,12 +11,14 @@ python = ">=3.12,<3.14"
 pyside6 = "^6.10.0"
 sqlalchemy = "^2.0.44"
 httpx = "^0.28.1"
+pygments = "^2.19"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0"
 ruff = "^0.9"
 mypy = "^1.14"
 pytest-qt = "^4.5.0"
+types-pygments = "^2.19.0.20251121"
 
 [build-system]
 requires = ["poetry-core"]

@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ui.code_editor import CodeEditorWidget
 from ui.icons import phi
 from ui.theme import (
     COLOR_DANGER,
@@ -151,10 +152,8 @@ class ResponseViewerWidget(QWidget):
         format_row.addStretch()
         body_layout.addLayout(format_row)
 
-        self._body_edit = QTextEdit()
-        self._body_edit.setReadOnly(True)
+        self._body_edit = CodeEditorWidget(read_only=True)
         self._body_edit.setPlaceholderText("Response body")
-        self._body_edit.setObjectName("monoEdit")
         body_layout.addWidget(self._body_edit, 1)
 
         # Search bar for body (toggle with Ctrl+F)
@@ -344,10 +343,15 @@ class ResponseViewerWidget(QWidget):
 
         if fmt == "Pretty" or fmt == "JSON":
             body = self._try_pretty_json(body)
-        # XML and HTML formats show raw for now (syntax highlighting TBD)
-        # Raw always shows the original body unchanged
+            self._body_edit.set_language("json")
+        elif fmt == "XML":
+            self._body_edit.set_language("xml")
+        elif fmt == "HTML":
+            self._body_edit.set_language("html")
+        else:
+            self._body_edit.set_language("text")
 
-        self._body_edit.setPlainText(body)
+        self._body_edit.set_text(body)
 
     @staticmethod
     def _try_pretty_json(text: str) -> str:
@@ -356,7 +360,7 @@ class ResponseViewerWidget(QWidget):
 
         try:
             parsed = json.loads(text)
-            return json.dumps(parsed, indent=2, ensure_ascii=False)
+            return json.dumps(parsed, indent=4, ensure_ascii=False)
         except (json.JSONDecodeError, TypeError):
             return text
 
@@ -401,14 +405,19 @@ class ResponseViewerWidget(QWidget):
             self._search_count_label.setText("No results")
             return
 
-        # Highlight all matches
+        # Highlight all matches via extra selections
         fmt = QTextCharFormat()
         fmt.setBackground(QColor(COLOR_WARNING))
-        cursor = self._body_edit.textCursor()
+        selections: list[QTextEdit.ExtraSelection] = []
         for pos in self._search_matches:
-            cursor.setPosition(pos)
-            cursor.setPosition(pos + len(text), QTextCursor.MoveMode.KeepAnchor)
-            cursor.setCharFormat(fmt)
+            sel = QTextEdit.ExtraSelection()
+            cur = QTextCursor(self._body_edit.document())
+            cur.setPosition(pos)
+            cur.setPosition(pos + len(text), QTextCursor.MoveMode.KeepAnchor)
+            sel.cursor = cur
+            sel.format = fmt
+            selections.append(sel)
+        self._body_edit.set_search_selections(selections)
 
         # Move to first match
         self._search_index = 0
@@ -444,12 +453,7 @@ class ResponseViewerWidget(QWidget):
 
     def _clear_highlights(self) -> None:
         """Remove all search highlight formatting from the body."""
-        cursor = self._body_edit.textCursor()
-        cursor.select(QTextCursor.SelectionType.Document)
-        fmt = QTextCharFormat()
-        cursor.setCharFormat(fmt)
-        cursor.clearSelection()
-        self._body_edit.setTextCursor(cursor)
+        self._body_edit.set_search_selections([])
 
     # -- Beautify / Save -----------------------------------------------
 
@@ -460,12 +464,12 @@ class ResponseViewerWidget(QWidget):
             return
         pretty = self._try_pretty_json(body)
         if pretty != body:
-            self._body_edit.setPlainText(pretty)
+            self._body_edit.set_text(pretty)
             return
         # Try XML beautification
         pretty = self._try_pretty_xml(body)
         if pretty != body:
-            self._body_edit.setPlainText(pretty)
+            self._body_edit.set_text(pretty)
 
     @staticmethod
     def _try_pretty_xml(text: str) -> str:
@@ -474,7 +478,7 @@ class ResponseViewerWidget(QWidget):
             import xml.dom.minidom
 
             dom = xml.dom.minidom.parseString(text)
-            return dom.toprettyxml(indent="  ")
+            return dom.toprettyxml(indent="    ")
         except Exception:
             return text
 

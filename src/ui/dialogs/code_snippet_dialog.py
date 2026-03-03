@@ -6,6 +6,8 @@ Shows generated code for the current request in various languages
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 from PySide6.QtGui import QClipboard, QGuiApplication
 from PySide6.QtWidgets import (
     QComboBox,
@@ -13,12 +15,12 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
 from services.snippet_generator import SnippetGenerator
+from ui.code_editor import CodeEditorWidget
 from ui.icons import phi
 
 
@@ -67,9 +69,7 @@ class CodeSnippetDialog(QDialog):
         layout.addLayout(top_row)
 
         # Code display
-        self._code_edit = QTextEdit()
-        self._code_edit.setReadOnly(True)
-        self._code_edit.setObjectName("monoEdit")
+        self._code_edit = CodeEditorWidget(read_only=True)
         layout.addWidget(self._code_edit, 1)
 
         # Button row
@@ -91,6 +91,16 @@ class CodeSnippetDialog(QDialog):
         # Generate initial snippet
         self._refresh()
 
+    # -- Language to code-editor language mapping ----------------------
+
+    _LANG_MAP: ClassVar[dict[str, str]] = {
+        "cURL": "text",
+        "Python - requests": "text",
+        "Python - http.client": "text",
+        "JavaScript - fetch": "text",
+        "JavaScript - axios": "text",
+    }
+
     def _refresh(self) -> None:
         """Regenerate the code snippet for the selected language."""
         lang = self._lang_combo.currentText()
@@ -101,7 +111,9 @@ class CodeSnippetDialog(QDialog):
             headers=self._headers,
             body=self._body,
         )
-        self._code_edit.setPlainText(snippet)
+        editor_lang = self._LANG_MAP.get(lang, "text")
+        self._code_edit.set_language(editor_lang)
+        self._code_edit.set_text(snippet)
         self._status_label.setText("")
 
     def _copy_to_clipboard(self) -> None:

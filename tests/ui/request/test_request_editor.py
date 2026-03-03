@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from PySide6.QtWidgets import QApplication
 
 from ui.request.request_editor import RequestEditorWidget
@@ -110,7 +112,8 @@ class TestRequestEditorDirtyTracking:
         qtbot.addWidget(editor)
 
         editor.load_request({"name": "X", "method": "GET", "url": "http://x"})
-        editor._body_edit.setPlainText("new body")
+        editor._body_mode_buttons["raw"].setChecked(True)
+        editor._body_code_editor.setPlainText("new body")
         assert editor.is_dirty
 
     def test_dirty_indicator_in_title(self, qapp: QApplication, qtbot) -> None:
@@ -456,3 +459,221 @@ class TestRequestEditorDescription:
         )
         editor.clear_request()
         assert editor._description_edit.toPlainText() == ""
+
+
+class TestRequestEditorGraphQL:
+    """Tests for the GraphQL split-pane body editor."""
+
+    def test_graphql_mode_shows_split_pane(self, qapp: QApplication, qtbot) -> None:
+        """Selecting graphql mode activates the split-pane stack page."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+
+        editor.load_request({"name": "X", "method": "POST", "url": "http://x"})
+        editor._body_mode_buttons["graphql"].setChecked(True)
+
+        assert editor._body_stack.currentIndex() == 4
+
+    def test_graphql_editors_exist(self, qapp: QApplication, qtbot) -> None:
+        """GraphQL query and variables editors are present."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+
+        assert hasattr(editor, "_gql_query_editor")
+        assert hasattr(editor, "_gql_variables_editor")
+
+    def test_graphql_query_editor_language(self, qapp: QApplication, qtbot) -> None:
+        """The query editor uses graphql syntax highlighting."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+
+        assert editor._gql_query_editor.language == "graphql"
+
+    def test_graphql_variables_editor_language(self, qapp: QApplication, qtbot) -> None:
+        """The variables editor uses json syntax highlighting."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+
+        assert editor._gql_variables_editor.language == "json"
+
+    def test_get_request_data_graphql_wraps_json(self, qapp: QApplication, qtbot) -> None:
+        """get_request_data produces JSON body with query and variables."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+
+        editor.load_request({"name": "X", "method": "POST", "url": "http://x"})
+        editor._body_mode_buttons["graphql"].setChecked(True)
+        editor._gql_query_editor.setPlainText("{ users { id name } }")
+        editor._gql_variables_editor.setPlainText('{"limit": 10}')
+
+        data = editor.get_request_data()
+        assert data["body_mode"] == "graphql"
+        body = json.loads(data["body"])
+        assert body["query"] == "{ users { id name } }"
+        assert body["variables"] == {"limit": 10}
+
+    def test_get_request_data_graphql_empty_variables(self, qapp: QApplication, qtbot) -> None:
+        """Empty variables field produces empty dict in JSON body."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+
+        editor.load_request({"name": "X", "method": "POST", "url": "http://x"})
+        editor._body_mode_buttons["graphql"].setChecked(True)
+        editor._gql_query_editor.setPlainText("{ me { id } }")
+
+        data = editor.get_request_data()
+        body = json.loads(data["body"])
+        assert body["query"] == "{ me { id } }"
+        assert body["variables"] == {}
+
+    def test_get_request_data_graphql_invalid_variables(self, qapp: QApplication, qtbot) -> None:
+        """Invalid JSON in variables is stored as raw string."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+
+        editor.load_request({"name": "X", "method": "POST", "url": "http://x"})
+        editor._body_mode_buttons["graphql"].setChecked(True)
+        editor._gql_query_editor.setPlainText("query Q { x }")
+        editor._gql_variables_editor.setPlainText("{not valid json")
+
+        data = editor.get_request_data()
+        body = json.loads(data["body"])
+        assert body["query"] == "query Q { x }"
+        assert body["variables"] == "{not valid json"
+
+    def test_load_request_graphql_body(self, qapp: QApplication, qtbot) -> None:
+        """Loading a graphql request populates both editors."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+
+        stored_body = json.dumps({"query": "{ users { id } }", "variables": {"page": 1}})
+        editor.load_request(
+            {
+                "name": "GQL",
+                "method": "POST",
+                "url": "http://gql",
+                "body_mode": "graphql",
+                "body": stored_body,
+            }
+        )
+
+        assert editor._body_mode_buttons["graphql"].isChecked()
+        assert editor._gql_query_editor.toPlainText() == "{ users { id } }"
+        vars_text = editor._gql_variables_editor.toPlainText()
+        assert json.loads(vars_text) == {"page": 1}
+
+    def test_load_request_graphql_plain_text_fallback(self, qapp: QApplication, qtbot) -> None:
+        """Loading graphql with non-JSON body treats it as query text."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+
+        editor.load_request(
+            {
+                "name": "GQL",
+                "method": "POST",
+                "url": "http://gql",
+                "body_mode": "graphql",
+                "body": "{ legacyQuery { name } }",
+            }
+        )
+
+        assert editor._gql_query_editor.toPlainText() == "{ legacyQuery { name } }"
+        assert editor._gql_variables_editor.toPlainText() == ""
+
+    def test_load_request_graphql_empty_body(self, qapp: QApplication, qtbot) -> None:
+        """Loading graphql with empty body leaves editors empty."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+
+        editor.load_request(
+            {
+                "name": "GQL",
+                "method": "POST",
+                "url": "http://gql",
+                "body_mode": "graphql",
+                "body": "",
+            }
+        )
+
+        assert editor._gql_query_editor.toPlainText() == ""
+        assert editor._gql_variables_editor.toPlainText() == ""
+
+    def test_clear_resets_graphql_editors(self, qapp: QApplication, qtbot) -> None:
+        """clear_request empties both GraphQL editors."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+
+        stored_body = json.dumps({"query": "{ x }", "variables": {"v": 1}})
+        editor.load_request(
+            {
+                "name": "GQL",
+                "method": "POST",
+                "url": "http://gql",
+                "body_mode": "graphql",
+                "body": stored_body,
+            }
+        )
+        editor.clear_request()
+
+        assert editor._gql_query_editor.toPlainText() == ""
+        assert editor._gql_variables_editor.toPlainText() == ""
+
+    def test_graphql_roundtrip(self, qapp: QApplication, qtbot) -> None:
+        """Data survives a load -> get_request_data roundtrip."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+
+        original_query = "query GetUser($id: ID!) { user(id: $id) { name email } }"
+        original_vars = {"id": "42"}
+        stored_body = json.dumps({"query": original_query, "variables": original_vars})
+
+        editor.load_request(
+            {
+                "name": "GQL",
+                "method": "POST",
+                "url": "http://gql",
+                "body_mode": "graphql",
+                "body": stored_body,
+            }
+        )
+
+        data = editor.get_request_data()
+        body = json.loads(data["body"])
+        assert body["query"] == original_query
+        assert body["variables"] == original_vars
+
+    def test_graphql_dirty_on_query_change(self, qapp: QApplication, qtbot) -> None:
+        """Editing the GraphQL query marks the editor as dirty."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+
+        editor.load_request(
+            {
+                "name": "GQL",
+                "method": "POST",
+                "url": "http://gql",
+                "body_mode": "graphql",
+                "body": json.dumps({"query": "{ x }", "variables": {}}),
+            }
+        )
+        assert not editor.is_dirty
+        editor._gql_query_editor.setPlainText("{ y }")
+        assert editor.is_dirty
+
+    def test_graphql_dirty_on_variables_change(self, qapp: QApplication, qtbot) -> None:
+        """Editing the GraphQL variables marks the editor as dirty."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+
+        editor.load_request(
+            {
+                "name": "GQL",
+                "method": "POST",
+                "url": "http://gql",
+                "body_mode": "graphql",
+                "body": json.dumps({"query": "{ x }", "variables": {}}),
+            }
+        )
+        assert not editor.is_dirty
+        editor._gql_variables_editor.setPlainText('{"a": 1}')
+        assert editor.is_dirty

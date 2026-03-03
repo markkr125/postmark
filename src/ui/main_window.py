@@ -6,15 +6,22 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QSize, Qt, QThread
-from PySide6.QtGui import (QAction, QCloseEvent, QCursor, QGuiApplication,
-                           QKeySequence)
+from PySide6.QtGui import QAction, QCloseEvent, QCursor, QGuiApplication, QKeySequence
 
 if TYPE_CHECKING:
     from ui.request.http_worker import HttpSendWorker
 
-from PySide6.QtWidgets import (QHBoxLayout, QMainWindow, QSizePolicy,
-                               QSplitter, QStackedWidget, QTabWidget, QToolBar,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QMainWindow,
+    QSizePolicy,
+    QSplitter,
+    QStackedWidget,
+    QTabWidget,
+    QToolBar,
+    QVBoxLayout,
+    QWidget,
+)
 
 from services.collection_service import CollectionService
 from ui.collections.collection_widget import CollectionWidget
@@ -819,7 +826,7 @@ class MainWindow(QMainWindow):
         method = editor._method_combo.currentText()
         url = editor._url_input.text().strip()
         headers = editor.get_headers_text()
-        body = editor._body_edit.toPlainText() or None
+        body = editor.get_request_data().get("body") or None
         dialog = CodeSnippetDialog(
             method=method,
             url=url,
@@ -871,7 +878,7 @@ class MainWindow(QMainWindow):
             return
 
         headers = editor.get_headers_text()
-        body = editor._body_edit.toPlainText() or None
+        body = editor.get_request_data().get("body") or None
 
         # 2. Gather auth (with inheritance) and env_id for worker thread
         auth_data = editor._get_auth_data()

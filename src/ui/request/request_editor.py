@@ -10,11 +10,25 @@ from __future__ import annotations
 import json
 
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtWidgets import (QButtonGroup, QComboBox, QHBoxLayout, QLabel,
-                               QLineEdit, QPushButton, QRadioButton,
-                               QSizePolicy, QStackedWidget, QTabWidget,
-                               QTextEdit, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (
+    QButtonGroup,
+    QComboBox,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QRadioButton,
+    QSizePolicy,
+    QSplitter,
+    QStackedWidget,
+    QTabWidget,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
+from ui.code_editor import CodeEditorWidget
 from ui.icons import phi
 from ui.key_value_table import KeyValueTableWidget
 from ui.theme import method_color
@@ -122,6 +136,7 @@ class RequestEditorWidget(QWidget):
         self._body_mode_buttons: dict[str, QRadioButton] = {}
         for mode in _BODY_MODES:
             rb = QRadioButton(mode)
+            rb.setCursor(Qt.CursorShape.PointingHandCursor)
             self._body_mode_buttons[mode] = rb
             self._body_mode_group.addButton(rb)
             mode_row.addWidget(rb)
@@ -129,20 +144,161 @@ class RequestEditorWidget(QWidget):
         self._body_mode_buttons["none"].setChecked(True)
         mode_row.addStretch()
 
+        body_layout.addLayout(mode_row)
+
+        # Body content stack (switches per mode)
+        self._body_stack = QStackedWidget()
+
+        # Page 0: None mode — empty state label
+        none_page = QLabel("This request has no body.")
+        none_page.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        none_page.setObjectName("emptyStateLabel")
+        self._body_stack.addWidget(none_page)
+
+        # Page 1: Raw / GraphQL — code editor with toolbar
+        raw_page = QWidget()
+        raw_layout = QVBoxLayout(raw_page)
+        raw_layout.setContentsMargins(0, 0, 0, 0)
+        raw_layout.setSpacing(4)
+
+        raw_toolbar = QHBoxLayout()
+        raw_toolbar.setSpacing(6)
+        self._prettify_btn = QPushButton("Pretty")
+        self._prettify_btn.setIcon(phi("magic-wand", color="#ffffff"))
+        self._prettify_btn.setObjectName("smallPrimaryButton")
+        self._prettify_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._prettify_btn.clicked.connect(self._on_prettify)
+        raw_toolbar.addWidget(self._prettify_btn)
+
+        self._wrap_btn = QPushButton("Wrap")
+        self._wrap_btn.setIcon(phi("text-align-left"))
+        self._wrap_btn.setObjectName("outlineButton")
+        self._wrap_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._wrap_btn.setCheckable(True)
+        self._wrap_btn.setChecked(True)
+        self._wrap_btn.clicked.connect(self._on_wrap_toggle)
+        raw_toolbar.addWidget(self._wrap_btn)
+
         # Raw format dropdown (visible only when mode is "raw")
         self._raw_format_combo = QComboBox()
         self._raw_format_combo.addItems(list(_RAW_FORMATS))
         self._raw_format_combo.setFixedWidth(80)
+        self._raw_format_combo.setCursor(Qt.CursorShape.PointingHandCursor)
         self._raw_format_combo.currentTextChanged.connect(self._on_field_changed)
+        self._raw_format_combo.currentTextChanged.connect(self._update_body_language)
         self._raw_format_combo.hide()
-        mode_row.addWidget(self._raw_format_combo)
+        raw_toolbar.addWidget(self._raw_format_combo)
 
-        body_layout.addLayout(mode_row)
+        self._body_error_label = QLabel()
+        self._body_error_label.setObjectName("mutedLabel")
+        self._body_error_label.hide()
+        raw_toolbar.addWidget(self._body_error_label)
 
-        self._body_edit = QTextEdit()
-        self._body_edit.setPlaceholderText("Request body")
-        self._body_edit.textChanged.connect(self._on_field_changed)
-        body_layout.addWidget(self._body_edit, 1)
+        raw_toolbar.addStretch()
+
+        raw_layout.addLayout(raw_toolbar)
+
+        self._body_code_editor = CodeEditorWidget()
+        self._body_code_editor.textChanged.connect(self._on_field_changed)
+        self._body_code_editor.validation_changed.connect(self._on_body_validation)
+        raw_layout.addWidget(self._body_code_editor, 1)
+        self._body_stack.addWidget(raw_page)
+
+        # Page 2: form-data / x-www-form-urlencoded — key-value table
+        self._body_form_table = KeyValueTableWidget(
+            placeholder_key="Key", placeholder_value="Value"
+        )
+        self._body_form_table.data_changed.connect(self._on_field_changed)
+        self._body_stack.addWidget(self._body_form_table)
+
+        # Page 3: Binary — file picker
+        binary_page = QWidget()
+        binary_layout = QVBoxLayout(binary_page)
+        binary_layout.setContentsMargins(0, 8, 0, 0)
+        self._binary_file_btn = QPushButton("Select File")
+        self._binary_file_btn.setIcon(phi("file"))
+        self._binary_file_btn.setObjectName("outlineButton")
+        self._binary_file_btn.setFixedWidth(120)
+        self._binary_file_btn.clicked.connect(self._on_select_binary_file)
+        binary_layout.addWidget(self._binary_file_btn)
+        self._binary_file_label = QLabel("No file selected.")
+        self._binary_file_label.setObjectName("mutedLabel")
+        binary_layout.addWidget(self._binary_file_label)
+        binary_layout.addStretch()
+        self._body_stack.addWidget(binary_page)
+
+        # Page 4: GraphQL — split-pane query + variables editors
+        gql_page = QWidget()
+        gql_layout = QVBoxLayout(gql_page)
+        gql_layout.setContentsMargins(0, 0, 0, 0)
+        gql_layout.setSpacing(4)
+
+        # GraphQL toolbar (Pretty / Wrap)
+        gql_toolbar = QHBoxLayout()
+        gql_toolbar.setSpacing(6)
+        self._gql_prettify_btn = QPushButton("Pretty")
+        self._gql_prettify_btn.setIcon(phi("magic-wand", color="#ffffff"))
+        self._gql_prettify_btn.setObjectName("smallPrimaryButton")
+        self._gql_prettify_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._gql_prettify_btn.clicked.connect(self._on_gql_prettify)
+        gql_toolbar.addWidget(self._gql_prettify_btn)
+
+        self._gql_wrap_btn = QPushButton("Wrap")
+        self._gql_wrap_btn.setIcon(phi("text-align-left"))
+        self._gql_wrap_btn.setObjectName("outlineButton")
+        self._gql_wrap_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._gql_wrap_btn.setCheckable(True)
+        self._gql_wrap_btn.setChecked(True)
+        self._gql_wrap_btn.clicked.connect(self._on_gql_wrap_toggle)
+        gql_toolbar.addWidget(self._gql_wrap_btn)
+
+        self._gql_error_label = QLabel()
+        self._gql_error_label.setObjectName("mutedLabel")
+        self._gql_error_label.hide()
+        gql_toolbar.addWidget(self._gql_error_label)
+
+        gql_toolbar.addStretch()
+        gql_layout.addLayout(gql_toolbar)
+
+        gql_splitter = QSplitter(Qt.Orientation.Horizontal)
+
+        # Left pane: QUERY
+        gql_query_pane = QWidget()
+        gql_query_layout = QVBoxLayout(gql_query_pane)
+        gql_query_layout.setContentsMargins(0, 0, 0, 0)
+        gql_query_layout.setSpacing(2)
+        gql_query_label = QLabel("QUERY")
+        gql_query_label.setObjectName("sectionLabel")
+        gql_query_layout.addWidget(gql_query_label)
+        self._gql_query_editor = CodeEditorWidget()
+        self._gql_query_editor.set_language("graphql")
+        self._gql_query_editor.textChanged.connect(self._on_field_changed)
+        self._gql_query_editor.validation_changed.connect(self._on_gql_validation)
+        gql_query_layout.addWidget(self._gql_query_editor, 1)
+        gql_splitter.addWidget(gql_query_pane)
+
+        # Right pane: GRAPHQL VARIABLES
+        gql_vars_pane = QWidget()
+        gql_vars_layout = QVBoxLayout(gql_vars_pane)
+        gql_vars_layout.setContentsMargins(0, 0, 0, 0)
+        gql_vars_layout.setSpacing(2)
+        gql_vars_label = QLabel("GRAPHQL VARIABLES")
+        gql_vars_label.setObjectName("sectionLabel")
+        gql_vars_layout.addWidget(gql_vars_label)
+        self._gql_variables_editor = CodeEditorWidget()
+        self._gql_variables_editor.set_language("json")
+        self._gql_variables_editor.textChanged.connect(self._on_field_changed)
+        gql_vars_layout.addWidget(self._gql_variables_editor, 1)
+        gql_splitter.addWidget(gql_vars_pane)
+
+        # Default 60/40 split ratio
+        gql_splitter.setStretchFactor(0, 3)
+        gql_splitter.setStretchFactor(1, 2)
+
+        gql_layout.addWidget(gql_splitter, 1)
+        self._body_stack.addWidget(gql_page)
+
+        body_layout.addWidget(self._body_stack, 1)
 
         self._tabs.addTab(self._body_tab, "Body")
 
@@ -257,6 +413,7 @@ class RequestEditorWidget(QWidget):
         # user can maximise the response viewer via the splitter.
         tab_header_h = self._tabs.tabBar().sizeHint().height()
         self._tabs.setMinimumHeight(tab_header_h + 4)
+        self._tabs.tabBar().setCursor(Qt.CursorShape.PointingHandCursor)
 
         root.addWidget(self._tabs, 1)
 
@@ -312,13 +469,47 @@ class RequestEditorWidget(QWidget):
 
             self._load_key_value_data(self._params_table, data.get("request_parameters"))
             self._load_key_value_data(self._headers_table, data.get("headers"))
-            self._body_edit.setPlainText(data.get("body") or "")
 
             # Body mode
             body_mode = data.get("body_mode") or "none"
             btn = self._body_mode_buttons.get(body_mode)
             if btn:
                 btn.setChecked(True)
+
+            # Load body content into the correct widget
+            body = data.get("body") or ""
+            if body_mode in ("form-data", "x-www-form-urlencoded"):
+                self._load_key_value_data(self._body_form_table, body or None)
+                self._body_code_editor.setPlainText("")
+            elif body_mode == "binary":
+                self._binary_file_label.setText(body if body else "No file selected.")
+                self._body_code_editor.setPlainText("")
+            elif body_mode == "graphql":
+                # Parse stored JSON: {"query": "...", "variables": ...}
+                query_text = ""
+                variables_text = ""
+                if body:
+                    try:
+                        parsed = json.loads(body)
+                        if isinstance(parsed, dict):
+                            query_text = parsed.get("query", "")
+                            raw_vars = parsed.get("variables", "")
+                            if isinstance(raw_vars, dict):
+                                variables_text = json.dumps(raw_vars, indent=4) if raw_vars else ""
+                            elif isinstance(raw_vars, str):
+                                variables_text = raw_vars
+                        else:
+                            # Not a dict — treat entire body as query text
+                            query_text = body
+                    except (json.JSONDecodeError, TypeError):
+                        # Legacy plain-text GraphQL body
+                        query_text = body
+                self._gql_query_editor.setPlainText(query_text)
+                self._gql_variables_editor.setPlainText(variables_text)
+                self._body_code_editor.setPlainText("")
+            else:
+                self._body_code_editor.setPlainText(body)
+                self._body_form_table.set_data([])
 
             # Raw format sub-option
             body_options = data.get("body_options") or {}
@@ -328,7 +519,7 @@ class RequestEditorWidget(QWidget):
 
             scripts = data.get("scripts")
             if isinstance(scripts, dict):
-                self._scripts_edit.setPlainText(json.dumps(scripts, indent=2))
+                self._scripts_edit.setPlainText(json.dumps(scripts, indent=4))
             elif scripts:
                 self._scripts_edit.setPlainText(str(scripts))
             else:
@@ -397,10 +588,33 @@ class RequestEditorWidget(QWidget):
             raw_format = self._raw_format_combo.currentText().lower()
             body_options = {"raw": {"language": raw_format}}
 
+        # Read body from the active widget
+        if body_mode in ("form-data", "x-www-form-urlencoded"):
+            form_data = self._body_form_table.get_data()
+            body_text = json.dumps(form_data) if form_data else ""
+        elif body_mode == "binary":
+            label_text = self._binary_file_label.text()
+            body_text = "" if label_text == "No file selected." else label_text
+        elif body_mode == "graphql":
+            query = self._gql_query_editor.toPlainText()
+            variables_text = self._gql_variables_editor.toPlainText().strip()
+            # Parse variables as JSON object; fall back to empty dict
+            variables: dict | str
+            if variables_text:
+                try:
+                    variables = json.loads(variables_text)
+                except (json.JSONDecodeError, TypeError):
+                    variables = variables_text
+            else:
+                variables = {}
+            body_text = json.dumps({"query": query, "variables": variables})
+        else:
+            body_text = self._body_code_editor.toPlainText()
+
         return {
             "method": self._method_combo.currentText(),
             "url": self._url_input.text(),
-            "body": self._body_edit.toPlainText(),
+            "body": body_text,
             "request_parameters": self._params_table.get_data() or None,
             "headers": self._headers_table.get_data() or None,
             "body_mode": body_mode,
@@ -420,7 +634,11 @@ class RequestEditorWidget(QWidget):
             self._url_input.clear()
             self._params_table.set_data([])
             self._headers_table.set_data([])
-            self._body_edit.clear()
+            self._body_code_editor.setPlainText("")
+            self._body_form_table.set_data([])
+            self._binary_file_label.setText("No file selected.")
+            self._gql_query_editor.setPlainText("")
+            self._gql_variables_editor.setPlainText("")
             self._description_edit.clear()
             self._scripts_edit.clear()
             self._body_mode_buttons["none"].setChecked(True)
@@ -455,23 +673,93 @@ class RequestEditorWidget(QWidget):
         self._method_combo.setStyleSheet(f"QComboBox {{ color: {color}; font-weight: bold; }}")
 
     def _on_body_mode_changed(self, checked: bool) -> None:
-        """Toggle raw format combo visibility and mark dirty."""
+        """Switch body stack page and toggle raw format combo visibility."""
         if not checked:
             return
-        # Guard: combo may not exist yet during __init__ construction
+        # Guard: widgets may not exist yet during __init__ construction
         if not hasattr(self, "_raw_format_combo"):
             return
         # Show raw format dropdown only when "raw" mode is selected
         is_raw = self._body_mode_buttons.get("raw", QRadioButton()).isChecked()
         self._raw_format_combo.setVisible(is_raw)
 
-        # Disable body edit when mode is "none"
-        is_none = self._body_mode_buttons.get("none", QRadioButton()).isChecked()
-        self._body_edit.setEnabled(not is_none)
+        # Switch body stack page
+        if self._body_mode_buttons.get("none", QRadioButton()).isChecked():
+            self._body_stack.setCurrentIndex(0)
+        elif is_raw:
+            self._body_stack.setCurrentIndex(1)
+            self._update_body_language()
+        elif self._body_mode_buttons.get("graphql", QRadioButton()).isChecked():
+            self._body_stack.setCurrentIndex(4)
+        elif (
+            self._body_mode_buttons.get("form-data", QRadioButton()).isChecked()
+            or self._body_mode_buttons.get("x-www-form-urlencoded", QRadioButton()).isChecked()
+        ):
+            self._body_stack.setCurrentIndex(2)
+        elif self._body_mode_buttons.get("binary", QRadioButton()).isChecked():
+            self._body_stack.setCurrentIndex(3)
 
         if not self._loading:
             self._set_dirty(True)
             self._debounce_timer.start()
+
+    # -- Body helpers -------------------------------------------------
+
+    def _update_body_language(self) -> None:
+        """Set the code editor language from the raw format dropdown."""
+        fmt = self._raw_format_combo.currentText().lower()
+        self._body_code_editor.set_language(fmt)
+
+    def _on_prettify(self) -> None:
+        """Prettify the body content via the code editor."""
+        self._body_code_editor.prettify()
+
+    def _on_wrap_toggle(self) -> None:
+        """Toggle word-wrap in the body code editor."""
+        self._body_code_editor.set_word_wrap(self._wrap_btn.isChecked())
+
+    def _on_body_validation(self, errors: list) -> None:
+        """Update the body error label when validation results change."""
+        if errors:
+            err = errors[0]
+            lang = self._body_code_editor.language.upper()
+            msg = f"\u26a0 {lang} error on line {err.line}: {err.message}"
+            self._body_error_label.setText(msg)
+            self._body_error_label.show()
+        else:
+            self._body_error_label.setText("")
+            self._body_error_label.hide()
+
+    # -- GraphQL body helpers -----------------------------------------
+
+    def _on_gql_prettify(self) -> None:
+        """Prettify both the GraphQL query and variables editors."""
+        self._gql_query_editor.prettify()
+        self._gql_variables_editor.prettify()
+
+    def _on_gql_wrap_toggle(self) -> None:
+        """Toggle word-wrap in both GraphQL editors."""
+        wrap = self._gql_wrap_btn.isChecked()
+        self._gql_query_editor.set_word_wrap(wrap)
+        self._gql_variables_editor.set_word_wrap(wrap)
+
+    def _on_gql_validation(self, errors: list) -> None:
+        """Update the GraphQL error label when validation results change."""
+        if errors:
+            err = errors[0]
+            msg = f"\u26a0 GraphQL error on line {err.line}: {err.message}"
+            self._gql_error_label.setText(msg)
+            self._gql_error_label.show()
+        else:
+            self._gql_error_label.setText("")
+            self._gql_error_label.hide()
+
+    def _on_select_binary_file(self) -> None:
+        """Open a file dialog and store the selected file path."""
+        path, _ = QFileDialog.getOpenFileName(self, "Select File")
+        if path:
+            self._binary_file_label.setText(path)
+            self._on_field_changed()
 
     def _emit_request_changed(self) -> None:
         """Emit the debounced request_changed signal with current data."""

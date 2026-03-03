@@ -55,6 +55,26 @@ class ThemePalette(TypedDict):
     console_bg: str
     console_text: str
 
+    # Code editor
+    editor_bracket_match: str
+    editor_gutter_bg: str
+    editor_gutter_text: str
+    editor_error_underline: str
+    editor_fold_indicator: str
+    editor_string: str
+    editor_number: str
+    editor_keyword: str
+    editor_comment: str
+    editor_tag: str
+    editor_attribute: str
+    editor_punctuation: str
+    editor_fold_highlight: str
+    editor_indent_guide: str
+    editor_active_indent_guide: str
+    editor_error_gutter_bg: str
+    editor_fold_badge_bg: str
+    editor_fold_badge_text: str
+
 
 # -- Light palette -----------------------------------------------------
 LIGHT_PALETTE: ThemePalette = {
@@ -84,6 +104,24 @@ LIGHT_PALETTE: ThemePalette = {
     "import_error": "#e74c3c",
     "console_bg": "#1e1e1e",
     "console_text": "#d4d4d4",
+    "editor_bracket_match": "#d4edda",
+    "editor_gutter_bg": "#fafafa",
+    "editor_gutter_text": "#999999",
+    "editor_error_underline": "#e74c3c",
+    "editor_fold_indicator": "#555555",
+    "editor_string": "#22863a",
+    "editor_number": "#005cc5",
+    "editor_keyword": "#d73a49",
+    "editor_comment": "#6a737d",
+    "editor_tag": "#22863a",
+    "editor_attribute": "#6f42c1",
+    "editor_punctuation": "#586069",
+    "editor_fold_highlight": "#f0f4ff",
+    "editor_indent_guide": "#e0e0e0",
+    "editor_active_indent_guide": "#b0b0b0",
+    "editor_error_gutter_bg": "#fce4e4",
+    "editor_fold_badge_bg": "#e0e6ed",
+    "editor_fold_badge_text": "#6a737d",
 }
 
 # -- Dark palette ------------------------------------------------------
@@ -114,6 +152,24 @@ DARK_PALETTE: ThemePalette = {
     "import_error": "#f44747",
     "console_bg": "#1e1e1e",
     "console_text": "#d4d4d4",
+    "editor_bracket_match": "#2a4a3a",
+    "editor_gutter_bg": "#252526",
+    "editor_gutter_text": "#858585",
+    "editor_error_underline": "#f44747",
+    "editor_fold_indicator": "#c0c0c0",
+    "editor_string": "#ce9178",
+    "editor_number": "#b5cea8",
+    "editor_keyword": "#569cd6",
+    "editor_comment": "#6a9955",
+    "editor_tag": "#569cd6",
+    "editor_attribute": "#9cdcfe",
+    "editor_punctuation": "#808080",
+    "editor_fold_highlight": "#2a2d3a",
+    "editor_indent_guide": "#333333",
+    "editor_active_indent_guide": "#606060",
+    "editor_error_gutter_bg": "#4a2020",
+    "editor_fold_badge_bg": "#3a3d4a",
+    "editor_fold_badge_text": "#a0a0a0",
 }
 
 
@@ -159,6 +215,25 @@ COLOR_DROP_ZONE_ACTIVE_BG: str = _active["drop_zone_active_bg"]
 COLOR_IMPORT_SUCCESS: str = _active["import_success"]
 COLOR_IMPORT_ERROR: str = _active["import_error"]
 
+COLOR_EDITOR_BRACKET_MATCH: str = _active["editor_bracket_match"]
+COLOR_EDITOR_GUTTER_BG: str = _active["editor_gutter_bg"]
+COLOR_EDITOR_GUTTER_TEXT: str = _active["editor_gutter_text"]
+COLOR_EDITOR_ERROR_UNDERLINE: str = _active["editor_error_underline"]
+COLOR_EDITOR_FOLD_INDICATOR: str = _active["editor_fold_indicator"]
+COLOR_EDITOR_STRING: str = _active["editor_string"]
+COLOR_EDITOR_NUMBER: str = _active["editor_number"]
+COLOR_EDITOR_KEYWORD: str = _active["editor_keyword"]
+COLOR_EDITOR_COMMENT: str = _active["editor_comment"]
+COLOR_EDITOR_TAG: str = _active["editor_tag"]
+COLOR_EDITOR_ATTRIBUTE: str = _active["editor_attribute"]
+COLOR_EDITOR_PUNCTUATION: str = _active["editor_punctuation"]
+COLOR_EDITOR_FOLD_HIGHLIGHT: str = _active["editor_fold_highlight"]
+COLOR_EDITOR_INDENT_GUIDE: str = _active["editor_indent_guide"]
+COLOR_EDITOR_ACTIVE_INDENT_GUIDE: str = _active["editor_active_indent_guide"]
+COLOR_EDITOR_ERROR_GUTTER_BG: str = _active["editor_error_gutter_bg"]
+COLOR_EDITOR_FOLD_BADGE_BG: str = _active["editor_fold_badge_bg"]
+COLOR_EDITOR_FOLD_BADGE_TEXT: str = _active["editor_fold_badge_text"]
+
 
 def set_active_palette(palette: ThemePalette) -> None:
     """Replace the module-level colour aliases with values from *palette*.
@@ -177,6 +252,16 @@ def set_active_palette(palette: ThemePalette) -> None:
     global COLOR_DROP_ZONE_BORDER, COLOR_DROP_ZONE_BG
     global COLOR_DROP_ZONE_ACTIVE_BG
     global COLOR_IMPORT_SUCCESS, COLOR_IMPORT_ERROR
+    global COLOR_EDITOR_BRACKET_MATCH, COLOR_EDITOR_GUTTER_BG
+    global COLOR_EDITOR_GUTTER_TEXT, COLOR_EDITOR_ERROR_UNDERLINE
+    global COLOR_EDITOR_FOLD_INDICATOR
+    global COLOR_EDITOR_STRING, COLOR_EDITOR_NUMBER, COLOR_EDITOR_KEYWORD
+    global COLOR_EDITOR_COMMENT, COLOR_EDITOR_TAG, COLOR_EDITOR_ATTRIBUTE
+    global COLOR_EDITOR_PUNCTUATION
+    global COLOR_EDITOR_FOLD_HIGHLIGHT, COLOR_EDITOR_INDENT_GUIDE
+    global COLOR_EDITOR_ACTIVE_INDENT_GUIDE
+    global COLOR_EDITOR_ERROR_GUTTER_BG
+    global COLOR_EDITOR_FOLD_BADGE_BG, COLOR_EDITOR_FOLD_BADGE_TEXT
 
     _active = palette
 
@@ -209,6 +294,25 @@ def set_active_palette(palette: ThemePalette) -> None:
     COLOR_DROP_ZONE_ACTIVE_BG = palette["drop_zone_active_bg"]
     COLOR_IMPORT_SUCCESS = palette["import_success"]
     COLOR_IMPORT_ERROR = palette["import_error"]
+
+    COLOR_EDITOR_BRACKET_MATCH = palette["editor_bracket_match"]
+    COLOR_EDITOR_GUTTER_BG = palette["editor_gutter_bg"]
+    COLOR_EDITOR_GUTTER_TEXT = palette["editor_gutter_text"]
+    COLOR_EDITOR_ERROR_UNDERLINE = palette["editor_error_underline"]
+    COLOR_EDITOR_FOLD_INDICATOR = palette["editor_fold_indicator"]
+    COLOR_EDITOR_STRING = palette["editor_string"]
+    COLOR_EDITOR_NUMBER = palette["editor_number"]
+    COLOR_EDITOR_KEYWORD = palette["editor_keyword"]
+    COLOR_EDITOR_COMMENT = palette["editor_comment"]
+    COLOR_EDITOR_TAG = palette["editor_tag"]
+    COLOR_EDITOR_ATTRIBUTE = palette["editor_attribute"]
+    COLOR_EDITOR_PUNCTUATION = palette["editor_punctuation"]
+    COLOR_EDITOR_FOLD_HIGHLIGHT = palette["editor_fold_highlight"]
+    COLOR_EDITOR_INDENT_GUIDE = palette["editor_indent_guide"]
+    COLOR_EDITOR_ACTIVE_INDENT_GUIDE = palette["editor_active_indent_guide"]
+    COLOR_EDITOR_ERROR_GUTTER_BG = palette["editor_error_gutter_bg"]
+    COLOR_EDITOR_FOLD_BADGE_BG = palette["editor_fold_badge_bg"]
+    COLOR_EDITOR_FOLD_BADGE_TEXT = palette["editor_fold_badge_text"]
 
 
 def current_palette() -> ThemePalette:

@@ -136,6 +136,28 @@ def clear_cache() -> None:
     _icon_cache.clear()
 
 
+def glyph_char(name: str) -> str:
+    """Return the raw Unicode character for a Phosphor glyph *name*.
+
+    Returns an empty string if the font is not loaded or the glyph is
+    unknown.  Useful for painting glyphs directly with a ``QPainter``
+    that already has the Phosphor font set.
+    """
+    if not _font_loaded:
+        load_font()
+    return _charmap.get(name, "")
+
+
+def font_family() -> str:
+    """Return the Phosphor font family name.
+
+    Returns an empty string if the font is not loaded.
+    """
+    if not _font_loaded:
+        load_font()
+    return _font_family
+
+
 # ---------------------------------------------------------------------------
 # Internal rendering
 # ---------------------------------------------------------------------------
@@ -177,5 +199,6 @@ def _device_pixel_ratio() -> float:
         screen = app.primaryScreen()
         if screen is not None:
             return float(screen.devicePixelRatio())
+    return 1.0
     return 1.0
     return 1.0

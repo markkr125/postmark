@@ -291,6 +291,15 @@ class ThemeManager(QObject):
             border: none;
         }}
 
+        /* ---- Plain text code editors -------------------------------- */
+        QPlainTextEdit[objectName="codeEditor"] {{
+            background: {p["input_bg"]};
+            border: 1px solid {p["border"]};
+            color: {p["text"]};
+            font-family: monospace;
+            font-size: 12px;
+        }}
+
         /* ---- Buttons ------------------------------------------------ */
         QPushButton[objectName="primaryButton"] {{
             background: {p["accent"]};
