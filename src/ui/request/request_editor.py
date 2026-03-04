@@ -69,7 +69,7 @@ class RequestEditorWidget(QWidget):
         self._debounce_timer.timeout.connect(self._emit_request_changed)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(12, 12, 12, 12)
+        root.setContentsMargins(12, 12, 12, 0)
         root.setSpacing(10)
 
         # -- Top bar: method dropdown + URL + Send --
@@ -270,6 +270,7 @@ class RequestEditorWidget(QWidget):
         gql_layout.addLayout(gql_toolbar)
 
         gql_splitter = QSplitter(Qt.Orientation.Horizontal)
+        gql_splitter.setObjectName("gqlSplitter")
         gql_splitter.setHandleWidth(8)
 
         # Left pane: QUERY

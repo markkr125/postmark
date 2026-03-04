@@ -9,30 +9,14 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QShortcut, QTextCharFormat, QTextCursor
-from PySide6.QtWidgets import (
-    QComboBox,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QProgressBar,
-    QPushButton,
-    QSizePolicy,
-    QTabWidget,
-    QTextEdit,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QLabel, QLineEdit,
+                               QProgressBar, QPushButton, QSizePolicy,
+                               QTabWidget, QTextEdit, QVBoxLayout, QWidget)
 
 from ui.code_editor import CodeEditorWidget
 from ui.icons import phi
-from ui.theme import (
-    COLOR_DANGER,
-    COLOR_DELETE,
-    COLOR_IMPORT_ERROR,
-    COLOR_SUCCESS,
-    COLOR_WARNING,
-    COLOR_WHITE,
-)
+from ui.theme import (COLOR_DANGER, COLOR_DELETE, COLOR_IMPORT_ERROR,
+                      COLOR_SUCCESS, COLOR_WARNING, COLOR_WHITE)
 
 # -- Status code colour thresholds ------------------------------------
 _STATUS_2XX = COLOR_SUCCESS  # green
@@ -87,9 +71,10 @@ class ResponseViewerWidget(QWidget):
         self._response_label.setObjectName("panelTitle")
         root.addWidget(self._response_label)
 
-        # -- Status bar row -------------------------------------------
+        # -- Status bar row (shown as tab corner widget) -----------------
         status_row = QHBoxLayout()
         status_row.setSpacing(12)
+        status_row.setContentsMargins(0, 0, 0, 0)
 
         self._status_label = QLabel()
         self._status_label.setStyleSheet("font-weight: bold; padding: 2px 8px; border-radius: 3px;")
@@ -103,11 +88,8 @@ class ResponseViewerWidget(QWidget):
         self._size_label.setObjectName("mutedLabel")
         status_row.addWidget(self._size_label)
 
-        status_row.addStretch()
-
         self._status_bar_widget = QWidget()
         self._status_bar_widget.setLayout(status_row)
-        root.addWidget(self._status_bar_widget)
 
         # -- Progress bar (loading state) -----------------------------
         self._progress_bar = QProgressBar()
@@ -119,6 +101,7 @@ class ResponseViewerWidget(QWidget):
 
         # -- Tabbed area: Body, Headers -------------------------------
         self._tabs = QTabWidget()
+        self._tabs.setCornerWidget(self._status_bar_widget, Qt.Corner.TopRightCorner)
 
         # Body tab with format selector
         body_tab = QWidget()

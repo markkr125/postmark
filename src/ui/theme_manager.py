@@ -206,11 +206,17 @@ class ThemeManager(QObject):
         QSplitter::handle:horizontal {{
             width: 5px;
             border-left: none;
+            border-right: 1px solid {p["border"]};
+        }}
+        QSplitter[objectName="gqlSplitter"]::handle:horizontal {{
             border-right: none;
         }}
         QSplitter::handle:vertical {{
-            height: 1px;
-            background: {p["border"]};
+            height: 4px;
+            background: transparent;
+            border-bottom: 1px solid {p["border"]};
+            margin-top: 0px;
+            margin-bottom: 3px;
         }}
 
         /* ---- Labels ------------------------------------------------- */
