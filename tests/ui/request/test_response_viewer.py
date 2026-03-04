@@ -6,6 +6,57 @@ from PySide6.QtWidgets import QApplication
 
 from ui.request.response_viewer import ResponseViewerWidget
 
+# -- Sample data used across tests ------------------------------------
+
+_SAMPLE_TIMING: dict = {
+    "dns_ms": 1.5,
+    "tcp_ms": 3.0,
+    "tls_ms": 0.0,
+    "ttfb_ms": 50.0,
+    "download_ms": 5.0,
+    "process_ms": 83.0,
+}
+
+_SAMPLE_NETWORK: dict = {
+    "http_version": "HTTP/1.1",
+    "remote_address": "93.184.216.34:80",
+    "local_address": "192.168.1.10:54321",
+    "tls_protocol": None,
+    "cipher_name": None,
+    "certificate_cn": None,
+    "issuer_cn": None,
+    "valid_until": None,
+}
+
+
+def _make_response(
+    *,
+    status_code: int = 200,
+    status_text: str = "OK",
+    headers: list[dict[str, str]] | None = None,
+    body: str = '{"result": "success"}',
+    elapsed_ms: float = 142.5,
+    size_bytes: int | None = None,
+) -> dict:
+    """Build a minimal response dict with all required fields."""
+    if headers is None:
+        headers = []
+    if size_bytes is None:
+        size_bytes = len(body.encode("utf-8"))
+    return {
+        "status_code": status_code,
+        "status_text": status_text,
+        "headers": headers,
+        "body": body,
+        "elapsed_ms": elapsed_ms,
+        "size_bytes": size_bytes,
+        "timing": _SAMPLE_TIMING,
+        "request_headers_size": 0,
+        "request_body_size": 0,
+        "response_headers_size": 0,
+        "network": _SAMPLE_NETWORK,
+    }
+
 
 class TestResponseViewerWidget:
     """Tests for the response viewer pane."""
@@ -54,17 +105,15 @@ class TestResponseViewerWidget:
         viewer = ResponseViewerWidget()
         qtbot.addWidget(viewer)
 
-        data = {
-            "status_code": 200,
-            "status_text": "OK",
-            "headers": [
+        data = _make_response(
+            headers=[
                 {"key": "Content-Type", "value": "application/json"},
                 {"key": "X-Custom", "value": "test"},
             ],
-            "body": '{"result": "success"}',
-            "elapsed_ms": 142.5,
-            "size_bytes": 21,
-        }
+            body='{"result": "success"}',
+            elapsed_ms=142.5,
+            size_bytes=21,
+        )
         viewer.load_response(data)
 
         assert not viewer._tabs.isHidden()
@@ -95,14 +144,13 @@ class TestResponseViewerWidget:
         viewer = ResponseViewerWidget()
         qtbot.addWidget(viewer)
 
-        data = {
-            "status_code": 404,
-            "status_text": "Not Found",
-            "headers": [],
-            "body": "Not Found",
-            "elapsed_ms": 50.0,
-            "size_bytes": 9,
-        }
+        data = _make_response(
+            status_code=404,
+            status_text="Not Found",
+            body="Not Found",
+            elapsed_ms=50.0,
+            size_bytes=9,
+        )
         viewer.load_response(data)
 
         assert "404" in viewer._status_label.text()
@@ -113,16 +161,7 @@ class TestResponseViewerWidget:
         viewer = ResponseViewerWidget()
         qtbot.addWidget(viewer)
 
-        viewer.load_response(
-            {
-                "status_code": 200,
-                "status_text": "OK",
-                "headers": [],
-                "body": "hello",
-                "elapsed_ms": 10.0,
-                "size_bytes": 5,
-            }
-        )
+        viewer.load_response(_make_response(body="hello", elapsed_ms=10.0, size_bytes=5))
         viewer.clear()
 
         assert not viewer._empty_label.isHidden()
@@ -134,16 +173,7 @@ class TestResponseViewerWidget:
         viewer = ResponseViewerWidget()
         qtbot.addWidget(viewer)
 
-        viewer.load_response(
-            {
-                "status_code": 200,
-                "status_text": "OK",
-                "headers": [],
-                "body": "hi",
-                "elapsed_ms": 5.0,
-                "size_bytes": 100,
-            }
-        )
+        viewer.load_response(_make_response(body="hi", elapsed_ms=5.0, size_bytes=100))
 
         assert "100 B" in viewer._size_label.text()
 
@@ -152,16 +182,7 @@ class TestResponseViewerWidget:
         viewer = ResponseViewerWidget()
         qtbot.addWidget(viewer)
 
-        viewer.load_response(
-            {
-                "status_code": 200,
-                "status_text": "OK",
-                "headers": [],
-                "body": "x" * 2048,
-                "elapsed_ms": 5.0,
-                "size_bytes": 2048,
-            }
-        )
+        viewer.load_response(_make_response(body="x" * 2048, elapsed_ms=5.0, size_bytes=2048))
 
         assert "KB" in viewer._size_label.text()
 
@@ -178,17 +199,15 @@ class TestResponseViewerWidget:
         viewer = ResponseViewerWidget()
         qtbot.addWidget(viewer)
 
-        data = {
-            "status_code": 200,
-            "status_text": "OK",
-            "headers": [
+        data = _make_response(
+            headers=[
                 {"key": "Content-Type", "value": "text/html"},
                 {"key": "set-cookie", "value": "sid=abc123; Path=/"},
             ],
-            "body": "",
-            "elapsed_ms": 5.0,
-            "size_bytes": 0,
-        }
+            body="",
+            elapsed_ms=5.0,
+            size_bytes=0,
+        )
         viewer.load_response(data)
 
         assert "sid=abc123" in viewer._cookies_edit.toPlainText()
@@ -208,16 +227,8 @@ class TestResponseViewerWidget:
         viewer = ResponseViewerWidget()
         qtbot.addWidget(viewer)
 
-        data = {
-            "status_code": 200,
-            "status_text": "OK",
-            "headers": [],
-            "body": '{"a":1,"b":2}',
-            "elapsed_ms": 5.0,
-            "size_bytes": 13,
-        }
         viewer._format_combo.setCurrentText("Pretty")
-        viewer.load_response(data)
+        viewer.load_response(_make_response(body='{"a":1,"b":2}', elapsed_ms=5.0, size_bytes=13))
 
         body = viewer._body_edit.toPlainText()
         # Pretty-printed JSON has newlines
@@ -230,16 +241,8 @@ class TestResponseViewerWidget:
         qtbot.addWidget(viewer)
 
         raw_json = '{"a":1,"b":2}'
-        data = {
-            "status_code": 200,
-            "status_text": "OK",
-            "headers": [],
-            "body": raw_json,
-            "elapsed_ms": 5.0,
-            "size_bytes": 13,
-        }
         viewer._format_combo.setCurrentText("Raw")
-        viewer.load_response(data)
+        viewer.load_response(_make_response(body=raw_json, elapsed_ms=5.0, size_bytes=13))
 
         assert viewer._body_edit.toPlainText() == raw_json
 
@@ -251,16 +254,7 @@ class TestResponseViewerSearch:
         """Return a viewer pre-loaded with a response body."""
         viewer = ResponseViewerWidget()
         qtbot.addWidget(viewer)
-        viewer.load_response(
-            {
-                "status_code": 200,
-                "status_text": "OK",
-                "headers": [],
-                "body": body,
-                "elapsed_ms": 1.0,
-                "size_bytes": len(body),
-            }
-        )
+        viewer.load_response(_make_response(body=body, elapsed_ms=1.0, size_bytes=len(body)))
         return viewer
 
     def test_search_bar_hidden_by_default(self, qapp, qtbot) -> None:
@@ -328,16 +322,7 @@ class TestResponseViewerBeautify:
         viewer = ResponseViewerWidget()
         qtbot.addWidget(viewer)
         viewer._format_combo.setCurrentText("Raw")
-        viewer.load_response(
-            {
-                "status_code": 200,
-                "status_text": "OK",
-                "headers": [],
-                "body": body,
-                "elapsed_ms": 1.0,
-                "size_bytes": len(body),
-            }
-        )
+        viewer.load_response(_make_response(body=body, elapsed_ms=1.0, size_bytes=len(body)))
         return viewer
 
     def test_beautify_json(self, qapp: QApplication, qtbot) -> None:
@@ -380,14 +365,12 @@ class TestResponseViewerSaveResponse:
         viewer = ResponseViewerWidget()
         qtbot.addWidget(viewer)
         viewer.load_response(
-            {
-                "status_code": 200,
-                "status_text": "OK",
-                "headers": [{"key": "X-Test", "value": "1"}],
-                "body": '{"ok": true}',
-                "elapsed_ms": 5.0,
-                "size_bytes": 12,
-            }
+            _make_response(
+                headers=[{"key": "X-Test", "value": "1"}],
+                body='{"ok": true}',
+                elapsed_ms=5.0,
+                size_bytes=12,
+            )
         )
 
         with qtbot.waitSignal(viewer.save_response_requested, timeout=1000) as blocker:
@@ -435,3 +418,74 @@ class TestResponseViewerSaveResponse:
         qtbot.addWidget(viewer)
         tab_titles = [viewer._tabs.tabText(i) for i in range(viewer._tabs.count())]
         assert "Saved" in tab_titles
+
+
+class TestResponseViewerPopups:
+    """Tests for the click-triggered popup panels."""
+
+    def _loaded_viewer(self, qtbot) -> ResponseViewerWidget:
+        """Return a viewer pre-loaded with a full response."""
+        viewer = ResponseViewerWidget()
+        qtbot.addWidget(viewer)
+        viewer.load_response(_make_response())
+        return viewer
+
+    def test_status_popup_created_on_click(self, qapp: QApplication, qtbot) -> None:
+        """Clicking the status label creates and shows the status popup."""
+        viewer = self._loaded_viewer(qtbot)
+        assert viewer._status_popup is None
+        viewer._on_status_clicked()
+        assert viewer._status_popup is not None
+
+    def test_timing_popup_created_on_click(self, qapp: QApplication, qtbot) -> None:
+        """Clicking the time label creates and shows the timing popup."""
+        viewer = self._loaded_viewer(qtbot)
+        assert viewer._timing_popup is None
+        viewer._on_time_clicked()
+        assert viewer._timing_popup is not None
+
+    def test_size_popup_created_on_click(self, qapp: QApplication, qtbot) -> None:
+        """Clicking the size label creates and shows the size popup."""
+        viewer = self._loaded_viewer(qtbot)
+        assert viewer._size_popup is None
+        viewer._on_size_clicked()
+        assert viewer._size_popup is not None
+
+    def test_network_popup_created_on_click(self, qapp: QApplication, qtbot) -> None:
+        """Clicking the network icon creates and shows the network popup."""
+        viewer = self._loaded_viewer(qtbot)
+        assert viewer._network_popup is None
+        viewer._on_network_clicked()
+        assert viewer._network_popup is not None
+
+    def test_load_response_stores_timing_data(self, qapp: QApplication, qtbot) -> None:
+        """load_response stores timing dict for popup use."""
+        viewer = self._loaded_viewer(qtbot)
+        assert viewer._timing_data is not None
+        assert viewer._timing_data["dns_ms"] == _SAMPLE_TIMING["dns_ms"]
+
+    def test_load_response_stores_network_data(self, qapp: QApplication, qtbot) -> None:
+        """load_response stores network dict for popup use."""
+        viewer = self._loaded_viewer(qtbot)
+        assert viewer._network_data is not None
+        assert viewer._network_data["http_version"] == "HTTP/1.1"
+
+    def test_load_response_stores_size_breakdown(self, qapp: QApplication, qtbot) -> None:
+        """load_response stores size breakdown dict for popup use."""
+        viewer = self._loaded_viewer(qtbot)
+        assert "response_headers_size" in viewer._size_data
+        assert "request_body_size" in viewer._size_data
+
+    def test_save_button_in_corner_widget(self, qapp: QApplication, qtbot) -> None:
+        """Save button is part of the tab corner widget row."""
+        viewer = ResponseViewerWidget()
+        qtbot.addWidget(viewer)
+        # The save button's parent chain goes through the status_bar_widget
+        assert viewer._save_response_btn.parent() is viewer._status_bar_widget
+
+    def test_network_icon_exists(self, qapp: QApplication, qtbot) -> None:
+        """Response viewer has a network globe icon in the status bar."""
+        viewer = ResponseViewerWidget()
+        qtbot.addWidget(viewer)
+        assert viewer._network_icon is not None
+        assert viewer._network_icon.parent() is viewer._status_bar_widget

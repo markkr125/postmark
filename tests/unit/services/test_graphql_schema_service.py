@@ -8,9 +8,12 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 
-from services.graphql_schema_service import (INTROSPECTION_QUERY,
-                                             GraphQLSchemaService,
-                                             SchemaResultDict, SchemaTypeDict)
+from services.graphql_schema_service import (
+    INTROSPECTION_QUERY,
+    GraphQLSchemaService,
+    SchemaResultDict,
+    SchemaTypeDict,
+)
 
 # -- Helpers ---------------------------------------------------------------
 

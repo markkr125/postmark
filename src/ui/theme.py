@@ -55,6 +55,15 @@ class ThemePalette(TypedDict):
     console_bg: str
     console_text: str
 
+    # Timing breakdown
+    timing_prepare: str
+    timing_dns: str
+    timing_tcp: str
+    timing_tls: str
+    timing_ttfb: str
+    timing_download: str
+    timing_process: str
+
     # Code editor
     editor_bracket_match: str
     editor_gutter_bg: str
@@ -105,6 +114,13 @@ LIGHT_PALETTE: ThemePalette = {
     "import_error": "#e74c3c",
     "console_bg": "#1e1e1e",
     "console_text": "#d4d4d4",
+    "timing_prepare": "#95a5a6",
+    "timing_dns": "#3498db",
+    "timing_tcp": "#2ecc71",
+    "timing_tls": "#9b59b6",
+    "timing_ttfb": "#e89a0c",
+    "timing_download": "#e67e22",
+    "timing_process": "#e74c3c",
     "editor_bracket_match": "#d4edda",
     "editor_gutter_bg": "#fafafa",
     "editor_gutter_text": "#999999",
@@ -154,6 +170,13 @@ DARK_PALETTE: ThemePalette = {
     "import_error": "#f44747",
     "console_bg": "#1e1e1e",
     "console_text": "#d4d4d4",
+    "timing_prepare": "#808080",
+    "timing_dns": "#4fc1ff",
+    "timing_tcp": "#4ec9b0",
+    "timing_tls": "#c586c0",
+    "timing_ttfb": "#dcdcaa",
+    "timing_download": "#ce9178",
+    "timing_process": "#f44747",
     "editor_bracket_match": "#2a4a3a",
     "editor_gutter_bg": "#252526",
     "editor_gutter_text": "#858585",
@@ -218,6 +241,14 @@ COLOR_DROP_ZONE_ACTIVE_BG: str = _active["drop_zone_active_bg"]
 COLOR_IMPORT_SUCCESS: str = _active["import_success"]
 COLOR_IMPORT_ERROR: str = _active["import_error"]
 
+COLOR_TIMING_PREPARE: str = _active["timing_prepare"]
+COLOR_TIMING_DNS: str = _active["timing_dns"]
+COLOR_TIMING_TCP: str = _active["timing_tcp"]
+COLOR_TIMING_TLS: str = _active["timing_tls"]
+COLOR_TIMING_TTFB: str = _active["timing_ttfb"]
+COLOR_TIMING_DOWNLOAD: str = _active["timing_download"]
+COLOR_TIMING_PROCESS: str = _active["timing_process"]
+
 COLOR_EDITOR_BRACKET_MATCH: str = _active["editor_bracket_match"]
 COLOR_EDITOR_GUTTER_BG: str = _active["editor_gutter_bg"]
 COLOR_EDITOR_GUTTER_TEXT: str = _active["editor_gutter_text"]
@@ -256,6 +287,9 @@ def set_active_palette(palette: ThemePalette) -> None:
     global COLOR_DROP_ZONE_BORDER, COLOR_DROP_ZONE_BG
     global COLOR_DROP_ZONE_ACTIVE_BG
     global COLOR_IMPORT_SUCCESS, COLOR_IMPORT_ERROR
+    global COLOR_TIMING_PREPARE, COLOR_TIMING_DNS, COLOR_TIMING_TCP
+    global COLOR_TIMING_TLS, COLOR_TIMING_TTFB, COLOR_TIMING_DOWNLOAD
+    global COLOR_TIMING_PROCESS
     global COLOR_EDITOR_BRACKET_MATCH, COLOR_EDITOR_GUTTER_BG
     global COLOR_EDITOR_GUTTER_TEXT, COLOR_EDITOR_ERROR_UNDERLINE
     global COLOR_EDITOR_FOLD_INDICATOR
@@ -299,6 +333,14 @@ def set_active_palette(palette: ThemePalette) -> None:
     COLOR_DROP_ZONE_ACTIVE_BG = palette["drop_zone_active_bg"]
     COLOR_IMPORT_SUCCESS = palette["import_success"]
     COLOR_IMPORT_ERROR = palette["import_error"]
+
+    COLOR_TIMING_PREPARE = palette["timing_prepare"]
+    COLOR_TIMING_DNS = palette["timing_dns"]
+    COLOR_TIMING_TCP = palette["timing_tcp"]
+    COLOR_TIMING_TLS = palette["timing_tls"]
+    COLOR_TIMING_TTFB = palette["timing_ttfb"]
+    COLOR_TIMING_DOWNLOAD = palette["timing_download"]
+    COLOR_TIMING_PROCESS = palette["timing_process"]
 
     COLOR_EDITOR_BRACKET_MATCH = palette["editor_bracket_match"]
     COLOR_EDITOR_GUTTER_BG = palette["editor_gutter_bg"]

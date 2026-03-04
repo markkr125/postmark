@@ -10,11 +10,23 @@ from __future__ import annotations
 import json
 
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
-from PySide6.QtWidgets import (QButtonGroup, QComboBox, QFileDialog,
-                               QHBoxLayout, QLabel, QLineEdit, QPushButton,
-                               QRadioButton, QSizePolicy, QSplitter,
-                               QStackedWidget, QTabWidget, QTextEdit,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (
+    QButtonGroup,
+    QComboBox,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QRadioButton,
+    QSizePolicy,
+    QSplitter,
+    QStackedWidget,
+    QTabWidget,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ui.code_editor import CodeEditorWidget
 from ui.icons import phi

@@ -3,20 +3,44 @@
 Displays the result of an HTTP request sent from the request editor.
 Supports three visual states: empty (no request sent), loading
 (request in progress), and populated (response received or error).
+
+Status, timing, and size labels are clickable and open floating
+popup panels with breakdown details (matching Postman's UX).
 """
 
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QShortcut, QTextCharFormat, QTextCursor
-from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QLabel, QLineEdit,
-                               QProgressBar, QPushButton, QSizePolicy,
-                               QTabWidget, QTextEdit, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (
+    QComboBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QProgressBar,
+    QPushButton,
+    QSizePolicy,
+    QTabWidget,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ui.code_editor import CodeEditorWidget
 from ui.icons import phi
-from ui.theme import (COLOR_DANGER, COLOR_DELETE, COLOR_IMPORT_ERROR,
-                      COLOR_SUCCESS, COLOR_WARNING, COLOR_WHITE)
+from ui.info_popup import ClickableLabel
+from ui.request.popups.network_popup import NetworkPopup
+from ui.request.popups.size_popup import SizePopup
+from ui.request.popups.status_popup import StatusPopup
+from ui.request.popups.timing_popup import TimingPopup
+from ui.theme import (
+    COLOR_DANGER,
+    COLOR_DELETE,
+    COLOR_IMPORT_ERROR,
+    COLOR_SUCCESS,
+    COLOR_WARNING,
+    COLOR_WHITE,
+)
 
 # -- Status code colour thresholds ------------------------------------
 _STATUS_2XX = COLOR_SUCCESS  # green
@@ -76,20 +100,52 @@ class ResponseViewerWidget(QWidget):
         status_row.setSpacing(12)
         status_row.setContentsMargins(0, 0, 0, 0)
 
-        self._status_label = QLabel()
+        self._status_label = ClickableLabel()
         self._status_label.setStyleSheet("font-weight: bold; padding: 2px 8px; border-radius: 3px;")
+        self._status_label.clicked.connect(self._on_status_clicked)
         status_row.addWidget(self._status_label)
 
-        self._time_label = QLabel()
+        self._time_label = ClickableLabel()
         self._time_label.setObjectName("mutedLabel")
+        self._time_label.clicked.connect(self._on_time_clicked)
         status_row.addWidget(self._time_label)
 
-        self._size_label = QLabel()
+        self._size_label = ClickableLabel()
         self._size_label.setObjectName("mutedLabel")
+        self._size_label.clicked.connect(self._on_size_clicked)
         status_row.addWidget(self._size_label)
+
+        self._network_icon = ClickableLabel()
+        self._network_icon.setPixmap(phi("globe-simple").pixmap(16, 16))
+        self._network_icon.setToolTip("Network information")
+        self._network_icon.clicked.connect(self._on_network_clicked)
+        status_row.addWidget(self._network_icon)
+
+        self._save_response_btn = QPushButton()
+        self._save_response_btn.setIcon(phi("floppy-disk"))
+        self._save_response_btn.setFixedWidth(28)
+        self._save_response_btn.setToolTip("Save this response as a named example")
+        self._save_response_btn.setObjectName("flatMutedButton")
+        self._save_response_btn.clicked.connect(self._on_save_response)
+        status_row.addWidget(self._save_response_btn)
 
         self._status_bar_widget = QWidget()
         self._status_bar_widget.setLayout(status_row)
+
+        # -- Popup instances (created lazily on first click) -----------
+        self._status_popup: StatusPopup | None = None
+        self._timing_popup: TimingPopup | None = None
+        self._size_popup: SizePopup | None = None
+        self._network_popup: NetworkPopup | None = None
+
+        # Breakdown data stored from load_response for popup use
+        self._timing_data: dict | None = None
+        self._size_data: dict = {}
+        self._network_data: dict | None = None
+        self._last_status_code: int = 0
+        self._last_status_text: str = ""
+        self._last_status_color: str = ""
+        self._last_elapsed_ms: float = 0.0
 
         # -- Progress bar (loading state) -----------------------------
         self._progress_bar = QProgressBar()
@@ -123,14 +179,6 @@ class ResponseViewerWidget(QWidget):
         self._beautify_btn.setObjectName("smallPrimaryButton")
         self._beautify_btn.clicked.connect(self._on_beautify)
         format_row.addWidget(self._beautify_btn)
-
-        self._save_response_btn = QPushButton("Save")
-        self._save_response_btn.setIcon(phi("floppy-disk"))
-        self._save_response_btn.setFixedWidth(50)
-        self._save_response_btn.setToolTip("Save this response as a named example")
-        self._save_response_btn.setObjectName("outlineButton")
-        self._save_response_btn.clicked.connect(self._on_save_response)
-        format_row.addWidget(self._save_response_btn)
 
         format_row.addStretch()
         body_layout.addLayout(format_row)
@@ -258,7 +306,8 @@ class ResponseViewerWidget(QWidget):
         """Populate the viewer from an ``HttpResponseDict``.
 
         If the dict contains an ``error`` key, the error state is shown
-        instead of the response tabs.
+        instead of the response tabs.  New breakdown fields (``timing``,
+        ``network``, size keys) are stored for popup display.
         """
         if "error" in data:
             elapsed = data.get("elapsed_ms")
@@ -278,13 +327,30 @@ class ResponseViewerWidget(QWidget):
             f" color: {COLOR_WHITE}; background: {color};"
         )
 
+        # Store for popup use
+        self._last_status_code = code
+        self._last_status_text = text
+        self._last_status_color = color
+
         # Timing
         elapsed = data.get("elapsed_ms", 0)
         self._time_label.setText(f"{elapsed:.0f} ms")
+        self._last_elapsed_ms = elapsed
+        self._timing_data = data.get("timing")
 
         # Size
         size = data.get("size_bytes", 0)
         self._size_label.setText(_format_size(size))
+        self._size_data = {
+            "response_headers_size": data.get("response_headers_size", 0),
+            "size_bytes": size,
+            "response_uncompressed_size": data.get("response_uncompressed_size"),
+            "request_headers_size": data.get("request_headers_size", 0),
+            "request_body_size": data.get("request_body_size", 0),
+        }
+
+        # Network
+        self._network_data = data.get("network")
 
         # Body — store raw and apply current format
         self._raw_body = data.get("body", "")
@@ -492,3 +558,38 @@ class ResponseViewerWidget(QWidget):
                 lines.append(body[:500])
             lines.append("")
         self._saved_list.setPlainText("\n".join(lines))
+
+    # -- Popup handlers ------------------------------------------------
+
+    def _on_status_clicked(self) -> None:
+        """Open or refresh the status description popup."""
+        if self._status_popup is None:
+            self._status_popup = StatusPopup(self)
+        self._status_popup.update_status(
+            self._last_status_code,
+            self._last_status_text,
+            self._last_status_color,
+        )
+        self._status_popup.show_below(self._status_label)
+
+    def _on_time_clicked(self) -> None:
+        """Open or refresh the timing breakdown popup."""
+        if self._timing_popup is None:
+            self._timing_popup = TimingPopup(self)
+        if self._timing_data is not None:
+            self._timing_popup.update_timing(self._timing_data, self._last_elapsed_ms)
+        self._timing_popup.show_below(self._time_label)
+
+    def _on_size_clicked(self) -> None:
+        """Open or refresh the size breakdown popup."""
+        if self._size_popup is None:
+            self._size_popup = SizePopup(self)
+        self._size_popup.update_sizes(self._size_data)
+        self._size_popup.show_below(self._size_label)
+
+    def _on_network_clicked(self) -> None:
+        """Open or refresh the network info popup."""
+        if self._network_popup is None:
+            self._network_popup = NetworkPopup(self)
+        self._network_popup.update_network(self._network_data)
+        self._network_popup.show_below(self._network_icon)

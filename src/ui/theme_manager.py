@@ -13,9 +13,17 @@ from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication, QStyleFactory
 
-from ui.theme import (BADGE_BORDER_RADIUS, BADGE_FONT_SIZE, BADGE_HEIGHT,
-                      BADGE_MIN_WIDTH, DARK_PALETTE, LIGHT_PALETTE,
-                      TREE_ROW_HEIGHT, ThemePalette, set_active_palette)
+from ui.theme import (
+    BADGE_BORDER_RADIUS,
+    BADGE_FONT_SIZE,
+    BADGE_HEIGHT,
+    BADGE_MIN_WIDTH,
+    DARK_PALETTE,
+    LIGHT_PALETTE,
+    TREE_ROW_HEIGHT,
+    ThemePalette,
+    set_active_palette,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -578,5 +586,23 @@ class ThemeManager(QObject):
             background: {p["bg"]};
             font-weight: bold;
             border-bottom: none;
+        }}
+
+        /* ---- Info popup (response breakdowns) ----------------------- */
+        QWidget[objectName="infoPopup"] {{
+            background: {p["bg"]};
+            border: 1px solid {p["border"]};
+            border-radius: 6px;
+        }}
+        QLabel[objectName="infoPopupTitle"] {{
+            font-weight: bold;
+            font-size: 12px;
+            color: {p["text"]};
+            padding: 0px;
+        }}
+        QLabel[objectName="infoPopupSeparator"] {{
+            background: {p["border"]};
+            max-height: 1px;
+            min-height: 1px;
         }}
         """
