@@ -10,21 +10,13 @@ popup panels with breakdown details (matching Postman's UX).
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor, QShortcut, QTextCharFormat, QTextCursor
-from PySide6.QtWidgets import (
-    QComboBox,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QProgressBar,
-    QPushButton,
-    QSizePolicy,
-    QTabWidget,
-    QTextEdit,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtGui import (QColor, QKeySequence, QShortcut, QTextCharFormat,
+                           QTextCursor)
+from PySide6.QtWidgets import (QApplication, QComboBox, QHBoxLayout, QLabel,
+                               QLineEdit, QProgressBar, QPushButton,
+                               QSizePolicy, QTabWidget, QTextEdit, QVBoxLayout,
+                               QWidget)
 
 from ui.code_editor import CodeEditorWidget
 from ui.icons import phi
@@ -33,14 +25,8 @@ from ui.request.popups.network_popup import NetworkPopup
 from ui.request.popups.size_popup import SizePopup
 from ui.request.popups.status_popup import StatusPopup
 from ui.request.popups.timing_popup import TimingPopup
-from ui.theme import (
-    COLOR_DANGER,
-    COLOR_DELETE,
-    COLOR_IMPORT_ERROR,
-    COLOR_SUCCESS,
-    COLOR_WARNING,
-    COLOR_WHITE,
-)
+from ui.theme import (COLOR_DANGER, COLOR_DELETE, COLOR_IMPORT_ERROR,
+                      COLOR_SUCCESS, COLOR_WARNING, COLOR_WHITE)
 
 # -- Status code colour thresholds ------------------------------------
 _STATUS_2XX = COLOR_SUCCESS  # green
@@ -125,6 +111,7 @@ class ResponseViewerWidget(QWidget):
         self._save_response_btn.setIcon(phi("floppy-disk"))
         self._save_response_btn.setToolTip("Save this response as a named example")
         self._save_response_btn.setObjectName("flatMutedButton")
+        self._save_response_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._save_response_btn.clicked.connect(self._on_save_response)
         status_row.addWidget(self._save_response_btn)
 
@@ -173,6 +160,7 @@ class ResponseViewerWidget(QWidget):
 
         self._beautify_btn = QPushButton("Beautify")
         self._beautify_btn.setIcon(phi("magic-wand"))
+        self._beautify_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._beautify_btn.setFixedWidth(70)
         self._beautify_btn.setToolTip("Format and beautify the response body")
         self._beautify_btn.setObjectName("smallPrimaryButton")
@@ -180,13 +168,95 @@ class ResponseViewerWidget(QWidget):
         format_row.addWidget(self._beautify_btn)
 
         format_row.addStretch()
+
+        # -- Toolbar buttons (right side of format row) ----------------
+        self._wrap_btn = QPushButton()
+        self._wrap_btn.setIcon(phi("text-align-left"))
+        self._wrap_btn.setToolTip("Toggle word wrap")
+        self._wrap_btn.setObjectName("iconButton")
+        self._wrap_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._wrap_btn.setCheckable(True)
+        self._wrap_btn.setChecked(True)
+        self._wrap_btn.setFixedSize(28, 28)
+        self._wrap_btn.clicked.connect(self._on_wrap_toggle)
+        format_row.addWidget(self._wrap_btn)
+
+        self._filter_btn = QPushButton()
+        self._filter_btn.setIcon(phi("funnel"))
+        self._filter_btn.setToolTip("Filter response (JSONPath / XPath)")
+        self._filter_btn.setObjectName("iconButton")
+        self._filter_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._filter_btn.setCheckable(True)
+        self._filter_btn.setFixedSize(28, 28)
+        self._filter_btn.clicked.connect(self._toggle_filter)
+        format_row.addWidget(self._filter_btn)
+
+        self._search_btn = QPushButton()
+        self._search_btn.setIcon(phi("magnifying-glass"))
+        find_hint = QKeySequence(QKeySequence.StandardKey.Find).toString(
+            QKeySequence.SequenceFormat.NativeText,
+        )
+        self._search_btn.setToolTip(f"Search in response ({find_hint})")
+        self._search_btn.setObjectName("iconButton")
+        self._search_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._search_btn.setCheckable(True)
+        self._search_btn.setFixedSize(28, 28)
+        self._search_btn.clicked.connect(self._toggle_search)
+        format_row.addWidget(self._search_btn)
+
+        self._copy_btn = QPushButton()
+        self._copy_btn.setIcon(phi("clipboard"))
+        self._copy_btn.setToolTip("Copy response body")
+        self._copy_btn.setObjectName("iconButton")
+        self._copy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._copy_btn.setFixedSize(28, 28)
+        self._copy_btn.clicked.connect(self._on_copy_body)
+        format_row.addWidget(self._copy_btn)
+
         body_layout.addLayout(format_row)
 
-        self._body_edit = CodeEditorWidget(read_only=True)
-        self._body_edit.setPlaceholderText("Response body")
-        body_layout.addWidget(self._body_edit, 1)
+        # -- Filter bar (toggle with filter button) -------------------
+        self._filter_bar = QWidget()
+        filter_layout = QHBoxLayout(self._filter_bar)
+        filter_layout.setContentsMargins(0, 4, 0, 0)
+        filter_layout.setSpacing(4)
 
-        # Search bar for body (toggle with Ctrl+F)
+        self._filter_input = QLineEdit()
+        self._filter_input.setPlaceholderText("Filter using JSONPath: $.store.books")
+        self._filter_input.returnPressed.connect(self._apply_filter)
+        filter_layout.addWidget(self._filter_input, 1)
+
+        self._filter_error_label = QLabel()
+        self._filter_error_label.setObjectName("mutedLabel")
+        self._filter_error_label.hide()
+        filter_layout.addWidget(self._filter_error_label)
+
+        self._filter_apply_btn = QPushButton()
+        self._filter_apply_btn.setIcon(phi("play"))
+        self._filter_apply_btn.setFixedSize(28, 28)
+        self._filter_apply_btn.setToolTip("Apply filter")
+        self._filter_apply_btn.setObjectName("iconButton")
+        self._filter_apply_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._filter_apply_btn.clicked.connect(self._apply_filter)
+        filter_layout.addWidget(self._filter_apply_btn)
+
+        self._filter_clear_btn = QPushButton()
+        self._filter_clear_btn.setIcon(phi("x"))
+        self._filter_clear_btn.setFixedSize(28, 28)
+        self._filter_clear_btn.setToolTip("Clear filter")
+        self._filter_clear_btn.setObjectName("iconButton")
+        self._filter_clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._filter_clear_btn.clicked.connect(self._clear_filter)
+        self._filter_clear_btn.hide()
+        filter_layout.addWidget(self._filter_clear_btn)
+
+        self._filter_bar.hide()
+        body_layout.addWidget(self._filter_bar)
+
+        self._is_filtered: bool = False
+        self._filter_expression: str = ""
+
+        # Search bar for body (toggle with Ctrl+F) — above the editor
         self._search_bar = QWidget()
         search_layout = QHBoxLayout(self._search_bar)
         search_layout.setContentsMargins(0, 4, 0, 0)
@@ -203,30 +273,43 @@ class ResponseViewerWidget(QWidget):
 
         prev_btn = QPushButton()
         prev_btn.setIcon(phi("caret-up"))
-        prev_btn.setFixedWidth(24)
+        prev_btn.setFixedSize(24, 24)
         prev_btn.setToolTip("Previous match")
+        prev_btn.setObjectName("iconButton")
+        prev_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         prev_btn.clicked.connect(self._search_prev)
         search_layout.addWidget(prev_btn)
 
         next_btn = QPushButton()
         next_btn.setIcon(phi("caret-down"))
-        next_btn.setFixedWidth(24)
+        next_btn.setFixedSize(24, 24)
         next_btn.setToolTip("Next match")
+        next_btn.setObjectName("iconButton")
+        next_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         next_btn.clicked.connect(self._search_next)
         search_layout.addWidget(next_btn)
 
         close_btn = QPushButton()
         close_btn.setIcon(phi("x"))
-        close_btn.setFixedWidth(24)
+        close_btn.setFixedSize(24, 24)
         close_btn.setToolTip("Close search")
+        close_btn.setObjectName("iconButton")
+        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         close_btn.clicked.connect(self._close_search)
         search_layout.addWidget(close_btn)
 
         self._search_bar.hide()
         body_layout.addWidget(self._search_bar)
 
-        # Ctrl+F shortcut to toggle search
-        self._find_shortcut = QShortcut("Ctrl+F", self)
+        self._body_edit = CodeEditorWidget(read_only=True)
+        self._body_edit.setPlaceholderText("Response body")
+        body_layout.addWidget(self._body_edit, 1)
+
+        # Platform-native Find shortcut (Cmd+F on macOS, Ctrl+F elsewhere).
+        # Scoped to this widget tree so the editor's own shortcut is not
+        # swallowed when the request body editor has focus.
+        self._find_shortcut = QShortcut(QKeySequence.StandardKey.Find, self)
+        self._find_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         self._find_shortcut.activated.connect(self._toggle_search)
 
         self._search_matches: list[int] = []
@@ -277,6 +360,7 @@ class ResponseViewerWidget(QWidget):
 
         # Start in empty state
         self._raw_body: str = ""  # stored raw body for format switching
+        self._filtered_body: str = ""  # body after filter applied
         self._set_state("empty")
 
     # -- State management ---------------------------------------------
@@ -377,6 +461,17 @@ class ResponseViewerWidget(QWidget):
         self._cookies_edit.clear()
         self._error_label.setText("")
         self._raw_body = ""
+        self._filtered_body = ""
+        self._is_filtered = False
+        self._filter_expression = ""
+        self._filter_bar.hide()
+        self._filter_btn.setChecked(False)
+        self._filter_input.clear()
+        self._filter_error_label.hide()
+        self._filter_clear_btn.hide()
+        self._filter_apply_btn.show()
+        self._wrap_btn.setChecked(True)
+        self._body_edit.set_word_wrap(True)
 
     # -- Format switching ---------------------------------------------
 
@@ -385,7 +480,12 @@ class ResponseViewerWidget(QWidget):
         self._apply_body_format()
 
     def _apply_body_format(self) -> None:
-        """Render ``_raw_body`` according to the current format selection."""
+        """Render ``_raw_body`` according to the current format selection.
+
+        When a filter is active the filter expression is re-evaluated
+        against the (possibly reformatted) body so the filtered view
+        stays consistent across format switches.
+        """
         fmt = self._format_combo.currentText()
         body = self._raw_body
 
@@ -399,7 +499,15 @@ class ResponseViewerWidget(QWidget):
         else:
             self._body_edit.set_language("text")
 
+        # Re-apply active filter if one exists
+        if self._is_filtered and self._filter_expression:
+            self._run_filter(self._filter_expression, body)
+            return
+
         self._body_edit.set_text(body)
+
+        # Update filter placeholder based on detected language
+        self._update_filter_placeholder()
 
     @staticmethod
     def _try_pretty_json(text: str) -> str:
@@ -416,16 +524,18 @@ class ResponseViewerWidget(QWidget):
 
     def _toggle_search(self) -> None:
         """Show or hide the body search bar."""
-        if self._search_bar.isVisible():
+        if not self._search_bar.isHidden():
             self._close_search()
         else:
             self._search_bar.show()
+            self._search_btn.setChecked(True)
             self._search_input.setFocus()
             self._search_input.selectAll()
 
     def _close_search(self) -> None:
         """Hide the search bar and clear highlights."""
         self._search_bar.hide()
+        self._search_btn.setChecked(False)
         self._search_input.clear()
         self._clear_highlights()
 
@@ -607,3 +717,146 @@ class ResponseViewerWidget(QWidget):
         self._close_other_popups(self._network_popup)
         self._network_popup.update_network(self._network_data)
         self._network_popup.show_below(self._network_icon)
+
+    # -- Toolbar handlers ----------------------------------------------
+
+    def _on_wrap_toggle(self) -> None:
+        """Toggle word wrap on the response body editor."""
+        self._body_edit.set_word_wrap(self._wrap_btn.isChecked())
+
+    def _on_copy_body(self) -> None:
+        """Copy the current response body text to the system clipboard."""
+        clipboard = QApplication.clipboard()
+        if clipboard is not None:
+            clipboard.setText(self._body_edit.toPlainText())
+        # Brief visual feedback — swap icon to a check mark for 1.5 s
+        self._copy_btn.setIcon(phi("check"))
+        QTimer.singleShot(1500, lambda: self._copy_btn.setIcon(phi("clipboard")))
+
+    # -- Filter handlers -----------------------------------------------
+
+    def _toggle_filter(self) -> None:
+        """Show or hide the filter bar.
+
+        Hiding the bar does **not** clear an active filter — the user
+        must click the explicit *Clear* button to restore the original
+        body.  This avoids an expensive re-format of large responses
+        when simply closing the bar.
+        """
+        if not self._filter_bar.isHidden():
+            self._filter_bar.hide()
+            self._filter_btn.setChecked(False)
+        else:
+            self._filter_bar.show()
+            self._filter_btn.setChecked(True)
+            self._update_filter_placeholder()
+            self._filter_input.setFocus()
+
+    def _update_filter_placeholder(self) -> None:
+        """Set the filter input placeholder based on the current body language."""
+        lang = self._body_edit.language if hasattr(self._body_edit, "language") else ""
+        fmt = self._format_combo.currentText()
+        if fmt in ("XML", "HTML") or lang == "xml":
+            self._filter_input.setPlaceholderText("Filter using XPath: //item")
+        else:
+            self._filter_input.setPlaceholderText("Filter using JSONPath: $.store.books")
+
+    def _apply_filter(self) -> None:
+        """Evaluate the filter expression and display matching results."""
+        expr = self._filter_input.text().strip()
+        if not expr:
+            return
+
+        self._filter_error_label.hide()
+        fmt = self._format_combo.currentText()
+        body = self._raw_body
+
+        # Pretty-print first if applicable so the filtered view is readable
+        if fmt in ("Pretty", "JSON"):
+            body = self._try_pretty_json(body)
+
+        self._run_filter(expr, body)
+
+    def _run_filter(self, expr: str, body: str) -> None:
+        """Run *expr* against *body* and display results in the editor.
+
+        Detects whether to use JSONPath or XPath based on the current
+        format selection.  On success the filter state is activated;
+        on error the error label is shown.
+        """
+        fmt = self._format_combo.currentText()
+        is_xml = fmt in ("XML", "HTML")
+
+        try:
+            result = self._eval_xpath(expr, body) if is_xml else self._eval_jsonpath(expr, body)
+        except Exception as exc:
+            self._filter_error_label.setText(str(exc)[:120])
+            self._filter_error_label.show()
+            return
+
+        if result is None:
+            self._filter_error_label.setText("No matches")
+            self._filter_error_label.show()
+            return
+
+        self._is_filtered = True
+        self._filter_expression = expr
+        self._filtered_body = result
+        self._filter_error_label.hide()
+        self._filter_apply_btn.hide()
+        self._filter_clear_btn.show()
+        self._body_edit.set_text(result)
+
+    @staticmethod
+    def _eval_jsonpath(expr: str, body: str) -> str | None:
+        """Evaluate a JSONPath expression against a JSON *body* string.
+
+        Returns the formatted result string or ``None`` when no matches
+        are found.  Raises on parse or evaluation errors.
+        """
+        import json
+
+        from jsonpath_ng import \
+            parse as jsonpath_parse  # type: ignore[import-untyped]
+
+        data = json.loads(body)
+        matches = jsonpath_parse(expr).find(data)
+        if not matches:
+            return None
+        values = [m.value for m in matches]
+        if len(values) == 1:
+            return json.dumps(values[0], indent=4, ensure_ascii=False)
+        return json.dumps(values, indent=4, ensure_ascii=False)
+
+    @staticmethod
+    def _eval_xpath(expr: str, body: str) -> str | None:
+        """Evaluate an XPath expression against an XML/HTML *body* string.
+
+        Returns the serialised result string or ``None`` when no matches
+        are found.  Raises on parse or evaluation errors.
+        """
+        from lxml import etree
+
+        root = etree.fromstring(body.encode("utf-8"))
+        results = root.xpath(expr)
+        if not results:
+            return None
+        parts: list[str] = []
+        for node in results:
+            if isinstance(node, etree._Element):
+                parts.append(etree.tostring(node, pretty_print=True, encoding="unicode"))
+            else:
+                parts.append(str(node))
+        return "\n".join(parts).rstrip()
+
+    def _clear_filter(self) -> None:
+        """Clear the active filter and restore the original body."""
+        was_filtered = self._is_filtered
+        self._is_filtered = False
+        self._filter_expression = ""
+        self._filtered_body = ""
+        self._filter_error_label.hide()
+        self._filter_clear_btn.hide()
+        self._filter_apply_btn.show()
+        if was_filtered:
+            self._apply_body_format()

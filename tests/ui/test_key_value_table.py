@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QCheckBox, QPushButton
+from PySide6.QtWidgets import QApplication, QCheckBox, QPushButton, QStyledItemDelegate
 
-from ui.key_value_table import _COL_DELETE, _COL_KEY, KeyValueTableWidget
+from ui.key_value_table import (
+    _COL_DELETE,
+    _COL_KEY,
+    _COL_VALUE,
+    KeyValueTableWidget,
+    _VariableHighlightDelegate,
+)
 
 
 class TestKeyValueTable:
@@ -190,3 +196,42 @@ class TestKeyValueTable:
         btn = widget._table.cellWidget(ghost_row, _COL_DELETE)
         assert isinstance(btn, QPushButton)
         assert not btn.isVisible()
+
+
+class TestVariableHighlightDelegate:
+    """Tests for the ``_VariableHighlightDelegate`` on key-value tables."""
+
+    def test_delegate_is_installed(self, qapp: QApplication, qtbot) -> None:
+        """The table uses a _VariableHighlightDelegate by default."""
+        widget = KeyValueTableWidget()
+        qtbot.addWidget(widget)
+        delegate = widget._table.itemDelegate()
+        assert isinstance(delegate, _VariableHighlightDelegate)
+
+    def test_delegate_highlights_key_and_value_columns(self, qapp: QApplication, qtbot) -> None:
+        """The delegate is configured to highlight key and value columns."""
+        widget = KeyValueTableWidget()
+        qtbot.addWidget(widget)
+        delegate = widget._highlight_delegate
+        assert _COL_KEY in delegate._columns
+        assert _COL_VALUE in delegate._columns
+
+    def test_delegate_is_subclass_of_styled(self, qapp: QApplication, qtbot) -> None:
+        """_VariableHighlightDelegate extends QStyledItemDelegate."""
+        widget = KeyValueTableWidget()
+        qtbot.addWidget(widget)
+        assert isinstance(widget._highlight_delegate, QStyledItemDelegate)
+
+    def test_set_variable_map(self, qapp: QApplication, qtbot) -> None:
+        """set_variable_map propagates to the delegate."""
+        widget = KeyValueTableWidget()
+        qtbot.addWidget(widget)
+        m = {"host": "example.com"}
+        widget.set_variable_map(m)
+        assert widget._highlight_delegate._variable_map is m
+
+    def test_delegate_variable_map_default_empty(self, qapp: QApplication, qtbot) -> None:
+        """Delegate starts with an empty variable map."""
+        widget = KeyValueTableWidget()
+        qtbot.addWidget(widget)
+        assert widget._highlight_delegate._variable_map == {}

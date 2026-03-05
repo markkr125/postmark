@@ -11,22 +11,10 @@ from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import QMimeData, QObject, Qt, QThread, Signal
-from PySide6.QtWidgets import (
-    QDialog,
-    QFileDialog,
-    QFrame,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QProgressBar,
-    QPushButton,
-    QScrollArea,
-    QSizePolicy,
-    QTabWidget,
-    QTextEdit,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import (QDialog, QFileDialog, QFrame, QHBoxLayout,
+                               QLabel, QLineEdit, QProgressBar, QPushButton,
+                               QScrollArea, QSizePolicy, QTabWidget, QTextEdit,
+                               QVBoxLayout, QWidget)
 
 from services.import_parser.models import ImportSummary
 from services.import_service import ImportService
@@ -272,6 +260,7 @@ class ImportDialog(QDialog):
 
         self._dismiss_btn = QPushButton("Dismiss")
         self._dismiss_btn.setObjectName("dismissButton")
+        self._dismiss_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._dismiss_btn.clicked.connect(self.accept)
         btn_row.addWidget(self._dismiss_btn)
 
@@ -293,6 +282,7 @@ class ImportDialog(QDialog):
         go_btn = QPushButton("Import")
         go_btn.setIcon(phi("download-simple"))
         go_btn.setObjectName("primaryButton")
+        go_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         go_btn.clicked.connect(self._on_paste_submit)
         paste_row.addWidget(go_btn)
 

@@ -13,17 +13,9 @@ from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication, QStyleFactory
 
-from ui.theme import (
-    BADGE_BORDER_RADIUS,
-    BADGE_FONT_SIZE,
-    BADGE_HEIGHT,
-    BADGE_MIN_WIDTH,
-    DARK_PALETTE,
-    LIGHT_PALETTE,
-    TREE_ROW_HEIGHT,
-    ThemePalette,
-    set_active_palette,
-)
+from ui.theme import (BADGE_BORDER_RADIUS, BADGE_FONT_SIZE, BADGE_HEIGHT,
+                      BADGE_MIN_WIDTH, DARK_PALETTE, LIGHT_PALETTE,
+                      TREE_ROW_HEIGHT, ThemePalette, set_active_palette)
 
 logger = logging.getLogger(__name__)
 
@@ -344,6 +336,35 @@ class ThemeManager(QObject):
             border-radius: 4px;
             background: transparent;
             color: {p["text"]};
+        }}
+        QPushButton[objectName="saveButton"] {{
+            border: 1px solid {p["accent"]};
+            padding: 4px 12px;
+            font-size: 11px;
+            border-radius: 4px;
+            background: transparent;
+            color: {p["accent"]};
+        }}
+        QPushButton[objectName="saveButton"]:hover {{
+            background: {"rgba(52,152,219,0.12)" if p is DARK_PALETTE else "rgba(52,152,219,0.08)"};
+        }}
+        QPushButton[objectName="saveButton"]:disabled {{
+            border-color: {p["border"]};
+            color: {p["text_muted"]};
+        }}
+        QPushButton[objectName="iconButton"] {{
+            border: 1px solid {p["border"]};
+            padding: 0px;
+            border-radius: 4px;
+            background: transparent;
+            color: {p["text"]};
+        }}
+        QPushButton[objectName="iconButton"]:hover {{
+            background: {"rgba(255,255,255,0.08)" if p is DARK_PALETTE else "rgba(0,0,0,0.06)"};
+        }}
+        QPushButton[objectName="iconButton"]:checked {{
+            background: {"rgba(255,255,255,0.12)" if p is DARK_PALETTE else "rgba(0,0,0,0.10)"};
+            border-color: {p["accent"]};
         }}
         QPushButton[objectName="linkButton"] {{
             color: {p["accent"]};

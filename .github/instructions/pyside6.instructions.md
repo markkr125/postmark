@@ -8,14 +8,19 @@ applyTo: "src/ui/**/*.py"
 
 ## Quick rules — read these first
 
-1. **Always use fully qualified enums:** `Qt.ItemDataRole.UserRole`, not
+1. **Every `QPushButton` / `QToolButton` MUST call
+   `setCursor(Qt.CursorShape.PointingHandCursor)`** — no exceptions.
+   This applies to icon-only buttons, outline buttons, primary buttons,
+   link buttons, toolbar buttons, and dialog buttons.  Always add the
+   call immediately after construction.
+2. **Always use fully qualified enums:** `Qt.ItemDataRole.UserRole`, not
    `Qt.UserRole`.
-2. **Wrap programmatic item edits in `blockSignals(True)` / `blockSignals(False)`**
+3. **Wrap programmatic item edits in `blockSignals(True)` / `blockSignals(False)`**
    or you will get infinite recursion from `itemChanged`.
-3. **Never hardcode hex colours** — import from `ui.theme`.
-4. **UI files must not import from `database/`** — use signals + service layer.
-5. **Use `exec()`, not `exec_()`** for menus, dialogs, and the app event loop.
-6. **Cast to `QBoxLayout`** before calling `insertWidget()` — `QLayout` does
+4. **Never hardcode hex colours** — import from `ui.theme`.
+5. **UI files must not import from `database/`** — use signals + service layer.
+6. **Use `exec()`, not `exec_()`** for menus, dialogs, and the app event loop.
+7. **Cast to `QBoxLayout`** before calling `insertWidget()` — `QLayout` does
    not have it in the type stubs.
 
 ## Enum access must always be fully qualified
@@ -162,6 +167,7 @@ standard object names:
 | `dangerButton` | `QPushButton` | Red destructive action |
 | `smallPrimaryButton` | `QPushButton` | Compact accent button |
 | `outlineButton` | `QPushButton` | Border-only button |
+| `iconButton` | `QPushButton` | Icon-only square button (no padding) |
 | `linkButton` | `QPushButton` | Text-only accent link |
 | `flatAccentButton` | `QPushButton` | Borderless accent text |
 | `flatMutedButton` | `QPushButton` | Borderless muted text |
@@ -244,6 +250,55 @@ Folder items fall through to the default `QStyledItemDelegate` rendering
 
 **Placeholder items** (empty-folder prompts) still use `setItemWidget`
 because they contain clickable HTML links.
+
+## QPushButton — icons, cursors, and icon-only buttons
+
+### Every button must have a pointing-hand cursor
+
+All `QPushButton` instances must set a hand cursor so users know they are
+clickable:
+
+```python
+btn.setCursor(Qt.CursorShape.PointingHandCursor)
+```
+
+### Icon-only buttons must use `iconButton`, not `outlineButton`
+
+The `outlineButton` style has `padding: 4px 12px` which leaves no room for
+the icon in a compact square button.  For icon-only buttons (no text):
+
+1. Use `setObjectName("iconButton")` — it has `padding: 0px` with hover
+   and checked states.
+2. Use `setFixedSize(28, 28)` (not `setFixedWidth`) so the button is a
+   proper square.
+3. Do **not** set text — icon only.
+
+```python
+# CORRECT — icon-only button
+btn = QPushButton()
+btn.setIcon(phi("funnel"))
+btn.setObjectName("iconButton")
+btn.setCursor(Qt.CursorShape.PointingHandCursor)
+btn.setFixedSize(28, 28)
+
+# WRONG — icon invisible due to outlineButton padding
+btn = QPushButton()
+btn.setIcon(phi("funnel"))
+btn.setObjectName("outlineButton")
+btn.setFixedWidth(28)
+```
+
+### Buttons with text + icon use `outlineButton`
+
+When a button has both text and an icon, use `outlineButton` and let Qt
+auto-size the width:
+
+```python
+btn = QPushButton("Wrap")
+btn.setIcon(phi("text-align-left"))
+btn.setObjectName("outlineButton")
+btn.setCursor(Qt.CursorShape.PointingHandCursor)
+```
 
 ## Wrap programmatic item edits in blockSignals
 

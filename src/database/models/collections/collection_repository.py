@@ -283,6 +283,41 @@ def get_request_auth_chain(request_id: int) -> dict[str, Any] | None:
         return None
 
 
+def get_request_variable_chain(request_id: int) -> dict[str, str]:
+    """Walk the parent collection chain and merge all collection variables.
+
+    Starts from the request's immediate parent collection and walks up to
+    the root.  Variables defined on closer ancestors take priority over
+    those defined further up the tree (child overrides parent).
+
+    Returns an empty dict if no collection variables are found.
+    """
+    with get_session() as session:
+        req = session.get(RequestModel, request_id)
+        if req is None:
+            return {}
+        # 1. Collect variable lists from nearest ancestor first
+        layers: list[list[dict[str, Any]]] = []
+        coll = session.get(CollectionModel, req.collection_id)
+        while coll is not None:
+            if coll.variables:
+                layers.append(coll.variables)
+            if coll.parent_id is None:
+                break
+            coll = session.get(CollectionModel, coll.parent_id)
+        # 2. Merge from root to leaf so child overrides parent
+        merged: dict[str, str] = {}
+        for var_list in reversed(layers):
+            for entry in var_list:
+                if not entry.get("enabled", True):
+                    continue
+                key = entry.get("key", "")
+                value = entry.get("value", "")
+                if key:
+                    merged[key] = value
+        return merged
+
+
 def get_request_breadcrumb(request_id: int) -> list[dict[str, Any]]:
     """Return the breadcrumb path from root collection to the request.
 

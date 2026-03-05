@@ -129,6 +129,39 @@ class TestBreadcrumb:
         assert crumbs[1]["type"] == "request"
 
 
+class TestVariableChainService:
+    """Tests for collection variable inheritance via the service layer."""
+
+    def test_variable_chain_returns_merged(self) -> None:
+        """get_request_variable_chain merges collection variables upward."""
+        svc = CollectionService()
+        root = svc.create_collection("Root")
+        svc.update_collection(
+            root.id,
+            variables=[
+                {"key": "host", "value": "root-host", "enabled": True},
+                {"key": "port", "value": "80", "enabled": True},
+            ],
+        )
+        child = svc.create_collection("Child")
+        svc.move_collection(child.id, root.id)
+        svc.update_collection(
+            child.id,
+            variables=[{"key": "host", "value": "child-host", "enabled": True}],
+        )
+        req = svc.create_request(child.id, "GET", "http://x", "R")
+        result = svc.get_request_variable_chain(req.id)
+        assert result["host"] == "child-host"
+        assert result["port"] == "80"
+
+    def test_variable_chain_empty(self) -> None:
+        """Request with no collection variables returns empty dict."""
+        svc = CollectionService()
+        coll = svc.create_collection("Root")
+        req = svc.create_request(coll.id, "GET", "http://x", "R")
+        assert svc.get_request_variable_chain(req.id) == {}
+
+
 class TestSavedResponses:
     """Tests for saved responses."""
 

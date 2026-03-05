@@ -7,7 +7,8 @@ displays them in a scrollable list with method, URL, status, and timing.
 from __future__ import annotations
 
 from PySide6.QtCore import QEvent, QObject, Qt, Signal
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (QHBoxLayout, QLabel, QPushButton, QScrollArea,
+                               QVBoxLayout, QWidget)
 
 from ui.icons import phi
 from ui.theme import COLOR_BORDER, method_color
@@ -59,6 +60,7 @@ class HistoryPanel(QWidget):
         clear_btn = QPushButton("Clear")
         clear_btn.setIcon(phi("eraser"))
         clear_btn.setObjectName("linkButton")
+        clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         clear_btn.clicked.connect(self.clear)
         header.addWidget(clear_btn)
         root.addLayout(header)
@@ -160,6 +162,7 @@ class HistoryPanel(QWidget):
             if method is not None and url is not None:
                 self.entry_clicked.emit(str(method), str(url))
                 return True
+        return super().eventFilter(obj, event)
         return super().eventFilter(obj, event)
         return super().eventFilter(obj, event)
         return super().eventFilter(obj, event)

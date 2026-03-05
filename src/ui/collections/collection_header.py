@@ -4,16 +4,8 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import (
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QMenu,
-    QSizePolicy,
-    QToolButton,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import (QHBoxLayout, QLabel, QLineEdit, QMenu,
+                               QSizePolicy, QToolButton, QVBoxLayout, QWidget)
 
 from ui.icons import phi
 
@@ -55,6 +47,7 @@ class CollectionHeader(QWidget):
         self._plus_btn.setIcon(phi("plus"))
         self._plus_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self._plus_btn.setObjectName("sidebarToolButton")
+        self._plus_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._plus_btn.setToolTip("Create new collection or request")
         top_row.addWidget(self._plus_btn)
 
@@ -82,6 +75,7 @@ class CollectionHeader(QWidget):
         self._import_btn.setIcon(phi("download-simple"))
         self._import_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self._import_btn.setObjectName("sidebarToolButton")
+        self._import_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._import_btn.setToolTip("Import collections or requests")
         self._import_btn.clicked.connect(lambda: self.import_requested.emit())
         top_row.addWidget(self._import_btn)

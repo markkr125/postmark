@@ -22,6 +22,7 @@ from database.models.collections.collection_repository import (
     get_request_auth_chain,
     get_request_breadcrumb,
     get_request_by_id,
+    get_request_variable_chain,
     get_saved_responses_for_request,
     rename_collection,
     rename_request,
@@ -217,6 +218,17 @@ class CollectionService:
         Returns ``None`` if no auth is configured anywhere in the chain.
         """
         return get_request_auth_chain(request_id)
+
+    @staticmethod
+    def get_request_variable_chain(request_id: int) -> dict[str, str]:
+        """Return the merged collection variables for a request.
+
+        Walks the parent collection chain from the request's immediate
+        parent up to the root, merging ``variables`` arrays.  Variables
+        from closer ancestors take priority over those further up.
+        Returns an empty dict if no collection variables are found.
+        """
+        return get_request_variable_chain(request_id)
 
     # ------------------------------------------------------------------
     # Breadcrumb

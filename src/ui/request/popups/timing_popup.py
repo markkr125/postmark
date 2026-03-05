@@ -11,9 +11,15 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QGridLayout, QLabel, QSizePolicy, QWidget
 
 from ui.info_popup import InfoPopup
-from ui.theme import (COLOR_TIMING_DNS, COLOR_TIMING_DOWNLOAD,
-                      COLOR_TIMING_PREPARE, COLOR_TIMING_PROCESS,
-                      COLOR_TIMING_TCP, COLOR_TIMING_TLS, COLOR_TIMING_TTFB)
+from ui.theme import (
+    COLOR_TIMING_DNS,
+    COLOR_TIMING_DOWNLOAD,
+    COLOR_TIMING_PREPARE,
+    COLOR_TIMING_PROCESS,
+    COLOR_TIMING_TCP,
+    COLOR_TIMING_TLS,
+    COLOR_TIMING_TTFB,
+)
 
 # Phase definitions: (label, timing_dict_key | None, color)
 # ``None`` key means the value is computed externally (prepare).

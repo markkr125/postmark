@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QMainWindow,
+    QPushButton,
     QSizePolicy,
     QSplitter,
     QStackedWidget,
@@ -24,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from services.collection_service import CollectionService
+from services.environment_service import EnvironmentService
 from ui.collections.collection_widget import CollectionWidget
 from ui.environments.environment_selector import EnvironmentSelector
 from ui.icons import phi
@@ -81,6 +83,7 @@ class MainWindow(QMainWindow):
 
         # Wire save → save pipeline
         self.request_widget.save_requested.connect(self._on_save_request)
+        self.request_widget.dirty_changed.connect(self._sync_save_btn)
 
         # Wire tab context menu signals
         self._tab_bar.close_others_requested.connect(self._close_others_tabs)
@@ -92,6 +95,9 @@ class MainWindow(QMainWindow):
 
         # Wire environment editor
         self._env_selector.manage_requested.connect(self._on_manage_environments)
+
+        # Refresh variable highlighting when the environment changes
+        self._env_selector.environment_changed.connect(self._on_environment_changed)
 
         # Wire loading screen
         self.collection_widget.load_finished.connect(self._on_load_finished)
@@ -171,7 +177,7 @@ class MainWindow(QMainWindow):
         coll_menu = menubar.addMenu("&Collection")
         run_act = QAction("Run &All", self)
         run_act.setIcon(phi("play"))
-        run_act.setShortcut(QKeySequence("Ctrl+R"))
+        run_act.setShortcut(QKeySequence("Ctrl+Shift+R"))
         self.run_action = run_act
         coll_menu.addAction(run_act)
 
@@ -217,8 +223,28 @@ class MainWindow(QMainWindow):
         self._tab_bar.tab_double_clicked.connect(self._on_tab_double_click)
         layout.addWidget(self._tab_bar)
 
+        breadcrumb_row = QHBoxLayout()
+        breadcrumb_row.setContentsMargins(0, 0, 0, 0)
+        breadcrumb_row.setSpacing(8)
+
         self._breadcrumb_bar = BreadcrumbBar()
-        layout.addWidget(self._breadcrumb_bar)
+        breadcrumb_row.addWidget(self._breadcrumb_bar, 1)
+
+        self._save_btn = QPushButton("Save")
+        self._save_btn.setIcon(phi("floppy-disk"))
+        self._save_btn.setObjectName("saveButton")
+        self._save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._save_btn.setFixedWidth(80)
+        self._save_btn.setEnabled(False)
+        self._save_btn.setToolTip("No changes to save")
+        self._save_btn.setVisible(False)
+        self._save_btn.clicked.connect(self._on_save_request)
+        breadcrumb_row.addWidget(self._save_btn)
+
+        # Right margin so Save aligns roughly with the Send button below
+        breadcrumb_row.setContentsMargins(0, 0, 12, 0)
+
+        layout.addLayout(breadcrumb_row)
 
         self._editor_stack = QStackedWidget()
         layout.addWidget(self._editor_stack, 1)
@@ -469,6 +495,7 @@ class MainWindow(QMainWindow):
         editor.load_request(data, request_id=request_id)
         editor.send_requested.connect(self._on_send_request)
         editor.save_requested.connect(self._on_save_request)
+        editor.dirty_changed.connect(self._sync_save_btn)
         viewer.save_response_requested.connect(self._on_save_response)
 
         # Now switch to the tab (triggers _on_tab_changed safely)
@@ -496,6 +523,9 @@ class MainWindow(QMainWindow):
         ctx.editor.load_request(data, request_id=request_id)
         ctx.response_viewer.clear()
 
+        # Refresh variable map for the replaced tab
+        self._refresh_variable_map(ctx.editor, request_id)
+
         self._tab_bar.update_tab(
             index,
             method=data.get("method", "GET"),
@@ -512,6 +542,7 @@ class MainWindow(QMainWindow):
             if ctx.folder_editor is not None:
                 self._editor_stack.setCurrentWidget(ctx.folder_editor)
             self._response_area.hide()
+            self._save_btn.setVisible(False)
             # Update breadcrumb for folder
             if ctx.collection_id is not None:
                 crumbs = CollectionService.get_collection_breadcrumb(ctx.collection_id)
@@ -524,6 +555,8 @@ class MainWindow(QMainWindow):
             self.request_widget = ctx.editor
             self.response_widget = ctx.response_viewer
             self._response_area.show()
+            self._save_btn.setVisible(True)
+            self._sync_save_btn(ctx.editor.is_dirty)
             # Update breadcrumb
             if ctx.request_id is not None:
                 crumbs = CollectionService.get_request_breadcrumb(ctx.request_id)
@@ -534,6 +567,8 @@ class MainWindow(QMainWindow):
             if ctx.request_id is not None:
                 saved = CollectionService.get_saved_responses(ctx.request_id)
                 ctx.response_viewer.load_saved_responses(saved)
+            # Refresh variable map for highlighting and tooltips
+            self._refresh_variable_map(ctx.editor, ctx.request_id)
         else:
             # No active tab — fall back to the default widgets.
             self._editor_stack.setCurrentWidget(self._default_editor)
@@ -541,6 +576,23 @@ class MainWindow(QMainWindow):
             self.request_widget = self._default_editor
             self.response_widget = self._default_response_viewer
             self._breadcrumb_bar.clear()
+            self._save_btn.setVisible(False)
+
+    def _refresh_variable_map(
+        self,
+        editor: RequestEditorWidget,
+        request_id: int | None,
+    ) -> None:
+        """Build the combined variable map and push it to *editor*."""
+        env_id = self._env_selector.current_environment_id()
+        variables = EnvironmentService.build_combined_variable_map(env_id, request_id)
+        editor.set_variable_map(variables)
+
+    def _on_environment_changed(self, _env_id: object) -> None:
+        """Refresh variable maps in all open request editors."""
+        for ctx in self._tabs.values():
+            if ctx.tab_type != "folder":
+                self._refresh_variable_map(ctx.editor, ctx.request_id)
 
     def _on_tab_close(self, index: int) -> None:
         """Close a tab and clean up its context."""
@@ -573,6 +625,7 @@ class MainWindow(QMainWindow):
             # sender objects can be garbage-collected.
             editor.send_requested.disconnect(self._on_send_request)
             editor.save_requested.disconnect(self._on_save_request)
+            editor.dirty_changed.disconnect(self._sync_save_btn)
             viewer.save_response_requested.disconnect(self._on_save_response)
 
             # Remove from stacked widgets and detach from parent hierarchy.
@@ -889,6 +942,8 @@ class MainWindow(QMainWindow):
 
         env_id = self._env_selector.current_environment_id()
 
+        request_id = ctx.request_id if ctx else None
+
         # 3. Tear down any previous send thread
         if ctx is not None:
             ctx.cleanup_thread()
@@ -912,6 +967,7 @@ class MainWindow(QMainWindow):
             headers=headers,
             body=body,
             env_id=env_id,
+            request_id=request_id,
             auth_data=auth_data,
         )
 
@@ -1059,11 +1115,24 @@ class MainWindow(QMainWindow):
             if ctx is not None:
                 idx = self._tab_bar.currentIndex()
                 self._tab_bar.update_tab(idx, is_dirty=False)
-            # Refresh sidebar to reflect any name/method change
-            self.collection_widget._start_fetch()
+            # Update sidebar item in-place (name + method)
+            name = data.get("url") or data.get("name", "")
+            method = data.get("method", "")
+            if name:
+                self.collection_widget.update_item_name(request_id, "request", name)
+            if method:
+                self.collection_widget.update_request_method(request_id, method)
             logger.info("Saved request id=%s", request_id)
         except Exception:
             logger.exception("Failed to save request id=%s", request_id)
+
+    # ------------------------------------------------------------------
+    # Save-button state helper
+    # ------------------------------------------------------------------
+    def _sync_save_btn(self, dirty: bool) -> None:
+        """Update the Save button enabled state and tooltip."""
+        self._save_btn.setEnabled(dirty)
+        self._save_btn.setToolTip("" if dirty else "No changes to save")
 
     # ------------------------------------------------------------------
     # Close event

@@ -4,6 +4,11 @@ from __future__ import annotations
 
 import pytest
 
+from database.models.collections.collection_repository import (
+    create_new_collection,
+    create_new_request,
+    update_collection,
+)
 from services.environment_service import EnvironmentService
 
 
@@ -141,3 +146,73 @@ class TestUpdateEnvironmentValues:
         fetched = EnvironmentService.get_environment(env.id)
         assert fetched is not None
         assert fetched.values == new_values
+
+
+class TestCombinedVariableMap:
+    """Tests for ``build_combined_variable_map`` merging collection + env."""
+
+    def test_no_env_no_request(self) -> None:
+        """Both None returns empty dict."""
+        result = EnvironmentService.build_combined_variable_map(None, None)
+        assert result == {}
+
+    def test_only_collection_variables(self) -> None:
+        """Collection variables are returned when no environment is set."""
+        coll = create_new_collection("Root")
+        update_collection(
+            coll.id,
+            variables=[{"key": "host", "value": "coll-host", "enabled": True}],
+        )
+        req = create_new_request(coll.id, "GET", "http://x", "R")
+        result = EnvironmentService.build_combined_variable_map(None, req.id)
+        assert result == {"host": "coll-host"}
+
+    def test_only_environment_variables(self) -> None:
+        """Environment variables are returned when no request is set."""
+        env = EnvironmentService.create_environment(
+            "Dev",
+            values=[{"key": "base_url", "value": "https://api", "enabled": True}],
+        )
+        result = EnvironmentService.build_combined_variable_map(env.id, None)
+        assert result == {"base_url": "https://api"}
+
+    def test_env_overrides_collection(self) -> None:
+        """Environment variables take precedence over collection variables."""
+        coll = create_new_collection("Root")
+        update_collection(
+            coll.id,
+            variables=[
+                {"key": "host", "value": "coll-host", "enabled": True},
+                {"key": "port", "value": "8080", "enabled": True},
+            ],
+        )
+        req = create_new_request(coll.id, "GET", "http://x", "R")
+        env = EnvironmentService.create_environment(
+            "Dev",
+            values=[{"key": "host", "value": "env-host", "enabled": True}],
+        )
+        result = EnvironmentService.build_combined_variable_map(env.id, req.id)
+        # Environment overrides collection for 'host'
+        assert result["host"] == "env-host"
+        # Collection-only var is inherited
+        assert result["port"] == "8080"
+
+    def test_merged_from_nested_collections_and_env(self) -> None:
+        """Variables merge from nested collections and environment."""
+        root = create_new_collection("Root")
+        update_collection(
+            root.id,
+            variables=[{"key": "a", "value": "from-root", "enabled": True}],
+        )
+        child = create_new_collection("Child", parent_id=root.id)
+        update_collection(
+            child.id,
+            variables=[{"key": "b", "value": "from-child", "enabled": True}],
+        )
+        req = create_new_request(child.id, "GET", "http://x", "R")
+        env = EnvironmentService.create_environment(
+            "Dev",
+            values=[{"key": "c", "value": "from-env", "enabled": True}],
+        )
+        result = EnvironmentService.build_combined_variable_map(env.id, req.id)
+        assert result == {"a": "from-root", "b": "from-child", "c": "from-env"}

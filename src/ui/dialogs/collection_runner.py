@@ -9,19 +9,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from PySide6.QtCore import QObject, QThread, Signal, Slot
-from PySide6.QtWidgets import (
-    QDialog,
-    QHBoxLayout,
-    QHeaderView,
-    QLabel,
-    QProgressBar,
-    QPushButton,
-    QTableWidget,
-    QTableWidgetItem,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
+from PySide6.QtWidgets import (QDialog, QHBoxLayout, QHeaderView, QLabel,
+                               QProgressBar, QPushButton, QTableWidget,
+                               QTableWidgetItem, QVBoxLayout, QWidget)
 
 from services.collection_service import CollectionService
 from services.http_service import HttpService
@@ -136,12 +127,14 @@ class CollectionRunnerDialog(QDialog):
         self._run_btn = QPushButton("Run")
         self._run_btn.setIcon(phi("play"))
         self._run_btn.setObjectName("primaryButton")
+        self._run_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._run_btn.clicked.connect(self._start_run)
         btn_row.addWidget(self._run_btn)
 
         self._cancel_btn = QPushButton("Cancel")
         self._cancel_btn.setIcon(phi("stop"))
         self._cancel_btn.setObjectName("dangerButton")
+        self._cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._cancel_btn.clicked.connect(self._cancel_run)
         self._cancel_btn.setEnabled(False)
         btn_row.addWidget(self._cancel_btn)

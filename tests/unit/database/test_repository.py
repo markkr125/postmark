@@ -15,6 +15,7 @@ from database.models.collections.collection_repository import (
     get_collection_by_id,
     get_recent_requests_for_collection,
     get_request_by_id,
+    get_request_variable_chain,
     rename_collection,
     rename_request,
     update_collection,
@@ -381,3 +382,92 @@ class TestRecentRequests:
             create_new_request(coll.id, "GET", f"http://x/{i}", f"R{i}")
         result = get_recent_requests_for_collection(coll.id, limit=3)
         assert len(result) == 3
+
+
+# ------------------------------------------------------------------
+# Variable inheritance chain
+# ------------------------------------------------------------------
+class TestRequestVariableChain:
+    """Tests for ``get_request_variable_chain`` — collection variable inheritance."""
+
+    def test_nonexistent_request_returns_empty(self):
+        """A nonexistent request_id returns an empty dict."""
+        assert get_request_variable_chain(99999) == {}
+
+    def test_no_variables_anywhere(self):
+        """Request in a collection without variables returns empty dict."""
+        coll = create_new_collection("Root")
+        req = create_new_request(coll.id, "GET", "http://x", "R")
+        assert get_request_variable_chain(req.id) == {}
+
+    def test_single_collection_variables(self):
+        """Variables from the immediate parent collection are returned."""
+        coll = create_new_collection("Root")
+        update_collection(
+            coll.id,
+            variables=[
+                {"key": "host", "value": "localhost", "enabled": True},
+                {"key": "port", "value": "8080", "enabled": True},
+            ],
+        )
+        req = create_new_request(coll.id, "GET", "http://x", "R")
+        result = get_request_variable_chain(req.id)
+        assert result == {"host": "localhost", "port": "8080"}
+
+    def test_disabled_variables_excluded(self):
+        """Disabled variables are not included in the result."""
+        coll = create_new_collection("Root")
+        update_collection(
+            coll.id,
+            variables=[
+                {"key": "host", "value": "localhost", "enabled": True},
+                {"key": "secret", "value": "hidden", "enabled": False},
+            ],
+        )
+        req = create_new_request(coll.id, "GET", "http://x", "R")
+        result = get_request_variable_chain(req.id)
+        assert result == {"host": "localhost"}
+        assert "secret" not in result
+
+    def test_child_overrides_parent_variables(self):
+        """Variables from the nearer ancestor override the further one."""
+        root = create_new_collection("Root")
+        update_collection(
+            root.id,
+            variables=[
+                {"key": "host", "value": "root-host", "enabled": True},
+                {"key": "port", "value": "80", "enabled": True},
+            ],
+        )
+        child = create_new_collection("Child", parent_id=root.id)
+        update_collection(
+            child.id,
+            variables=[
+                {"key": "host", "value": "child-host", "enabled": True},
+            ],
+        )
+        req = create_new_request(child.id, "GET", "http://x", "R")
+        result = get_request_variable_chain(req.id)
+        # Child overrides root for 'host', but 'port' is inherited from root
+        assert result == {"host": "child-host", "port": "80"}
+
+    def test_deeply_nested_inheritance(self):
+        """Variables merge across three levels of nesting."""
+        root = create_new_collection("Root")
+        update_collection(
+            root.id,
+            variables=[{"key": "a", "value": "from-root", "enabled": True}],
+        )
+        mid = create_new_collection("Mid", parent_id=root.id)
+        update_collection(
+            mid.id,
+            variables=[{"key": "b", "value": "from-mid", "enabled": True}],
+        )
+        leaf = create_new_collection("Leaf", parent_id=mid.id)
+        update_collection(
+            leaf.id,
+            variables=[{"key": "c", "value": "from-leaf", "enabled": True}],
+        )
+        req = create_new_request(leaf.id, "GET", "http://x", "R")
+        result = get_request_variable_chain(req.id)
+        assert result == {"a": "from-root", "b": "from-mid", "c": "from-leaf"}

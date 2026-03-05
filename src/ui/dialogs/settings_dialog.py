@@ -8,29 +8,13 @@ layout is designed for future extensibility.
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QComboBox,
-    QDialog,
-    QHBoxLayout,
-    QLabel,
-    QListWidget,
-    QPushButton,
-    QSplitter,
-    QStackedWidget,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import (QComboBox, QDialog, QHBoxLayout, QLabel,
+                               QListWidget, QPushButton, QSplitter,
+                               QStackedWidget, QVBoxLayout, QWidget)
 
 from ui.icons import phi
-from ui.theme_manager import (
-    SCHEME_AUTO,
-    SCHEME_DARK,
-    SCHEME_LIGHT,
-    SCHEMES,
-    STYLE_FUSION,
-    STYLES,
-    ThemeManager,
-)
+from ui.theme_manager import (SCHEME_AUTO, SCHEME_DARK, SCHEME_LIGHT, SCHEMES,
+                              STYLE_FUSION, STYLES, ThemeManager)
 
 
 class SettingsDialog(QDialog):
@@ -79,12 +63,14 @@ class SettingsDialog(QDialog):
         apply_btn = QPushButton("Apply")
         apply_btn.setIcon(phi("check"))
         apply_btn.setObjectName("primaryButton")
+        apply_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         apply_btn.clicked.connect(self._on_apply)
         btn_row.addWidget(apply_btn)
 
         close_btn = QPushButton("Close")
         close_btn.setIcon(phi("x"))
         close_btn.setObjectName("outlineButton")
+        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         close_btn.clicked.connect(self.accept)
         btn_row.addWidget(close_btn)
 

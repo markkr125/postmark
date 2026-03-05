@@ -256,6 +256,10 @@ class CollectionWidget(QWidget):
         """Update the display text of a tree item without triggering signals."""
         self._tree_widget.update_item_name(item_id, item_type, new_name)
 
+    def update_request_method(self, request_id: int, method: str) -> None:
+        """Update the HTTP method badge of a request item without rebuilding."""
+        self._tree_widget.update_request_method(request_id, method)
+
     def select_and_scroll_to(self, item_id: int, item_type: str) -> None:
         """Select and scroll to the item with the given ID and type."""
         self._tree_widget.select_item_by_id(item_id, item_type)

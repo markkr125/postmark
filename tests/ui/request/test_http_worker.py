@@ -88,6 +88,22 @@ class TestHttpSendWorker:
         assert worker._url == "http://example.com"
         assert worker._body == "data"
 
+    def test_set_request_with_request_id(self, qapp: QApplication) -> None:
+        """Setting request_id stores it for variable chain resolution."""
+        worker = HttpSendWorker()
+        worker.set_request(
+            method="GET",
+            url="http://example.com",
+            request_id=42,
+        )
+        assert worker._request_id == 42
+
+    def test_request_id_defaults_to_none(self, qapp: QApplication) -> None:
+        """request_id defaults to None when not provided."""
+        worker = HttpSendWorker()
+        worker.set_request(method="GET", url="http://example.com")
+        assert worker._request_id is None
+
     @patch("ui.request.http_worker.HttpService.send_request")
     def test_run_emits_finished(self, mock_send: MagicMock, qapp: QApplication) -> None:
         """Successful run emits the finished signal with response data."""

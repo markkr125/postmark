@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import json
 
-from PySide6.QtCore import Qt, QThread, QTimer, Signal
+from PySide6.QtCore import QModelIndex, QPersistentModelIndex, Qt, QThread, QTimer, Signal
+from PySide6.QtGui import QColor, QKeySequence, QPalette, QShortcut, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
     QButtonGroup,
     QComboBox,
@@ -22,6 +23,8 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSplitter,
     QStackedWidget,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
     QTabWidget,
     QTextEdit,
     QVBoxLayout,
@@ -32,7 +35,8 @@ from ui.code_editor import CodeEditorWidget
 from ui.icons import phi
 from ui.key_value_table import KeyValueTableWidget
 from ui.request.http_worker import SchemaFetchWorker
-from ui.theme import method_color
+from ui.theme import COLOR_WARNING, method_color
+from ui.variable_line_edit import VariableLineEdit
 
 # HTTP methods shown in the dropdown
 _HTTP_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS")
@@ -49,6 +53,33 @@ _AUTH_TYPES = ("No Auth", "Bearer Token", "Basic Auth", "API Key")
 # Debounce delay (ms) for the request_changed signal
 _DEBOUNCE_MS = 500
 
+# Base names for the request editor section tabs (index-matched)
+_TAB_NAMES = ("Params", "Headers", "Body", "Auth", "Description", "Scripts")
+
+# Dot appended to tab label when the section has content
+_CONTENT_DOT = " \u2022"
+
+
+class _MethodColorDelegate(QStyledItemDelegate):
+    """Paint each combo-box item in its HTTP method colour.
+
+    Global QSS sets a fixed ``color`` on ``QComboBox`` which overrides
+    ``ForegroundRole`` data.  This delegate injects the correct palette
+    colour in :meth:`initStyleOption` so each row renders individually.
+    """
+
+    def initStyleOption(
+        self, option: QStyleOptionViewItem, index: QModelIndex | QPersistentModelIndex
+    ) -> None:
+        """Override text colour and font for each dropdown item."""
+        super().initStyleOption(option, index)
+        method = index.data(Qt.ItemDataRole.DisplayRole)
+        if method:
+            color = QColor(method_color(method))
+            option.palette.setColor(QPalette.ColorRole.Text, color)
+            option.palette.setColor(QPalette.ColorRole.HighlightedText, color)
+            option.font.setBold(True)
+
 
 class RequestEditorWidget(QWidget):
     """Editable request editor with method, URL bar, and tabbed sections.
@@ -61,6 +92,7 @@ class RequestEditorWidget(QWidget):
 
     send_requested = Signal()
     save_requested = Signal()
+    dirty_changed = Signal(bool)
     request_changed = Signal(dict)
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -91,13 +123,14 @@ class RequestEditorWidget(QWidget):
 
         self._method_combo = QComboBox()
         self._method_combo.addItems(list(_HTTP_METHODS))
+        self._method_combo.setItemDelegate(_MethodColorDelegate(self._method_combo))
         self._method_combo.setFixedWidth(100)
         self._method_combo.currentTextChanged.connect(self._on_field_changed)
         self._method_combo.currentTextChanged.connect(self._update_method_color)
         top_bar.addWidget(self._method_combo)
         self._update_method_color(self._method_combo.currentText())
 
-        self._url_input = QLineEdit()
+        self._url_input = VariableLineEdit()
         self._url_input.setPlaceholderText("Enter request URL")
         self._url_input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self._url_input.textChanged.connect(self._on_field_changed)
@@ -149,6 +182,102 @@ class RequestEditorWidget(QWidget):
         mode_row.addStretch()
 
         body_layout.addLayout(mode_row)
+
+        # -- Body find/replace bar (Ctrl+F / Ctrl+H) -------------------
+        self._body_search_bar = QWidget()
+        bsearch_outer = QVBoxLayout(self._body_search_bar)
+        bsearch_outer.setContentsMargins(0, 4, 0, 0)
+        bsearch_outer.setSpacing(2)
+
+        # Row 1: Find
+        find_row = QHBoxLayout()
+        find_row.setSpacing(4)
+
+        self._replace_toggle_btn = QPushButton()
+        self._replace_toggle_btn.setIcon(phi("caret-right"))
+        self._replace_toggle_btn.setFixedSize(24, 24)
+        self._replace_toggle_btn.setToolTip("Toggle Replace")
+        self._replace_toggle_btn.setObjectName("iconButton")
+        self._replace_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._replace_toggle_btn.setCheckable(True)
+        self._replace_toggle_btn.clicked.connect(self._toggle_replace_row)
+        find_row.addWidget(self._replace_toggle_btn)
+
+        self._body_search_input = QLineEdit()
+        self._body_search_input.setPlaceholderText("Find in body\u2026")
+        self._body_search_input.textChanged.connect(self._on_body_search_text_changed)
+        find_row.addWidget(self._body_search_input, 1)
+
+        self._body_search_count_label = QLabel("")
+        self._body_search_count_label.setObjectName("mutedLabel")
+        find_row.addWidget(self._body_search_count_label)
+
+        bsearch_prev = QPushButton()
+        bsearch_prev.setIcon(phi("caret-up"))
+        bsearch_prev.setFixedSize(24, 24)
+        bsearch_prev.setToolTip("Previous match")
+        bsearch_prev.setObjectName("iconButton")
+        bsearch_prev.setCursor(Qt.CursorShape.PointingHandCursor)
+        bsearch_prev.clicked.connect(self._body_search_prev)
+        find_row.addWidget(bsearch_prev)
+
+        bsearch_next = QPushButton()
+        bsearch_next.setIcon(phi("caret-down"))
+        bsearch_next.setFixedSize(24, 24)
+        bsearch_next.setToolTip("Next match")
+        bsearch_next.setObjectName("iconButton")
+        bsearch_next.setCursor(Qt.CursorShape.PointingHandCursor)
+        bsearch_next.clicked.connect(self._body_search_next)
+        find_row.addWidget(bsearch_next)
+
+        bsearch_close = QPushButton()
+        bsearch_close.setIcon(phi("x"))
+        bsearch_close.setFixedSize(24, 24)
+        bsearch_close.setToolTip("Close search")
+        bsearch_close.setObjectName("iconButton")
+        bsearch_close.setCursor(Qt.CursorShape.PointingHandCursor)
+        bsearch_close.clicked.connect(self._close_body_search)
+        find_row.addWidget(bsearch_close)
+
+        bsearch_outer.addLayout(find_row)
+
+        # Row 2: Replace (hidden until toggled)
+        self._replace_row = QWidget()
+        replace_layout = QHBoxLayout(self._replace_row)
+        replace_layout.setContentsMargins(28, 0, 0, 0)  # indent past chevron
+        replace_layout.setSpacing(4)
+
+        self._replace_input = QLineEdit()
+        self._replace_input.setPlaceholderText("Replace with\u2026")
+        replace_layout.addWidget(self._replace_input, 1)
+
+        self._replace_one_btn = QPushButton()
+        self._replace_one_btn.setIcon(phi("swap"))
+        self._replace_one_btn.setFixedSize(24, 24)
+        self._replace_one_btn.setToolTip("Replace current match")
+        self._replace_one_btn.setObjectName("iconButton")
+        self._replace_one_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._replace_one_btn.clicked.connect(self._replace_one)
+        replace_layout.addWidget(self._replace_one_btn)
+
+        self._replace_all_btn = QPushButton()
+        self._replace_all_btn.setIcon(phi("checks"))
+        self._replace_all_btn.setFixedSize(24, 24)
+        self._replace_all_btn.setToolTip("Replace all matches")
+        self._replace_all_btn.setObjectName("iconButton")
+        self._replace_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._replace_all_btn.clicked.connect(self._replace_all)
+        replace_layout.addWidget(self._replace_all_btn)
+
+        self._replace_row.hide()
+        bsearch_outer.addWidget(self._replace_row)
+
+        self._body_search_bar.hide()
+        body_layout.addWidget(self._body_search_bar)
+
+        self._body_search_matches: list[int] = []
+        self._body_search_index: int = -1
+        self._body_search_editor: CodeEditorWidget | None = None
 
         # Body content stack (switches per mode)
         self._body_stack = QStackedWidget()
@@ -222,6 +351,7 @@ class RequestEditorWidget(QWidget):
         self._binary_file_btn = QPushButton("Select File")
         self._binary_file_btn.setIcon(phi("file"))
         self._binary_file_btn.setObjectName("outlineButton")
+        self._binary_file_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._binary_file_btn.setFixedWidth(120)
         self._binary_file_btn.clicked.connect(self._on_select_binary_file)
         binary_layout.addWidget(self._binary_file_btn)
@@ -360,7 +490,7 @@ class RequestEditorWidget(QWidget):
         token_label = QLabel("Token")
         token_label.setObjectName("sectionLabel")
         bearer_layout.addWidget(token_label)
-        self._bearer_token_input = QLineEdit()
+        self._bearer_token_input = VariableLineEdit()
         self._bearer_token_input.setPlaceholderText("Enter bearer token")
         self._bearer_token_input.textChanged.connect(self._on_field_changed)
         bearer_layout.addWidget(self._bearer_token_input)
@@ -374,14 +504,14 @@ class RequestEditorWidget(QWidget):
         username_label = QLabel("Username")
         username_label.setObjectName("sectionLabel")
         basic_layout.addWidget(username_label)
-        self._basic_username_input = QLineEdit()
+        self._basic_username_input = VariableLineEdit()
         self._basic_username_input.setPlaceholderText("Username")
         self._basic_username_input.textChanged.connect(self._on_field_changed)
         basic_layout.addWidget(self._basic_username_input)
         password_label = QLabel("Password")
         password_label.setObjectName("sectionLabel")
         basic_layout.addWidget(password_label)
-        self._basic_password_input = QLineEdit()
+        self._basic_password_input = VariableLineEdit()
         self._basic_password_input.setPlaceholderText("Password")
         self._basic_password_input.setEchoMode(QLineEdit.EchoMode.Password)
         self._basic_password_input.textChanged.connect(self._on_field_changed)
@@ -396,14 +526,14 @@ class RequestEditorWidget(QWidget):
         key_label = QLabel("Key")
         key_label.setObjectName("sectionLabel")
         apikey_layout.addWidget(key_label)
-        self._apikey_key_input = QLineEdit()
+        self._apikey_key_input = VariableLineEdit()
         self._apikey_key_input.setPlaceholderText("Header or query parameter name")
         self._apikey_key_input.textChanged.connect(self._on_field_changed)
         apikey_layout.addWidget(self._apikey_key_input)
         value_label = QLabel("Value")
         value_label.setObjectName("sectionLabel")
         apikey_layout.addWidget(value_label)
-        self._apikey_value_input = QLineEdit()
+        self._apikey_value_input = VariableLineEdit()
         self._apikey_value_input.setPlaceholderText("API key value")
         self._apikey_value_input.textChanged.connect(self._on_field_changed)
         apikey_layout.addWidget(self._apikey_value_input)
@@ -449,6 +579,18 @@ class RequestEditorWidget(QWidget):
         # Start in empty state
         self._set_content_visible(False)
 
+        # Platform-native Find shortcut (Cmd+F on macOS, Ctrl+F elsewhere).
+        # Scoped to this widget tree so the response viewer's search bar
+        # does not compete.
+        self._body_find_shortcut = QShortcut(QKeySequence.StandardKey.Find, self)
+        self._body_find_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self._body_find_shortcut.activated.connect(self._toggle_body_search)
+
+        # Ctrl+R / Cmd+R to open find-and-replace.
+        self._body_replace_shortcut = QShortcut(QKeySequence("Ctrl+R"), self)
+        self._body_replace_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self._body_replace_shortcut.activated.connect(self._toggle_body_replace)
+
     # -- Visibility helpers -------------------------------------------
 
     def _set_content_visible(self, visible: bool) -> None:
@@ -470,6 +612,35 @@ class RequestEditorWidget(QWidget):
     def is_dirty(self) -> bool:
         """Return whether the editor has unsaved changes."""
         return self._is_dirty
+
+    def set_variable_map(self, variables: dict[str, str]) -> None:
+        """Distribute the resolved variable map to all child widgets.
+
+        This enables ``{{variable}}`` highlighting and resolved-value
+        tooltips across the URL bar, auth fields, body editors, and
+        key-value tables.
+        """
+        # Suppress dirty tracking — rehighlight can emit textChanged
+        self._loading = True
+        try:
+            # URL bar
+            self._url_input.set_variable_map(variables)
+            # Auth fields
+            self._bearer_token_input.set_variable_map(variables)
+            self._basic_username_input.set_variable_map(variables)
+            self._basic_password_input.set_variable_map(variables)
+            self._apikey_key_input.set_variable_map(variables)
+            self._apikey_value_input.set_variable_map(variables)
+            # Key-value tables
+            self._params_table.set_variable_map(variables)
+            self._headers_table.set_variable_map(variables)
+            self._body_form_table.set_variable_map(variables)
+            # Code editors
+            self._body_code_editor.set_variable_map(variables)
+            self._gql_query_editor.set_variable_map(variables)
+            self._gql_variables_editor.set_variable_map(variables)
+        finally:
+            self._loading = False
 
     def load_request(self, data: dict, *, request_id: int | None = None) -> None:
         """Populate the editor from a request data dict.
@@ -597,6 +768,7 @@ class RequestEditorWidget(QWidget):
             self._set_dirty(False)
         finally:
             self._loading = False
+        self._sync_tab_indicators()
 
     def get_request_data(self) -> dict:
         """Return the current editor state as a dict suitable for saving."""
@@ -676,6 +848,7 @@ class RequestEditorWidget(QWidget):
             self._apikey_key_input.clear()
             self._apikey_value_input.clear()
             self._apikey_add_to_combo.setCurrentIndex(0)
+            self._close_body_search()
             self._set_dirty(False)
         finally:
             self._loading = False
@@ -683,8 +856,11 @@ class RequestEditorWidget(QWidget):
     # -- Dirty tracking -----------------------------------------------
 
     def _set_dirty(self, dirty: bool) -> None:
-        """Update the dirty flag."""
+        """Update the dirty flag and emit dirty_changed."""
+        if dirty == self._is_dirty:
+            return
         self._is_dirty = dirty
+        self.dirty_changed.emit(dirty)
 
     def _on_field_changed(self) -> None:
         """Handle any field modification -- mark dirty and start debounce."""
@@ -692,6 +868,20 @@ class RequestEditorWidget(QWidget):
             return
         self._set_dirty(True)
         self._debounce_timer.start()
+        self._sync_tab_indicators()
+
+    def _sync_tab_indicators(self) -> None:
+        """Append a dot indicator to section tabs that contain data."""
+        has_content = [
+            bool(self._params_table.get_data()),
+            bool(self._headers_table.get_data()),
+            not self._body_mode_buttons.get("none", QRadioButton()).isChecked(),
+            self._auth_type_combo.currentText() != "No Auth",
+            bool(self._description_edit.toPlainText().strip()),
+            bool(self._scripts_edit.toPlainText().strip()),
+        ]
+        for i, (name, active) in enumerate(zip(_TAB_NAMES, has_content, strict=True)):
+            self._tabs.setTabText(i, name + _CONTENT_DOT if active else name)
 
     def _update_method_color(self, method: str) -> None:
         """Tint the method combo box text to match the HTTP method colour."""
@@ -728,6 +918,7 @@ class RequestEditorWidget(QWidget):
         if not self._loading:
             self._set_dirty(True)
             self._debounce_timer.start()
+            self._sync_tab_indicators()
 
     # -- Body helpers -------------------------------------------------
 
@@ -743,6 +934,204 @@ class RequestEditorWidget(QWidget):
     def _on_wrap_toggle(self) -> None:
         """Toggle word-wrap in the body code editor."""
         self._body_code_editor.set_word_wrap(self._wrap_btn.isChecked())
+
+    # -- Body search handlers ------------------------------------------
+
+    def _active_code_editor(self) -> CodeEditorWidget | None:
+        """Return the code editor that currently has focus, or ``None``.
+
+        Checks the raw body editor, GQL query editor, and GQL variables
+        editor.  Falls back to the raw body editor when the body tab is
+        visible.
+        """
+        for editor in (
+            self._body_code_editor,
+            self._gql_query_editor,
+            self._gql_variables_editor,
+        ):
+            if editor.hasFocus():
+                return editor
+        # Default: if the body tab is active, use the visible code editor
+        idx = self._body_stack.currentIndex()
+        if idx == 1:  # raw page
+            return self._body_code_editor
+        if idx == 4:  # graphql page
+            return self._gql_query_editor
+        return None
+
+    def _toggle_body_search(self) -> None:
+        """Show or hide the body search bar."""
+        if not self._body_search_bar.isHidden():
+            self._close_body_search()
+        else:
+            editor = self._active_code_editor()
+            if editor is None:
+                return
+            self._body_search_editor = editor
+            self._body_search_bar.show()
+            self._body_search_input.setFocus()
+            self._body_search_input.selectAll()
+
+    def _close_body_search(self) -> None:
+        """Hide the body search bar and clear highlights."""
+        self._body_search_bar.hide()
+        self._replace_row.hide()
+        self._replace_toggle_btn.setChecked(False)
+        self._replace_toggle_btn.setIcon(phi("caret-right"))
+        self._body_search_input.clear()
+        self._replace_input.clear()
+        self._body_search_count_label.setText("")
+        self._clear_body_search_highlights()
+        self._body_search_matches = []
+        self._body_search_index = -1
+        self._body_search_editor = None
+
+    def _on_body_search_text_changed(self, text: str) -> None:
+        """Highlight all occurrences of *text* in the active code editor."""
+        self._clear_body_search_highlights()
+        self._body_search_matches = []
+        self._body_search_index = -1
+
+        editor = self._body_search_editor
+        if editor is None or not text:
+            self._body_search_count_label.setText("")
+            return
+
+        body_text = editor.toPlainText()
+        start = 0
+        while True:
+            idx = body_text.find(text, start)
+            if idx == -1:
+                break
+            self._body_search_matches.append(idx)
+            start = idx + 1
+
+        if not self._body_search_matches:
+            self._body_search_count_label.setText("No results")
+            return
+
+        fmt = QTextCharFormat()
+        fmt.setBackground(QColor(COLOR_WARNING))
+        selections: list[QTextEdit.ExtraSelection] = []
+        for pos in self._body_search_matches:
+            sel = QTextEdit.ExtraSelection()
+            cur = QTextCursor(editor.document())
+            cur.setPosition(pos)
+            cur.setPosition(pos + len(text), QTextCursor.MoveMode.KeepAnchor)
+            sel.cursor = cur
+            sel.format = fmt
+            selections.append(sel)
+        editor.set_search_selections(selections)
+
+        self._body_search_index = 0
+        self._goto_body_search_match()
+
+    def _body_search_next(self) -> None:
+        """Move to the next search match."""
+        if not self._body_search_matches:
+            return
+        self._body_search_index = (self._body_search_index + 1) % len(self._body_search_matches)
+        self._goto_body_search_match()
+
+    def _body_search_prev(self) -> None:
+        """Move to the previous search match."""
+        if not self._body_search_matches:
+            return
+        self._body_search_index = (self._body_search_index - 1) % len(self._body_search_matches)
+        self._goto_body_search_match()
+
+    def _goto_body_search_match(self) -> None:
+        """Scroll to the current search match and update the counter."""
+        editor = self._body_search_editor
+        if (
+            editor is None
+            or self._body_search_index < 0
+            or self._body_search_index >= len(self._body_search_matches)
+        ):
+            return
+        pos = self._body_search_matches[self._body_search_index]
+        text = self._body_search_input.text()
+        cursor = editor.textCursor()
+        cursor.setPosition(pos)
+        cursor.setPosition(pos + len(text), QTextCursor.MoveMode.KeepAnchor)
+        editor.setTextCursor(cursor)
+        editor.ensureCursorVisible()
+        total = len(self._body_search_matches)
+        self._body_search_count_label.setText(f"{self._body_search_index + 1} of {total}")
+
+    def _clear_body_search_highlights(self) -> None:
+        """Remove all search highlight formatting from the active editor."""
+        if self._body_search_editor is not None:
+            self._body_search_editor.set_search_selections([])
+
+    # -- Replace handlers -----------------------------------------------
+
+    def _toggle_replace_row(self) -> None:
+        """Show or hide the replace row within the search bar."""
+        if self._replace_row.isHidden():
+            self._replace_row.show()
+            self._replace_toggle_btn.setIcon(phi("caret-down"))
+            self._replace_toggle_btn.setChecked(True)
+            self._replace_input.setFocus()
+        else:
+            self._replace_row.hide()
+            self._replace_toggle_btn.setIcon(phi("caret-right"))
+            self._replace_toggle_btn.setChecked(False)
+
+    def _toggle_body_replace(self) -> None:
+        """Open the search bar with the replace row visible."""
+        editor = self._active_code_editor()
+        if editor is None:
+            return
+        if self._body_search_bar.isHidden():
+            self._body_search_editor = editor
+            self._body_search_bar.show()
+        if self._replace_row.isHidden():
+            self._replace_row.show()
+            self._replace_toggle_btn.setIcon(phi("caret-down"))
+            self._replace_toggle_btn.setChecked(True)
+        self._replace_input.setFocus()
+
+    def _replace_one(self) -> None:
+        """Replace the current search match and advance to the next."""
+        editor = self._body_search_editor
+        if editor is None or not self._body_search_matches or self._body_search_index < 0:
+            return
+
+        search_text = self._body_search_input.text()
+        replace_text = self._replace_input.text()
+        pos = self._body_search_matches[self._body_search_index]
+
+        cursor = editor.textCursor()
+        cursor.setPosition(pos)
+        cursor.setPosition(pos + len(search_text), QTextCursor.MoveMode.KeepAnchor)
+        cursor.insertText(replace_text)
+
+        # Re-run the search to refresh match positions
+        self._on_body_search_text_changed(search_text)
+
+    def _replace_all(self) -> None:
+        """Replace all search matches at once."""
+        editor = self._body_search_editor
+        if editor is None or not self._body_search_matches:
+            return
+
+        search_text = self._body_search_input.text()
+        replace_text = self._replace_input.text()
+        if not search_text:
+            return
+
+        # Replace backwards to preserve earlier positions
+        cursor = editor.textCursor()
+        cursor.beginEditBlock()
+        for pos in reversed(self._body_search_matches):
+            cursor.setPosition(pos)
+            cursor.setPosition(pos + len(search_text), QTextCursor.MoveMode.KeepAnchor)
+            cursor.insertText(replace_text)
+        cursor.endEditBlock()
+
+        # Re-run the search (should find zero matches now)
+        self._on_body_search_text_changed(search_text)
 
     def _on_body_validation(self, errors: list) -> None:
         """Update the body error label when validation results change."""
@@ -905,6 +1294,7 @@ class RequestEditorWidget(QWidget):
         if not self._loading:
             self._set_dirty(True)
             self._debounce_timer.start()
+            self._sync_tab_indicators()
 
     def _get_auth_data(self) -> dict | None:
         """Build the auth configuration dict from the current UI state."""

@@ -64,6 +64,9 @@ class ThemePalette(TypedDict):
     timing_download: str
     timing_process: str
 
+    # Variable highlighting
+    variable_highlight: str
+
     # Code editor
     editor_bracket_match: str
     editor_gutter_bg: str
@@ -121,6 +124,7 @@ LIGHT_PALETTE: ThemePalette = {
     "timing_ttfb": "#e89a0c",
     "timing_download": "#e67e22",
     "timing_process": "#e74c3c",
+    "variable_highlight": "#fff3e0",
     "editor_bracket_match": "#d4edda",
     "editor_gutter_bg": "#fafafa",
     "editor_gutter_text": "#999999",
@@ -177,6 +181,7 @@ DARK_PALETTE: ThemePalette = {
     "timing_ttfb": "#dcdcaa",
     "timing_download": "#ce9178",
     "timing_process": "#f44747",
+    "variable_highlight": "#3a2a1a",
     "editor_bracket_match": "#2a4a3a",
     "editor_gutter_bg": "#252526",
     "editor_gutter_text": "#858585",
@@ -249,6 +254,8 @@ COLOR_TIMING_TTFB: str = _active["timing_ttfb"]
 COLOR_TIMING_DOWNLOAD: str = _active["timing_download"]
 COLOR_TIMING_PROCESS: str = _active["timing_process"]
 
+COLOR_VARIABLE_HIGHLIGHT: str = _active["variable_highlight"]
+
 COLOR_EDITOR_BRACKET_MATCH: str = _active["editor_bracket_match"]
 COLOR_EDITOR_GUTTER_BG: str = _active["editor_gutter_bg"]
 COLOR_EDITOR_GUTTER_TEXT: str = _active["editor_gutter_text"]
@@ -290,6 +297,7 @@ def set_active_palette(palette: ThemePalette) -> None:
     global COLOR_TIMING_PREPARE, COLOR_TIMING_DNS, COLOR_TIMING_TCP
     global COLOR_TIMING_TLS, COLOR_TIMING_TTFB, COLOR_TIMING_DOWNLOAD
     global COLOR_TIMING_PROCESS
+    global COLOR_VARIABLE_HIGHLIGHT
     global COLOR_EDITOR_BRACKET_MATCH, COLOR_EDITOR_GUTTER_BG
     global COLOR_EDITOR_GUTTER_TEXT, COLOR_EDITOR_ERROR_UNDERLINE
     global COLOR_EDITOR_FOLD_INDICATOR
@@ -341,6 +349,8 @@ def set_active_palette(palette: ThemePalette) -> None:
     COLOR_TIMING_TTFB = palette["timing_ttfb"]
     COLOR_TIMING_DOWNLOAD = palette["timing_download"]
     COLOR_TIMING_PROCESS = palette["timing_process"]
+
+    COLOR_VARIABLE_HIGHLIGHT = palette["variable_highlight"]
 
     COLOR_EDITOR_BRACKET_MATCH = palette["editor_bracket_match"]
     COLOR_EDITOR_GUTTER_BG = palette["editor_gutter_bg"]

@@ -3,22 +3,29 @@
 Provides a ``KeyValueTableWidget`` showing editable rows of key-value
 pairs with an enable/disable checkbox, description column, and
 inline per-row delete buttons.
+
+Variable references (``{{name}}``) are highlighted with an orange
+background so they stand out at a glance.
 """
 
 from __future__ import annotations
 
+import re
 from typing import cast
 
-from PySide6.QtCore import QEvent, QObject, Qt, Signal
-from PySide6.QtGui import QMouseEvent
+from PySide6.QtCore import QEvent, QModelIndex, QObject, QPersistentModelIndex, QRect, Qt, Signal
+from PySide6.QtGui import QColor, QFontMetrics, QHelpEvent, QMouseEvent, QPainter
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QHBoxLayout,
     QHeaderView,
     QPushButton,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
     QTableWidget,
     QTableWidgetItem,
+    QToolTip,
     QVBoxLayout,
     QWidget,
 )
@@ -36,6 +43,161 @@ _COLUMN_COUNT = 5
 
 # Width (px) for the narrow delete-button column
 _DELETE_COL_WIDTH = 28
+
+# Regex for {{variable}} references
+_VAR_RE = re.compile(r"\{\{.+?\}\}")
+
+# Padding (px) around the highlight box
+_HIGHLIGHT_PAD_X = 2
+_HIGHLIGHT_PAD_Y = 1
+_HIGHLIGHT_RADIUS = 3
+
+
+class _VariableHighlightDelegate(QStyledItemDelegate):
+    """Delegate that highlights ``{{variable}}`` patterns with a coloured background.
+
+    Only columns listed in *highlight_columns* are processed; other
+    columns fall through to the default paint implementation.
+    """
+
+    def __init__(
+        self,
+        highlight_columns: set[int],
+        parent: QWidget | None = None,
+    ) -> None:
+        """Initialise with the set of column indices to highlight."""
+        super().__init__(parent)
+        self._columns = highlight_columns
+        self._variable_map: dict[str, str] = {}
+
+    def set_variable_map(self, variables: dict[str, str]) -> None:
+        """Update the variable resolution map for tooltips."""
+        self._variable_map = variables
+
+    def paint(
+        self,
+        painter: QPainter,
+        option: QStyleOptionViewItem,
+        index: QModelIndex | QPersistentModelIndex,
+    ) -> None:
+        """Paint the cell, overlaying variable highlights when present."""
+        # For columns we don't care about, defer to default
+        if index.column() not in self._columns:
+            super().paint(painter, option, index)
+            return
+
+        text = index.data(Qt.ItemDataRole.DisplayRole)
+        if not text or "{{" not in text:
+            super().paint(painter, option, index)
+            return
+
+        # 1. Let the base class draw selection/focus/background
+        # We draw the text ourselves, so clear it temporarily
+        self.initStyleOption(option, index)
+        option.text = ""
+        style = option.widget.style() if option.widget else None
+        if style:
+            style.drawControl(
+                style.ControlElement.CE_ItemViewItem,
+                option,
+                painter,
+                option.widget,
+            )
+
+        # 2. Compute text area
+        text_rect = option.rect.adjusted(4, 0, -4, 0)  # small left/right margin
+
+        painter.save()
+        painter.setClipRect(text_rect)
+
+        fm = QFontMetrics(option.font)
+        y_center = text_rect.top() + (text_rect.height() + fm.ascent() - fm.descent()) // 2
+
+        # Resolve highlight colour at paint time so theme changes apply
+        from ui.theme import COLOR_VARIABLE_HIGHLIGHT, COLOR_WARNING
+
+        hl_bg = QColor(COLOR_VARIABLE_HIGHLIGHT)
+        hl_fg = QColor(COLOR_WARNING)
+
+        # 3. Walk through the text, painting normal and highlighted spans
+        x = text_rect.left()
+        pos = 0
+        full_text: str = text
+        for match in _VAR_RE.finditer(full_text):
+            # Normal text before the match
+            if match.start() > pos:
+                normal = full_text[pos : match.start()]
+                painter.setPen(option.palette.color(option.palette.ColorRole.Text))
+                painter.drawText(x, y_center, normal)
+                x += fm.horizontalAdvance(normal)
+            # Highlighted variable reference
+            var_text = match.group(0)
+            var_w = fm.horizontalAdvance(var_text)
+            bg_rect = QRect(
+                x - _HIGHLIGHT_PAD_X,
+                text_rect.top() + (text_rect.height() - fm.height()) // 2 - _HIGHLIGHT_PAD_Y,
+                var_w + 2 * _HIGHLIGHT_PAD_X,
+                fm.height() + 2 * _HIGHLIGHT_PAD_Y,
+            )
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(hl_bg)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.drawRoundedRect(bg_rect, _HIGHLIGHT_RADIUS, _HIGHLIGHT_RADIUS)
+            painter.setPen(hl_fg)
+            painter.drawText(x, y_center, var_text)
+            x += var_w
+            pos = match.end()
+        # Trailing normal text
+        if pos < len(full_text):
+            painter.setPen(option.palette.color(option.palette.ColorRole.Text))
+            painter.drawText(x, y_center, full_text[pos:])
+
+        painter.restore()
+
+    def helpEvent(
+        self,
+        event: QHelpEvent,
+        view: QAbstractItemView,
+        option: QStyleOptionViewItem,
+        index: QModelIndex | QPersistentModelIndex,
+    ) -> bool:
+        """Show resolved variable value as tooltip on hover."""
+        if event.type() != QEvent.Type.ToolTip:
+            return super().helpEvent(event, view, option, index)
+
+        if index.column() not in self._columns:
+            return super().helpEvent(event, view, option, index)
+
+        text = index.data(Qt.ItemDataRole.DisplayRole)
+        if not text or "{{" not in text:
+            QToolTip.hideText()
+            return True
+
+        # Compute which character is under the mouse
+        self.initStyleOption(option, index)
+        text_rect = option.rect.adjusted(4, 0, -4, 0)
+        fm = QFontMetrics(option.font)
+        mouse_x = event.pos().x()
+        x = text_rect.left()
+        pos = 0
+        for match in _VAR_RE.finditer(text):
+            # Advance past normal text
+            if match.start() > pos:
+                x += fm.horizontalAdvance(text[pos : match.start()])
+            var_w = fm.horizontalAdvance(match.group(0))
+            if x <= mouse_x <= x + var_w:
+                var_name = match.group(1)
+                resolved = self._variable_map.get(var_name)
+                if resolved is not None:
+                    QToolTip.showText(event.globalPos(), f"{var_name} = {resolved}", view)
+                else:
+                    QToolTip.showText(event.globalPos(), f"{var_name} (unresolved)", view)
+                return True
+            x += var_w
+            pos = match.end()
+
+        QToolTip.hideText()
+        return True
 
 
 class KeyValueTableWidget(QWidget):
@@ -95,12 +257,25 @@ class KeyValueTableWidget(QWidget):
         self._table.cellChanged.connect(self._on_cell_changed)
         self._table.selectionModel().selectionChanged.connect(self._on_selection_changed)
         self._table.viewport().installEventFilter(self)
+
+        # Highlight {{variable}} references in key and value columns
+        self._highlight_delegate = _VariableHighlightDelegate(
+            {_COL_KEY, _COL_VALUE},
+            self._table,
+        )
+        self._table.setItemDelegate(self._highlight_delegate)
+
         layout.addWidget(self._table, 1)
 
         # Start with one ghost row
         self._append_ghost_row()
 
     # -- Public API ----------------------------------------------------
+
+    def set_variable_map(self, variables: dict[str, str]) -> None:
+        """Update the variable resolution map for tooltip display."""
+        self._highlight_delegate.set_variable_map(variables)
+        self._table.viewport().update()
 
     def add_empty_row(self) -> None:
         """Append a new empty row before the ghost row."""

@@ -125,6 +125,34 @@ class EnvironmentService:
         return variables
 
     @staticmethod
+    def build_combined_variable_map(
+        environment_id: int | None,
+        request_id: int | None,
+    ) -> dict[str, str]:
+        """Build a merged variable map from collection and environment.
+
+        Collection variables are inherited upward from the request's
+        parent chain.  Environment variables take precedence over
+        collection variables when keys overlap.
+
+        Returns an empty dict if neither source provides variables.
+        """
+        from database.models.collections.collection_repository import (
+            get_request_variable_chain,
+        )
+
+        # 1. Collection-level variables (inherited up the tree)
+        variables: dict[str, str] = {}
+        if request_id is not None:
+            variables = get_request_variable_chain(request_id)
+
+        # 2. Environment variables override collection variables
+        env_vars = EnvironmentService.build_variable_map(environment_id)
+        variables.update(env_vars)
+
+        return variables
+
+    @staticmethod
     def substitute(text: str, variables: dict[str, str]) -> str:
         """Replace ``{{variable}}`` placeholders in *text*.
 

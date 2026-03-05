@@ -53,6 +53,7 @@ class HttpSendWorker(QObject):
         self._body: str | None = None
         self._timeout: float = 30.0
         self._env_id: int | None = None
+        self._request_id: int | None = None
         self._auth_data: dict | None = None
         self._cancel_event = threading.Event()
 
@@ -67,13 +68,17 @@ class HttpSendWorker(QObject):
         body: str | None = None,
         timeout: float = 30.0,
         env_id: int | None = None,
+        request_id: int | None = None,
         auth_data: dict | None = None,
     ) -> None:
         """Configure the HTTP request to send.
 
         Must be called **before** the worker is moved to its thread.
-        When *env_id* or *auth_data* are provided, variable substitution
-        and auth injection happen on the worker thread.
+        When *env_id*, *request_id*, or *auth_data* are provided,
+        variable substitution and auth injection happen on the worker
+        thread.  Collection variables (inherited from the parent chain
+        of *request_id*) are merged with environment variables, with
+        environment variables taking precedence.
         """
         self._method = method
         self._url = url
@@ -81,6 +86,7 @@ class HttpSendWorker(QObject):
         self._body = body
         self._timeout = timeout
         self._env_id = env_id
+        self._request_id = request_id
         self._auth_data = auth_data
 
     def cancel(self) -> None:
@@ -115,18 +121,19 @@ class HttpSendWorker(QObject):
             headers = self._headers
             body = self._body
 
-            # 2. Resolve environment variables (DB access on worker thread)
-            variables: dict[str, str] = {}
-            if self._env_id is not None:
-                from services.environment_service import EnvironmentService
+            # 2. Resolve collection + environment variables (DB on worker thread)
+            from services.environment_service import EnvironmentService
 
-                variables = EnvironmentService.build_variable_map(self._env_id)
-                if variables:
-                    url = EnvironmentService.substitute(url, variables)
-                    if headers:
-                        headers = EnvironmentService.substitute(headers, variables)
-                    if body:
-                        body = EnvironmentService.substitute(body, variables)
+            variables = EnvironmentService.build_combined_variable_map(
+                self._env_id,
+                self._request_id,
+            )
+            if variables:
+                url = EnvironmentService.substitute(url, variables)
+                if headers:
+                    headers = EnvironmentService.substitute(headers, variables)
+                if body:
+                    body = EnvironmentService.substitute(body, variables)
 
             # 3. Apply auth configuration
             if self._auth_data:

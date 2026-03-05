@@ -7,31 +7,16 @@ from typing import Any, cast
 
 from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QAction, QIcon, QKeyEvent
-from PySide6.QtWidgets import (
-    QApplication,
-    QLabel,
-    QLineEdit,
-    QMenu,
-    QMessageBox,
-    QStackedWidget,
-    QStyle,
-    QTreeWidget,
-    QTreeWidgetItem,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import (QApplication, QLabel, QLineEdit, QMenu,
+                               QMessageBox, QStackedWidget, QStyle,
+                               QTreeWidget, QTreeWidgetItem, QVBoxLayout,
+                               QWidget)
 
 from ui.collections.tree.collection_tree_delegate import CollectionTreeDelegate
-from ui.collections.tree.constants import (
-    EMPTY_COLLECTION_HTML,
-    ICON_CACHE,
-    PLACEHOLDER_MARKER,
-    ROLE_ITEM_ID,
-    ROLE_ITEM_TYPE,
-    ROLE_METHOD,
-    ROLE_OLD_NAME,
-    ROLE_PLACEHOLDER,
-)
+from ui.collections.tree.constants import (EMPTY_COLLECTION_HTML, ICON_CACHE,
+                                           PLACEHOLDER_MARKER, ROLE_ITEM_ID,
+                                           ROLE_ITEM_TYPE, ROLE_METHOD,
+                                           ROLE_OLD_NAME, ROLE_PLACEHOLDER)
 from ui.collections.tree.draggable_tree_widget import DraggableTreeWidget
 from ui.icons import phi
 from ui.theme import COLOR_ACCENT
@@ -751,6 +736,26 @@ class CollectionTree(QWidget):
 
         # Force an immediate repaint — the delegate reads column 1 but
         # paints in column 0, so Qt may not schedule a repaint on its own.
+        self._tree.viewport().update()
+
+    def update_request_method(self, request_id: int, method: str) -> None:
+        """Update the HTTP method badge of a request tree item in-place.
+
+        Finds the item by *request_id* and updates its ``ROLE_METHOD``
+        data and tooltip without rebuilding the entire tree.
+        """
+        target = self._find_item_by_id(
+            self._tree.invisibleRootItem(), request_id, "request"
+        )
+        if target is None:
+            return
+        self._tree.blockSignals(True)
+        try:
+            target.setData(0, ROLE_METHOD, method)
+            name = target.text(1) or target.text(0)
+            target.setToolTip(0, f"{method} {name}")
+        finally:
+            self._tree.blockSignals(False)
         self._tree.viewport().update()
 
         # --- Incremental helpers ---

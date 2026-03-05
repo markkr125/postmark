@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import QApplication
 
 from ui.request.request_editor import RequestEditorWidget
@@ -1117,3 +1118,488 @@ class TestRequestEditorBinary:
 
         editor._body_mode_buttons["raw"].setChecked(True)
         assert editor._body_stack.currentIndex() == 1
+
+
+class TestRequestEditorBodySearch:
+    """Tests for the body search bar (Ctrl+F / Cmd+F)."""
+
+    def _make_editor_with_raw_body(
+        self, qtbot, body: str, *, fmt: str = "JSON"
+    ) -> RequestEditorWidget:
+        """Return an editor pre-loaded with a raw body."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor.load_request(
+            {
+                "name": "Test",
+                "method": "POST",
+                "url": "http://example.com",
+                "body_mode": "raw",
+                "raw_type": fmt,
+                "body": body,
+            }
+        )
+        return editor
+
+    def test_search_bar_hidden_by_default(self, qapp: QApplication, qtbot) -> None:
+        """Body search bar starts hidden."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        assert editor._body_search_bar.isHidden()
+
+    def test_toggle_shows_and_hides_bar(self, qapp: QApplication, qtbot) -> None:
+        """Toggling the body search opens and closes the bar."""
+        editor = self._make_editor_with_raw_body(qtbot, '{"a": 1}')
+        editor._body_code_editor.setFocus()
+        editor._toggle_body_search()
+        assert not editor._body_search_bar.isHidden()
+        editor._toggle_body_search()
+        assert editor._body_search_bar.isHidden()
+
+    def test_search_finds_matches(self, qapp: QApplication, qtbot) -> None:
+        """Typing in the search input highlights matches."""
+        editor = self._make_editor_with_raw_body(qtbot, '{"hello": "world", "hello2": 1}')
+        editor._body_code_editor.setFocus()
+        editor._toggle_body_search()
+        editor._body_search_input.setText("hello")
+        assert len(editor._body_search_matches) == 2
+        assert "1 of 2" in editor._body_search_count_label.text()
+
+    def test_search_no_results(self, qapp: QApplication, qtbot) -> None:
+        """Searching for nonexistent text shows 'No results'."""
+        editor = self._make_editor_with_raw_body(qtbot, '{"a": 1}')
+        editor._body_code_editor.setFocus()
+        editor._toggle_body_search()
+        editor._body_search_input.setText("zzz_not_found")
+        assert len(editor._body_search_matches) == 0
+        assert "No results" in editor._body_search_count_label.text()
+
+    def test_search_next_wraps_around(self, qapp: QApplication, qtbot) -> None:
+        """Next match wraps from the last back to the first."""
+        editor = self._make_editor_with_raw_body(qtbot, "aaa")
+        editor._body_code_editor.setFocus()
+        editor._toggle_body_search()
+        editor._body_search_input.setText("a")
+        assert len(editor._body_search_matches) == 3
+        assert editor._body_search_index == 0
+        editor._body_search_next()
+        assert editor._body_search_index == 1
+        editor._body_search_next()
+        assert editor._body_search_index == 2
+        editor._body_search_next()
+        assert editor._body_search_index == 0
+
+    def test_search_prev_wraps_around(self, qapp: QApplication, qtbot) -> None:
+        """Previous match wraps from the first back to the last."""
+        editor = self._make_editor_with_raw_body(qtbot, "aaa")
+        editor._body_code_editor.setFocus()
+        editor._toggle_body_search()
+        editor._body_search_input.setText("a")
+        assert editor._body_search_index == 0
+        editor._body_search_prev()
+        assert editor._body_search_index == 2
+
+    def test_close_clears_highlights(self, qapp: QApplication, qtbot) -> None:
+        """Closing the search bar clears highlights and resets state."""
+        editor = self._make_editor_with_raw_body(qtbot, '{"a": 1}')
+        editor._body_code_editor.setFocus()
+        editor._toggle_body_search()
+        editor._body_search_input.setText("a")
+        assert len(editor._body_search_matches) > 0
+        editor._close_body_search()
+        assert editor._body_search_bar.isHidden()
+        assert editor._body_search_matches == []
+        assert editor._body_search_index == -1
+
+    def test_clear_request_closes_search(self, qapp: QApplication, qtbot) -> None:
+        """Clearing the request closes the body search bar."""
+        editor = self._make_editor_with_raw_body(qtbot, '{"a": 1}')
+        editor._body_code_editor.setFocus()
+        editor._toggle_body_search()
+        assert not editor._body_search_bar.isHidden()
+        editor.clear_request()
+        assert editor._body_search_bar.isHidden()
+
+    def test_find_shortcut_uses_standard_key(self, qapp: QApplication, qtbot) -> None:
+        """The find shortcut uses the platform-native Find key sequence."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        expected = QKeySequence(QKeySequence.StandardKey.Find)
+        assert editor._body_find_shortcut.key() == expected
+
+    def test_toggle_does_nothing_on_none_mode(self, qapp: QApplication, qtbot) -> None:
+        """Toggling body search when body mode is 'none' does nothing."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor.load_request({"name": "T", "method": "GET", "url": "http://x", "body": ""})
+        editor._toggle_body_search()
+        assert editor._body_search_bar.isHidden()
+
+
+class TestRequestEditorReplace:
+    """Tests for the find-and-replace feature in the request body."""
+
+    def _make_editor_with_raw_body(
+        self, qtbot, body: str, *, fmt: str = "JSON"
+    ) -> RequestEditorWidget:
+        """Return an editor pre-loaded with a raw body."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor.load_request(
+            {
+                "name": "Test",
+                "method": "POST",
+                "url": "http://example.com",
+                "body_mode": "raw",
+                "raw_type": fmt,
+                "body": body,
+            }
+        )
+        return editor
+
+    def test_replace_row_hidden_by_default(self, qapp: QApplication, qtbot) -> None:
+        """Replace row starts hidden even when search bar is open."""
+        editor = self._make_editor_with_raw_body(qtbot, "abc")
+        editor._body_code_editor.setFocus()
+        editor._toggle_body_search()
+        assert not editor._body_search_bar.isHidden()
+        assert editor._replace_row.isHidden()
+
+    def test_toggle_replace_shows_row(self, qapp: QApplication, qtbot) -> None:
+        """Clicking the chevron toggles the replace row visibility."""
+        editor = self._make_editor_with_raw_body(qtbot, "abc")
+        editor._body_code_editor.setFocus()
+        editor._toggle_body_search()
+        editor._toggle_replace_row()
+        assert not editor._replace_row.isHidden()
+        assert editor._replace_toggle_btn.isChecked()
+        editor._toggle_replace_row()
+        assert editor._replace_row.isHidden()
+        assert not editor._replace_toggle_btn.isChecked()
+
+    def test_ctrl_r_opens_replace(self, qapp: QApplication, qtbot) -> None:
+        """The replace shortcut is Ctrl+R."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        expected = QKeySequence("Ctrl+R")
+        assert editor._body_replace_shortcut.key() == expected
+
+    def test_toggle_body_replace_shows_both_rows(self, qapp: QApplication, qtbot) -> None:
+        """_toggle_body_replace opens the search bar with the replace row."""
+        editor = self._make_editor_with_raw_body(qtbot, "abc")
+        editor._body_code_editor.setFocus()
+        editor._toggle_body_replace()
+        assert not editor._body_search_bar.isHidden()
+        assert not editor._replace_row.isHidden()
+
+    def test_replace_one_replaces_current_match(self, qapp: QApplication, qtbot) -> None:
+        """Replace-one replaces the current match and re-searches."""
+        editor = self._make_editor_with_raw_body(qtbot, "aXbXc", fmt="Text")
+        editor._body_code_editor.setFocus()
+        editor._toggle_body_search()
+        editor._body_search_input.setText("X")
+        assert len(editor._body_search_matches) == 2
+        editor._replace_input.setText("Y")
+        editor._replace_one()
+        text = editor._body_code_editor.toPlainText()
+        assert text == "aYbXc"
+        # One match left after first replacement
+        assert len(editor._body_search_matches) == 1
+
+    def test_replace_all_replaces_every_match(self, qapp: QApplication, qtbot) -> None:
+        """Replace-all replaces every occurrence at once."""
+        editor = self._make_editor_with_raw_body(qtbot, "aXbXcX", fmt="Text")
+        editor._body_code_editor.setFocus()
+        editor._toggle_body_search()
+        editor._body_search_input.setText("X")
+        assert len(editor._body_search_matches) == 3
+        editor._replace_input.setText("Z")
+        editor._replace_all()
+        text = editor._body_code_editor.toPlainText()
+        assert text == "aZbZcZ"
+        assert len(editor._body_search_matches) == 0
+
+    def test_replace_all_with_empty_string(self, qapp: QApplication, qtbot) -> None:
+        """Replace-all with empty replacement removes all matches."""
+        editor = self._make_editor_with_raw_body(qtbot, "aXbXc", fmt="Text")
+        editor._body_code_editor.setFocus()
+        editor._toggle_body_search()
+        editor._body_search_input.setText("X")
+        editor._replace_input.setText("")
+        editor._replace_all()
+        assert editor._body_code_editor.toPlainText() == "abc"
+
+    def test_replace_one_no_matches_is_noop(self, qapp: QApplication, qtbot) -> None:
+        """Replace-one with no matches does nothing."""
+        editor = self._make_editor_with_raw_body(qtbot, "abc", fmt="Text")
+        editor._body_code_editor.setFocus()
+        editor._toggle_body_search()
+        editor._body_search_input.setText("ZZZ")
+        assert len(editor._body_search_matches) == 0
+        editor._replace_input.setText("Y")
+        editor._replace_one()
+        assert editor._body_code_editor.toPlainText() == "abc"
+
+    def test_close_resets_replace_row(self, qapp: QApplication, qtbot) -> None:
+        """Closing the search bar hides and clears the replace row."""
+        editor = self._make_editor_with_raw_body(qtbot, "abc", fmt="Text")
+        editor._body_code_editor.setFocus()
+        editor._toggle_body_search()
+        editor._toggle_replace_row()
+        editor._replace_input.setText("xyz")
+        assert not editor._replace_row.isHidden()
+        editor._close_body_search()
+        assert editor._replace_row.isHidden()
+        assert editor._replace_input.text() == ""
+        assert not editor._replace_toggle_btn.isChecked()
+
+
+class TestRequestEditorDirtyChanged:
+    """Tests for dirty_changed signal on the request editor."""
+
+    def test_dirty_changed_signal_emitted(self, qapp: QApplication, qtbot) -> None:
+        """dirty_changed signal fires when dirty state transitions."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor.load_request({"name": "X", "method": "GET", "url": "http://x"})
+
+        signals: list[bool] = []
+        editor.dirty_changed.connect(signals.append)
+
+        editor._url_input.setText("http://changed")
+        assert signals == [True]
+
+        editor._set_dirty(False)
+        assert signals == [True, False]
+
+    def test_dirty_changed_not_emitted_on_same_value(self, qapp: QApplication, qtbot) -> None:
+        """dirty_changed does not fire when dirty stays the same."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor.load_request({"name": "X", "method": "GET", "url": "http://x"})
+
+        signals: list[bool] = []
+        editor.dirty_changed.connect(signals.append)
+
+        # Already False -> False: no emission
+        editor._set_dirty(False)
+        assert signals == []
+
+        # True -> True: only first transition emits
+        editor._url_input.setText("http://changed")
+        editor._url_input.setText("http://changed2")
+        assert signals == [True]
+
+
+class TestRequestEditorTabIndicators:
+    """Tests for content-dot indicators on section tabs."""
+
+    def test_tabs_clean_after_empty_load(self, qapp: QApplication, qtbot) -> None:
+        """All tabs show plain names after loading an empty request."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor.load_request({"name": "X", "method": "GET", "url": "http://x"})
+        for i, name in enumerate(("Params", "Headers", "Body", "Auth", "Description", "Scripts")):
+            assert editor._tabs.tabText(i) == name
+
+    def test_params_dot_shown(self, qapp: QApplication, qtbot) -> None:
+        """Params tab gets a dot when parameters are present."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor.load_request(
+            {
+                "name": "X",
+                "method": "GET",
+                "url": "http://x",
+                "request_parameters": [{"key": "q", "value": "1", "enabled": True}],
+            }
+        )
+        assert editor._tabs.tabText(0).endswith(" \u2022")
+
+    def test_headers_dot_shown(self, qapp: QApplication, qtbot) -> None:
+        """Headers tab gets a dot when headers are present."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor.load_request(
+            {
+                "name": "X",
+                "method": "GET",
+                "url": "http://x",
+                "headers": [{"key": "Accept", "value": "application/json", "enabled": True}],
+            }
+        )
+        assert editor._tabs.tabText(1).endswith(" \u2022")
+
+    def test_body_dot_shown_when_not_none(self, qapp: QApplication, qtbot) -> None:
+        """Body tab gets a dot when body mode is not 'none'."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor.load_request(
+            {
+                "name": "X",
+                "method": "POST",
+                "url": "http://x",
+                "body_mode": "raw",
+                "body": '{"a": 1}',
+            }
+        )
+        assert editor._tabs.tabText(2).endswith(" \u2022")
+
+    def test_auth_dot_shown(self, qapp: QApplication, qtbot) -> None:
+        """Auth tab gets a dot when auth is configured."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor.load_request(
+            {
+                "name": "X",
+                "method": "GET",
+                "url": "http://x",
+                "auth": {"type": "bearer", "bearer": [{"key": "token", "value": "abc"}]},
+            }
+        )
+        assert editor._tabs.tabText(3).endswith(" \u2022")
+
+    def test_description_dot_shown(self, qapp: QApplication, qtbot) -> None:
+        """Description tab gets a dot when description is non-empty."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor.load_request(
+            {
+                "name": "X",
+                "method": "GET",
+                "url": "http://x",
+                "description": "Some notes",
+            }
+        )
+        assert editor._tabs.tabText(4).endswith(" \u2022")
+
+    def test_scripts_dot_shown(self, qapp: QApplication, qtbot) -> None:
+        """Scripts tab gets a dot when scripts are present."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor.load_request(
+            {
+                "name": "X",
+                "method": "GET",
+                "url": "http://x",
+                "scripts": {"pre": "console.log('hi')"},
+            }
+        )
+        assert editor._tabs.tabText(5).endswith(" \u2022")
+
+    def test_dot_removed_when_content_cleared(self, qapp: QApplication, qtbot) -> None:
+        """Dot disappears when tab content is emptied."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor.load_request(
+            {
+                "name": "X",
+                "method": "GET",
+                "url": "http://x",
+                "description": "Notes",
+            }
+        )
+        assert editor._tabs.tabText(4).endswith(" \u2022")
+        editor._description_edit.setPlainText("")
+        assert editor._tabs.tabText(4) == "Description"
+
+
+class TestRequestEditorMethodComboColors:
+    """Tests for colored items in the HTTP method dropdown."""
+
+    def test_delegate_sets_method_color(self, qapp: QApplication, qtbot) -> None:
+        """The custom delegate injects the correct method colour for each item."""
+        from typing import cast
+
+        from PySide6.QtCore import QModelIndex
+        from PySide6.QtGui import QColor, QPalette
+        from PySide6.QtWidgets import QStyledItemDelegate, QStyleOptionViewItem
+
+        from ui.theme import method_color
+
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        delegate = cast(QStyledItemDelegate, editor._method_combo.itemDelegate())
+        model = editor._method_combo.model()
+        for i in range(editor._method_combo.count()):
+            index: QModelIndex = model.index(i, 0)
+            option = QStyleOptionViewItem()
+            delegate.initStyleOption(option, index)
+            expected = QColor(method_color(editor._method_combo.itemText(i)))
+            assert option.palette.color(QPalette.ColorRole.Text) == expected
+            assert option.font.bold()
+
+    def test_selected_method_color_in_stylesheet(self, qapp: QApplication, qtbot) -> None:
+        """The combo box stylesheet updates to reflect the selected method colour."""
+        from ui.theme import method_color
+
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        for method in ("POST", "DELETE", "GET"):
+            editor._method_combo.setCurrentText(method)
+            color = method_color(method)
+            assert color in editor._method_combo.styleSheet()
+
+
+class TestRequestEditorVariableMap:
+    """Tests for set_variable_map distribution to child widgets."""
+
+    def test_set_variable_map_propagates_to_url(self, qapp: QApplication, qtbot) -> None:
+        """set_variable_map pushes the map to the URL input."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        m = {"host": "example.com"}
+        editor.set_variable_map(m)
+        assert editor._url_input._variable_map is m
+
+    def test_set_variable_map_propagates_to_auth_fields(self, qapp: QApplication, qtbot) -> None:
+        """set_variable_map pushes the map to all auth inputs."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        m = {"token": "abc123"}
+        editor.set_variable_map(m)
+        assert editor._bearer_token_input._variable_map is m
+        assert editor._basic_username_input._variable_map is m
+        assert editor._basic_password_input._variable_map is m
+        assert editor._apikey_key_input._variable_map is m
+        assert editor._apikey_value_input._variable_map is m
+
+    def test_set_variable_map_propagates_to_tables(self, qapp: QApplication, qtbot) -> None:
+        """set_variable_map pushes the map to key-value tables."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        m = {"key": "value"}
+        editor.set_variable_map(m)
+        assert editor._params_table._highlight_delegate._variable_map is m
+        assert editor._headers_table._highlight_delegate._variable_map is m
+        assert editor._body_form_table._highlight_delegate._variable_map is m
+
+    def test_set_variable_map_propagates_to_code_editors(self, qapp: QApplication, qtbot) -> None:
+        """set_variable_map pushes the map to code editors."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        m = {"url": "https://api.test"}
+        editor.set_variable_map(m)
+        assert editor._body_code_editor._variable_map is m
+        assert editor._gql_query_editor._variable_map is m
+        assert editor._gql_variables_editor._variable_map is m
+
+    def test_url_input_is_variable_line_edit(self, qapp: QApplication, qtbot) -> None:
+        """The URL input uses VariableLineEdit for variable highlighting."""
+        from ui.variable_line_edit import VariableLineEdit
+
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        assert isinstance(editor._url_input, VariableLineEdit)
+
+    def test_auth_fields_are_variable_line_edit(self, qapp: QApplication, qtbot) -> None:
+        """Auth inputs use VariableLineEdit for variable highlighting."""
+        from ui.variable_line_edit import VariableLineEdit
+
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        assert isinstance(editor._bearer_token_input, VariableLineEdit)
+        assert isinstance(editor._basic_username_input, VariableLineEdit)
+        assert isinstance(editor._basic_password_input, VariableLineEdit)
+        assert isinstance(editor._apikey_key_input, VariableLineEdit)
+        assert isinstance(editor._apikey_value_input, VariableLineEdit)

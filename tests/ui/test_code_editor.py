@@ -1094,3 +1094,94 @@ class TestWhitespaceDots:
         # 4 leading spaces + 1 after colon = 5 total.
         # '    "key": "val"' has spaces at indices 0, 1, 2, 3, 10.
         assert call_count == 5
+
+
+# -- Variable highlighting in editor ----------------------------------
+
+
+class TestVariableHighlighting:
+    """Tests for ``{{variable}}`` highlighting in the code editor."""
+
+    def test_variable_highlight_format_applied(self, qapp: QApplication, qtbot) -> None:
+        """Blocks containing {{var}} get a highlight format applied."""
+        editor = CodeEditorWidget()
+        qtbot.addWidget(editor)
+        editor.set_language("text")
+        editor.setPlainText("url = {{base_url}}/api")
+
+        # The highlighter should have applied a format to the {{base_url}} span
+        block = editor.document().firstBlock()
+        layout = block.layout()
+        formats = layout.formats()
+        # At least one format should cover the variable region
+        var_start = 6  # "url = " is 6 chars
+        var_end = 18  # "{{base_url}}" is 12 chars -> ends at 18
+        found = any(f.start <= var_start and f.start + f.length >= var_end for f in formats)
+        assert found, "Expected a format range covering {{base_url}}"
+
+    def test_variable_highlight_in_json(self, qapp: QApplication, qtbot) -> None:
+        """Variable highlighting works alongside JSON syntax highlighting."""
+        editor = CodeEditorWidget()
+        qtbot.addWidget(editor)
+        editor.set_language("json")
+        editor.setPlainText('{"url": "{{base_url}}"}')
+
+        block = editor.document().firstBlock()
+        layout = block.layout()
+        formats = layout.formats()
+        # Should have both JSON string formats and variable highlight
+        assert len(formats) >= 2
+
+    def test_set_variable_map_stores_and_rehighlights(self, qapp: QApplication, qtbot) -> None:
+        """set_variable_map stores the map and triggers rehighlight."""
+        editor = CodeEditorWidget()
+        qtbot.addWidget(editor)
+        editor.set_variable_map({"host": "example.com"})
+        assert editor._variable_map == {"host": "example.com"}
+
+
+class TestVariableTooltipInEditor:
+    """Tests for variable tooltip display in the code editor."""
+
+    def test_tooltip_for_resolved_variable(self, qapp: QApplication, qtbot) -> None:
+        """Hovering over a resolved variable shows its value."""
+        editor = CodeEditorWidget()
+        qtbot.addWidget(editor)
+        editor.show()
+        editor.setPlainText("{{host}}/api")
+        editor.set_variable_map({"host": "example.com"})
+
+        # Position cursor over the variable
+        block = editor.document().firstBlock()
+        rect = editor.blockBoundingGeometry(block).translated(editor.contentOffset())
+        local_pos = rect.center().toPoint()
+        global_pos = editor.mapToGlobal(local_pos)
+
+        with patch.object(QToolTip, "showText") as mock_show:
+            help_event = QHelpEvent(QEvent.Type.ToolTip, local_pos, global_pos)
+            editor.event(help_event)
+            if mock_show.called:
+                text = mock_show.call_args[0][1]
+                assert "host" in text
+                assert "example.com" in text
+
+    def test_tooltip_for_unresolved_variable(self, qapp: QApplication, qtbot) -> None:
+        """Hovering over an unresolved variable shows '(unresolved)'."""
+        editor = CodeEditorWidget()
+        qtbot.addWidget(editor)
+        editor.show()
+        editor.setPlainText("{{unknown}}/api")
+        editor.set_variable_map({})
+
+        block = editor.document().firstBlock()
+        rect = editor.blockBoundingGeometry(block).translated(editor.contentOffset())
+        local_pos = rect.center().toPoint()
+        global_pos = editor.mapToGlobal(local_pos)
+
+        with patch.object(QToolTip, "showText") as mock_show:
+            help_event = QHelpEvent(QEvent.Type.ToolTip, local_pos, global_pos)
+            editor.event(help_event)
+            if mock_show.called:
+                text = mock_show.call_args[0][1]
+                assert "unknown" in text
+                assert "unresolved" in text

@@ -72,8 +72,13 @@ from ui.theme import (
     COLOR_EDITOR_GUTTER_TEXT,
     COLOR_EDITOR_INDENT_GUIDE,
     COLOR_EDITOR_WHITESPACE_DOT,
+    COLOR_VARIABLE_HIGHLIGHT,
+    COLOR_WARNING,
     current_palette,
 )
+
+# Regex for {{variable}} references
+_VAR_RE = re.compile(r"\{\{(.+?)\}\}")
 
 # -- Data structures ---------------------------------------------------
 
@@ -229,6 +234,7 @@ class PygmentsHighlighter(QSyntaxHighlighter):
     def highlightBlock(self, text: str) -> None:
         """Apply syntax highlighting to a single text block."""
         if self._language == "text":
+            self._apply_variable_highlight(text)
             return
 
         if self._read_only and self._block_tokens is not None:
@@ -239,6 +245,7 @@ class PygmentsHighlighter(QSyntaxHighlighter):
                 fmt = self._get_format(token_type)
                 if fmt is not None:
                     self.setFormat(start, length, fmt)
+            self._apply_variable_highlight(text)
             return
 
         # Line-by-line mode (editable, or read-only without cache)
@@ -249,6 +256,18 @@ class PygmentsHighlighter(QSyntaxHighlighter):
             if fmt is not None:
                 self.setFormat(index, length, fmt)
             index += length
+
+        self._apply_variable_highlight(text)
+
+    def _apply_variable_highlight(self, text: str) -> None:
+        """Overlay ``{{variable}}`` highlights on the current block."""
+        if "{{" not in text:
+            return
+        fmt = QTextCharFormat()
+        fmt.setBackground(QColor(COLOR_VARIABLE_HIGHLIGHT))
+        fmt.setForeground(QColor(COLOR_WARNING))
+        for match in _VAR_RE.finditer(text):
+            self.setFormat(match.start(), match.end() - match.start(), fmt)
 
     def cache_full_document(self) -> None:
         """Lex the entire document and cache tokens per block.
@@ -393,6 +412,8 @@ class CodeEditorWidget(QPlainTextEdit):
         self._sorted_folds: list[tuple[int, int, int]] = []
         self._collapsed_folds: set[int] = set()
         self._search_selections: list[QTextEdit.ExtraSelection] = []
+        # Variable map for tooltip resolution
+        self._variable_map: dict[str, str] = {}
 
         # Detected indent width for this document (auto-detected or default).
         self._detected_indent: int = _DEFAULT_INDENT_WIDTH
@@ -476,6 +497,11 @@ class CodeEditorWidget(QPlainTextEdit):
             self._recompute_folds()
 
     # -- Content helpers ------------------------------------------------
+
+    def set_variable_map(self, variables: dict[str, str]) -> None:
+        """Update the variable resolution map and rehighlight."""
+        self._variable_map = variables
+        self._highlighter.rehighlight()
 
     def setPlainText(self, text: str) -> None:
         """Override to re-detect indent width whenever content is replaced."""
@@ -1662,11 +1688,13 @@ class CodeEditorWidget(QPlainTextEdit):
     # -- Tooltip for errors ---------------------------------------------
 
     def event(self, event: QEvent) -> bool:
-        """Show tooltip with error message when hovering over error lines."""
+        """Show tooltip for error messages and variable references on hover."""
         if event.type() == QEvent.Type.ToolTip:
             help_event = cast("QHelpEvent", event)
             cursor = self.cursorForPosition(help_event.pos())
             line = cursor.blockNumber() + 1
+
+            # 1. Check for error tooltip
             for error in self._errors:
                 if error.line == line:
                     QToolTip.showText(
@@ -1675,6 +1703,30 @@ class CodeEditorWidget(QPlainTextEdit):
                         self,
                     )
                     return True
+
+            # 2. Check for variable tooltip
+            block = cursor.block()
+            block_text = block.text()
+            pos_in_block = cursor.positionInBlock()
+            if "{{" in block_text:
+                for match in _VAR_RE.finditer(block_text):
+                    if match.start() <= pos_in_block <= match.end():
+                        var_name = match.group(1)
+                        resolved = self._variable_map.get(var_name)
+                        if resolved is not None:
+                            QToolTip.showText(
+                                help_event.globalPos(),
+                                f"{var_name} = {resolved}",
+                                self,
+                            )
+                        else:
+                            QToolTip.showText(
+                                help_event.globalPos(),
+                                f"{var_name} (unresolved)",
+                                self,
+                            )
+                        return True
+
             QToolTip.hideText()
             return True
         return super().event(event)
