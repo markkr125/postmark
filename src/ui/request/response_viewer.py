@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
 
 from ui.code_editor import CodeEditorWidget
 from ui.icons import phi
-from ui.info_popup import ClickableLabel
+from ui.info_popup import ClickableLabel, InfoPopup
 from ui.request.popups.network_popup import NetworkPopup
 from ui.request.popups.size_popup import SizePopup
 from ui.request.popups.status_popup import StatusPopup
@@ -121,9 +121,8 @@ class ResponseViewerWidget(QWidget):
         self._network_icon.clicked.connect(self._on_network_clicked)
         status_row.addWidget(self._network_icon)
 
-        self._save_response_btn = QPushButton()
+        self._save_response_btn = QPushButton(" Save Response")
         self._save_response_btn.setIcon(phi("floppy-disk"))
-        self._save_response_btn.setFixedWidth(28)
         self._save_response_btn.setToolTip("Save this response as a named example")
         self._save_response_btn.setObjectName("flatMutedButton")
         self._save_response_btn.clicked.connect(self._on_save_response)
@@ -561,10 +560,22 @@ class ResponseViewerWidget(QWidget):
 
     # -- Popup handlers ------------------------------------------------
 
+    def _close_other_popups(self, keep: InfoPopup | None) -> None:
+        """Close every open popup except *keep*."""
+        for popup in (
+            self._status_popup,
+            self._timing_popup,
+            self._size_popup,
+            self._network_popup,
+        ):
+            if popup is not None and popup is not keep and popup.isVisible():
+                popup.close()
+
     def _on_status_clicked(self) -> None:
         """Open or refresh the status description popup."""
         if self._status_popup is None:
             self._status_popup = StatusPopup(self)
+        self._close_other_popups(self._status_popup)
         self._status_popup.update_status(
             self._last_status_code,
             self._last_status_text,
@@ -576,6 +587,7 @@ class ResponseViewerWidget(QWidget):
         """Open or refresh the timing breakdown popup."""
         if self._timing_popup is None:
             self._timing_popup = TimingPopup(self)
+        self._close_other_popups(self._timing_popup)
         if self._timing_data is not None:
             self._timing_popup.update_timing(self._timing_data, self._last_elapsed_ms)
         self._timing_popup.show_below(self._time_label)
@@ -584,6 +596,7 @@ class ResponseViewerWidget(QWidget):
         """Open or refresh the size breakdown popup."""
         if self._size_popup is None:
             self._size_popup = SizePopup(self)
+        self._close_other_popups(self._size_popup)
         self._size_popup.update_sizes(self._size_data)
         self._size_popup.show_below(self._size_label)
 
@@ -591,5 +604,6 @@ class ResponseViewerWidget(QWidget):
         """Open or refresh the network info popup."""
         if self._network_popup is None:
             self._network_popup = NetworkPopup(self)
+        self._close_other_popups(self._network_popup)
         self._network_popup.update_network(self._network_data)
         self._network_popup.show_below(self._network_icon)

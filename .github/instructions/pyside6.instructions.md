@@ -176,6 +176,12 @@ standard object names:
 | `monoEdit` | `QTextEdit` | Monospace text editor |
 | `consoleOutput` | `QTextEdit` | Dark console output area |
 | `importTabs` | `QTabWidget` | Box-style tabs in import dialog |
+| `codeEditor` | `QPlainTextEdit` | Syntax-highlighted code editor |
+| `gqlSplitter` | `QSplitter` | GraphQL query/variables splitter |
+| `rowDeleteButton` | `QPushButton` | Row delete button in key-value table |
+| `infoPopup` | `QFrame` | Response metadata popup container |
+| `infoPopupTitle` | `QLabel` | Popup title heading |
+| `infoPopupSeparator` | `QLabel` | Popup horizontal rule |
 
 ### When inline setStyleSheet() is still acceptable
 
@@ -302,7 +308,35 @@ triggered menu action.
 
 ## Background workers use QThread + moveToThread
 
-For blocking operations (e.g. DB fetch), create a `QObject` worker, move it
-to a `QThread`, and connect `thread.started` to `worker.run`. Emit a signal
-with the result when done. See `_CollectionFetcher` in `collection_widget.py`
-for the canonical pattern.
+For blocking operations (e.g. DB fetch, HTTP requests), create a `QObject`
+worker, move it to a `QThread`, and connect `thread.started` to `worker.run`.
+Emit a signal with the result when done.  Examples:
+
+- `_CollectionFetcher` in `collection_widget.py` — DB fetch
+- `HttpSendWorker` in `http_worker.py` — HTTP request execution
+- `SchemaFetchWorker` in `http_worker.py` — GraphQL schema introspection
+
+## InfoPopup — QFrame-based tooltip popups
+
+Use `QFrame` (not `QWidget` or `QDialog`) for tooltip-like popups.
+`QWidget` does **not** reliably render QSS borders on Linux.
+
+The `InfoPopup` base class (`ui/info_popup.py`) provides:
+
+- **Window flags:** `Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint
+  | Qt.WindowType.WindowStaysOnTopHint`
+- **objectName:** `"infoPopup"` — styled via global QSS
+- **Click-outside dismiss:** App-wide event filter via
+  `QApplication.instance().installEventFilter(self)`.  The filter returns
+  `False` so the click propagates to the widget underneath (e.g. to open
+  a sibling popup without needing a double-click).
+- **150ms grace period:** Clicks within 150ms of `show_below()` are ignored
+  to prevent the opening click from immediately closing the popup.
+- **Copy-to-clipboard feedback:** `_copy_to_clipboard(text, btn)` copies
+  text, sets the button to "Copied!" with a checkmark icon, then restores
+  the original text after 1.2s via `QTimer.singleShot`.
+
+### ClickableLabel
+
+`ClickableLabel(QLabel)` emits a `clicked` signal on `mousePressEvent`.
+Used for the response status bar labels that open popups.

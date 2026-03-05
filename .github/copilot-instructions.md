@@ -59,7 +59,11 @@ src/
 │               └── environment_model.py   # EnvironmentModel (key-value sets)
 ├── services/                      # Service layer (UI ↔ DB bridge)
 │   ├── collection_service.py      # CollectionService (static methods)
+│   ├── environment_service.py     # EnvironmentService (variable substitution)
+│   ├── graphql_schema_service.py  # GraphQL introspection + schema parsing
+│   ├── http_service.py            # HttpService (httpx) + response TypedDicts
 │   ├── import_service.py          # ImportService (parse + persist)
+│   ├── snippet_generator.py       # Code snippet generation (cURL/Python/JS)
 │   └── import_parser/             # Parser sub-package
 │       ├── models.py              # TypedDict schemas for parsed data
 │       ├── postman_parser.py      # Postman collection/environment parser
@@ -70,7 +74,10 @@ src/
     ├── theme.py                   # Palettes, colours, badge geometry, method_color()
     ├── theme_manager.py           # ThemeManager — QPalette + global QSS + QSettings
     ├── icons.py                   # Phosphor font-glyph icon provider (phi())
+    ├── code_editor.py             # CodeEditorWidget — syntax highlighting, line numbers, folding
+    ├── info_popup.py              # InfoPopup (QFrame) base + ClickableLabel
     ├── key_value_table.py         # Reusable key-value editor widget
+    ├── loading_screen.py          # Loading screen overlay widget
     ├── collections/               # Collection sidebar
     │   ├── collection_header.py
     │   ├── collection_widget.py
@@ -91,11 +98,17 @@ src/
     │   └── history_panel.py
     └── request/                   # Request/response editing
         ├── breadcrumb_bar.py
-        ├── http_worker.py
+        ├── folder_editor.py         # Folder/collection detail editor
+        ├── http_worker.py           # HttpSendWorker + SchemaFetchWorker (QThread)
         ├── request_editor.py
         ├── request_tab_bar.py
-        ├── response_viewer.py
-        └── tab_manager.py
+        ├── response_viewer.py       # Response body/headers/cookies + popup toolbar
+        ├── tab_manager.py
+        └── popups/                  # Response metadata popups
+            ├── status_popup.py      # HTTP status code explanation
+            ├── timing_popup.py      # Request timing breakdown
+            ├── size_popup.py        # Response/request size breakdown
+            └── network_popup.py     # Network/TLS connection details
 tests/
 ├── conftest.py                    # Autouse fresh-DB fixture + qapp fixture
 ├── unit/                          # Repository & service layer tests
@@ -105,6 +118,7 @@ tests/
 │   └── services/                  # Service layer tests
 │       ├── test_service.py
 │       ├── test_environment_service.py
+│       ├── test_graphql_schema_service.py
 │       ├── test_http_service.py
 │       ├── test_import_parser.py
 │       ├── test_import_service.py
@@ -114,6 +128,9 @@ tests/
     ├── test_main_window.py
     ├── test_theme_manager.py
     ├── test_icons.py
+    ├── test_code_editor.py
+    ├── test_code_editor_memory.py
+    ├── test_info_popup.py
     ├── test_key_value_table.py
     ├── collections/               # Collection sidebar tests
     │   ├── test_collection_header.py
@@ -130,11 +147,17 @@ tests/
     │   └── test_history_panel.py
     └── request/                   # Request/response editing tests
         ├── test_breadcrumb_bar.py
+        ├── test_folder_editor.py
         ├── test_http_worker.py
         ├── test_request_editor.py
         ├── test_request_tab_bar.py
         ├── test_response_viewer.py
-        └── test_tab_manager.py
+        ├── test_tab_manager.py
+        └── popups/                # Response popup tests
+            ├── test_status_popup.py
+            ├── test_timing_popup.py
+            ├── test_size_popup.py
+            └── test_network_popup.py
 ```
 
 **Layering:** UI → signals → Service → Repository → `get_session()`.

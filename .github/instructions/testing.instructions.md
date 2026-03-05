@@ -105,6 +105,7 @@ tests/
 │   └── services/                  # Service layer tests
 │       ├── test_service.py
 │       ├── test_environment_service.py
+│       ├── test_graphql_schema_service.py
 │       ├── test_http_service.py
 │       ├── test_import_parser.py
 │       ├── test_import_service.py
@@ -114,6 +115,9 @@ tests/
     ├── test_main_window.py        # Top-level MainWindow smoke tests
     ├── test_theme_manager.py      # ThemeManager tests
     ├── test_icons.py              # Phosphor icon provider tests
+    ├── test_code_editor.py        # CodeEditorWidget tests
+    ├── test_code_editor_memory.py # CodeEditorWidget memory tests
+    ├── test_info_popup.py         # InfoPopup + ClickableLabel tests
     ├── test_key_value_table.py    # Shared key-value editor widget tests
     ├── collections/               # Collection sidebar tests
     │   ├── test_collection_header.py
@@ -130,11 +134,17 @@ tests/
     │   └── test_history_panel.py
     └── request/                   # Request/response editing tests
         ├── test_breadcrumb_bar.py
+        ├── test_folder_editor.py
         ├── test_http_worker.py
         ├── test_request_editor.py
         ├── test_request_tab_bar.py
         ├── test_response_viewer.py
-        └── test_tab_manager.py
+        ├── test_tab_manager.py
+        └── popups/                # Response popup tests
+            ├── test_status_popup.py
+            ├── test_timing_popup.py
+            ├── test_size_popup.py
+            └── test_network_popup.py
 ```
 
 - **unit/database/** — repository tests. No Qt dependency.

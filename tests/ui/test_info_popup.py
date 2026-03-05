@@ -24,10 +24,10 @@ class TestInfoPopup:
         assert popup.objectName() == "infoPopup"
 
     def test_window_flags_include_popup(self, qapp: QApplication, qtbot) -> None:
-        """InfoPopup has the Popup window flag for auto-dismiss."""
+        """InfoPopup has the Tool window flag for controlled dismiss."""
         popup = InfoPopup()
         qtbot.addWidget(popup)
-        assert popup.windowFlags() & Qt.WindowType.Popup
+        assert popup.windowFlags() & Qt.WindowType.Tool
 
     def test_content_layout_is_vbox(self, qapp: QApplication, qtbot) -> None:
         """InfoPopup exposes a QVBoxLayout for content."""

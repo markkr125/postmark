@@ -589,10 +589,9 @@ class ThemeManager(QObject):
         }}
 
         /* ---- Info popup (response breakdowns) ----------------------- */
-        QWidget[objectName="infoPopup"] {{
+        QFrame[objectName="infoPopup"] {{
             background: {p["bg"]};
             border: 1px solid {p["border"]};
-            border-radius: 6px;
         }}
         QLabel[objectName="infoPopupTitle"] {{
             font-weight: bold;

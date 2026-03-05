@@ -11,15 +11,9 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QGridLayout, QLabel, QSizePolicy, QWidget
 
 from ui.info_popup import InfoPopup
-from ui.theme import (
-    COLOR_TIMING_DNS,
-    COLOR_TIMING_DOWNLOAD,
-    COLOR_TIMING_PREPARE,
-    COLOR_TIMING_PROCESS,
-    COLOR_TIMING_TCP,
-    COLOR_TIMING_TLS,
-    COLOR_TIMING_TTFB,
-)
+from ui.theme import (COLOR_TIMING_DNS, COLOR_TIMING_DOWNLOAD,
+                      COLOR_TIMING_PREPARE, COLOR_TIMING_PROCESS,
+                      COLOR_TIMING_TCP, COLOR_TIMING_TLS, COLOR_TIMING_TTFB)
 
 # Phase definitions: (label, timing_dict_key | None, color)
 # ``None`` key means the value is computed externally (prepare).
@@ -48,9 +42,9 @@ class TimingPopup(InfoPopup):
         self.setMinimumWidth(320)
         self.setMaximumWidth(420)
 
-        title = QLabel("Request Timing")
-        title.setObjectName("infoPopupTitle")
-        self.content_layout.addWidget(title)
+        header_row, self._copy_btn = self._make_header_with_copy("Request Timing")
+        self._copy_btn.clicked.connect(self._copy_as_markdown)
+        self.content_layout.addLayout(header_row)
 
         self._grid = QGridLayout()
         self._grid.setContentsMargins(0, 4, 0, 0)
@@ -128,3 +122,14 @@ class TimingPopup(InfoPopup):
             self._bar_widgets[i].setStyleSheet(f"background: {color}; border-radius: 2px;")
 
         self._total_label.setText(f"{total_ms:.1f} ms")
+
+    def _copy_as_markdown(self) -> None:
+        """Copy the timing breakdown to the clipboard as a Markdown table."""
+        lines: list[str] = [
+            "| Phase | Duration |",
+            "| --- | ---: |",
+        ]
+        for name_lbl, val_lbl in zip(self._name_labels, self._value_labels, strict=True):
+            lines.append(f"| {name_lbl.text()} | {val_lbl.text()} |")
+        lines.append(f"| **Total** | **{self._total_label.text()}** |")
+        self._copy_to_clipboard("\n".join(lines), self._copy_btn)

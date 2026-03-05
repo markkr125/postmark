@@ -4,11 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QApplication
 
-from ui.request.popups.status_popup import (
-    STATUS_DESCRIPTIONS,
-    StatusPopup,
-    _status_description,
-)
+from ui.request.popups.status_popup import STATUS_DESCRIPTIONS, StatusPopup, _status_description
 
 
 class TestStatusDescription:

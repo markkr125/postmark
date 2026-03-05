@@ -52,6 +52,13 @@ UI widgets  ──signals──►  CollectionWidget  ──calls──►  Coll
 ThemeManager  ──QPalette + global QSS──►  QApplication
               ──theme_changed signal──►   widgets (refresh dynamic styles)
               ──QSettings──►              persistent user preferences
+
+RequestEditorWidget  ──send_requested──►  MainWindow
+  MainWindow → HttpSendWorker (QThread) → HttpService.send_request()
+    → HttpSendWorker.finished(HttpResponseDict) → ResponseViewerWidget.load_response()
+
+RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread)
+  → GraphQLSchemaService.fetch_schema() → SchemaFetchWorker.finished()
 ```
 
 - **DO NOT** import from `database/` in any UI file.  The service layer is
@@ -62,6 +69,8 @@ ThemeManager  ──QPalette + global QSS──►  QApplication
 - `CollectionService` is instantiated as `self._svc = CollectionService()` in
   `CollectionWidget.__init__`, but **every method is `@staticmethod`**.
   Do not add instance state without updating every call site.
+- `EnvironmentService`, `HttpService`, `GraphQLSchemaService`, and
+  `SnippetGenerator` follow the same `@staticmethod` pattern.
 
 ## The dict interchange schema
 
@@ -261,6 +270,33 @@ CollectionTree.currentItemChanged
         → enables / disables "New request" action in + menu
 ```
 
+### Send request flow
+
+```
+RequestEditorWidget.send_requested
+  → MainWindow._on_send_request()
+    → HttpSendWorker.set_request(method, url, headers, body, auth, settings)
+    → QThread.started → HttpSendWorker.run()
+      → EnvironmentService.substitute() (variable replacement)
+      → HttpService.send_request() (httpx + timing/network/size)
+      → HttpSendWorker.finished(HttpResponseDict)
+        → MainWindow._on_response_ready(data)
+          → ResponseViewerWidget.load_response(data)
+    → HttpSendWorker.error(str)
+        → ResponseViewerWidget.show_error(message)
+```
+
+### GraphQL schema fetch flow
+
+```
+RequestEditorWidget._on_fetch_schema()
+  → SchemaFetchWorker.set_endpoint(url, headers)
+  → QThread.started → SchemaFetchWorker.run()
+    → GraphQLSchemaService.fetch_schema(url, headers)
+    → SchemaFetchWorker.finished(SchemaResultDict)
+      → RequestEditorWidget._on_schema_ready(result)
+```
+
 ## Unconnected signals and unimplemented features
 
 These signals exist in the code but are **not yet wired to anything**.
@@ -271,8 +307,6 @@ features.
 |---|---|---|
 | `MainWindow.run_action` | `main_window.py` | QAction created, not connected |
 | `CollectionWidget.item_name_changed` | `collection_widget.py` | Forwarded from tree, nothing connects in MainWindow |
-| Response viewer pane | `main_window.py` | Placeholder `QWidget` |
-| `RequestEditorWidget.send_requested` | `request_editor.py` | Emitted on Send click, not connected — send not implemented |
 
 ### Recently wired signals (no longer unconnected)
 
@@ -281,11 +315,13 @@ features.
 | `CollectionHeader.search_changed(str)` | `CollectionWidget` → `CollectionTree.filter_items` |
 | `CollectionHeader.new_request_requested(object)` | Emitted from header + menu when collection selected |
 | `CollectionWidget.item_action_triggered` | `MainWindow._on_item_action` (opens request editor) |
-| Request editor pane | `RequestEditorWidget` — display-only, loaded via `MainWindow._open_request` |
+| Request editor pane | `RequestEditorWidget` — loaded via `MainWindow._open_request` |
 | `CollectionTree.selected_collection_changed` | `CollectionWidget` → `CollectionHeader.set_selected_collection_id` |
 | `CollectionHeader.import_requested` | `CollectionWidget._on_import_requested` → opens `ImportDialog` |
 | `ImportDialog.import_completed` | `CollectionWidget._start_fetch` (refresh tree) |
 | `MainWindow` File → Import (`Ctrl+I`) | `MainWindow._on_import` → opens `ImportDialog` |
+| `RequestEditorWidget.send_requested` | `MainWindow._on_send_request` → `HttpSendWorker` (see send-request flow) |
+| Response viewer pane | `ResponseViewerWidget` with body/headers/cookies tabs + popup toolbar |
 
 ## Implicit contracts
 
@@ -390,6 +426,133 @@ All methods are `@staticmethod`.  Each parses the input, then persists via
 | `import_curl(text)` | One or more cURL commands |
 | `import_url(url)` | Fetch URL contents and parse |
 
+### HTTP service (`HttpService`)
+
+All methods are `@staticmethod`.  `send_request()` uses `httpx` with event
+hooks to capture timing, and inspects the connection for TLS/network data.
+Returns an `HttpResponseDict` containing the response body, headers, status,
+timing breakdown, network metadata, and size information.
+
+**TypedDict schemas (defined in `services/http_service.py`):**
+
+```python
+class TimingDict(TypedDict):
+    dns_ms: float
+    connect_ms: float
+    tls_ms: float
+    send_ms: float
+    wait_ms: float
+    receive_ms: float
+    total_ms: float
+
+class NetworkDict(TypedDict):
+    remote_ip: str
+    remote_port: int
+    protocol: str
+    tls_version: str | None
+    tls_cipher: str | None
+    tls_cert_issuer: str | None
+    tls_cert_subject: str | None
+    tls_cert_expiry: str | None
+
+class HttpResponseDict(TypedDict):
+    status_code: int
+    status_text: str
+    headers: dict[str, str]
+    cookies: dict[str, str]
+    body: str
+    raw_body: bytes
+    timing: TimingDict
+    network: NetworkDict
+    size_request_headers: int
+    size_request_body: int
+    size_response_headers: int
+    size_response_body: int
+```
+
+### Environment service (`EnvironmentService`)
+
+All methods are `@staticmethod`.  Wraps the environment repository and adds
+variable substitution via `{{variable}}` syntax.
+
+| Method | Purpose |
+|--------|---------|
+| `fetch_all()` | All environments as list of dicts |
+| `get_environment(id)` | PK lookup |
+| `create_environment(name, values?)` | Create with optional initial values |
+| `rename_environment(id, new_name)` | Update name |
+| `delete_environment(id)` | Delete environment |
+| `update_environment_values(id, values)` | Replace key-value pairs |
+| `build_variable_map(environment_id)` | Build `{name: value}` dict for substitution |
+| `substitute(text, variables)` | Replace `{{key}}` placeholders in text |
+
+### GraphQL schema service (`GraphQLSchemaService`)
+
+All methods are `@staticmethod`.  Sends an introspection query to a GraphQL
+endpoint and parses the schema into a structured result.
+
+| Method | Purpose |
+|--------|---------|
+| `fetch_schema(url, headers)` | Introspect endpoint, return `SchemaResultDict` |
+| `_parse_schema(schema_data)` | Convert raw introspection JSON to structured types |
+| `format_schema_summary(result)` | Human-readable schema summary text |
+
+### Snippet generator (`SnippetGenerator`)
+
+All methods are `@staticmethod`.  Generates code snippets for a given request
+in multiple languages.
+
+| Method | Purpose |
+|--------|---------|
+| `curl(method, url, headers, body)` | cURL command |
+| `python_requests(method, url, headers, body)` | Python requests library |
+| `javascript_fetch(method, url, headers, body)` | JavaScript fetch API |
+| `available_languages()` | List of supported language names |
+| `generate(language, method, url, headers, body)` | Dispatch to language-specific generator |
+
+## Response viewer and popup system
+
+`ResponseViewerWidget` displays the HTTP response with four tabs:
+Body, Headers, Cookies, and Saved.
+
+### Body tab structure
+
+- **Format toolbar** — Pretty/Raw/Preview combo, Beautify button, stretch
+- **`CodeEditorWidget`** — `QPlainTextEdit` subclass (read-only) with
+  Pygments syntax highlighting, line numbers, fold gutter, word wrap, and
+  built-in search (Ctrl+F)
+- **Search bar** — hidden by default, toggled via Ctrl+F or toolbar button
+
+### Status bar (below tabs)
+
+Four clickable labels show response metadata. Each opens an `InfoPopup`
+subclass:
+
+| Label | Popup | Data source |
+|-------|-------|-------------|
+| Status code + text | `StatusPopup` | `status_code`, `status_text` |
+| Response time | `TimingPopup` | `TimingDict` |
+| Response size | `SizePopup` | `size_*` fields + `TimingDict` |
+| Network info | `NetworkPopup` | `NetworkDict` |
+
+### InfoPopup base class (`ui/info_popup.py`)
+
+`InfoPopup(QFrame)` provides the shared popup infrastructure:
+
+- **Window flags:** `Tool | FramelessWindowHint | WindowStaysOnTopHint`
+- **Positioning:** `show_below(anchor)` places the popup below the anchor
+  widget, adjusting for screen edges
+- **Dismiss:** App-wide event filter closes on click-outside (returns
+  `False` to propagate the click), Escape key, or window move/resize
+- **Copy helper:** `_make_header_with_copy(title)` returns a header row with
+  a copy button; `_copy_to_clipboard(text, btn)` copies text and shows
+  "Copied!" feedback for 1.2s via QTimer
+- **Text selectability:** `show_below()` automatically sets
+  `TextSelectableByMouse` on all child `QLabel` widgets
+
+`ClickableLabel(QLabel)` emits a `clicked` signal on `mousePressEvent`,
+used for the status bar labels.
+
 ## Known limitations
 
 1. **No cycle detection for collection moves** — `move_collection` only
@@ -400,7 +563,8 @@ All methods are `@staticmethod`.  Each parses the input, then persists via
 3. **`request_parameters` and `headers` are `String` columns** — unlike
    `scripts`, `settings`, and `events` (which are JSON columns), these store
    serialised strings.  Consuming code must handle string-to-dict conversion.
-4. **Send not implemented** — `RequestEditorWidget.send_requested`
-   signal is emitted but not connected to any backend logic.
+4. ~~**Send not implemented**~~ — Fixed: `RequestEditorWidget.send_requested`
+   is wired to `MainWindow._on_send_request` which uses `HttpSendWorker` +
+   `HttpService.send_request()`.
 5. **Navigation history is in-memory only** — back/forward stack in
    `MainWindow` is lost on restart.

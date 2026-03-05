@@ -34,9 +34,9 @@ class NetworkPopup(InfoPopup):
         self.setMinimumWidth(280)
         self.setMaximumWidth(400)
 
-        title = QLabel("Network Information")
-        title.setObjectName("infoPopupTitle")
-        self.content_layout.addWidget(title)
+        header_row, self._copy_btn = self._make_header_with_copy("Network Information")
+        self._copy_btn.clicked.connect(self._copy_as_markdown)
+        self.content_layout.addLayout(header_row)
 
         self._grid = QGridLayout()
         self._grid.setContentsMargins(0, 4, 0, 0)
@@ -81,3 +81,14 @@ class NetworkPopup(InfoPopup):
             visible = not tls_only or has_tls
             self._name_labels[i].setVisible(visible)
             self._value_labels[i].setVisible(visible)
+
+    def _copy_as_markdown(self) -> None:
+        """Copy the network info to the clipboard as a Markdown table."""
+        lines: list[str] = [
+            "| Property | Value |",
+            "| --- | --- |",
+        ]
+        for name_lbl, val_lbl in zip(self._name_labels, self._value_labels, strict=True):
+            if val_lbl.isVisible():
+                lines.append(f"| {name_lbl.text()} | {val_lbl.text()} |")
+        self._copy_to_clipboard("\n".join(lines), self._copy_btn)

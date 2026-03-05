@@ -30,10 +30,10 @@ class SizePopup(InfoPopup):
         self.setMinimumWidth(260)
         self.setMaximumWidth(340)
 
-        # -- Response Size section -------------------------------------
-        resp_title = QLabel("Response Size")
-        resp_title.setObjectName("infoPopupTitle")
-        self.content_layout.addWidget(resp_title)
+        # -- Header with copy button -----------------------------------
+        header_row, self._copy_btn = self._make_header_with_copy("Response Size")
+        self._copy_btn.clicked.connect(self._copy_as_markdown)
+        self.content_layout.addLayout(header_row)
 
         self._resp_grid = QGridLayout()
         self._resp_grid.setContentsMargins(0, 2, 0, 8)
@@ -114,3 +114,28 @@ class SizePopup(InfoPopup):
 
         self._req_headers_label.setText(_format_size(data.get("request_headers_size", 0)))
         self._req_body_label.setText(_format_size(data.get("request_body_size", 0)))
+
+    def _copy_as_markdown(self) -> None:
+        """Copy the size breakdown to the clipboard as a Markdown table."""
+        lines: list[str] = [
+            "**Response Size**",
+            "",
+            "| Component | Size |",
+            "| --- | ---: |",
+            f"| Headers | {self._resp_headers_label.text()} |",
+            f"| Body | {self._resp_body_label.text()} |",
+        ]
+        if self._resp_uncompressed_label.isVisible():
+            lines.append(f"| Uncompressed | {self._resp_uncompressed_label.text()} |")
+        lines.extend(
+            [
+                "",
+                "**Request Size**",
+                "",
+                "| Component | Size |",
+                "| --- | ---: |",
+                f"| Headers | {self._req_headers_label.text()} |",
+                f"| Body | {self._req_body_label.text()} |",
+            ]
+        )
+        self._copy_to_clipboard("\n".join(lines), self._copy_btn)
