@@ -5,10 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from database.models.collections.collection_query_repository import \
-    fetch_all_collections
-from database.models.environments.environment_repository import \
-    fetch_all_environments
+from database.models.collections.collection_query_repository import fetch_all_collections
+from database.models.environments.environment_repository import fetch_all_environments
 from services.import_service import ImportService
 
 
