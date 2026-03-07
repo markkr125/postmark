@@ -21,6 +21,8 @@ from urllib.parse import urlparse
 
 import httpx
 
+from services.http.header_utils import parse_header_dict
+
 logger = logging.getLogger(__name__)
 
 # Default timeout in seconds for HTTP requests.
@@ -86,23 +88,6 @@ class HttpResponseDict(TypedDict):
 
     # Network metadata
     network: NotRequired[NetworkDict]
-
-
-def _build_headers(raw: str | None) -> dict[str, str]:
-    """Parse a newline-separated header string into a mapping.
-
-    Each line should be ``Key: Value``.  Malformed lines are silently
-    skipped.
-    """
-    if not raw:
-        return {}
-
-    headers: dict[str, str] = {}
-    for line in raw.splitlines():
-        if ":" in line:
-            key, _, value = line.partition(":")
-            headers[key.strip()] = value.strip()
-    return headers
 
 
 def _phase_ms(trace_times: dict[str, float], *prefixes: str) -> float:
@@ -181,7 +166,7 @@ class HttpService:
             An :class:`HttpResponseDict` with response details or an
             ``error`` key describing the failure.
         """
-        parsed_headers = _build_headers(headers)
+        parsed_headers = parse_header_dict(headers)
         content: bytes | None = body.encode("utf-8") if body else None
 
         # -- 1. DNS pre-resolve ----------------------------------------

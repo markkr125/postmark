@@ -152,7 +152,7 @@ class _VariableControllerMixin:
             request_id = ctx.request_id if ctx else None
             if request_id is None:
                 return
-            from database.models.collections.collection_repository import get_request_by_id
+            from database.models.collections.collection_query_repository import get_request_by_id
 
             req = get_request_by_id(request_id)
             if req is None:

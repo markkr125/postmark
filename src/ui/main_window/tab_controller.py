@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from services.collection_service import CollectionService
+from services.collection_service import CollectionService, RequestLoadDict
 from ui.request.navigation.tab_manager import TabContext
 from ui.request.request_editor import RequestEditorWidget
 from ui.request.response_viewer import ResponseViewerWidget
@@ -90,7 +90,7 @@ class _TabControllerMixin:
             logger.warning("Request id=%s not found", request_id)
             return
 
-        data = {
+        data: RequestLoadDict = {
             "name": request.name,
             "method": request.method,
             "url": request.url,
@@ -137,7 +137,7 @@ class _TabControllerMixin:
     def _create_tab(
         self,
         request_id: int,
-        data: dict,
+        data: RequestLoadDict,
         *,
         is_preview: bool = False,
     ) -> int:
@@ -185,7 +185,7 @@ class _TabControllerMixin:
         self,
         index: int,
         request_id: int,
-        data: dict,
+        data: RequestLoadDict,
         *,
         is_preview: bool = False,
     ) -> None:

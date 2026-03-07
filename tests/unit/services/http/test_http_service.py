@@ -7,41 +7,42 @@ from unittest.mock import MagicMock, patch
 
 import httpx
 
-from services.http.http_service import HttpService, _build_headers, _phase_ms
+from services.http.header_utils import parse_header_dict
+from services.http.http_service import HttpService, _phase_ms
 
 
-class TestBuildHeaders:
+class TestParseHeaderDict:
     """Tests for the header parsing helper."""
 
     def test_empty_string(self) -> None:
         """Empty string yields an empty dict."""
-        assert _build_headers("") == {}
+        assert parse_header_dict("") == {}
 
     def test_none_input(self) -> None:
         """None input yields an empty dict."""
-        assert _build_headers(None) == {}
+        assert parse_header_dict(None) == {}
 
     def test_single_header(self) -> None:
         """Single well-formed header is parsed correctly."""
-        result = _build_headers("Content-Type: application/json")
+        result = parse_header_dict("Content-Type: application/json")
         assert result == {"Content-Type": "application/json"}
 
     def test_multiple_headers(self) -> None:
         """Multiple newline-separated headers are all parsed."""
         raw = "Accept: text/html\nAuthorization: Bearer abc123"
-        result = _build_headers(raw)
+        result = parse_header_dict(raw)
         assert result == {"Accept": "text/html", "Authorization": "Bearer abc123"}
 
     def test_malformed_line_skipped(self) -> None:
         """Lines without a colon are silently skipped."""
         raw = "Good: value\nbadline\nAlso-Good: ok"
-        result = _build_headers(raw)
+        result = parse_header_dict(raw)
         assert result == {"Good": "value", "Also-Good": "ok"}
 
     def test_value_with_colon(self) -> None:
         """Only the first colon splits key from value."""
         raw = "Authorization: Bearer token:with:colons"
-        result = _build_headers(raw)
+        result = parse_header_dict(raw)
         assert result == {"Authorization": "Bearer token:with:colons"}
 
 

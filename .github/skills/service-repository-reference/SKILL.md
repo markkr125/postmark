@@ -11,20 +11,28 @@ cross-layer data interchange.
 
 ## Repository function catalogue
 
-### Collection repository (`collection_repository.py`)
+### Collection repository — CRUD (`collection_repository.py`)
 
 | Function | Returns | Purpose |
 |----------|---------|---------|
-| `fetch_all_collections()` | `dict[str, Any]` | All root collections as nested dict |
 | `create_new_collection(name, parent_id?)` | `CollectionModel` | Create a folder |
 | `rename_collection(collection_id, new_name)` | `None` | Update name |
 | `delete_collection(collection_id)` | `None` | Delete + cascade children and requests |
-| `get_collection_by_id(collection_id)` | `CollectionModel \| None` | PK lookup |
 | `create_new_request(collection_id, method, url, name, ...)` | `RequestModel` | Create a request |
 | `rename_request(request_id, new_name)` | `None` | Update name |
 | `delete_request(request_id)` | `None` | Delete a single request |
 | `update_request_collection(request_id, new_collection_id)` | `None` | Move request |
 | `update_collection_parent(collection_id, new_parent_id)` | `None` | Move collection |
+| `save_response(request_id, ...)` | `int` | Persist a response snapshot, return its ID |
+| `update_collection(collection_id, **fields)` | `None` | Generic field update on a collection |
+| `update_request(request_id, **fields)` | `None` | Generic field update on a request |
+
+### Collection query repository (`collection_query_repository.py`)
+
+| Function | Returns | Purpose |
+|----------|---------|---------|
+| `fetch_all_collections()` | `dict[str, Any]` | All root collections as nested dict |
+| `get_collection_by_id(collection_id)` | `CollectionModel \| None` | PK lookup |
 | `get_request_by_id(request_id)` | `RequestModel \| None` | PK lookup |
 | `get_request_auth_chain(request_id)` | `dict[str, Any] \| None` | Walk parent chain for auth config |
 | `get_request_variable_chain(request_id)` | `dict[str, str]` | Collect variables up the parent chain |
@@ -32,11 +40,13 @@ cross-layer data interchange.
 | `get_request_breadcrumb(request_id)` | `list[dict[str, Any]]` | Ancestor path for breadcrumb bar |
 | `get_collection_breadcrumb(collection_id)` | `list[dict[str, Any]]` | Ancestor path for collection breadcrumb |
 | `get_saved_responses_for_request(request_id)` | `list[dict[str, Any]]` | Saved responses for a request |
-| `save_response(request_id, ...)` | `int` | Persist a response snapshot, return its ID |
-| `update_collection(collection_id, **fields)` | `None` | Generic field update on a collection |
-| `update_request(request_id, **fields)` | `None` | Generic field update on a request |
 | `count_collection_requests(collection_id)` | `int` | Total request count in folder subtree |
 | `get_recent_requests_for_collection(collection_id, ...)` | `list[dict[str, Any]]` | Recently modified requests in subtree |
+
+### Import repository (`import_repository.py`)
+
+| Function | Returns | Purpose |
+|----------|---------|---------|
 | `import_collection_tree(parsed)` | `dict[str, int]` | Atomic bulk-import of a full collection tree |
 
 ### Environment repository (`environment_repository.py`)
@@ -146,6 +156,12 @@ All methods are `@staticmethod`.
 | `available_languages()` | List of supported language names |
 | `generate(language, method, url, headers, body)` | Dispatch to language-specific generator |
 
+### Shared HTTP utilities (`services/http/header_utils.py`)
+
+| Function | Returns | Purpose |
+|----------|---------|---------|
+| `parse_header_dict(raw)` | `dict[str, str]` | Parse `Key: Value\n` lines into a dict |
+
 ## TypedDict schemas
 
 ### HttpService TypedDicts (`services/http/http_service.py`)
@@ -183,6 +199,23 @@ class HttpResponseDict(TypedDict):
     response_headers_size: NotRequired[int]
     response_uncompressed_size: NotRequired[int]
     network: NotRequired[NetworkDict]
+```
+
+### CollectionService TypedDicts (`services/collection_service.py`)
+
+```python
+class RequestLoadDict(TypedDict, total=False):
+    name: str
+    method: str
+    url: str
+    body: str | None
+    request_parameters: str | list[dict[str, Any]] | None
+    headers: str | list[dict[str, Any]] | None
+    description: str | None
+    scripts: dict[str, str] | None
+    body_mode: str | None
+    body_options: dict[str, Any] | None
+    auth: dict[str, Any] | None
 ```
 
 ### EnvironmentService TypedDicts (`services/environment_service.py`)

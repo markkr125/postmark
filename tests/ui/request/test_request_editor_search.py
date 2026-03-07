@@ -23,7 +23,6 @@ class TestRequestEditorBodySearch:
                 "method": "POST",
                 "url": "http://example.com",
                 "body_mode": "raw",
-                "raw_type": fmt,
                 "body": body,
             }
         )
@@ -139,7 +138,6 @@ class TestRequestEditorReplace:
                 "method": "POST",
                 "url": "http://example.com",
                 "body_mode": "raw",
-                "raw_type": fmt,
                 "body": body,
             }
         )

@@ -147,6 +147,20 @@ with get_session() as session:
 All models inherit from `Base` defined in `src/database/models/base.py`.
 Do not create a second base class.
 
+## Detached-object decision checklist
+
+After the `get_session()` block exits, the ORM object is *detached*.
+Use this quick checklist to decide whether to return the object or a dict:
+
+| What you need after session close | Safe? | Action |
+|---|---|---|
+| Scalar attributes only (`id`, `name`, `body`, ...) | Yes | Return the ORM object directly |
+| One-level eager relation (`collection.requests`) | Yes | `selectin` loads it during the query |
+| Two+ levels deep (`coll.children[0].children`) | **No** | Convert to dict inside session |
+| Relationship on an object from a different query | **No** | Re-query or join-load explicitly |
+
+When in doubt, convert to a dict inside the open session.
+
 ## Lightweight schema migration — forward-only column additions
 
 `database.py` contains `_migrate_add_missing_columns(engine)`, called by
