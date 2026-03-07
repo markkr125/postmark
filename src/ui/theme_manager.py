@@ -13,9 +13,17 @@ from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication, QStyleFactory
 
-from ui.theme import (BADGE_BORDER_RADIUS, BADGE_FONT_SIZE, BADGE_HEIGHT,
-                      BADGE_MIN_WIDTH, DARK_PALETTE, LIGHT_PALETTE,
-                      TREE_ROW_HEIGHT, ThemePalette, set_active_palette)
+from ui.theme import (
+    BADGE_BORDER_RADIUS,
+    BADGE_FONT_SIZE,
+    BADGE_HEIGHT,
+    BADGE_MIN_WIDTH,
+    DARK_PALETTE,
+    LIGHT_PALETTE,
+    TREE_ROW_HEIGHT,
+    ThemePalette,
+    set_active_palette,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -699,15 +707,15 @@ class ThemeManager(QObject):
         }}
         QPushButton[objectName="variablePopupAddSelect"] {{
             background: {p["input_bg"]};
-            color: {p["text"]};
+            color: {p["muted"]};
             border: 1px solid {p["border"]};
             border-radius: 4px;
-            padding: 3px 10px;
+            padding: 2px 8px;
             font-size: 11px;
-            text-align: left;
         }}
         QPushButton[objectName="variablePopupAddSelect"]:hover {{
             border-color: {p["accent"]};
+            color: {p["text"]};
         }}
         QPushButton[objectName="variablePopupTarget"] {{
             background: transparent;

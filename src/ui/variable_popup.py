@@ -23,8 +23,16 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QEvent, QPoint, Qt, QTimer
 from PySide6.QtGui import QEnterEvent, QKeyEvent, QMouseEvent
-from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel,
-                               QLineEdit, QPushButton, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (
+    QApplication,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 if TYPE_CHECKING:
     from services.environment_service import VariableDetail
@@ -134,6 +142,15 @@ class VariablePopup(QFrame):
         self._source_badge = QLabel()
         self._source_badge.setObjectName("variablePopupBadge")
         bottom_row.addWidget(self._source_badge)
+
+        # "Add to" select box — same row as badge (unresolved only)
+        self._add_select = QPushButton("Add to \u25be")
+        self._add_select.setObjectName("variablePopupAddSelect")
+        self._add_select.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._add_select.setFixedHeight(22)
+        self._add_select.clicked.connect(self._toggle_add_panel)
+        bottom_row.addWidget(self._add_select)
+
         bottom_row.addStretch()
 
         self._update_btn = QPushButton("Update")
@@ -153,14 +170,6 @@ class VariablePopup(QFrame):
         bottom_row.addWidget(self._reset_btn)
 
         root.addLayout(bottom_row)
-
-        # -- Unresolved: "Add to" select box --------------------------
-        self._add_select = QPushButton("Add to \u25be")
-        self._add_select.setObjectName("variablePopupAddSelect")
-        self._add_select.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._add_select.setFixedHeight(26)
-        self._add_select.clicked.connect(self._toggle_add_panel)
-        root.addWidget(self._add_select)
 
         # Inline dropdown panel (expands below the select box)
         self._add_panel = QFrame()

@@ -6,15 +6,23 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QSize, Qt, QThread
-from PySide6.QtGui import (QAction, QCloseEvent, QCursor, QGuiApplication,
-                           QKeySequence)
+from PySide6.QtGui import QAction, QCloseEvent, QCursor, QGuiApplication, QKeySequence
 
 if TYPE_CHECKING:
     from ui.request.http_worker import HttpSendWorker
 
-from PySide6.QtWidgets import (QHBoxLayout, QMainWindow, QPushButton,
-                               QSizePolicy, QSplitter, QStackedWidget,
-                               QTabWidget, QToolBar, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QMainWindow,
+    QPushButton,
+    QSizePolicy,
+    QSplitter,
+    QStackedWidget,
+    QTabWidget,
+    QToolBar,
+    QVBoxLayout,
+    QWidget,
+)
 
 from services.collection_service import CollectionService
 from services.environment_service import EnvironmentService, LocalOverride
@@ -98,9 +106,7 @@ class MainWindow(QMainWindow):
         VariablePopup.set_local_override_callback(self._on_local_variable_override)
         VariablePopup.set_reset_local_override_callback(self._on_reset_local_override)
         VariablePopup.set_add_variable_callback(self._on_add_unresolved_variable)
-        VariablePopup.set_has_environment(
-            self._env_selector.current_environment_id() is not None
-        )
+        VariablePopup.set_has_environment(self._env_selector.current_environment_id() is not None)
 
         # Wire loading screen
         self.collection_widget.load_finished.connect(self._on_load_finished)
@@ -613,9 +619,7 @@ class MainWindow(QMainWindow):
         """Refresh variable maps in all open request editors."""
         from ui.variable_popup import VariablePopup
 
-        VariablePopup.set_has_environment(
-            self._env_selector.current_environment_id() is not None
-        )
+        VariablePopup.set_has_environment(self._env_selector.current_environment_id() is not None)
         for ctx in self._tabs.values():
             if ctx.tab_type != "folder":
                 self._refresh_variable_map(ctx.editor, ctx.request_id, ctx.local_overrides)
@@ -701,8 +705,7 @@ class MainWindow(QMainWindow):
             request_id = ctx.request_id if ctx else None
             if request_id is None:
                 return
-            from database.models.collections.collection_repository import \
-                get_request_by_id
+            from database.models.collections.collection_repository import get_request_by_id
 
             req = get_request_by_id(request_id)
             if req is None:

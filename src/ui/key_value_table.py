@@ -13,15 +13,31 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, cast
 
-from PySide6.QtCore import (QEvent, QModelIndex, QObject,
-                            QPersistentModelIndex, QPoint, QRect, Qt, QTimer,
-                            Signal)
-from PySide6.QtGui import (QColor, QFontMetrics, QHelpEvent, QMouseEvent,
-                           QPainter)
-from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QHBoxLayout,
-                               QHeaderView, QPushButton, QStyledItemDelegate,
-                               QStyleOptionViewItem, QTableWidget,
-                               QTableWidgetItem, QVBoxLayout, QWidget)
+from PySide6.QtCore import (
+    QEvent,
+    QModelIndex,
+    QObject,
+    QPersistentModelIndex,
+    QPoint,
+    QRect,
+    Qt,
+    QTimer,
+    Signal,
+)
+from PySide6.QtGui import QColor, QFontMetrics, QHelpEvent, QMouseEvent, QPainter
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QCheckBox,
+    QHBoxLayout,
+    QHeaderView,
+    QPushButton,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 if TYPE_CHECKING:
     from services.environment_service import VariableDetail
@@ -110,9 +126,12 @@ class _VariableHighlightDelegate(QStyledItemDelegate):
         y_center = text_rect.top() + (text_rect.height() + fm.ascent() - fm.descent()) // 2
 
         # Resolve highlight colour at paint time so theme changes apply
-        from ui.theme import (COLOR_VARIABLE_HIGHLIGHT,
-                              COLOR_VARIABLE_UNRESOLVED_HIGHLIGHT,
-                              COLOR_VARIABLE_UNRESOLVED_TEXT, COLOR_WARNING)
+        from ui.theme import (
+            COLOR_VARIABLE_HIGHLIGHT,
+            COLOR_VARIABLE_UNRESOLVED_HIGHLIGHT,
+            COLOR_VARIABLE_UNRESOLVED_TEXT,
+            COLOR_WARNING,
+        )
 
         hl_bg = QColor(COLOR_VARIABLE_HIGHLIGHT)
         hl_fg = QColor(COLOR_WARNING)

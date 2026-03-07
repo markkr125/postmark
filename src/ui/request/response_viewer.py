@@ -13,12 +13,21 @@ from __future__ import annotations
 import contextlib
 
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import (QColor, QKeySequence, QShortcut, QTextCharFormat,
-                           QTextCursor)
-from PySide6.QtWidgets import (QApplication, QComboBox, QHBoxLayout, QLabel,
-                               QLineEdit, QProgressBar, QPushButton,
-                               QSizePolicy, QTabWidget, QTextEdit, QVBoxLayout,
-                               QWidget)
+from PySide6.QtGui import QColor, QKeySequence, QShortcut, QTextCharFormat, QTextCursor
+from PySide6.QtWidgets import (
+    QApplication,
+    QComboBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QProgressBar,
+    QPushButton,
+    QSizePolicy,
+    QTabWidget,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ui.code_editor import CodeEditorWidget
 from ui.icons import phi
@@ -27,8 +36,14 @@ from ui.request.popups.network_popup import NetworkPopup
 from ui.request.popups.size_popup import SizePopup
 from ui.request.popups.status_popup import StatusPopup
 from ui.request.popups.timing_popup import TimingPopup
-from ui.theme import (COLOR_DANGER, COLOR_DELETE, COLOR_IMPORT_ERROR,
-                      COLOR_SUCCESS, COLOR_WARNING, COLOR_WHITE)
+from ui.theme import (
+    COLOR_DANGER,
+    COLOR_DELETE,
+    COLOR_IMPORT_ERROR,
+    COLOR_SUCCESS,
+    COLOR_WARNING,
+    COLOR_WHITE,
+)
 
 # -- Status code colour thresholds ------------------------------------
 _STATUS_2XX = COLOR_SUCCESS  # green
@@ -145,6 +160,7 @@ class ResponseViewerWidget(QWidget):
 
         # -- Tabbed area: Body, Headers -------------------------------
         self._tabs = QTabWidget()
+        self._tabs.tabBar().setCursor(Qt.CursorShape.PointingHandCursor)
         self._tabs.setCornerWidget(self._status_bar_widget, Qt.Corner.TopRightCorner)
 
         # Body tab with format selector
@@ -161,9 +177,8 @@ class ResponseViewerWidget(QWidget):
         format_row.addWidget(self._format_combo)
 
         self._beautify_btn = QPushButton("Beautify")
-        self._beautify_btn.setIcon(phi("magic-wand"))
+        self._beautify_btn.setIcon(phi("magic-wand", color=COLOR_WHITE))
         self._beautify_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._beautify_btn.setFixedWidth(70)
         self._beautify_btn.setToolTip("Format and beautify the response body")
         self._beautify_btn.setObjectName("smallPrimaryButton")
         self._beautify_btn.clicked.connect(self._on_beautify)
@@ -824,8 +839,7 @@ class ResponseViewerWidget(QWidget):
         """
         import json
 
-        from jsonpath_ng import \
-            parse as jsonpath_parse  # type: ignore[import-untyped]
+        from jsonpath_ng import parse as jsonpath_parse  # type: ignore[import-untyped]
 
         data = json.loads(body)
         matches = jsonpath_parse(expr).find(data)

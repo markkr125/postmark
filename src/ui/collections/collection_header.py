@@ -36,11 +36,12 @@ class CollectionHeader(QWidget):
         self.setFixedHeight(70)
 
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(8, 6, 8, 6)
+        main_layout.setContentsMargins(0, 6, 0, 6)
         main_layout.setSpacing(6)
 
         # -- Row 1: section label + action buttons --------------------
         top_row = QHBoxLayout()
+        top_row.setContentsMargins(8, 0, 8, 0)
         top_row.setSpacing(4)
 
         section_label = QLabel("Collections")

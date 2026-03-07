@@ -88,9 +88,12 @@ class VariableLineEdit(QLineEdit):
         if not matches:
             return
 
-        from ui.theme import (COLOR_VARIABLE_HIGHLIGHT,
-                              COLOR_VARIABLE_UNRESOLVED_HIGHLIGHT,
-                              COLOR_VARIABLE_UNRESOLVED_TEXT, COLOR_WARNING)
+        from ui.theme import (
+            COLOR_VARIABLE_HIGHLIGHT,
+            COLOR_VARIABLE_UNRESOLVED_HIGHLIGHT,
+            COLOR_VARIABLE_UNRESOLVED_TEXT,
+            COLOR_WARNING,
+        )
 
         hl_bg = QColor(COLOR_VARIABLE_HIGHLIGHT)
         hl_fg = QColor(COLOR_WARNING)

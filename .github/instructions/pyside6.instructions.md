@@ -188,6 +188,20 @@ standard object names:
 | `infoPopup` | `QFrame` | Response metadata popup container |
 | `infoPopupTitle` | `QLabel` | Popup title heading |
 | `infoPopupSeparator` | `QLabel` | Popup horizontal rule |
+| `variablePopupBadge` | `QLabel` | Source badge (collection/environment/unresolved/local) |
+| `variablePopupName` | `QLabel` | Variable name heading |
+| `variablePopupValue` | `QLineEdit` | Editable variable value field |
+| `variablePopupUpdateBtn` | `QPushButton` | "Update" button (persist local override) |
+| `variablePopupResetBtn` | `QPushButton` | "Reset" button (remove local override) |
+| `variablePopupAddSelect` | `QPushButton` | "Add to ▾" select-box toggle |
+| `variablePopupAddPanel` | `QFrame` | Expandable target panel for unresolved vars |
+| `variablePopupTarget` | `QPushButton` | Collection/environment target button |
+| `variablePopupNoEnv` | `QLabel` | "No environment selected" warning |
+| `variablePopup` | `QFrame` | Variable popup container |
+| `saveButton` | `QPushButton` | Save action button |
+| `sidebarSearch` | `QLineEdit` | Collection sidebar search input |
+| `sidebarSectionLabel` | `QLabel` | Sidebar section heading |
+| `sidebarToolButton` | `QToolButton` | Sidebar toolbar button |
 
 ### When inline setStyleSheet() is still acceptable
 
@@ -395,3 +409,38 @@ The `InfoPopup` base class (`ui/info_popup.py`) provides:
 
 `ClickableLabel(QLabel)` emits a `clicked` signal on `mousePressEvent`.
 Used for the response status bar labels that open popups.
+
+## VariablePopup — singleton variable hover popup
+
+`VariablePopup` (`ui/variable_popup.py`) is a **singleton** `QFrame` popup
+shown when the user hovers over a `{{variable}}` reference in
+`VariableLineEdit`.  It displays the resolved value, source badge, and an
+editable field.
+
+### Rules for VariablePopup
+
+- **Do NOT use Qt signals** for VariablePopup actions.  It uses class-level
+  callbacks instead (`set_save_callback`, `set_local_override_callback`,
+  `set_reset_local_override_callback`, `set_add_variable_callback`,
+  `set_has_environment`).  These are classmethods that store `Callable`
+  objects on the class itself.  They are wired once in
+  `MainWindow.__init__` and must not be re-wired elsewhere.
+- **Dismiss behaviour** follows the same pattern as `InfoPopup`: app-wide
+  `eventFilter` closes the popup on click-outside, with a 150ms grace
+  period to prevent the opening click from immediately closing it.
+- **"Add to" panel** — for unresolved variables only.  A button
+  ("Add to &#9662;") sits in the bottom row next to the "Unresolved" badge.
+  Clicking it toggles an inline `_add_panel` with collection/environment
+  target buttons.  Do not replace this with a `QMenu` or `QComboBox` —
+  both cause dismiss issues on Linux.
+
+### Rules for VariableLineEdit
+
+`VariableLineEdit` (`ui/variable_line_edit.py`) is a `QLineEdit` subclass
+that paints coloured pills over `{{variable}}` references.
+
+- Call `set_variable_map(variables: dict[str, VariableDetail])` to update
+  the variable lookup used for painting and hover popups.
+- `mouseMoveEvent` triggers `VariablePopup.show_variable()` after a 150ms
+  `QTimer` delay when the cursor hovers over a `{{variable}}` token.
+- Pill colours come from `ui.theme` — do not hardcode hex values.

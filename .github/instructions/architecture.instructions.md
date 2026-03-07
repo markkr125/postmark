@@ -225,6 +225,14 @@ eventFilter on tree_widget:
 ```
 CollectionWidget.item_action_triggered("request", id, "Open")
   → MainWindow._on_item_action
+    → _open_request(id)
+      → CollectionService.get_request(id) → dict
+      → RequestEditorWidget.load_request(dict)
+      → _history append + _update_nav_actions
+
+MainWindow back_action / forward_action
+  → _navigate_back / _navigate_forward
+    → _open_request(history[index])
 ```
 
 ### Import operations
@@ -248,16 +256,6 @@ ImportDialog internally:
         → parser layer → import_repository → DB
       → _ImportWorker.finished(ImportSummary)
         → ImportDialog._on_import_finished → update log + emit import_completed
-```
-  → MainWindow._on_item_action
-    → _open_request(id)
-      → CollectionService.get_request(id) → dict
-      → RequestEditorWidget.load_request(dict)
-      → _history append + _update_nav_actions
-
-MainWindow back_action / forward_action
-  → _navigate_back / _navigate_forward
-    → _open_request(history[index])
 ```
 
 ### Selected-collection flow
@@ -306,22 +304,59 @@ features.
 | Signal / Feature | Location | Status |
 |---|---|---|
 | `MainWindow.run_action` | `main_window.py` | QAction created, not connected |
-| `CollectionWidget.item_name_changed` | `collection_widget.py` | Forwarded from tree, nothing connects in MainWindow |
 
-### Recently wired signals (no longer unconnected)
+All other signals documented in the "Signal flow" section above are
+fully wired and working.  If a signal appears in the flow diagrams, it
+is connected — do not disconnect or re-wire it.
 
-| Signal / Feature | Wired in |
-|---|---|
-| `CollectionHeader.search_changed(str)` | `CollectionWidget` → `CollectionTree.filter_items` |
-| `CollectionHeader.new_request_requested(object)` | Emitted from header + menu when collection selected |
-| `CollectionWidget.item_action_triggered` | `MainWindow._on_item_action` (opens request editor) |
-| Request editor pane | `RequestEditorWidget` — loaded via `MainWindow._open_request` |
-| `CollectionTree.selected_collection_changed` | `CollectionWidget` → `CollectionHeader.set_selected_collection_id` |
-| `CollectionHeader.import_requested` | `CollectionWidget._on_import_requested` → opens `ImportDialog` |
-| `ImportDialog.import_completed` | `CollectionWidget._start_fetch` (refresh tree) |
-| `MainWindow` File → Import (`Ctrl+I`) | `MainWindow._on_import` → opens `ImportDialog` |
-| `RequestEditorWidget.send_requested` | `MainWindow._on_send_request` → `HttpSendWorker` (see send-request flow) |
-| Response viewer pane | `ResponseViewerWidget` with body/headers/cookies tabs + popup toolbar |
+### Variable popup flow
+
+```
+VariableLineEdit.mouseMoveEvent (cursor over {{variable}})
+  → 150ms QTimer delay
+    → VariablePopup.show_variable(name, detail, anchor_rect)
+      → displays value, source badge, edit field
+
+VariablePopup "Save" (resolved variable)
+  → _save_callback(source, source_id, name, new_value)
+    → MainWindow._on_variable_updated
+      → EnvironmentService.update_variable_value()
+      → clear local override if any
+      → _refresh_variable_map()
+
+VariablePopup "Update" (local override)
+  → _save_callback(original_source, original_source_id, name, local_value)
+    → MainWindow._on_variable_updated (same path as Save)
+
+VariablePopup "Reset" (local override)
+  → _reset_local_override_callback(name)
+    → MainWindow._on_reset_local_override
+      → remove from TabContext.local_overrides
+      → _refresh_variable_map()
+
+VariablePopup close (value changed, not saved)
+  → _local_override_callback(name, value, source, source_id)
+    → MainWindow._on_local_variable_override
+      → store in TabContext.local_overrides
+      → _refresh_variable_map()
+
+VariablePopup "Add to" (unresolved variable)
+  → _add_variable_callback(target, target_id, name, value)
+    → MainWindow._on_add_unresolved_variable
+      → EnvironmentService.add_variable()
+      → _refresh_variable_map()
+```
+
+### Variable map refresh
+
+```
+MainWindow._refresh_variable_map()
+  → EnvironmentService.build_combined_variable_detail_map(env_id, request_id)
+  → merge TabContext.local_overrides on top
+  → set VariableDetail.is_local = True for overridden keys
+  → request_editor.set_variable_map(merged)
+    → VariableLineEdit widgets repaint with updated colours
+```
 
 ## Implicit contracts
 
@@ -381,6 +416,17 @@ order (insertion order in Python 3.7+).
 | `update_request_collection(request_id, new_collection_id)` | `None` | Move request |
 | `update_collection_parent(collection_id, new_parent_id)` | `None` | Move collection |
 | `get_request_by_id(request_id)` | `RequestModel \| None` | PK lookup |
+| `get_request_auth_chain(request_id)` | `dict[str, Any] \| None` | Walk parent chain for auth config |
+| `get_request_variable_chain(request_id)` | `dict[str, str]` | Collect variables up the parent chain |
+| `get_request_variable_chain_detailed(request_id)` | `dict[str, tuple[str, int]]` | Variables with source collection IDs |
+| `get_request_breadcrumb(request_id)` | `list[dict[str, Any]]` | Ancestor path for breadcrumb bar |
+| `get_collection_breadcrumb(collection_id)` | `list[dict[str, Any]]` | Ancestor path for collection breadcrumb |
+| `get_saved_responses_for_request(request_id)` | `list[dict[str, Any]]` | Saved responses for a request |
+| `save_response(request_id, ...)` | `SavedResponseModel` | Persist a response snapshot |
+| `update_collection(collection_id, **fields)` | `None` | Generic field update on a collection |
+| `update_request(request_id, **fields)` | `None` | Generic field update on a request |
+| `count_collection_requests(collection_id)` | `int` | Total request count in folder subtree |
+| `get_recent_requests_for_collection(collection_id, ...)` | `list[dict[str, Any]]` | Recently modified requests in subtree |
 | `import_collection_tree(parsed)` | `dict[str, int]` | Atomic bulk-import of a full collection tree |
 
 ### Environment repository (`environment_repository.py`)
@@ -392,6 +438,7 @@ order (insertion order in Python 3.7+).
 | `get_environment_by_id(id)` | `EnvironmentModel \| None` | PK lookup |
 | `rename_environment(id, new_name)` | `None` | Update name |
 | `delete_environment(id)` | `None` | Delete environment |
+| `update_environment_values(id, values)` | `None` | Replace key-value pairs |
 
 ## Service method catalogue
 
@@ -411,6 +458,16 @@ the method delegates directly to the repository with no added logic.
 | `rename_request(id, new_name)` | `new_name.strip()`, rejects empty |
 | `delete_request(id)` | Logging only |
 | `move_request(id, new_collection_id)` | Passthrough |
+| `update_collection(id, **fields)` | Passthrough (generic field update) |
+| `update_request(id, **fields)` | Passthrough (generic field update) |
+| `get_request_auth_chain(request_id)` | Passthrough |
+| `get_request_variable_chain(request_id)` | Passthrough |
+| `get_request_breadcrumb(request_id)` | Passthrough |
+| `get_collection_breadcrumb(collection_id)` | Passthrough |
+| `get_folder_request_count(collection_id)` | Passthrough |
+| `get_recent_requests(collection_id, ...)` | Passthrough |
+| `get_saved_responses(request_id)` | Passthrough |
+| `save_response(request_id, ...)` | Passthrough |
 
 ### Import service (`ImportService`)
 
@@ -484,7 +541,26 @@ variable substitution via `{{variable}}` syntax.
 | `delete_environment(id)` | Delete environment |
 | `update_environment_values(id, values)` | Replace key-value pairs |
 | `build_variable_map(environment_id)` | Build `{name: value}` dict for substitution |
+| `build_combined_variable_map(env_id, request_id)` | Merged collection + environment `{name: value}` map |
+| `build_combined_variable_detail_map(env_id, request_id)` | Merged map with `VariableDetail` metadata per key |
+| `update_variable_value(source, source_id, key, new_value)` | Update a single variable at its collection/environment source |
+| `add_variable(source, source_id, key, value)` | Add (or update) a variable to a collection or environment |
 | `substitute(text, variables)` | Replace `{{key}}` placeholders in text |
+
+**TypedDict schemas (defined in `services/environment_service.py`):**
+
+```python
+class VariableDetail(TypedDict, total=False):
+    value: str           # resolved value
+    source: str          # "collection", "environment", or "local"
+    source_id: int       # collection_id or environment_id (0 for local)
+    is_local: bool       # True when value is a per-request override
+
+class LocalOverride(TypedDict):
+    value: str                # overridden value
+    original_source: str      # "collection" or "environment"
+    original_source_id: int   # PK of the original source
+```
 
 ### GraphQL schema service (`GraphQLSchemaService`)
 
@@ -568,3 +644,19 @@ used for the status bar labels.
    `HttpService.send_request()`.
 5. **Navigation history is in-memory only** — back/forward stack in
    `MainWindow` is lost on restart.
+6. **`TabContext.local_overrides` are in-memory only** —
+   `TabContext` (in `tab_manager.py`) stores per-request variable overrides
+   in `local_overrides: dict[str, LocalOverride]`.  These do **not** persist
+   to the database.  When the user edits a variable value in
+   `VariablePopup` and dismisses the popup without saving, the changed
+   value goes into `local_overrides`.  They are merged on top of the
+   combined variable map in `MainWindow._refresh_variable_map()` and
+   tagged with `is_local=True` in `VariableDetail` so the popup can show
+   Update/Reset buttons.
+7. **VariablePopup uses class-level callbacks, not Qt signals** —
+   `VariablePopup` is a **singleton** `QFrame`.  Its callbacks
+   (`set_save_callback`, `set_local_override_callback`,
+   `set_reset_local_override_callback`, `set_add_variable_callback`,
+   `set_has_environment`) are classmethods that store callables on the
+   **class itself**, not on an instance.  They are wired once in
+   `MainWindow.__init__` and survive popup hide/show cycles.

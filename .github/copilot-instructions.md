@@ -2,6 +2,27 @@
 
 ## CRITICAL — Keeping instructions in sync
 
+> **MANDATORY — EVERY code change MUST be followed by an instruction audit.**
+> After modifying, adding, or deleting ANY source file, test file, signal,
+> TypedDict, service method, QSS objectName, or architectural pattern, you
+> MUST review ALL instruction files listed below and update them to reflect
+> the change.  **Stale or incomplete instructions are treated as bugs.**
+>
+> Checklist — run through each step after every code change:
+>
+> 1. **Update the architecture tree** in this file to match `src/` and
+>    `tests/`.  Add new files, remove deleted files.
+> 2. **Update `architecture.instructions.md`** with any new or changed
+>    signals, data flows, TypedDicts, implicit contracts, or service methods.
+> 3. **Update `pyside6.instructions.md`** with any new `objectName` values
+>    used in global QSS.
+> 4. **Update `testing.instructions.md`** with any new test files or
+>    directories.
+> 5. **Update `sqlalchemy.instructions.md`** with any new models,
+>    relationships, or repository functions.
+> 6. **Search every instruction file** for stale references to renamed,
+>    moved, or deleted code.  Remove or correct them.
+
 This file and the scoped instruction files below form a single source of
 truth.
 
@@ -59,7 +80,7 @@ src/
 │               └── environment_model.py   # EnvironmentModel (key-value sets)
 ├── services/                      # Service layer (UI ↔ DB bridge)
 │   ├── collection_service.py      # CollectionService (static methods)
-│   ├── environment_service.py     # EnvironmentService (variable substitution)
+│   ├── environment_service.py     # EnvironmentService (variable substitution + TypedDicts)
 │   ├── graphql_schema_service.py  # GraphQL introspection + schema parsing
 │   ├── http_service.py            # HttpService (httpx) + response TypedDicts
 │   ├── import_service.py          # ImportService (parse + persist)
@@ -78,13 +99,16 @@ src/
     ├── info_popup.py              # InfoPopup (QFrame) base + ClickableLabel
     ├── key_value_table.py         # Reusable key-value editor widget
     ├── loading_screen.py          # Loading screen overlay widget
+    ├── variable_line_edit.py      # VariableLineEdit — QLineEdit with {{var}} highlighting + hover popup
+    ├── variable_popup.py          # VariablePopup — singleton hover popup for variable details
     ├── collections/               # Collection sidebar
     │   ├── collection_header.py
     │   ├── collection_widget.py
     │   └── tree/                  # Tree widget sub-package
     │       ├── constants.py
     │       ├── draggable_tree_widget.py
-    │       └── collection_tree.py
+    │       ├── collection_tree.py
+    │       └── collection_tree_delegate.py  # Custom delegate for method badges
     ├── dialogs/                   # Modal dialogs
     │   ├── code_snippet_dialog.py
     │   ├── collection_runner.py
@@ -103,7 +127,7 @@ src/
         ├── request_editor.py
         ├── request_tab_bar.py
         ├── response_viewer.py       # Response body/headers/cookies + popup toolbar
-        ├── tab_manager.py
+        ├── tab_manager.py           # TabManager + TabContext (with local_overrides)
         └── popups/                  # Response metadata popups
             ├── status_popup.py      # HTTP status code explanation
             ├── timing_popup.py      # Request timing breakdown
@@ -132,9 +156,12 @@ tests/
     ├── test_code_editor_memory.py
     ├── test_info_popup.py
     ├── test_key_value_table.py
+    ├── test_variable_line_edit.py
+    ├── test_variable_popup.py
     ├── collections/               # Collection sidebar tests
     │   ├── test_collection_header.py
     │   ├── test_collection_tree.py
+    │   ├── test_collection_tree_delegate.py
     │   └── test_collection_widget.py
     ├── dialogs/                   # Dialog tests
     │   ├── test_import_dialog.py
@@ -174,6 +201,14 @@ poetry run ruff check src/ tests/          # linter clean
 poetry run ruff format --check src/ tests/ # formatter clean
 poetry run mypy src/ tests/                # type checker clean
 ```
+
+> **ZERO tolerance for errors — including pre-existing ones.**
+> Every command above must exit with **zero** errors, warnings, or
+> suggestions.  If you find a pre-existing error (lint, type, format,
+> test failure) while working on an unrelated task, **fix it immediately**
+> in the same change.  "It was already broken" is never an acceptable
+> excuse — fix it anyway.  All four commands passing clean is a hard gate
+> on every change.  No exceptions.
 
 **NEVER use `--fix` or auto-format as a substitute for the checks above.**
 Always run the check-only commands first. If they fail, fix the code

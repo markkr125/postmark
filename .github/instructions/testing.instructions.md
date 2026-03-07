@@ -119,9 +119,12 @@ tests/
     ├── test_code_editor_memory.py # CodeEditorWidget memory tests
     ├── test_info_popup.py         # InfoPopup + ClickableLabel tests
     ├── test_key_value_table.py    # Shared key-value editor widget tests
+    ├── test_variable_line_edit.py # VariableLineEdit widget tests
+    ├── test_variable_popup.py     # VariablePopup widget tests
     ├── collections/               # Collection sidebar tests
     │   ├── test_collection_header.py
     │   ├── test_collection_tree.py
+    │   ├── test_collection_tree_delegate.py
     │   └── test_collection_widget.py
     ├── dialogs/                   # Dialog tests
     │   ├── test_import_dialog.py
