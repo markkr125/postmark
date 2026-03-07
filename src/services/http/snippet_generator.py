@@ -10,17 +10,7 @@ from __future__ import annotations
 import json
 import shlex
 
-
-def _parse_headers(headers_text: str | None) -> dict[str, str]:
-    """Parse ``Key: Value`` header lines into a dict."""
-    if not headers_text:
-        return {}
-    result: dict[str, str] = {}
-    for line in headers_text.splitlines():
-        if ": " in line:
-            key, _, value = line.partition(": ")
-            result[key.strip()] = value.strip()
-    return result
+from services.http.header_utils import parse_header_dict
 
 
 class SnippetGenerator:
@@ -39,7 +29,7 @@ class SnippetGenerator:
     ) -> str:
         """Generate a cURL command."""
         parts = ["curl", "-X", method.upper(), shlex.quote(url)]
-        for key, value in _parse_headers(headers).items():
+        for key, value in parse_header_dict(headers).items():
             parts.append("-H")
             parts.append(shlex.quote(f"{key}: {value}"))
         if body:
@@ -57,7 +47,7 @@ class SnippetGenerator:
     ) -> str:
         """Generate a Python ``requests`` snippet."""
         lines = ["import requests", ""]
-        hdr = _parse_headers(headers)
+        hdr = parse_header_dict(headers)
 
         if hdr:
             lines.append(f"headers = {json.dumps(hdr, indent=4)}")
@@ -90,7 +80,7 @@ class SnippetGenerator:
         body: str | None = None,
     ) -> str:
         """Generate a JavaScript ``fetch`` snippet."""
-        hdr = _parse_headers(headers)
+        hdr = parse_header_dict(headers)
         opts: list[str] = [f'  method: "{method.upper()}"']
         if hdr:
             hdr_str = json.dumps(hdr, indent=4)

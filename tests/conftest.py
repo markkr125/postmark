@@ -62,3 +62,35 @@ def _fresh_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     # Cleanup: reset state for the next test
     db_mod._engine = None
     db_mod._SessionLocal = None
+
+
+# ------------------------------------------------------------------
+# Collection + request factory (convenience for UI & service tests)
+# ------------------------------------------------------------------
+@pytest.fixture()
+def make_collection_with_request():
+    """Factory that creates a persisted collection with one request.
+
+    Returns ``(collection, request)`` — both are detached model snapshots.
+
+    Usage::
+
+        coll, req = make_collection_with_request()
+        coll, req = make_collection_with_request(
+            name="MyColl", method="POST", url="http://x", req_name="R",
+        )
+    """
+    from services.collection_service import CollectionService
+
+    def _make(
+        name: str = "Coll",
+        method: str = "GET",
+        url: str = "http://x",
+        req_name: str = "Req",
+    ):
+        svc = CollectionService()
+        coll = svc.create_collection(name)
+        req = svc.create_request(coll.id, method, url, req_name)
+        return coll, req
+
+    return _make

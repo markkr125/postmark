@@ -26,6 +26,23 @@ logger = logging.getLogger(__name__)
 _VAR_PATTERN = re.compile(r"\{\{(.+?)\}\}")
 
 
+def _patch_variable_in_list(
+    var_list: list[dict[str, Any]],
+    key: str,
+    value: str,
+) -> bool:
+    """Set *key* to *value* in *var_list*, returning ``True`` if found.
+
+    Mutates *var_list* in place.  Returns ``False`` when no entry with
+    a matching ``key`` exists (caller should append instead).
+    """
+    for entry in var_list:
+        if entry.get("key") == key:
+            entry["value"] = value
+            return True
+    return False
+
+
 class _VariableDetailRequired(TypedDict):
     """Required fields for variable metadata."""
 
@@ -168,7 +185,9 @@ class EnvironmentService:
 
         Returns an empty dict if neither source provides variables.
         """
-        from database.models.collections.collection_repository import get_request_variable_chain
+        from database.models.collections.collection_query_repository import (
+            get_request_variable_chain,
+        )
 
         # 1. Collection-level variables (inherited up the tree)
         variables: dict[str, str] = {}
@@ -193,7 +212,7 @@ class EnvironmentService:
         whether it came from ``"collection"`` or ``"environment"``.
         Environment variables take precedence over collection variables.
         """
-        from database.models.collections.collection_repository import (
+        from database.models.collections.collection_query_repository import (
             get_request_variable_chain_detailed,
         )
 
@@ -259,11 +278,7 @@ class EnvironmentService:
                 return
             variables = list(coll.variables or [])
 
-        for entry in variables:
-            if entry.get("key") == key:
-                entry["value"] = new_value
-                break
-
+        _patch_variable_in_list(variables, key, new_value)
         update_collection(collection_id, variables=variables)
         logger.info(
             "Updated collection variable %r in collection id=%s",
@@ -283,11 +298,7 @@ class EnvironmentService:
             return
         values = list(env.values or [])
 
-        for entry in values:
-            if entry.get("key") == key:
-                entry["value"] = new_value
-                break
-
+        _patch_variable_in_list(values, key, new_value)
         update_environment_values(environment_id, values)
         logger.info(
             "Updated environment variable %r in environment id=%s",
@@ -355,14 +366,9 @@ class EnvironmentService:
                 return
             variables = list(coll.variables or [])
 
-        # Update existing or append new
-        for entry in variables:
-            if entry.get("key") == key:
-                entry["value"] = value
-                update_collection(collection_id, variables=variables)
-                return
+        if not _patch_variable_in_list(variables, key, value):
+            variables.append({"key": key, "value": value})
 
-        variables.append({"key": key, "value": value})
         update_collection(collection_id, variables=variables)
         logger.info(
             "Added collection variable %r to collection id=%s",
@@ -382,14 +388,9 @@ class EnvironmentService:
             return
         values = list(env.values or [])
 
-        # Update existing or append new
-        for entry in values:
-            if entry.get("key") == key:
-                entry["value"] = value
-                update_environment_values(environment_id, values)
-                return
+        if not _patch_variable_in_list(values, key, value):
+            values.append({"key": key, "value": value})
 
-        values.append({"key": key, "value": value})
         update_environment_values(environment_id, values)
         logger.info(
             "Added environment variable %r to environment id=%s",

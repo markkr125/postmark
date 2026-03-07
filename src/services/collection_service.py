@@ -7,14 +7,10 @@ the widgets never import ``collection_repository`` directly.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, TypedDict
 
-from database.models.collections.collection_repository import (
+from database.models.collections.collection_query_repository import (
     count_collection_requests,
-    create_new_collection,
-    create_new_request,
-    delete_collection,
-    delete_request,
     fetch_all_collections,
     get_collection_breadcrumb,
     get_collection_by_id,
@@ -24,6 +20,12 @@ from database.models.collections.collection_repository import (
     get_request_by_id,
     get_request_variable_chain,
     get_saved_responses_for_request,
+)
+from database.models.collections.collection_repository import (
+    create_new_collection,
+    create_new_request,
+    delete_collection,
+    delete_request,
     rename_collection,
     rename_request,
     save_response,
@@ -36,6 +38,27 @@ from database.models.collections.model.collection_model import CollectionModel
 from database.models.collections.model.request_model import RequestModel
 
 logger = logging.getLogger(__name__)
+
+
+class RequestLoadDict(TypedDict, total=False):
+    """Data dict used to populate a :class:`RequestEditorWidget`.
+
+    Built from :class:`RequestModel` attributes in
+    ``_TabControllerMixin._open_request``.  All keys are optional
+    because callers may omit fields they don't need.
+    """
+
+    name: str
+    method: str
+    url: str
+    body: str | None
+    request_parameters: str | list[dict[str, Any]] | None
+    headers: str | list[dict[str, Any]] | None
+    description: str | None
+    scripts: dict[str, Any] | None
+    body_mode: str | None
+    body_options: dict[str, Any] | None
+    auth: dict[str, Any] | None
 
 
 class CollectionService:

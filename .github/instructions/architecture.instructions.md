@@ -180,7 +180,9 @@ them.  Service validation errors (empty names, missing parents) are silently
 discarded.
 
 **If you add a new service method**, its errors will be invisible unless you
-also add explicit UI feedback (e.g. a `QMessageBox`).
+also add explicit UI feedback (e.g. a `QMessageBox`).  For user-visible
+errors, pair the service call with `QMessageBox.warning()` or emit a status
+signal instead of relying on `_safe_svc_call`.
 
 ### 5. Sort ordering
 

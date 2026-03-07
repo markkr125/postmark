@@ -4,12 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from database.models.collections.collection_repository import (
+from database.models.collections.collection_query_repository import (
     count_collection_requests,
-    create_new_collection,
-    create_new_request,
-    delete_collection,
-    delete_request,
     fetch_all_collections,
     get_collection_breadcrumb,
     get_collection_by_id,
@@ -17,6 +13,12 @@ from database.models.collections.collection_repository import (
     get_request_by_id,
     get_request_variable_chain,
     get_request_variable_chain_detailed,
+)
+from database.models.collections.collection_repository import (
+    create_new_collection,
+    create_new_request,
+    delete_collection,
+    delete_request,
     rename_collection,
     rename_request,
     update_collection,

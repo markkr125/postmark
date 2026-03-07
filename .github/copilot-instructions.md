@@ -107,6 +107,30 @@ poetry run pytest
 `extraPaths` in `pyproject.toml`). Imports use bare module names:
 `from database.database import init_db`.
 
+## LLM Navigation Quick-Start
+
+Fastest paths to understand and navigate the codebase:
+
+- **All services at a glance:** Read `src/services/__init__.py` — re-exports
+  `CollectionService`, `EnvironmentService`, `ImportService`, and key
+  TypedDicts (`RequestLoadDict`, `VariableDetail`, `LocalOverride`).
+- **HTTP subsystem:** Read `src/services/http/__init__.py` — re-exports
+  `HttpService`, `GraphQLSchemaService`, `SnippetGenerator`,
+  `HttpResponseDict`, `parse_header_dict`.
+- **All DB models:** Read `src/database/database.py` — re-exports all four
+  ORM models (`CollectionModel`, `RequestModel`, `SavedResponseModel`,
+  `EnvironmentModel`).
+- **Collection CRUD vs queries:** Mutations live in
+  `collection_repository.py`; read-only tree/breadcrumb/ancestor queries
+  live in `collection_query_repository.py`.
+- **Signal flow:** Load the `signal-flow` skill for complete wiring diagrams.
+- **TypedDicts:** Cross-module dict schemas live in the service that owns
+  them (e.g. `RequestLoadDict` in `collection_service.py`,
+  `HttpResponseDict` in `http_service.py`).
+- **Test fixtures:** `make_collection_with_request` (root `conftest.py`) and
+  `make_request_dict` (`tests/ui/request/conftest.py`) reduce setup
+  boilerplate.
+
 ## Architecture
 
 ```
@@ -118,6 +142,7 @@ src/
 │       ├── base.py                # DeclarativeBase
 │       ├── collections/
 │       │   ├── collection_repository.py   # CRUD for collections + requests
+│       │   ├── collection_query_repository.py   # Read-only tree/breadcrumb/ancestor queries
 │       │   ├── import_repository.py       # Atomic bulk-import of parsed data
 │       │   └── model/
 │       │       ├── collection_model.py    # CollectionModel (folders)
@@ -134,7 +159,8 @@ src/
 │   ├── http/                      # HTTP request/response handling
 │   │   ├── http_service.py        # HttpService (httpx) + response TypedDicts
 │   │   ├── graphql_schema_service.py  # GraphQL introspection + schema parsing
-│   │   └── snippet_generator.py   # Code snippet generation (cURL/Python/JS)
+│   │   ├── snippet_generator.py   # Code snippet generation (cURL/Python/JS)
+│   │   └── header_utils.py        # Shared header parsing utility
 │   └── import_parser/             # Parser sub-package
 │       ├── models.py              # TypedDict schemas for parsed data
 │       ├── postman_parser.py      # Postman collection/environment parser
@@ -251,6 +277,7 @@ tests/
     │   ├── test_console_panel.py
     │   └── test_history_panel.py
     └── request/                   # Request/response editing tests
+        ├── conftest.py              # make_request_dict fixture factory
         ├── test_folder_editor.py
         ├── test_http_worker.py
         ├── test_request_editor.py

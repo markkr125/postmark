@@ -37,6 +37,7 @@ from ui.widgets.key_value_table import KeyValueTableWidget
 from ui.widgets.variable_line_edit import VariableLineEdit
 
 if TYPE_CHECKING:
+    from services.collection_service import RequestLoadDict
     from services.environment_service import VariableDetail
 
 # HTTP methods shown in the dropdown
@@ -245,7 +246,7 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, QWidget):
         finally:
             self._loading = False
 
-    def load_request(self, data: dict, *, request_id: int | None = None) -> None:
+    def load_request(self, data: RequestLoadDict, *, request_id: int | None = None) -> None:
         """Populate the editor from a request data dict.
 
         Expected keys: ``name``, ``method``, ``url``, and optionally
@@ -296,7 +297,7 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, QWidget):
             self._loading = False
         self._sync_tab_indicators()
 
-    def _load_body_content(self, data: dict, body_mode: str) -> None:
+    def _load_body_content(self, data: RequestLoadDict, body_mode: str) -> None:
         """Load body content into the correct widget for *body_mode*."""
         body = data.get("body") or ""
         if body_mode in ("form-data", "x-www-form-urlencoded"):
