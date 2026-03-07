@@ -143,7 +143,7 @@ Key signals to know (always-on summary):
 
 | Signal / Feature | Location | Status |
 |---|---|---|
-| `MainWindow.run_action` | `main_window.py` | QAction created, not connected |
+| `MainWindow.run_action` | `main_window/window.py` | QAction created, not connected |
 
 ## Implicit contracts
 

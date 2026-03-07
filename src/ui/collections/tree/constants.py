@@ -8,7 +8,6 @@ code without circular dependencies.
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QIcon
 
 from ui.styling.theme import COLOR_ACCENT
 
@@ -34,5 +33,3 @@ EMPTY_COLLECTION_HTML = (
     f'<a href="#" style="color: {COLOR_ACCENT};">Add a request</a>'
     " to start working."
 )
-
-ICON_CACHE: dict[str, QIcon] = {}

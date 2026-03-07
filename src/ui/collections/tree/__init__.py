@@ -6,7 +6,6 @@ from ui.collections.tree.collection_tree import CollectionTree
 from ui.collections.tree.collection_tree_delegate import CollectionTreeDelegate
 from ui.collections.tree.constants import (
     EMPTY_COLLECTION_HTML,
-    ICON_CACHE,
     PLACEHOLDER_MARKER,
     ROLE_ITEM_ID,
     ROLE_ITEM_TYPE,
@@ -21,7 +20,6 @@ from ui.collections.tree.draggable_tree_widget import DraggableTreeWidget
 
 __all__ = [
     "EMPTY_COLLECTION_HTML",
-    "ICON_CACHE",
     "PLACEHOLDER_MARKER",
     "ROLE_ITEM_ID",
     "ROLE_ITEM_TYPE",

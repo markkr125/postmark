@@ -345,7 +345,7 @@ MainWindow._refresh_variable_map()
 
 | Signal / Feature | Location | Status |
 |---|---|---|
-| `MainWindow.run_action` | `main_window.py` | QAction created, not connected |
+| `MainWindow.run_action` | `main_window/window.py` | QAction created, not connected |
 
 All other signals in the flow diagrams above are fully wired.
 

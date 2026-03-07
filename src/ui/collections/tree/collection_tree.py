@@ -3,18 +3,12 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, cast
+from typing import Any
 
-from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QAction, QIcon, QKeyEvent
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
-    QApplication,
     QLabel,
-    QLineEdit,
-    QMenu,
-    QMessageBox,
     QStackedWidget,
-    QStyle,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -24,17 +18,15 @@ from PySide6.QtWidgets import (
 from ui.collections.tree.collection_tree_delegate import CollectionTreeDelegate
 from ui.collections.tree.constants import (
     EMPTY_COLLECTION_HTML,
-    ICON_CACHE,
     PLACEHOLDER_MARKER,
     ROLE_ITEM_ID,
     ROLE_ITEM_TYPE,
     ROLE_METHOD,
-    ROLE_OLD_NAME,
     ROLE_PLACEHOLDER,
 )
 from ui.collections.tree.draggable_tree_widget import DraggableTreeWidget
+from ui.collections.tree.tree_actions import _TreeActionsMixin
 from ui.styling.icons import phi
-from ui.styling.theme import COLOR_ACCENT
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +34,7 @@ logger = logging.getLogger(__name__)
 # ----------------------------------------------------------------------
 # Tree management subclass
 # ----------------------------------------------------------------------
-class CollectionTree(QWidget):
+class CollectionTree(_TreeActionsMixin, QWidget):
     """Manages the QTreeWidget for collections.
 
     Includes building, context menus, and item interactions.
@@ -144,152 +136,63 @@ class CollectionTree(QWidget):
         # Keyboard shortcuts — intercept via event filter
         self._tree.installEventFilter(self)
 
-    def eventFilter(self, obj: QObject, event: QEvent) -> bool:
-        """Handle F2 (rename) and Delete keyboard shortcuts on the tree."""
-        if obj is not self._tree or event.type() != QEvent.Type.KeyPress:
-            return super().eventFilter(obj, event)
+    # -- Item interaction callbacks ------------------------------------
 
-        key_event = cast(QKeyEvent, event)
-        key = key_event.key()
+    def _on_current_item_changed(self, current, previous) -> None:
+        """Track the current item and emit ``selected_collection_changed``."""
+        self._current_item = current
 
-        current = self._tree.currentItem()
         if current is None:
-            return super().eventFilter(obj, event)
+            self.selected_collection_changed.emit(None)
+            return
 
         item_type = current.data(1, ROLE_ITEM_TYPE)
         item_id = current.data(0, ROLE_ITEM_ID)
 
-        if item_type not in ("folder", "request"):
-            return super().eventFilter(obj, event)
-
-        if key == Qt.Key.Key_F2:
-            self._current_item = current
-            self._handle_rename(item_id, item_type)
-            return True
-
-        if key == Qt.Key.Key_Delete:
-            self._current_item = current
-            self._handle_delete(item_id, item_type)
-            return True
-
-        return super().eventFilter(obj, event)
-
-    def _setup_context_menus(self) -> None:
-        """Create the request- and folder-specific menus and connect actions."""
-        # --- Request menu ---
-        self._request_menu = QMenu(self._tree)
-        _req_icons = {
-            "Open": "eye",
-            "Copy": "clipboard",
-            "Rename": "pencil-simple",
-            "Delete": "trash",
-        }
-        for act_name in ("Open", "Copy", "|", "Rename", "Delete"):
-            if act_name == "|":
-                self._request_menu.addSeparator()
-            else:
-                act = QAction(act_name, self._tree)
-                act.setData(act_name)  # <-- store action type as the action's data
-                if act_name in _req_icons:
-                    act.setIcon(phi(_req_icons[act_name]))
-                act.triggered.connect(lambda checked, a=act: self._emit_menu_action(a))
-                self._request_menu.addAction(act)
-
-        # --- Folder menu ---
-        self._folder_menu = QMenu(self._tree)
-        _folder_icons = {
-            "Overview": "eye",
-            "Add folder": "folder-plus",
-            "Add request": "file-plus",
-            "Rename": "pencil-simple",
-            "Delete": "trash",
-            "Expand all": "arrows-out-simple",
-            "Collapse all": "arrows-in-simple",
-        }
-        for act_name in (
-            "Overview",
-            "|",
-            "Add folder",
-            "Add request",
-            "|",
-            "Rename",
-            "Delete",
-            "|",
-            "Expand all",
-            "Collapse all",
-        ):
-            if act_name == "|":
-                self._folder_menu.addSeparator()
-            else:
-                act = QAction(act_name, self._tree)
-                act.setData(act_name)  # <-- same here
-                if act_name in _folder_icons:
-                    act.setIcon(phi(_folder_icons[act_name]))
-                act.triggered.connect(lambda checked, a=act: self._emit_menu_action(a))
-                self._folder_menu.addAction(act)
-
-    @Slot(QTreeWidgetItem, QTreeWidgetItem)
-    def _on_current_item_changed(self, current, previous) -> None:
-        """Reset any item left in editable state when the selection changes.
-
-        When the user selects a new item we make sure that any item that was
-        left in "editable" state (because the edit was cancelled) is reset.
-        Also emits ``selected_collection_changed`` so the header can
-        enable/disable the "New request" action.
-        """
-        if previous and previous.flags() & Qt.ItemFlag.ItemIsEditable:
-            # Undo the flag - the editor is gone
-            previous.setFlags(previous.flags() & ~Qt.ItemFlag.ItemIsEditable)
-
-        # Determine the nearest collection (folder) ID for the selection
-        collection_id: int | None = None
-        if current is not None:
-            item_type = current.data(1, ROLE_ITEM_TYPE)
-            if item_type == "folder":
-                collection_id = current.data(0, ROLE_ITEM_ID)
-            elif item_type == "request":
-                # A request's parent is its collection
-                parent = current.parent()
-                if parent is not None:
-                    collection_id = parent.data(0, ROLE_ITEM_ID)
-        self.selected_collection_changed.emit(collection_id)
-
-    @Slot(QTreeWidgetItem)
-    def _on_item_expanded(self, item: QTreeWidgetItem) -> None:
-        """Show placeholder if folder is empty when expanded."""
-        item_type = item.data(1, ROLE_ITEM_TYPE)
         if item_type == "folder":
-            real_children = self._count_real_children(item)
-            if real_children == 0:
-                self._add_placeholder(item)
+            self.selected_collection_changed.emit(item_id)
+        elif item_type == "request":
+            parent = current.parent()
+            if parent:
+                self.selected_collection_changed.emit(parent.data(0, ROLE_ITEM_ID))
+            else:
+                self.selected_collection_changed.emit(None)
+        else:
+            self.selected_collection_changed.emit(None)
 
-    @Slot(QTreeWidgetItem)
+    def _on_item_expanded(self, item: QTreeWidgetItem) -> None:
+        """Replace the folder icon with an open-folder variant on expand."""
+        item_type = item.data(1, ROLE_ITEM_TYPE)
+        if item_type != "folder":
+            return
+        item.setIcon(0, phi("folder-open"))
+
+        # Show placeholder if the folder has no real children
+        if self._count_real_children(item) == 0:
+            self._add_placeholder(item)
+
     def _on_item_collapsed(self, item: QTreeWidgetItem) -> None:
-        """Remove placeholder when folder is collapsed."""
-        self._remove_placeholder(item)
+        """Restore the closed-folder icon on collapse."""
+        if item.data(1, ROLE_ITEM_TYPE) == "folder":
+            item.setIcon(0, phi("folder"))
 
-    @Slot(QTreeWidgetItem, int)
     def _on_item_clicked(self, item: QTreeWidgetItem, column: int) -> None:
-        """Emit Preview for single-clicked request items."""
+        """Emit a ``Preview`` action when a request item is clicked."""
         item_type = item.data(1, ROLE_ITEM_TYPE)
         if item_type == "request":
             item_id = item.data(0, ROLE_ITEM_ID)
-            self.item_action_triggered.emit("request", item_id, "Preview")
+            self.item_action_triggered.emit(item_type, item_id, "Preview")
 
-    @Slot(QTreeWidgetItem, int)
     def _on_item_double_clicked(self, item: QTreeWidgetItem, column: int) -> None:
-        """Open requests on double-click.
-
-        Folder expand/collapse is handled by Qt's built-in
-        ``expandsOnDoubleClick`` behaviour — no manual toggle needed.
-        """
+        """Emit an ``Open`` action when a request item is double-clicked."""
         item_type = item.data(1, ROLE_ITEM_TYPE)
-        if item_type == "request":
-            item_id = item.data(0, ROLE_ITEM_ID)
-            self.item_action_triggered.emit("request", item_id, "Open")
+        if item_type != "request":
+            return
+        item_id = item.data(0, ROLE_ITEM_ID)
+        self.item_action_triggered.emit(item_type, item_id, "Open")
 
     def _count_real_children(self, item: QTreeWidgetItem) -> int:
-        """Count children that are not placeholders."""
+        """Count children excluding placeholder sentinel items."""
         count = 0
         for i in range(item.childCount()):
             child = item.child(i)
@@ -298,276 +201,56 @@ class CollectionTree(QWidget):
         return count
 
     def _add_placeholder(self, parent_item: QTreeWidgetItem) -> None:
-        """Add a placeholder item to an empty folder."""
+        """Insert an HTML placeholder child when an empty folder is expanded."""
+        # Check if a placeholder already exists
         for i in range(parent_item.childCount()):
-            child = parent_item.child(i)
-            if child.data(1, ROLE_PLACEHOLDER) == PLACEHOLDER_MARKER:
+            child_item = parent_item.child(i)
+            if child_item and child_item.data(1, ROLE_PLACEHOLDER) == PLACEHOLDER_MARKER:
                 return
 
-        placeholder = QTreeWidgetItem(parent_item, [""])
+        placeholder = QTreeWidgetItem(parent_item)
         placeholder.setData(1, ROLE_PLACEHOLDER, PLACEHOLDER_MARKER)
-        placeholder.setFlags(Qt.ItemFlag.ItemIsEnabled)
+        placeholder.setFlags(Qt.ItemFlag.NoItemFlags)
 
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-        layout.setContentsMargins(5, 5, 5, 5)
-
-        label = QLabel(EMPTY_COLLECTION_HTML)
+        label = QLabel()
         label.setTextFormat(Qt.TextFormat.RichText)
-        label.setObjectName("emptyStateLabel")
-        label.setWordWrap(True)
-        label.linkActivated.connect(lambda: self._on_placeholder_link_clicked(parent_item))
-
-        layout.addWidget(label)
-        self._tree.setItemWidget(placeholder, 0, widget)
+        label.setText(EMPTY_COLLECTION_HTML)
+        label.setContentsMargins(0, 0, 0, 0)
+        label.setOpenExternalLinks(False)
+        label.linkActivated.connect(lambda _: self._on_placeholder_link_clicked(parent_item))
+        self._tree.setItemWidget(placeholder, 0, label)
 
     def _remove_placeholder(self, parent_item: QTreeWidgetItem) -> None:
-        """Remove placeholder item from a folder."""
-        for i in range(parent_item.childCount() - 1, -1, -1):
+        """Remove the placeholder child from a folder item if present."""
+        for i in range(parent_item.childCount()):
             child = parent_item.child(i)
-            if child.data(1, ROLE_PLACEHOLDER) == PLACEHOLDER_MARKER:
+            if child and child.data(1, ROLE_PLACEHOLDER) == PLACEHOLDER_MARKER:
                 parent_item.removeChild(child)
+                return
 
     def _on_placeholder_link_clicked(self, parent_item: QTreeWidgetItem) -> None:
-        """Handle click on 'Add a request' link in placeholder."""
+        """Handle clicks on the "Add request" link inside empty-folder placeholders."""
         parent_id = parent_item.data(0, ROLE_ITEM_ID)
-        if parent_id is not None:
-            self.new_request_requested.emit(parent_id)
+        self.new_request_requested.emit(parent_id)
 
     def _expand_all_recursive(self, item: QTreeWidgetItem, *, expand: bool) -> None:
-        """Expand or collapse *item* and all its descendants."""
+        """Recursively expand or collapse *item* and all its folder descendants."""
         item.setExpanded(expand)
         for i in range(item.childCount()):
             child = item.child(i)
             if child.data(1, ROLE_ITEM_TYPE) == "folder":
                 self._expand_all_recursive(child, expand=expand)
 
-    @Slot(QPoint)
-    def _on_tree_context_menu(self, pos: QPoint) -> None:
-        """Show a context-menu depending on the clicked item's type."""
-        item = self._tree.itemAt(pos)
-        if not item:
-            return
-
-        # Keep a reference to the clicked item so the triggered action knows
-        # which item it belongs to.
-        self._current_item = item
-
-        # Grab the stored type (set in set_collections/_add_items)
-        item_type = item.data(1, ROLE_ITEM_TYPE)  # "request" or "folder"
-
-        menu = self._request_menu if item_type == "request" else self._folder_menu
-        menu.exec(self._tree.mapToGlobal(pos))
-
-    def _emit_menu_action(self, action: QAction) -> None:
-        """Dispatch context-menu actions to dedicated handler methods."""
-        if not self._current_item:
-            return
-
-        item_type = self._current_item.data(1, ROLE_ITEM_TYPE)
-        item_id = self._current_item.data(0, ROLE_ITEM_ID)
-        action_name = action.data() or action.text()
-
-        if action_name == "Rename":
-            self._handle_rename(item_id, item_type)
-        elif action_name == "Delete":
-            self._handle_delete(item_id, item_type)
-        elif action_name == "Add folder" and item_type == "folder":
-            self.new_collection_requested.emit(item_id)
-        elif action_name == "Add request" and item_type == "folder":
-            self.new_request_requested.emit(item_id)
-        elif action_name == "Overview" and item_type == "folder":
-            self.item_action_triggered.emit("folder", item_id, "Open")
-        elif action_name == "Expand all" and item_type == "folder":
-            self._expand_all_recursive(self._current_item, expand=True)
-        elif action_name == "Collapse all" and item_type == "folder":
-            self._expand_all_recursive(self._current_item, expand=False)
-        else:
-            self.item_action_triggered.emit(item_type, item_id, action_name)
-
-    def _handle_rename(self, item_id: int, item_type: str) -> None:
-        """Start in-place rename for the current item."""
-        if self._current_item is None:
-            return
-        if item_type == "folder":
-            self._rename_folder(item_id, self._current_item)
-        elif item_type == "request":
-            self._rename_request(item_id, self._current_item)
-
-    def _handle_delete(self, item_id: int, item_type: str) -> None:
-        """Show a confirmation dialog and delete the item if accepted."""
-        if self._current_item is None:
-            return
-        if item_type == "folder":
-            child_count = self._count_real_children(self._current_item)
-            if child_count > 0:
-                msg = (
-                    "Are you sure you want to delete this folder?\n\n"
-                    f"This will also delete {child_count} item(s) inside it."
-                )
-            else:
-                msg = "Are you sure you want to delete this folder?"
-        else:
-            msg = "Are you sure you want to delete this request?"
-
-        reply = QMessageBox.question(
-            self,
-            "Confirm Delete",
-            msg,
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if reply != QMessageBox.StandardButton.Yes:
-            return
-
-        if item_type == "folder":
-            self.collection_delete_requested.emit(item_id)
-        elif item_type == "request":
-            self.request_delete_requested.emit(item_id)
-        self.remove_item(item_id, item_type)
-
-    def _rename_folder(self, item_id: int, tree_item: QTreeWidgetItem) -> None:
-        """Initiate in-place renaming of a folder item in the UI tree.
-
-        Parameters
-        ----------
-        item_id : Any
-            The identifier of the item being renamed (unused in the current implementation but kept for API consistency).
-        tree_item : QTreeWidgetItem
-            The tree item that the user has selected to rename.
-
-        Notes:
-        -----
-        The method temporarily blocks signals to prevent unwanted side-effects,
-        sets the item to be editable, and triggers the built-in editor widget
-        for the item. The original name is stored in the item's data for later
-        reference or rollback if needed.
-        """
-        if tree_item is not None:
-            old_name = tree_item.text(0)
-            tree_item.setData(1, ROLE_OLD_NAME, old_name)
-            # Block briefly to avoid interim signals
-            self._tree.blockSignals(True)
-            try:
-                tree_item.setFlags(tree_item.flags() | Qt.ItemFlag.ItemIsEditable)
-            finally:
-                self._tree.blockSignals(False)
-            self._tree.editItem(tree_item, 0)
-
-    def _rename_request(self, item_id: int, tree_item: QTreeWidgetItem) -> None:
-        """Initiate in-place renaming of a request item in the UI tree.
-
-        An overlay ``QLineEdit`` is positioned over the item's visual
-        rectangle inside the tree viewport.  This avoids relying on
-        ``setItemWidget`` which is no longer used for request items.
-        """
-        if tree_item is None:
-            return
-
-        old_name = tree_item.text(1)  # Requests store name in column 1
-        tree_item.setData(1, ROLE_OLD_NAME, old_name)
-
-        # Calculate geometry inside the viewport
-        item_rect = self._tree.visualItemRect(tree_item)
-        viewport = self._tree.viewport()
-
-        line_edit = QLineEdit(old_name, viewport)
-        line_edit.setStyleSheet(f"padding-left: 2px; border: 1px solid {COLOR_ACCENT};")
-        line_edit.setGeometry(item_rect)
-        line_edit.selectAll()
-        line_edit.show()
-        line_edit.setFocus()
-
-        # Connect signals
-        line_edit.returnPressed.connect(
-            lambda: self._finish_request_rename(tree_item, line_edit, True)
-        )
-        line_edit.editingFinished.connect(
-            lambda: self._finish_request_rename(tree_item, line_edit, False)
-        )
-
-    def _finish_request_rename(
-        self,
-        tree_item: QTreeWidgetItem,
-        line_edit: QLineEdit,
-        from_return: bool,
-    ) -> None:
-        """Complete the request rename operation."""
-        if not line_edit or not tree_item:
-            return
-
-        # Prevent multiple calls
-        if not line_edit.isVisible():
-            return
-
-        new_name = line_edit.text().strip()
-        old_name = tree_item.data(1, ROLE_OLD_NAME)
-
-        # Remove the overlay line edit
-        line_edit.hide()
-        line_edit.deleteLater()
-
-        # Update if name changed
-        if new_name and new_name != old_name:
-            item_id = tree_item.data(0, ROLE_ITEM_ID)
-            tree_item.setText(1, new_name)
-            self.request_rename_requested.emit(item_id, new_name)
-
-        tree_item.setData(1, ROLE_OLD_NAME, None)
-
-    @Slot(QTreeWidgetItem, int)
-    def _on_item_changed(self, item: QTreeWidgetItem, column: int) -> None:
-        """Persist a folder rename and make the item read-only again.
-
-        Signals are blocked to avoid recursion from programmatic changes.
-        Requests are handled separately via _finish_request_rename.
-        """
-        # Only handle column 0 (folders)
-        if column != 0:
-            return
-
-        if item.data(1, ROLE_PLACEHOLDER) == PLACEHOLDER_MARKER:
-            return
-
-        item_type = item.data(1, ROLE_ITEM_TYPE)
-        # Skip requests as they're handled separately
-        if item_type == "request":
-            return
-
-        self._tree.blockSignals(True)
-        try:
-            new_name = item.text(column).strip()
-            old_name = item.data(1, ROLE_OLD_NAME) or "Unnamed"
-
-            if new_name == old_name:
-                return
-
-            if not new_name:
-                item.setText(column, old_name)
-                return
-
-            item_id = item.data(0, ROLE_ITEM_ID)
-            item.setData(1, ROLE_OLD_NAME, None)
-            self.collection_rename_requested.emit(item_id, new_name)
-            self.item_name_changed.emit(item_type, item_id, new_name)
-
-        finally:
-            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            self._tree.blockSignals(False)
-
     def _find_item_by_id(
         self, parent: QTreeWidgetItem, target_id: int, target_type: str
     ) -> QTreeWidgetItem | None:
         """Recursively search for an item whose UserRole data matches *target_id*."""
-        # Check if the current node matches
         key = f"{target_type}:{target_id}"
         current_key = f"{parent.data(1, ROLE_ITEM_TYPE)}:{parent.data(0, ROLE_ITEM_ID)}"
 
-        # Check the current node
         if key == current_key:
             return parent
 
-        # Search children
         for i in range(parent.childCount()):
             child = parent.child(i)
             found = self._find_item_by_id(child, target_id, target_type)
@@ -664,18 +347,14 @@ class CollectionTree(QWidget):
     def _add_items(self, parent: QTreeWidgetItem, mapping: dict[str, Any]) -> None:
         """Recursively add child items (folders and requests) under *parent*."""
         for _key, value in mapping.items():
-            # Use the request name for the *visible* column,
-            # the empty string for the "hidden" column that will hold the badge.
             child = QTreeWidgetItem(
                 parent, [value["name"] if value.get("type") != "request" else "", value["name"]]
             )
 
-            # Store the ID on the item (folder or request)
             child.setData(0, ROLE_ITEM_ID, value.get("id"))  # id
             child.setData(0, ROLE_ITEM_TYPE, value.get("type"))  # type (col 0 for delegate)
             child.setData(1, ROLE_ITEM_TYPE, value.get("type"))  # type (col 1 legacy)
 
-            # Only show indicator for folders
             if value.get("type") == "folder":
                 child.setChildIndicatorPolicy(QTreeWidgetItem.ChildIndicatorPolicy.ShowIndicator)
             else:
@@ -693,7 +372,6 @@ class CollectionTree(QWidget):
         method = spec.get("method", "GET")
         name = spec.get("name", "")
 
-        # Tooltip — show full name (and method for requests)
         if item_type == "request":
             item.setToolTip(0, f"{method} {name}")
             item.setData(0, ROLE_METHOD, method)
@@ -706,14 +384,8 @@ class CollectionTree(QWidget):
     # ----------------------------------------------------------------------
 
     def _set_item_icon(self, item: QTreeWidgetItem, i_type: str, method: str) -> None:
-        """Use a system icon if available; otherwise use the Qt style's standard icon."""
-        if i_type not in ICON_CACHE:
-            theme_icon = QIcon.fromTheme(i_type)
-            if theme_icon.isNull():
-                style = QApplication.style()
-                theme_icon = style.standardIcon(QStyle.StandardPixmap.SP_DirIcon)
-            ICON_CACHE[i_type] = theme_icon
-        item.setIcon(0, ICON_CACHE[i_type])
+        """Set the Phosphor folder icon on a tree item."""
+        item.setIcon(0, phi("folder"))
 
     def select_item_by_id(self, item_id: int, item_type: str) -> None:
         """Select and scroll to the item with the given ID and type after data load."""

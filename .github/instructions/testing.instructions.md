@@ -119,19 +119,24 @@ tests/
 └── ui/                            # PySide6 widget tests (need qapp + qtbot)
     ├── conftest.py                # _no_fetch (autouse) + helper functions
     ├── test_main_window.py        # Top-level MainWindow smoke tests
+    ├── test_main_window_save.py   # SaveButton + RequestSaveEndToEnd tests
     ├── styling/                   # Theme and icon tests
     │   ├── test_theme_manager.py
     │   └── test_icons.py
     ├── widgets/                   # Shared component tests
     │   ├── test_code_editor.py
+    │   ├── test_code_editor_folding.py
+    │   ├── test_code_editor_painting.py
     │   ├── test_code_editor_memory.py
     │   ├── test_info_popup.py
     │   ├── test_key_value_table.py
     │   ├── test_variable_line_edit.py
-    │   └── test_variable_popup.py
+    │   ├── test_variable_popup.py
+    │   └── test_variable_popup_local.py
     ├── collections/               # Collection sidebar tests
     │   ├── test_collection_header.py
     │   ├── test_collection_tree.py
+    │   ├── test_collection_tree_actions.py
     │   ├── test_collection_tree_delegate.py
     │   └── test_collection_widget.py
     ├── dialogs/                   # Dialog tests
@@ -147,7 +152,12 @@ tests/
         ├── test_folder_editor.py
         ├── test_http_worker.py
         ├── test_request_editor.py
+        ├── test_request_editor_auth.py
+        ├── test_request_editor_binary.py
+        ├── test_request_editor_graphql.py
+        ├── test_request_editor_search.py
         ├── test_response_viewer.py
+        ├── test_response_viewer_search.py
         ├── navigation/            # Tab and breadcrumb tests
         │   ├── test_breadcrumb_bar.py
         │   ├── test_request_tab_bar.py

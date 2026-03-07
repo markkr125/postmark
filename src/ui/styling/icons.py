@@ -19,8 +19,7 @@ import logging
 from pathlib import Path
 
 from PySide6.QtCore import QRect, Qt
-from PySide6.QtGui import (QColor, QFont, QFontDatabase, QIcon, QPainter,
-                           QPixmap)
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QIcon, QPainter, QPixmap
 
 logger = logging.getLogger(__name__)
 

@@ -136,11 +136,15 @@ class TestMainWindowSmoke:
 
 Mirror the source tree exactly:
 
-| Source file | Test file |
+| Source file | Test file(s) |
 |-------------|-----------|
-| `src/ui/request/request_editor.py` | `tests/ui/request/test_request_editor.py` |
+| `src/ui/request/request_editor/` | `tests/ui/request/test_request_editor.py`, `test_request_editor_auth.py`, `test_request_editor_binary.py`, `test_request_editor_graphql.py`, `test_request_editor_search.py` |
+| `src/ui/request/response_viewer/` | `tests/ui/request/test_response_viewer.py`, `test_response_viewer_search.py` |
 | `src/ui/styling/theme_manager.py` | `tests/ui/styling/test_theme_manager.py` |
-| `src/ui/widgets/code_editor.py` | `tests/ui/widgets/test_code_editor.py` |
+| `src/ui/styling/global_qss.py` | `tests/ui/styling/test_theme_manager.py` (TestBuildGlobalQSS class) |
+| `src/ui/widgets/code_editor/` | `tests/ui/widgets/test_code_editor.py`, `test_code_editor_folding.py`, `test_code_editor_painting.py`, `test_code_editor_memory.py` |
+| `src/ui/collections/tree/` | `tests/ui/collections/test_collection_tree.py`, `test_collection_tree_actions.py`, `test_collection_tree_delegate.py` |
+| `src/ui/main_window/` | `tests/ui/test_main_window.py`, `test_main_window_save.py` |
 | `src/services/http/http_service.py` | `tests/unit/services/http/test_http_service.py` |
 | `src/database/models/collections/collection_repository.py` | `tests/unit/database/test_repository.py` |
 

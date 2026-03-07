@@ -7,6 +7,7 @@ from PySide6.QtCore import QSettings
 from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import QApplication
 
+from ui.styling.global_qss import build_global_qss
 from ui.styling.theme import DARK_PALETTE, LIGHT_PALETTE, current_palette
 from ui.styling.theme_manager import (
     _APP,
@@ -128,32 +129,32 @@ class TestBuildQPalette:
 
 
 class TestBuildGlobalQSS:
-    """Tests for the static _build_global_qss helper."""
+    """Tests for the build_global_qss helper."""
 
     def test_returns_nonempty_string(self) -> None:
-        """_build_global_qss returns a non-empty stylesheet string."""
-        result = ThemeManager._build_global_qss(LIGHT_PALETTE)
+        """build_global_qss returns a non-empty stylesheet string."""
+        result = build_global_qss(LIGHT_PALETTE)
         assert isinstance(result, str)
         assert len(result) > 100
 
     def test_contains_primary_button_selector(self) -> None:
         """Global QSS contains the primaryButton object-name selector."""
-        result = ThemeManager._build_global_qss(LIGHT_PALETTE)
+        result = build_global_qss(LIGHT_PALETTE)
         assert 'objectName="primaryButton"' in result
 
     def test_contains_request_tab_bar_close_button(self) -> None:
         """Global QSS contains RequestTabBar close-button styling."""
-        result = ThemeManager._build_global_qss(LIGHT_PALETTE)
+        result = build_global_qss(LIGHT_PALETTE)
         assert "RequestTabBar::close-button" in result
 
     def test_contains_accent_color(self) -> None:
         """Global QSS references the accent colour from the palette."""
-        result = ThemeManager._build_global_qss(LIGHT_PALETTE)
+        result = build_global_qss(LIGHT_PALETTE)
         assert LIGHT_PALETTE["accent"] in result
 
     def test_dark_palette_uses_dark_bg(self) -> None:
         """Global QSS for DARK_PALETTE references dark background colour."""
-        result = ThemeManager._build_global_qss(DARK_PALETTE)
+        result = build_global_qss(DARK_PALETTE)
         assert DARK_PALETTE["bg"] in result
 
 

@@ -141,14 +141,24 @@ src/
 │       ├── curl_parser.py         # cURL command parser
 │       └── url_parser.py          # URL/raw-text auto-detect parser
 └── ui/                            # PySide6 widgets
-    ├── main_window.py             # Top-level MainWindow
+    ├── main_window/               # Top-level MainWindow sub-package
+    │   ├── window.py              # MainWindow widget + signal wiring
+    │   ├── send_pipeline.py       # _SendPipelineMixin — HTTP send/response flow
+    │   ├── tab_controller.py      # _TabControllerMixin — tab open/close/switch
+    │   └── variable_controller.py # _VariableControllerMixin — env variable management
     ├── loading_screen.py          # Loading screen overlay widget
     ├── styling/                   # Visual theming and icons
     │   ├── theme.py               # Palettes, colours, badge geometry, method_color()
-    │   ├── theme_manager.py       # ThemeManager — QPalette + global QSS + QSettings
+    │   ├── theme_manager.py       # ThemeManager — QPalette + QSettings
+    │   ├── global_qss.py          # build_global_qss() — global stylesheet builder
     │   └── icons.py               # Phosphor font-glyph icon provider (phi())
     ├── widgets/                   # Reusable shared components
-    │   ├── code_editor.py         # CodeEditorWidget — syntax highlighting, line numbers, folding
+    │   ├── code_editor/           # CodeEditorWidget sub-package
+    │   │   ├── editor_widget.py   # CodeEditorWidget — main editor class
+    │   │   ├── highlighter.py     # Syntax highlighting engine
+    │   │   ├── folding.py         # Code folding logic
+    │   │   ├── gutter.py          # Line-number gutter
+    │   │   └── painting.py        # Custom painting helpers
     │   ├── info_popup.py          # InfoPopup (QFrame) base + ClickableLabel
     │   ├── key_value_table.py     # Reusable key-value editor widget
     │   ├── variable_line_edit.py  # VariableLineEdit — QLineEdit with {{var}} highlighting + hover popup
@@ -159,7 +169,8 @@ src/
     │   └── tree/                  # Tree widget sub-package
     │       ├── constants.py
     │       ├── draggable_tree_widget.py
-    │       ├── collection_tree.py
+    │       ├── collection_tree.py # CollectionTree widget
+    │       ├── tree_actions.py    # _TreeActionsMixin — context menus, rename, delete
     │       └── collection_tree_delegate.py  # Custom delegate for method badges
     ├── dialogs/                   # Modal dialogs
     │   ├── code_snippet_dialog.py
@@ -175,8 +186,14 @@ src/
     └── request/                   # Request/response editing
         ├── folder_editor.py         # Folder/collection detail editor
         ├── http_worker.py           # HttpSendWorker + SchemaFetchWorker (QThread)
-        ├── request_editor.py
-        ├── response_viewer.py       # Response body/headers/cookies + popup toolbar
+        ├── request_editor/          # RequestEditor sub-package
+        │   ├── editor_widget.py     # RequestEditor — main request editing widget
+        │   ├── auth.py              # _AuthMixin — authentication UI
+        │   ├── body_search.py       # _BodySearchMixin — search/replace in body
+        │   └── graphql.py           # _GraphQLMixin — GraphQL mode + schema
+        ├── response_viewer/         # ResponseViewer sub-package
+        │   ├── viewer_widget.py     # ResponseViewer — response display widget
+        │   └── search_filter.py     # _SearchFilterMixin — response search/filter
         ├── navigation/              # Tab switching and path navigation
         │   ├── breadcrumb_bar.py
         │   ├── request_tab_bar.py
@@ -204,19 +221,24 @@ tests/
 └── ui/                            # End-to-end PySide6 widget tests
     ├── conftest.py                # _no_fetch (autouse) + helpers
     ├── test_main_window.py
+    ├── test_main_window_save.py   # SaveButton + RequestSaveEndToEnd tests
     ├── styling/                   # Theme and icon tests
     │   ├── test_theme_manager.py
     │   └── test_icons.py
     ├── widgets/                   # Shared component tests
     │   ├── test_code_editor.py
+    │   ├── test_code_editor_folding.py
+    │   ├── test_code_editor_painting.py
     │   ├── test_code_editor_memory.py
     │   ├── test_info_popup.py
     │   ├── test_key_value_table.py
     │   ├── test_variable_line_edit.py
-    │   └── test_variable_popup.py
+    │   ├── test_variable_popup.py
+    │   └── test_variable_popup_local.py
     ├── collections/               # Collection sidebar tests
     │   ├── test_collection_header.py
     │   ├── test_collection_tree.py
+    │   ├── test_collection_tree_actions.py
     │   ├── test_collection_tree_delegate.py
     │   └── test_collection_widget.py
     ├── dialogs/                   # Dialog tests
@@ -232,7 +254,12 @@ tests/
         ├── test_folder_editor.py
         ├── test_http_worker.py
         ├── test_request_editor.py
+        ├── test_request_editor_auth.py
+        ├── test_request_editor_binary.py
+        ├── test_request_editor_graphql.py
+        ├── test_request_editor_search.py
         ├── test_response_viewer.py
+        ├── test_response_viewer_search.py
         ├── navigation/            # Tab and breadcrumb tests
         │   ├── test_breadcrumb_bar.py
         │   ├── test_request_tab_bar.py
