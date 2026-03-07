@@ -10,23 +10,13 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QModelIndex, QPersistentModelIndex, Qt, QTimer, Signal
+from PySide6.QtCore import (QModelIndex, QPersistentModelIndex, Qt, QTimer,
+                            Signal)
 from PySide6.QtGui import QColor, QKeySequence, QPalette, QShortcut
-from PySide6.QtWidgets import (
-    QComboBox,
-    QFileDialog,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QRadioButton,
-    QSizePolicy,
-    QStyledItemDelegate,
-    QStyleOptionViewItem,
-    QTabWidget,
-    QTextEdit,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import (QComboBox, QFileDialog, QHBoxLayout, QLabel,
+                               QPushButton, QRadioButton, QSizePolicy,
+                               QStyledItemDelegate, QStyleOptionViewItem,
+                               QTabWidget, QTextEdit, QVBoxLayout, QWidget)
 
 from ui.request.request_editor.auth import _AuthMixin
 from ui.request.request_editor.body_search import _BodySearchMixin

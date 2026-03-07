@@ -11,14 +11,10 @@ import re
 from typing import Any, TypedDict
 
 from database.models.environments.environment_repository import (
-    create_environment,
-    delete_environment,
-    fetch_all_environments,
-    get_environment_by_id,
-    rename_environment,
-    update_environment_values,
-)
-from database.models.environments.model.environment_model import EnvironmentModel
+    create_environment, delete_environment, fetch_all_environments,
+    get_environment_by_id, rename_environment, update_environment_values)
+from database.models.environments.model.environment_model import \
+    EnvironmentModel
 
 logger = logging.getLogger(__name__)
 
@@ -185,9 +181,8 @@ class EnvironmentService:
 
         Returns an empty dict if neither source provides variables.
         """
-        from database.models.collections.collection_query_repository import (
-            get_request_variable_chain,
-        )
+        from database.models.collections.collection_query_repository import \
+            get_request_variable_chain
 
         # 1. Collection-level variables (inherited up the tree)
         variables: dict[str, str] = {}
@@ -212,9 +207,8 @@ class EnvironmentService:
         whether it came from ``"collection"`` or ``"environment"``.
         Environment variables take precedence over collection variables.
         """
-        from database.models.collections.collection_query_repository import (
-            get_request_variable_chain_detailed,
-        )
+        from database.models.collections.collection_query_repository import \
+            get_request_variable_chain_detailed
 
         details: dict[str, VariableDetail] = {}
 
@@ -269,8 +263,10 @@ class EnvironmentService:
     ) -> None:
         """Patch a single variable in a collection's variables list."""
         from database.database import get_session
-        from database.models.collections.collection_repository import update_collection
-        from database.models.collections.model.collection_model import CollectionModel
+        from database.models.collections.collection_repository import \
+            update_collection
+        from database.models.collections.model.collection_model import \
+            CollectionModel
 
         with get_session() as session:
             coll = session.get(CollectionModel, collection_id)
@@ -357,8 +353,10 @@ class EnvironmentService:
     ) -> None:
         """Append a new variable to a collection's variables list."""
         from database.database import get_session
-        from database.models.collections.collection_repository import update_collection
-        from database.models.collections.model.collection_model import CollectionModel
+        from database.models.collections.collection_repository import \
+            update_collection
+        from database.models.collections.model.collection_model import \
+            CollectionModel
 
         with get_session() as session:
             coll = session.get(CollectionModel, collection_id)
