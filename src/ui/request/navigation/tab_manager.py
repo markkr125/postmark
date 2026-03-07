@@ -43,6 +43,9 @@ class TabContext:
         is_dirty: Whether the editor has unsaved changes.
         is_sending: Whether an HTTP request is currently in flight.
         is_preview: Whether this tab is in preview mode (temporary).
+        draft_name: Display name for unsaved draft tabs.  ``None`` for
+            persisted requests.  Updated when the user renames via the
+            breadcrumb bar.
         local_overrides: Transient per-tab variable overrides.  When
             the user edits a variable value in the popup without
             clicking **Update**, the override is stored here and
@@ -76,6 +79,7 @@ class TabContext:
         self.is_dirty: bool = False
         self.is_sending: bool = False
         self.is_preview: bool = is_preview
+        self.draft_name: str | None = None
         self.local_overrides: dict[str, LocalOverride] = {}
 
     # -- Send lifecycle ------------------------------------------------

@@ -134,6 +134,10 @@ Key signals to know (always-on summary):
 
 - `CollectionWidget.item_action_triggered(str, int, str)` → opens
   requests/folders in MainWindow.
+- `CollectionWidget.draft_request_requested()` → opens a new draft
+  (unsaved) request tab in MainWindow.
+- `NewItemPopup.new_request_clicked()` / `new_collection_clicked()` →
+  emitted by the icon grid popup when tiles are clicked.
 - `RequestEditorWidget.send_requested()` → triggers HTTP send flow.
 - `ThemeManager.theme_changed()` → widgets refresh dynamic styles.
 - `VariablePopup` uses **class-level callbacks**, not signals — wired once
@@ -220,7 +224,11 @@ order (insertion order in Python 3.7+).
    combined variable map in `MainWindow._refresh_variable_map()` and
    tagged with `is_local=True` in `VariableDetail` so the popup can show
    Update/Reset buttons.
-7. **VariablePopup uses class-level callbacks, not Qt signals** —
+7. **`TabContext.draft_name` tracks the display name of unsaved tabs** —
+   Set to `"Untitled Request"` when a draft tab is opened.  Updated when
+   the user renames via the breadcrumb bar.  Used as fallback label in the
+   save-to-collection dialog.  `None` for persisted request tabs.
+8. **VariablePopup uses class-level callbacks, not Qt signals** —
    `VariablePopup` is a **singleton** `QFrame`.  Its callbacks
    (`set_save_callback`, `set_local_override_callback`,
    `set_reset_local_override_callback`, `set_add_variable_callback`,

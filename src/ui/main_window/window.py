@@ -28,6 +28,7 @@ from services.collection_service import CollectionService
 from ui.collections.collection_widget import CollectionWidget
 from ui.environments.environment_selector import EnvironmentSelector
 from ui.loading_screen import LoadingScreen
+from ui.main_window.draft_controller import _DraftControllerMixin
 from ui.main_window.send_pipeline import _SendPipelineMixin
 from ui.main_window.tab_controller import _TabControllerMixin
 from ui.main_window.variable_controller import _VariableControllerMixin
@@ -47,6 +48,7 @@ logger = logging.getLogger(__name__)
 class MainWindow(
     _SendPipelineMixin,
     _VariableControllerMixin,
+    _DraftControllerMixin,
     _TabControllerMixin,
     QMainWindow,
 ):
@@ -84,6 +86,9 @@ class MainWindow(
 
         # Wire sidebar -> editor
         self.collection_widget.item_action_triggered.connect(self._on_item_action)
+
+        # Wire draft request
+        self.collection_widget.draft_request_requested.connect(self._open_draft_request)
 
         # Wire save -> save pipeline
         self.request_widget.save_requested.connect(self._on_save_request)
@@ -127,18 +132,13 @@ class MainWindow(
 
     def _move_to_mouse_screen(self) -> None:
         """Center the window on the monitor that the cursor is on."""
-        # 1. Find the screen that the cursor is currently on
-        cursor_pos = QCursor.pos()  # global screen coordinates
+        cursor_pos = QCursor.pos()
         screen = QGuiApplication.screenAt(cursor_pos)
-
-        # 2. If we found a screen, move the window so it is centered there
         if screen is not None:
-            screen_geom = screen.availableGeometry()  # skip taskbars, docks
-            win_geom = self.frameGeometry()  # includes frame
+            screen_geom = screen.availableGeometry()
+            win_geom = self.frameGeometry()
             win_geom.moveCenter(screen_geom.center())
             self.move(win_geom.topLeft())
-
-        # 3. If screen is None (rare), just leave the window where Qt chose
 
     # ------------------------------------------------------------------
     # Menu creation
@@ -149,6 +149,14 @@ class MainWindow(
 
         # File menu
         file_menu = menubar.addMenu("&File")
+
+        new_req_act = QAction("&New Request", self)
+        new_req_act.setIcon(phi("plus"))
+        new_req_act.setShortcut(QKeySequence("Ctrl+N"))
+        new_req_act.triggered.connect(self._open_draft_request)
+        file_menu.addAction(new_req_act)
+
+        file_menu.addSeparator()
 
         import_act = QAction("&Import...", self)
         import_act.setIcon(phi("download-simple"))
@@ -484,6 +492,8 @@ class MainWindow(
         """Save the current request editor contents to the database.
 
         For folder tabs, triggers an immediate auto-save instead.
+        For draft tabs (``request_id is None``), opens the
+        save-to-collection dialog.
         """
         ctx = self._current_tab_context()
 
@@ -497,8 +507,15 @@ class MainWindow(
         editor = ctx.editor if ctx else self.request_widget
 
         request_id = editor.request_id
+
+        # Draft request -- open save-to-collection dialog
+        # Only when an actual tab exists (ctx is not None); a bare editor
+        # with no tab is not saveable.
         if request_id is None:
+            if ctx is not None:
+                self._save_draft_request(ctx, editor)
             return
+
         if not editor.is_dirty:
             return
 

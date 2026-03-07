@@ -561,4 +561,52 @@ def build_global_qss(p: ThemePalette) -> str:
         padding: 6px 8px;
         font-size: 11px;
     }}
+
+    /* ---- New-item dialog (icon grid) ------------------------------ */
+    QDialog[objectName="newItemPopup"] {{
+        background: {p["bg"]};
+    }}
+    QLabel[objectName="newItemTitle"] {{
+        font-size: 14px;
+        font-weight: 600;
+        color: {p["text"]};
+    }}
+    QPushButton[objectName="newItemTile"] {{
+        background: {p["bg_alt"]};
+        border: 1px solid {p["border"]};
+        border-radius: 8px;
+    }}
+    QPushButton[objectName="newItemTile"]:hover {{
+        border-color: {p["accent"]};
+        background: {"rgba(79,193,255,0.08)" if p is DARK_PALETTE else "rgba(52,152,219,0.06)"};
+    }}
+    QLabel[objectName="newItemTileLabel"] {{
+        font-size: 12px;
+        font-weight: 500;
+        color: {p["text"]};
+    }}
+    QLabel[objectName="newItemDescription"] {{
+        font-size: 11px;
+        color: {p["text_muted"]};
+        padding: 8px 4px 0px 4px;
+    }}
+
+    /* ---- Save-request dialog ------------------------------------ */
+    QTreeWidget[objectName="collectionTree"] {{
+        border: 1px solid {p["border"]};
+        background: {p["input_bg"]};
+        border-radius: 4px;
+        outline: none;
+    }}
+    QTreeWidget[objectName="collectionTree"]::item {{
+        padding: 6px 8px;
+        border: none;
+    }}
+    QTreeWidget[objectName="collectionTree"]::item:hover {{
+        background: {p["hover_tree_bg"]};
+    }}
+    QTreeWidget[objectName="collectionTree"]::item:selected {{
+        background: {p["selected_bg"]};
+        color: {p["text"]};
+    }}
     """

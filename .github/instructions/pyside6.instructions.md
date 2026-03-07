@@ -204,6 +204,12 @@ standard object names:
 | `sidebarSearch` | `QLineEdit` | Collection sidebar search input |
 | `sidebarSectionLabel` | `QLabel` | Sidebar section heading |
 | `sidebarToolButton` | `QToolButton` | Sidebar toolbar button |
+| `newItemPopup` | `QDialog` | Postman-style "Create New" dialog |
+| `newItemTile` | `QPushButton` | Tile button inside the new-item dialog |
+| `newItemTileLabel` | `QLabel` | Tile label text inside the dialog |
+| `newItemTitle` | `QLabel` | Dialog heading ("What do you want to create?") |
+| `newItemDescription` | `QLabel` | Description text below tiles |
+| `collectionTree` | `QTreeWidget` | Collection tree in SaveRequestDialog |
 
 ### When inline setStyleSheet() is still acceptable
 

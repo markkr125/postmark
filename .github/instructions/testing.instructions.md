@@ -120,6 +120,7 @@ tests/
     ├── conftest.py                # _no_fetch (autouse) + helper functions
     ├── test_main_window.py        # Top-level MainWindow smoke tests
     ├── test_main_window_save.py   # SaveButton + RequestSaveEndToEnd tests
+    ├── test_main_window_draft.py  # Draft tab open/save lifecycle tests
     ├── styling/                   # Theme and icon tests
     │   ├── test_theme_manager.py
     │   └── test_icons.py
@@ -138,9 +139,11 @@ tests/
     │   ├── test_collection_tree.py
     │   ├── test_collection_tree_actions.py
     │   ├── test_collection_tree_delegate.py
-    │   └── test_collection_widget.py
+    │   ├── test_collection_widget.py
+    │   └── test_new_item_popup.py
     ├── dialogs/                   # Dialog tests
     │   ├── test_import_dialog.py
+    │   ├── test_save_request_dialog.py
     │   └── test_settings_dialog.py
     ├── environments/              # Environment widget tests
     │   ├── test_environment_editor.py

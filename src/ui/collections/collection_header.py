@@ -3,18 +3,17 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QMenu,
     QSizePolicy,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
+from ui.collections.new_item_popup import NewItemPopup
 from ui.styling.icons import phi
 
 
@@ -50,7 +49,7 @@ class CollectionHeader(QWidget):
         top_row.addWidget(section_label)
         top_row.addStretch()
 
-        # "New" button with dropdown menu
+        # "New" button with icon-grid popup
         self._plus_btn = QToolButton(self)
         self._plus_btn.setText("New")
         self._plus_btn.setIcon(phi("plus"))
@@ -60,23 +59,13 @@ class CollectionHeader(QWidget):
         self._plus_btn.setToolTip("Create new collection or request")
         top_row.addWidget(self._plus_btn)
 
-        # Plus-menu
-        self._plus_menu = QMenu(self)
-        new_coll_act = QAction(phi("folder-plus"), "New collection", self)
-        self._plus_menu.addAction(new_coll_act)
-        self._new_req_act = QAction(phi("file-plus"), "New request", self)
-        self._new_req_act.setEnabled(False)
-        self._plus_menu.addAction(self._new_req_act)
-
-        self._plus_btn.clicked.connect(
-            lambda: self._plus_menu.exec(
-                self._plus_btn.mapToGlobal(self._plus_btn.rect().bottomLeft())
-            )
-        )
-        new_coll_act.triggered.connect(lambda: self.new_collection_requested.emit(None))
+        # Dialog (replaces the old QMenu)
+        self._popup = NewItemPopup(self)
+        self._popup.new_request_clicked.connect(self._on_popup_new_request)
+        self._popup.new_collection_clicked.connect(lambda: self.new_collection_requested.emit(None))
+        self._plus_btn.clicked.connect(lambda: self._popup.exec())
 
         self._selected_collection_id: int | None = None
-        self._new_req_act.triggered.connect(self._on_new_request_clicked)
 
         # "Import" button
         self._import_btn = QToolButton(self)
@@ -109,9 +98,7 @@ class CollectionHeader(QWidget):
     def set_selected_collection_id(self, collection_id: int | None) -> None:
         """Update the currently selected collection for the 'New request' action."""
         self._selected_collection_id = collection_id
-        self._new_req_act.setEnabled(collection_id is not None)
 
-    def _on_new_request_clicked(self) -> None:
-        """Emit ``new_request_requested`` with the currently selected collection."""
-        if self._selected_collection_id is not None:
-            self.new_request_requested.emit(self._selected_collection_id)
+    def _on_popup_new_request(self) -> None:
+        """Emit ``new_request_requested`` -- ``None`` means draft (no collection)."""
+        self.new_request_requested.emit(None)

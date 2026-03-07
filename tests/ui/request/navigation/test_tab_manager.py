@@ -28,6 +28,7 @@ class TestTabContext:
         assert not ctx.is_dirty
         assert not ctx.is_sending
         assert not ctx.is_preview
+        assert ctx.draft_name is None
 
     def test_local_overrides_defaults_empty(self, qapp: QApplication, qtbot) -> None:
         """TabContext initialises with empty local_overrides dict."""

@@ -13,9 +13,16 @@ and every connection made in `MainWindow.__init__`.
 ### Create operations
 
 ```
-Header "+" menu
-  → CollectionHeader.new_collection_requested(None)
-    → CollectionWidget._create_new_collection(parent_id=None)
+Header "New" button → NewItemPopup
+  → NewItemPopup.new_collection_clicked()
+    → CollectionHeader.new_collection_requested(None)
+      → CollectionWidget._create_new_collection(parent_id=None)
+
+  → NewItemPopup.new_request_clicked()
+    → CollectionHeader.new_request_requested(None)
+      → CollectionWidget._create_new_request(collection_id=None)
+        → CollectionWidget.draft_request_requested()
+          → MainWindow._open_draft_request()
 
 Tree context menu → "Add folder"
   → CollectionTree.new_collection_requested(parent_id)
@@ -151,7 +158,17 @@ CollectionTree.currentItemChanged
   → _on_current_item_changed
     → selected_collection_changed(collection_id | None)
       → CollectionWidget → CollectionHeader.set_selected_collection_id
-        → enables / disables "New request" action in + menu
+```
+
+### Draft request save flow
+
+```
+MainWindow._on_save_request() [request_id is None, ctx is not None]
+  → MainWindow._save_draft_request(ctx, editor)
+    → SaveRequestDialog.exec()
+      → on accept: CollectionService.create_request()
+        → upgrade tab (request_id, dirty=False)
+        → CollectionWidget tree update
 ```
 
 ### Tab bar flow
@@ -183,7 +200,8 @@ BreadcrumbBar.item_clicked(type, id)
 
 BreadcrumbBar.last_segment_renamed(new_name)
   → MainWindow._on_breadcrumb_rename
-    → CollectionService.rename_request / rename_collection
+    → if draft tab (request_id=None): update ctx.draft_name + tab label only
+    → else: CollectionService.rename_request / rename_collection
 ```
 
 ### Environment selector flow
@@ -375,6 +393,9 @@ All other signals in the flow diagrams above are fully wired.
 | `CollectionWidget` | `item_action_triggered` | `Signal(str, int, str)` |
 | `CollectionWidget` | `item_name_changed` | `Signal(str, int, str)` |
 | `CollectionWidget` | `load_finished` | `Signal()` |
+| `CollectionWidget` | `draft_request_requested` | `Signal()` |
+| `NewItemPopup` | `new_request_clicked` | `Signal()` |
+| `NewItemPopup` | `new_collection_clicked` | `Signal()` |
 
 ### Request / response subsystem
 

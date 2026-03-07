@@ -238,6 +238,11 @@ class _TabControllerMixin:
             if ctx.request_id is not None:
                 crumbs = CollectionService.get_request_breadcrumb(ctx.request_id)
                 self._breadcrumb_bar.set_path(crumbs)
+            elif ctx.draft_name is not None:
+                # Draft tab — show editable single-segment breadcrumb
+                self._breadcrumb_bar.set_path(
+                    [{"name": ctx.draft_name, "type": "request", "id": 0}]
+                )
             else:
                 self._breadcrumb_bar.clear()
             # Load saved responses
@@ -451,6 +456,15 @@ class _TabControllerMixin:
 
     def _on_breadcrumb_rename(self, new_name: str) -> None:
         """Rename the current request/folder from the breadcrumb bar."""
+        idx = self._tab_bar.currentIndex()
+        ctx = self._tabs.get(idx)
+
+        # Draft tab — no DB entry yet, update tab name and context only
+        if ctx is not None and ctx.request_id is None and ctx.draft_name is not None:
+            ctx.draft_name = new_name
+            self._tab_bar.update_tab(idx, name=new_name)
+            return
+
         seg = self._breadcrumb_bar.last_segment_info
         if seg is None:
             return

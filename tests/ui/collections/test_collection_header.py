@@ -18,15 +18,12 @@ class TestCollectionHeader:
         assert header.height() == 70
 
     def test_new_collection_signal(self, qapp: QApplication, qtbot) -> None:
-        """Clicking the + menu emits ``new_collection_requested(None)``."""
+        """Clicking the collection tile emits ``new_collection_requested(None)``."""
         header = CollectionHeader()
         qtbot.addWidget(header)
 
         with qtbot.waitSignal(header.new_collection_requested, timeout=1000) as blocker:
-            # Directly trigger the action instead of clicking through the menu
-            actions = header._plus_menu.actions()
-            assert len(actions) >= 1, "Plus menu should have at least one action"
-            actions[0].trigger()
+            header._popup.new_collection_clicked.emit()
 
         assert blocker.args == [None]
 
@@ -40,40 +37,23 @@ class TestCollectionHeader:
 
         assert blocker.args == ["hello"]
 
-    def test_new_request_disabled_by_default(self, qapp: QApplication, qtbot) -> None:
-        """The 'New request' action is disabled when no collection is selected."""
+    def test_new_request_emits_draft_signal(self, qapp: QApplication, qtbot) -> None:
+        """Clicking the request tile emits ``new_request_requested(None)`` (draft)."""
         header = CollectionHeader()
         qtbot.addWidget(header)
-
-        assert not header._new_req_act.isEnabled()
-
-    def test_new_request_enabled_after_selection(self, qapp: QApplication, qtbot) -> None:
-        """Setting a selected collection ID enables the 'New request' action."""
-        header = CollectionHeader()
-        qtbot.addWidget(header)
-
-        header.set_selected_collection_id(42)
-        assert header._new_req_act.isEnabled()
-
-    def test_new_request_emits_signal(self, qapp: QApplication, qtbot) -> None:
-        """Triggering 'New request' emits ``new_request_requested`` with the ID."""
-        header = CollectionHeader()
-        qtbot.addWidget(header)
-
-        header.set_selected_collection_id(42)
 
         with qtbot.waitSignal(header.new_request_requested, timeout=1000) as blocker:
-            header._new_req_act.trigger()
+            header._popup.new_request_clicked.emit()
 
-        assert blocker.args == [42]
+        assert blocker.args == [None]
 
-    def test_new_request_disabled_on_none_selection(self, qapp: QApplication, qtbot) -> None:
-        """Clearing the selection disables the 'New request' action."""
+    def test_set_selected_collection_id(self, qapp: QApplication, qtbot) -> None:
+        """``set_selected_collection_id`` stores the collection ID."""
         header = CollectionHeader()
         qtbot.addWidget(header)
 
         header.set_selected_collection_id(42)
-        assert header._new_req_act.isEnabled()
+        assert header._selected_collection_id == 42
 
         header.set_selected_collection_id(None)
-        assert not header._new_req_act.isEnabled()
+        assert header._selected_collection_id is None

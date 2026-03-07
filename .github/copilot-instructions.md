@@ -170,6 +170,7 @@ src/
     ├── main_window/               # Top-level MainWindow sub-package
     │   ├── window.py              # MainWindow widget + signal wiring
     │   ├── send_pipeline.py       # _SendPipelineMixin — HTTP send/response flow
+    │   ├── draft_controller.py    # _DraftControllerMixin — draft tab open/save
     │   ├── tab_controller.py      # _TabControllerMixin — tab open/close/switch
     │   └── variable_controller.py # _VariableControllerMixin — env variable management
     ├── loading_screen.py          # Loading screen overlay widget
@@ -192,6 +193,7 @@ src/
     ├── collections/               # Collection sidebar
     │   ├── collection_header.py
     │   ├── collection_widget.py
+    │   ├── new_item_popup.py      # NewItemPopup — Postman-style icon grid popup
     │   └── tree/                  # Tree widget sub-package
     │       ├── constants.py
     │       ├── draggable_tree_widget.py
@@ -202,6 +204,7 @@ src/
     │   ├── code_snippet_dialog.py
     │   ├── collection_runner.py
     │   ├── import_dialog.py
+    │   ├── save_request_dialog.py  # Save draft request to collection
     │   └── settings_dialog.py     # Settings (theme, colour scheme)
     ├── environments/              # Environment management widgets
     │   ├── environment_editor.py
@@ -223,7 +226,7 @@ src/
         ├── navigation/              # Tab switching and path navigation
         │   ├── breadcrumb_bar.py
         │   ├── request_tab_bar.py
-        │   └── tab_manager.py       # TabManager + TabContext (with local_overrides)
+        │   └── tab_manager.py       # TabManager + TabContext (with local_overrides, draft_name)
         └── popups/                  # Response metadata popups
             ├── status_popup.py      # HTTP status code explanation
             ├── timing_popup.py      # Request timing breakdown
@@ -248,6 +251,7 @@ tests/
     ├── conftest.py                # _no_fetch (autouse) + helpers
     ├── test_main_window.py
     ├── test_main_window_save.py   # SaveButton + RequestSaveEndToEnd tests
+    ├── test_main_window_draft.py  # Draft tab open/save lifecycle tests
     ├── styling/                   # Theme and icon tests
     │   ├── test_theme_manager.py
     │   └── test_icons.py
@@ -266,9 +270,11 @@ tests/
     │   ├── test_collection_tree.py
     │   ├── test_collection_tree_actions.py
     │   ├── test_collection_tree_delegate.py
-    │   └── test_collection_widget.py
+    │   ├── test_collection_widget.py
+    │   └── test_new_item_popup.py
     ├── dialogs/                   # Dialog tests
     │   ├── test_import_dialog.py
+    │   ├── test_save_request_dialog.py
     │   └── test_settings_dialog.py
     ├── environments/              # Environment widget tests
     │   ├── test_environment_editor.py
