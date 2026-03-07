@@ -20,8 +20,11 @@
 >    directories.
 > 5. **Update `sqlalchemy.instructions.md`** with any new models,
 >    relationships, or repository functions.
-> 6. **Search every instruction file** for stale references to renamed,
->    moved, or deleted code.  Remove or correct them.
+> 6. **Update relevant skills** (under `.github/skills/`) when adding or
+>    changing signals, service/repository methods, TypedDicts, widgets, or
+>    parsers.  See the Skills table below.
+> 7. **Search every instruction file and skill** for stale references to
+>    renamed, moved, or deleted code.  Remove or correct them.
 
 This file and the scoped instruction files below form a single source of
 truth.
@@ -41,6 +44,52 @@ Scoped instruction files (auto-applied by path):
 | [sqlalchemy.instructions.md](./instructions/sqlalchemy.instructions.md) | `src/database/**/*.py` |
 | [architecture.instructions.md](./instructions/architecture.instructions.md) | `src/**/*.py` |
 | [testing.instructions.md](./instructions/testing.instructions.md) | `tests/**/*.py` |
+
+On-demand skills (loaded when the task matches the description):
+
+| Skill | Description |
+|-------|-------------|
+| [signal-flow](./skills/signal-flow/SKILL.md) | Complete signal flow diagrams, signal declaration tables, MainWindow wiring summary |
+| [service-repository-reference](./skills/service-repository-reference/SKILL.md) | Repository function catalogues, service method tables, TypedDict schemas |
+| [widget-patterns](./skills/widget-patterns/SKILL.md) | Tree badge rendering, data roles, InfoPopup, VariablePopup, theme module, new widget checklist |
+| [test-writing](./skills/test-writing/SKILL.md) | Test patterns for all layers — repository, service, UI widget, MainWindow |
+| [import-parser](./skills/import-parser/SKILL.md) | How to add a new import format parser to the import system |
+| [customization-guide](./skills/customization-guide/SKILL.md) | How to create, update, or debug Copilot instruction files, skills, applyTo patterns, and YAML frontmatter |
+
+> **Instructions vs Skills:** Instructions are always loaded when editing
+> matching files — keep them lean with core rules.  Skills are loaded
+> on-demand when the task description matches — use them for heavyweight
+> reference material, step-by-step guides, and catalogues.
+
+### Quick-reference — creating new skills or instructions
+
+If you need to **add a new skill** or **instruction file**, follow these
+minimal rules (full guide in the `customization-guide` skill):
+
+**Skill** — `.github/skills/<name>/SKILL.md`:
+```yaml
+---
+name: "<name>"                    # kebab-case, matches folder name
+description: "One sentence ..."    # VS Code matches this to user prompts
+---
+# <Title>
+(content)
+```
+
+**Instruction** — `.github/instructions/<name>.instructions.md`:
+```yaml
+---
+name: "<Display Name>"
+description: "One sentence ..."
+applyTo: "src/path/**/*.py"        # glob — auto-loaded for matching files
+---
+# <Title>
+(content)
+```
+
+After creating either, **update this file**: add the new entry to the
+scoped-instructions or skills table above, and update the sync checklist
+if needed.
 
 ## Project overview
 

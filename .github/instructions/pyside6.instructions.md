@@ -227,43 +227,15 @@ For everything else, use `setObjectName()` and let the global QSS handle it.
 
 ### Theme module contents
 
-`theme.py` provides four categories of exports:
-
-1. **Palette definitions** — `ThemePalette` (TypedDict schema),
-   `LIGHT_PALETTE`, `DARK_PALETTE`.  `set_active_palette(palette)` updates
-   the mutable colour aliases.  `current_palette()` returns the active dict.
-2. **Colour constants** — mutable module-level aliases
-   (`COLOR_ACCENT`, `COLOR_SUCCESS`, `COLOR_TEXT`, etc.) that reflect the
-   currently active palette.
-3. **Method colour mapping** — `METHOD_COLORS: dict[str, str]` maps HTTP
-   methods to colours. `DEFAULT_METHOD_COLOR` is the fallback.
-   `method_color(method)` returns the colour for a given method string.
-4. **Badge system** — constants and helpers for the tree item request badges:
-   - `METHOD_SHORT_LABELS: dict[str, str]` — compact labels (e.g.
-     `DELETE` → `DEL`, `PATCH` → `PAT`, `OPTIONS` → `OPT`).
-   - `BADGE_FONT_SIZE` (9px), `BADGE_MIN_WIDTH` (32px), `BADGE_HEIGHT`
-     (16px), `BADGE_BORDER_RADIUS` (3px), `TREE_ROW_HEIGHT` (24px).
-   - `method_short_label(method)` — returns the short label for a method.
+> **Detailed contents (palette definitions, colour constants, method colour
+> mapping, badge system) are in the `widget-patterns` skill.**
 
 ### Tree item badge rendering
 
-Request items in the collection tree use a **custom delegate**
-(`CollectionTreeDelegate`, a `QStyledItemDelegate` subclass) that paints the
-method badge and request name directly — no per-row `QWidget` is created.
-This saves ~50-60 KB per request item compared to `setItemWidget`.
-
-The delegate reads `ROLE_METHOD` (column 0) for the HTTP method and column 1
-display text for the request name.  It paints:
-
-1. A rounded-rect badge (`BADGE_MIN_WIDTH` x `BADGE_HEIGHT`, background from
-   `method_color()`, white text from `method_short_label()`).
-2. The request name (elided, palette-aware text colour).
-
-Folder items fall through to the default `QStyledItemDelegate` rendering
-(standard `setText` content with a folder icon).
-
-**Placeholder items** (empty-folder prompts) still use `setItemWidget`
-because they contain clickable HTML links.
+> **Custom delegate details, column semantics, and data role layout are in
+> the `widget-patterns` skill.**  Key fact: the delegate reads
+> `ROLE_METHOD` (column 0) and column 1 display text.  No per-row
+> `QWidget` is created.
 
 ## QPushButton — icons, cursors, and icon-only buttons
 
@@ -336,111 +308,22 @@ Every call to `blockSignals(True)` must have a matching
 
 ## Tree item column semantics differ by type
 
-The `CollectionTree` uses a **two-column** `QTreeWidget` with asymmetric
-semantics:
+> **Full column semantics table, data role layout, and context-menu
+> `_current_item` rules are in the `widget-patterns` skill.**
+>
+> Quick reference: folders use column 0 for display; requests use column 1
+> (delegate paints badge + name from column 0 `ROLE_METHOD` + column 1
+> text).
 
-| | Column 0 | Column 1 |
-|---|---|---|
-| **Folder** | Display name (text + icon) | Type metadata only (via data roles) |
-| **Request** | Empty text `""` (delegate paints badge + name) | Raw name text (used for rename and delegate display) |
+## Background workers, InfoPopup, and VariablePopup
 
-Because of this asymmetry:
-- Folder rename uses Qt's built-in `editItem()` on column 0.
-- Request rename creates an overlay `QLineEdit` on the tree viewport.
-- Reading a request's display name: use `item.text(1)` (column 1).
-
-## Data role layout on QTreeWidgetItems
-
-All constants are defined in `ui/collections/tree/constants.py`.
-
-| Role constant | Value | Stored on | Content |
-|---|---|---|---|
-| `ROLE_ITEM_ID` | `UserRole` | Column 0 | Database PK (`int`) |
-| `ROLE_ITEM_TYPE` | `UserRole + 1` | Column 1 | `"folder"` or `"request"` |
-| `ROLE_OLD_NAME` | `UserRole + 2` | Column 1 | Original name stashed during rename |
-| `ROLE_LINE_EDIT` | `UserRole + 3` | Column 1 | (legacy — unused with delegate approach) |
-| `ROLE_NAME_LABEL` | `UserRole + 4` | Column 1 | (legacy — unused with delegate approach) |
-| `ROLE_MIME_DATA` | `UserRole + 5` | Column 3 | (legacy — unused, drag reads data roles directly) |
-| `ROLE_METHOD` | `UserRole + 6` | Column 0 | HTTP method string (requests only) |
-| `ROLE_PLACEHOLDER` | `UserRole + 10` | Column 1 | `"placeholder"` marker string |
-
-Gap at `+7` through `+9` is reserved for future roles.
-
-## Context-menu state — `_current_item`
-
-`CollectionTree._current_item` is set on right-click and read by the
-triggered menu action.
-
-- It is **per-menu-invocation** state, not per-selection.
-- **DO NOT** read `_current_item` outside a context-menu handler — its value
-  is only reliable between the right-click and the menu action.
-
-## Background workers use QThread + moveToThread
-
-For blocking operations (e.g. DB fetch, HTTP requests), create a `QObject`
-worker, move it to a `QThread`, and connect `thread.started` to `worker.run`.
-Emit a signal with the result when done.  Examples:
-
-- `_CollectionFetcher` in `collection_widget.py` — DB fetch
-- `HttpSendWorker` in `http_worker.py` — HTTP request execution
-- `SchemaFetchWorker` in `http_worker.py` — GraphQL schema introspection
-
-## InfoPopup — QFrame-based tooltip popups
-
-Use `QFrame` (not `QWidget` or `QDialog`) for tooltip-like popups.
-`QWidget` does **not** reliably render QSS borders on Linux.
-
-The `InfoPopup` base class (`ui/info_popup.py`) provides:
-
-- **Window flags:** `Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint
-  | Qt.WindowType.WindowStaysOnTopHint`
-- **objectName:** `"infoPopup"` — styled via global QSS
-- **Click-outside dismiss:** App-wide event filter via
-  `QApplication.instance().installEventFilter(self)`.  The filter returns
-  `False` so the click propagates to the widget underneath (e.g. to open
-  a sibling popup without needing a double-click).
-- **150ms grace period:** Clicks within 150ms of `show_below()` are ignored
-  to prevent the opening click from immediately closing the popup.
-- **Copy-to-clipboard feedback:** `_copy_to_clipboard(text, btn)` copies
-  text, sets the button to "Copied!" with a checkmark icon, then restores
-  the original text after 1.2s via `QTimer.singleShot`.
-
-### ClickableLabel
-
-`ClickableLabel(QLabel)` emits a `clicked` signal on `mousePressEvent`.
-Used for the response status bar labels that open popups.
-
-## VariablePopup — singleton variable hover popup
-
-`VariablePopup` (`ui/variable_popup.py`) is a **singleton** `QFrame` popup
-shown when the user hovers over a `{{variable}}` reference in
-`VariableLineEdit`.  It displays the resolved value, source badge, and an
-editable field.
-
-### Rules for VariablePopup
-
-- **Do NOT use Qt signals** for VariablePopup actions.  It uses class-level
-  callbacks instead (`set_save_callback`, `set_local_override_callback`,
-  `set_reset_local_override_callback`, `set_add_variable_callback`,
-  `set_has_environment`).  These are classmethods that store `Callable`
-  objects on the class itself.  They are wired once in
-  `MainWindow.__init__` and must not be re-wired elsewhere.
-- **Dismiss behaviour** follows the same pattern as `InfoPopup`: app-wide
-  `eventFilter` closes the popup on click-outside, with a 150ms grace
-  period to prevent the opening click from immediately closing it.
-- **"Add to" panel** — for unresolved variables only.  A button
-  ("Add to &#9662;") sits in the bottom row next to the "Unresolved" badge.
-  Clicking it toggles an inline `_add_panel` with collection/environment
-  target buttons.  Do not replace this with a `QMenu` or `QComboBox` —
-  both cause dismiss issues on Linux.
-
-### Rules for VariableLineEdit
-
-`VariableLineEdit` (`ui/variable_line_edit.py`) is a `QLineEdit` subclass
-that paints coloured pills over `{{variable}}` references.
-
-- Call `set_variable_map(variables: dict[str, VariableDetail])` to update
-  the variable lookup used for painting and hover popups.
-- `mouseMoveEvent` triggers `VariablePopup.show_variable()` after a 150ms
-  `QTimer` delay when the cursor hovers over a `{{variable}}` token.
-- Pill colours come from `ui.theme` — do not hardcode hex values.
+> **QThread worker pattern, InfoPopup base class details, VariablePopup
+> singleton rules, and VariableLineEdit painting rules are in the
+> `widget-patterns` skill.**
+>
+> Key rules (always apply):
+> - Use `QObject` + `moveToThread()`, not `QThread` subclass.
+> - `InfoPopup` uses `QFrame` (not `QWidget`) — `QWidget` breaks QSS
+>   borders on Linux.
+> - `VariablePopup` uses class-level callbacks, **not** Qt signals.
+> - `VariableLineEdit.set_variable_map()` takes `dict[str, VariableDetail]`.
