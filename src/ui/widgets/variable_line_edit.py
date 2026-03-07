@@ -88,7 +88,7 @@ class VariableLineEdit(QLineEdit):
         if not matches:
             return
 
-        from ui.theme import (
+        from ui.styling.theme import (
             COLOR_VARIABLE_HIGHLIGHT,
             COLOR_VARIABLE_UNRESOLVED_HIGHLIGHT,
             COLOR_VARIABLE_UNRESOLVED_TEXT,
@@ -163,7 +163,7 @@ class VariableLineEdit(QLineEdit):
             if var_name != self._hover_var:
                 self._hover_var = var_name
                 self._hover_global_pos = event.globalPosition().toPoint()
-                from ui.variable_popup import VariablePopup
+                from ui.widgets.variable_popup import VariablePopup
 
                 self._hover_timer.start(VariablePopup.hover_delay_ms())
         else:
@@ -181,7 +181,7 @@ class VariableLineEdit(QLineEdit):
         """Show the variable popup for the currently hovered variable."""
         if self._hover_var is None:
             return
-        from ui.variable_popup import VariablePopup
+        from ui.widgets.variable_popup import VariablePopup
 
         detail = self._variable_map.get(self._hover_var)
         VariablePopup.show_variable(self._hover_var, detail, self._hover_global_pos, self)

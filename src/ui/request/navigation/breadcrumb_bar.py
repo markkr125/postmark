@@ -10,7 +10,7 @@ from PySide6.QtCore import QEvent, QObject, Qt, Signal
 from PySide6.QtGui import QFocusEvent, QKeyEvent, QMouseEvent
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QWidget
 
-from ui.theme import COLOR_ACCENT, COLOR_BREADCRUMB_SEP, COLOR_TEXT_MUTED
+from ui.styling.theme import COLOR_ACCENT, COLOR_BREADCRUMB_SEP, COLOR_TEXT_MUTED
 
 
 class _EditableLabel(QWidget):

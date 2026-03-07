@@ -5,7 +5,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QLabel, QWidget
 
-from ui.info_popup import ClickableLabel, InfoPopup
+from ui.widgets.info_popup import ClickableLabel, InfoPopup
 
 
 class TestInfoPopup:

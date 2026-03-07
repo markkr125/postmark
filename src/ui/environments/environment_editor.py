@@ -24,8 +24,8 @@ from PySide6.QtWidgets import (
 )
 
 from services.environment_service import EnvironmentService
-from ui.icons import phi
-from ui.key_value_table import KeyValueTableWidget
+from ui.styling.icons import phi
+from ui.widgets.key_value_table import KeyValueTableWidget
 
 
 class EnvironmentEditorDialog(QDialog):

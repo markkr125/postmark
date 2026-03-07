@@ -13,7 +13,7 @@ from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication, QStyleFactory
 
-from ui.theme import (
+from ui.styling.theme import (
     BADGE_BORDER_RADIUS,
     BADGE_FONT_SIZE,
     BADGE_HEIGHT,
@@ -143,7 +143,7 @@ class ThemeManager(QObject):
         self._app.setStyleSheet(qss)
 
         # 5. Flush icon cache so colours are re-rendered
-        from ui.icons import clear_cache
+        from ui.styling.icons import clear_cache
 
         clear_cache()
 

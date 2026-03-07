@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import httpx
 
-from services.http_service import HttpService, _build_headers, _phase_ms
+from services.http.http_service import HttpService, _build_headers, _phase_ms
 
 
 class TestBuildHeaders:
@@ -72,7 +72,7 @@ class TestPhaseMs:
 class TestResolveDns:
     """Tests for HttpService._resolve_dns."""
 
-    @patch("services.http_service.socket.getaddrinfo")
+    @patch("services.http.http_service.socket.getaddrinfo")
     def test_successful_resolve(self, mock_gai: MagicMock) -> None:
         """Successful DNS resolution returns positive ms and IP."""
         mock_gai.return_value = [
@@ -82,7 +82,7 @@ class TestResolveDns:
         assert dns_ms >= 0.0
         assert ip == "93.184.216.34"
 
-    @patch("services.http_service.socket.getaddrinfo")
+    @patch("services.http.http_service.socket.getaddrinfo")
     def test_resolution_failure(self, mock_gai: MagicMock) -> None:
         """DNS failure returns (0.0, '') so httpx can try its own."""
         mock_gai.side_effect = socket.gaierror("Name or service not known")
@@ -151,8 +151,10 @@ def _mock_client(response: MagicMock) -> MagicMock:
 class TestHttpServiceSendRequest:
     """Tests for HttpService.send_request with mocked httpx and DNS."""
 
-    @patch("services.http_service.HttpService._resolve_dns", return_value=(1.5, "93.184.216.34"))
-    @patch("services.http_service.httpx.Client")
+    @patch(
+        "services.http.http_service.HttpService._resolve_dns", return_value=(1.5, "93.184.216.34")
+    )
+    @patch("services.http.http_service.httpx.Client")
     def test_successful_get(self, mock_client_cls: MagicMock, _mock_dns: MagicMock) -> None:
         """A successful GET returns status, body, headers, timing, and size."""
         resp = _mock_response()
@@ -168,8 +170,10 @@ class TestHttpServiceSendRequest:
         assert "error" not in result
         assert result.get("headers") == [{"key": "content-type", "value": "application/json"}]
 
-    @patch("services.http_service.HttpService._resolve_dns", return_value=(0.5, "93.184.216.34"))
-    @patch("services.http_service.httpx.Client")
+    @patch(
+        "services.http.http_service.HttpService._resolve_dns", return_value=(0.5, "93.184.216.34")
+    )
+    @patch("services.http.http_service.httpx.Client")
     def test_response_has_timing(self, mock_client_cls: MagicMock, _mock_dns: MagicMock) -> None:
         """Successful response includes a timing breakdown dict."""
         mock_client_cls.return_value = _mock_client(_mock_response())
@@ -185,8 +189,10 @@ class TestHttpServiceSendRequest:
         assert "download_ms" in timing
         assert "process_ms" in timing
 
-    @patch("services.http_service.HttpService._resolve_dns", return_value=(0.5, "93.184.216.34"))
-    @patch("services.http_service.httpx.Client")
+    @patch(
+        "services.http.http_service.HttpService._resolve_dns", return_value=(0.5, "93.184.216.34")
+    )
+    @patch("services.http.http_service.httpx.Client")
     def test_response_has_size_breakdown(
         self, mock_client_cls: MagicMock, _mock_dns: MagicMock
     ) -> None:
@@ -205,8 +211,10 @@ class TestHttpServiceSendRequest:
         assert result["request_body_size"] == len(b'{"a": 1}')
         assert "response_headers_size" in result
 
-    @patch("services.http_service.HttpService._resolve_dns", return_value=(0.5, "93.184.216.34"))
-    @patch("services.http_service.httpx.Client")
+    @patch(
+        "services.http.http_service.HttpService._resolve_dns", return_value=(0.5, "93.184.216.34")
+    )
+    @patch("services.http.http_service.httpx.Client")
     def test_response_has_network_metadata(
         self, mock_client_cls: MagicMock, _mock_dns: MagicMock
     ) -> None:
@@ -220,8 +228,10 @@ class TestHttpServiceSendRequest:
         assert "http_version" in network
         assert "remote_address" in network
 
-    @patch("services.http_service.HttpService._resolve_dns", return_value=(0.5, "93.184.216.34"))
-    @patch("services.http_service.httpx.Client")
+    @patch(
+        "services.http.http_service.HttpService._resolve_dns", return_value=(0.5, "93.184.216.34")
+    )
+    @patch("services.http.http_service.httpx.Client")
     def test_post_with_body_and_headers(
         self, mock_client_cls: MagicMock, _mock_dns: MagicMock
     ) -> None:
@@ -245,8 +255,8 @@ class TestHttpServiceSendRequest:
         assert call_kwargs.kwargs["content"] == b'{"name": "test"}'
         assert call_kwargs.kwargs["headers"] == {"Content-Type": "application/json"}
 
-    @patch("services.http_service.HttpService._resolve_dns", return_value=(0.0, ""))
-    @patch("services.http_service.httpx.Client")
+    @patch("services.http.http_service.HttpService._resolve_dns", return_value=(0.0, ""))
+    @patch("services.http.http_service.httpx.Client")
     def test_connection_error(self, mock_client_cls: MagicMock, _mock_dns: MagicMock) -> None:
         """Connection refused returns an error dict."""
         client = MagicMock()
@@ -261,8 +271,8 @@ class TestHttpServiceSendRequest:
         assert "Connection refused" in result["error"]
         assert "elapsed_ms" in result
 
-    @patch("services.http_service.HttpService._resolve_dns", return_value=(0.0, ""))
-    @patch("services.http_service.httpx.Client")
+    @patch("services.http.http_service.HttpService._resolve_dns", return_value=(0.0, ""))
+    @patch("services.http.http_service.httpx.Client")
     def test_timeout_error(self, mock_client_cls: MagicMock, _mock_dns: MagicMock) -> None:
         """Timeout returns an error dict."""
         client = MagicMock()
@@ -276,8 +286,8 @@ class TestHttpServiceSendRequest:
         assert "error" in result
         assert "timed out" in result["error"]
 
-    @patch("services.http_service.HttpService._resolve_dns", return_value=(0.0, ""))
-    @patch("services.http_service.httpx.Client")
+    @patch("services.http.http_service.HttpService._resolve_dns", return_value=(0.0, ""))
+    @patch("services.http.http_service.httpx.Client")
     def test_too_many_redirects(self, mock_client_cls: MagicMock, _mock_dns: MagicMock) -> None:
         """Too many redirects returns an error dict."""
         client = MagicMock()
@@ -293,8 +303,8 @@ class TestHttpServiceSendRequest:
         assert "error" in result
         assert "redirect" in result["error"].lower()
 
-    @patch("services.http_service.HttpService._resolve_dns", return_value=(0.0, ""))
-    @patch("services.http_service.httpx.Client")
+    @patch("services.http.http_service.HttpService._resolve_dns", return_value=(0.0, ""))
+    @patch("services.http.http_service.httpx.Client")
     def test_generic_exception(self, mock_client_cls: MagicMock, _mock_dns: MagicMock) -> None:
         """Unexpected errors return an error dict without crashing."""
         client = MagicMock()
@@ -308,8 +318,10 @@ class TestHttpServiceSendRequest:
         assert "error" in result
         assert "something broke" in result["error"]
 
-    @patch("services.http_service.HttpService._resolve_dns", return_value=(0.5, "93.184.216.34"))
-    @patch("services.http_service.httpx.Client")
+    @patch(
+        "services.http.http_service.HttpService._resolve_dns", return_value=(0.5, "93.184.216.34")
+    )
+    @patch("services.http.http_service.httpx.Client")
     def test_4xx_response(self, mock_client_cls: MagicMock, _mock_dns: MagicMock) -> None:
         """A 404 is returned normally (not as an error)."""
         resp = _mock_response(
@@ -326,8 +338,10 @@ class TestHttpServiceSendRequest:
         assert result.get("status_code") == 404
         assert "error" not in result
 
-    @patch("services.http_service.HttpService._resolve_dns", return_value=(0.5, "93.184.216.34"))
-    @patch("services.http_service.httpx.Client")
+    @patch(
+        "services.http.http_service.HttpService._resolve_dns", return_value=(0.5, "93.184.216.34")
+    )
+    @patch("services.http.http_service.httpx.Client")
     def test_compressed_response_has_uncompressed_size(
         self, mock_client_cls: MagicMock, _mock_dns: MagicMock
     ) -> None:

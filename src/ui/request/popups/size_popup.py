@@ -9,7 +9,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QGridLayout, QLabel, QWidget
 
-from ui.info_popup import InfoPopup
+from ui.widgets.info_popup import InfoPopup
 
 
 def _format_size(size_bytes: int) -> str:

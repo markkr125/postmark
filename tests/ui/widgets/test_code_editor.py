@@ -14,7 +14,7 @@ from PySide6.QtGui import QHelpEvent, QKeyEvent, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import QApplication, QPlainTextEdit, QTextEdit, QToolTip
 
 from services.environment_service import VariableDetail
-from ui.code_editor import CodeEditorWidget, SyntaxError_
+from ui.widgets.code_editor import CodeEditorWidget, SyntaxError_
 
 # -- Helpers -----------------------------------------------------------
 
@@ -1164,7 +1164,7 @@ class TestVariableTooltipInEditor:
         local_pos = rect.center().toPoint()
         global_pos = editor.mapToGlobal(local_pos)
 
-        with patch("ui.variable_popup.VariablePopup") as mock_cls:
+        with patch("ui.widgets.variable_popup.VariablePopup") as mock_cls:
             help_event = QHelpEvent(QEvent.Type.ToolTip, local_pos, global_pos)
             editor.event(help_event)
             if mock_cls.show_variable.called:
@@ -1185,7 +1185,7 @@ class TestVariableTooltipInEditor:
         local_pos = rect.center().toPoint()
         global_pos = editor.mapToGlobal(local_pos)
 
-        with patch("ui.variable_popup.VariablePopup") as mock_cls:
+        with patch("ui.widgets.variable_popup.VariablePopup") as mock_cls:
             help_event = QHelpEvent(QEvent.Type.ToolTip, local_pos, global_pos)
             editor.event(help_event)
             if mock_cls.show_variable.called:

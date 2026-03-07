@@ -111,7 +111,7 @@ Existing workers:
 Use `QFrame` (not `QWidget` or `QDialog`) for tooltip-like popups.
 `QWidget` does **not** reliably render QSS borders on Linux.
 
-The `InfoPopup` base class (`ui/info_popup.py`) provides:
+The `InfoPopup` base class (`ui/widgets/info_popup.py`) provides:
 
 - **Window flags:** `Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint
   | Qt.WindowType.WindowStaysOnTopHint`
@@ -132,7 +132,7 @@ Used for the response status bar labels that open popups.
 
 ## VariablePopup — singleton variable hover popup
 
-`VariablePopup` (`ui/variable_popup.py`) is a **singleton** `QFrame` popup
+`VariablePopup` (`ui/widgets/variable_popup.py`) is a **singleton** `QFrame` popup
 shown when the user hovers over a `{{variable}}` reference in
 `VariableLineEdit`.
 
@@ -151,14 +151,14 @@ shown when the user hovers over a `{{variable}}` reference in
 
 ### Rules for VariableLineEdit
 
-`VariableLineEdit` (`ui/variable_line_edit.py`) is a `QLineEdit` subclass
+`VariableLineEdit` (`ui/widgets/variable_line_edit.py`) is a `QLineEdit` subclass
 that paints coloured pills over `{{variable}}` references.
 
 - Call `set_variable_map(variables: dict[str, VariableDetail])` to update
   the variable lookup used for painting and hover popups.
 - `mouseMoveEvent` triggers `VariablePopup.show_variable()` after a 150ms
   `QTimer` delay when the cursor hovers over a `{{variable}}` token.
-- Pill colours come from `ui.theme` — do not hardcode hex values.
+- Pill colours come from `ui.styling.theme` — do not hardcode hex values.
 
 ## Theme module contents
 
@@ -187,7 +187,8 @@ When creating a new widget:
 5. Use fully qualified enums (e.g. `Qt.AlignmentFlag.AlignLeft`).
 6. Use `setObjectName()` + global QSS for static styling, not
    `setStyleSheet()`.
-7. Import colours from `ui.theme`, icons from `ui.icons.phi()`.
+7. Import colours from `ui.styling.theme`, icons from
+   `ui.styling.icons.phi()`.
 8. Add the widget to the architecture tree in `copilot-instructions.md`.
 9. Create a matching test file in `tests/ui/<subpackage>/`.
 10. Add the test file to the test tree in `testing.instructions.md`.

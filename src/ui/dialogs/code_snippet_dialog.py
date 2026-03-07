@@ -20,9 +20,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from services.snippet_generator import SnippetGenerator
-from ui.code_editor import CodeEditorWidget
-from ui.icons import phi
+from services.http.snippet_generator import SnippetGenerator
+from ui.styling.icons import phi
+from ui.widgets.code_editor import CodeEditorWidget
 
 
 class CodeSnippetDialog(QDialog):

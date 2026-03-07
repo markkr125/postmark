@@ -45,7 +45,7 @@ def _reset_popup_and_flush_widgets(qapp: QApplication) -> Iterator[None]:
     """
     yield
     # 1. Break reference cycle: class var -> bound method -> MainWindow.
-    from ui.variable_popup import VariablePopup
+    from ui.widgets.variable_popup import VariablePopup
 
     if VariablePopup._instance is not None:
         VariablePopup._instance.close()

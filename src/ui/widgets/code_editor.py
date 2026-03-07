@@ -61,8 +61,8 @@ from PySide6.QtWidgets import QPlainTextEdit, QTextEdit, QToolTip, QWidget
 if TYPE_CHECKING:
     from services.environment_service import VariableDetail
 
-from ui.icons import font_family, glyph_char
-from ui.theme import (
+from ui.styling.icons import font_family, glyph_char
+from ui.styling.theme import (
     COLOR_EDITOR_ACTIVE_INDENT_GUIDE,
     COLOR_EDITOR_BRACKET_MATCH,
     COLOR_EDITOR_ERROR_GUTTER_BG,
@@ -1769,7 +1769,7 @@ class CodeEditorWidget(QPlainTextEdit):
         """Show the variable popup for the currently hovered variable."""
         if self._var_hover_name is None:
             return
-        from ui.variable_popup import VariablePopup
+        from ui.widgets.variable_popup import VariablePopup
 
         detail = self._variable_map.get(self._var_hover_name)
         VariablePopup.show_variable(self._var_hover_name, detail, self._var_hover_global_pos, self)
@@ -1805,7 +1805,7 @@ class CodeEditorWidget(QPlainTextEdit):
             if var_name != self._var_hover_name:
                 self._var_hover_name = var_name
                 self._var_hover_global_pos = event.globalPosition().toPoint()
-                from ui.variable_popup import VariablePopup
+                from ui.widgets.variable_popup import VariablePopup
 
                 self._var_hover_timer.start(VariablePopup.hover_delay_ms())
         else:

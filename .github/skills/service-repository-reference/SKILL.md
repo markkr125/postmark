@@ -148,7 +148,7 @@ All methods are `@staticmethod`.
 
 ## TypedDict schemas
 
-### HttpService TypedDicts (`services/http_service.py`)
+### HttpService TypedDicts (`services/http/http_service.py`)
 
 ```python
 class TimingDict(TypedDict):
@@ -200,7 +200,7 @@ class LocalOverride(TypedDict):
     original_source_id: int   # PK of the original source
 ```
 
-### GraphQLSchemaService TypedDicts (`services/graphql_schema_service.py`)
+### GraphQLSchemaService TypedDicts (`services/http/graphql_schema_service.py`)
 
 ```python
 class SchemaTypeDict(TypedDict):
@@ -229,13 +229,13 @@ class ImportSummary(TypedDict): ...
 
 See `services/import_parser/models.py` for full field definitions.
 
-### Theme TypedDict (`ui/theme.py`)
+### Theme TypedDict (`ui/styling/theme.py`)
 
 ```python
 class ThemePalette(TypedDict): ...
 ```
 
-See `ui/theme.py` for full field definitions.
+See `ui/styling/theme.py` for full field definitions.
 
 ## Response viewer and popup system
 

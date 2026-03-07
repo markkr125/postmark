@@ -42,7 +42,7 @@ from PySide6.QtWidgets import (
 if TYPE_CHECKING:
     from services.environment_service import VariableDetail
 
-from ui.icons import phi
+from ui.styling.icons import phi
 
 # Column indices
 _COL_ENABLED = 0
@@ -126,7 +126,7 @@ class _VariableHighlightDelegate(QStyledItemDelegate):
         y_center = text_rect.top() + (text_rect.height() + fm.ascent() - fm.descent()) // 2
 
         # Resolve highlight colour at paint time so theme changes apply
-        from ui.theme import (
+        from ui.styling.theme import (
             COLOR_VARIABLE_HIGHLIGHT,
             COLOR_VARIABLE_UNRESOLVED_HIGHLIGHT,
             COLOR_VARIABLE_UNRESOLVED_TEXT,
@@ -475,7 +475,7 @@ class KeyValueTableWidget(QWidget):
                     if var_name != self._var_hover_name:
                         self._var_hover_name = var_name
                         self._var_hover_global_pos = mouse_event.globalPosition().toPoint()
-                        from ui.variable_popup import VariablePopup
+                        from ui.widgets.variable_popup import VariablePopup
 
                         self._var_hover_timer.start(VariablePopup.hover_delay_ms())
                 else:
@@ -494,7 +494,7 @@ class KeyValueTableWidget(QWidget):
         """Show the variable popup for the currently hovered variable."""
         if self._var_hover_name is None:
             return
-        from ui.variable_popup import VariablePopup
+        from ui.widgets.variable_popup import VariablePopup
 
         detail = self._highlight_delegate._variable_map.get(self._var_hover_name)
         VariablePopup.show_variable(

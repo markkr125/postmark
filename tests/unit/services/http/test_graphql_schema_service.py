@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 
-from services.graphql_schema_service import (
+from services.http.graphql_schema_service import (
     INTROSPECTION_QUERY,
     GraphQLSchemaService,
     SchemaResultDict,
@@ -69,7 +69,7 @@ def _mock_httpx_post(response_json: dict, status_code: int = 200) -> MagicMock:
 class TestFetchSchema:
     """Tests for GraphQLSchemaService.fetch_schema."""
 
-    @patch("services.graphql_schema_service.httpx.Client")
+    @patch("services.http.graphql_schema_service.httpx.Client")
     def test_successful_introspection(self, mock_client_cls: MagicMock) -> None:
         """A valid introspection response is parsed into a SchemaResultDict."""
         payload = _make_introspection_response()
@@ -87,7 +87,7 @@ class TestFetchSchema:
         assert "Query" in names
         assert "Role" in names
 
-    @patch("services.graphql_schema_service.httpx.Client")
+    @patch("services.http.graphql_schema_service.httpx.Client")
     def test_custom_headers_forwarded(self, mock_client_cls: MagicMock) -> None:
         """Custom headers are merged with Content-Type and sent."""
         payload = _make_introspection_response()
@@ -104,7 +104,7 @@ class TestFetchSchema:
         assert sent_headers["Content-Type"] == "application/json"
         assert sent_headers["Authorization"] == "Bearer tok123"
 
-    @patch("services.graphql_schema_service.httpx.Client")
+    @patch("services.http.graphql_schema_service.httpx.Client")
     def test_sends_introspection_query(self, mock_client_cls: MagicMock) -> None:
         """The POST body contains the standard introspection query."""
         payload = _make_introspection_response()
@@ -118,7 +118,7 @@ class TestFetchSchema:
         body = json.loads(sent_content)
         assert body["query"] == INTROSPECTION_QUERY
 
-    @patch("services.graphql_schema_service.httpx.Client")
+    @patch("services.http.graphql_schema_service.httpx.Client")
     def test_graphql_errors_without_data_raises(self, mock_client_cls: MagicMock) -> None:
         """A response with only errors raises ValueError."""
         error_payload = {"errors": [{"message": "Introspection disabled"}]}
@@ -127,7 +127,7 @@ class TestFetchSchema:
         with pytest.raises(ValueError, match="Introspection disabled"):
             GraphQLSchemaService.fetch_schema("https://api.example.com/graphql")
 
-    @patch("services.graphql_schema_service.httpx.Client")
+    @patch("services.http.graphql_schema_service.httpx.Client")
     def test_missing_schema_data_raises(self, mock_client_cls: MagicMock) -> None:
         """A response without __schema raises ValueError."""
         mock_client_cls.return_value = _mock_httpx_post({"data": {}})
@@ -135,7 +135,7 @@ class TestFetchSchema:
         with pytest.raises(ValueError, match="__schema"):
             GraphQLSchemaService.fetch_schema("https://api.example.com/graphql")
 
-    @patch("services.graphql_schema_service.httpx.Client")
+    @patch("services.http.graphql_schema_service.httpx.Client")
     def test_http_error_propagates(self, mock_client_cls: MagicMock) -> None:
         """An HTTP error from the server propagates as httpx.HTTPStatusError."""
         mock_response = MagicMock()
@@ -154,7 +154,7 @@ class TestFetchSchema:
         with pytest.raises(httpx.HTTPStatusError):
             GraphQLSchemaService.fetch_schema("https://api.example.com/graphql")
 
-    @patch("services.graphql_schema_service.httpx.Client")
+    @patch("services.http.graphql_schema_service.httpx.Client")
     def test_no_mutation_type(self, mock_client_cls: MagicMock) -> None:
         """Schema without mutation/subscription returns empty strings."""
         payload = _make_introspection_response(

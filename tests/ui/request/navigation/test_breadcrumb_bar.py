@@ -5,7 +5,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
-from ui.request.breadcrumb_bar import BreadcrumbBar
+from ui.request.navigation.breadcrumb_bar import BreadcrumbBar
 
 
 class TestBreadcrumbBar:

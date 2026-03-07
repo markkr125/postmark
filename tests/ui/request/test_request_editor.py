@@ -1516,7 +1516,7 @@ class TestRequestEditorMethodComboColors:
         from PySide6.QtGui import QColor, QPalette
         from PySide6.QtWidgets import QStyledItemDelegate, QStyleOptionViewItem
 
-        from ui.theme import method_color
+        from ui.styling.theme import method_color
 
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
@@ -1532,7 +1532,7 @@ class TestRequestEditorMethodComboColors:
 
     def test_selected_method_color_in_stylesheet(self, qapp: QApplication, qtbot) -> None:
         """The combo box stylesheet updates to reflect the selected method colour."""
-        from ui.theme import method_color
+        from ui.styling.theme import method_color
 
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
@@ -1595,7 +1595,7 @@ class TestRequestEditorVariableMap:
 
     def test_url_input_is_variable_line_edit(self, qapp: QApplication, qtbot) -> None:
         """The URL input uses VariableLineEdit for variable highlighting."""
-        from ui.variable_line_edit import VariableLineEdit
+        from ui.widgets.variable_line_edit import VariableLineEdit
 
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
@@ -1603,7 +1603,7 @@ class TestRequestEditorVariableMap:
 
     def test_auth_fields_are_variable_line_edit(self, qapp: QApplication, qtbot) -> None:
         """Auth inputs use VariableLineEdit for variable highlighting."""
-        from ui.variable_line_edit import VariableLineEdit
+        from ui.widgets.variable_line_edit import VariableLineEdit
 
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)

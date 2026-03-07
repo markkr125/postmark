@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ui.icons import phi
+from ui.styling.icons import phi
 
 # Grace period (seconds) after show_below() during which the event
 # filter ignores mouse presses.  Prevents the opening click from

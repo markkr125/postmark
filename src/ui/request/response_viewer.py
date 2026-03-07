@@ -29,14 +29,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ui.code_editor import CodeEditorWidget
-from ui.icons import phi
-from ui.info_popup import ClickableLabel, InfoPopup
 from ui.request.popups.network_popup import NetworkPopup
 from ui.request.popups.size_popup import SizePopup
 from ui.request.popups.status_popup import StatusPopup
 from ui.request.popups.timing_popup import TimingPopup
-from ui.theme import (
+from ui.styling.icons import phi
+from ui.styling.theme import (
     COLOR_DANGER,
     COLOR_DELETE,
     COLOR_IMPORT_ERROR,
@@ -44,6 +42,8 @@ from ui.theme import (
     COLOR_WARNING,
     COLOR_WHITE,
 )
+from ui.widgets.code_editor import CodeEditorWidget
+from ui.widgets.info_popup import ClickableLabel, InfoPopup
 
 # -- Status code colour thresholds ------------------------------------
 _STATUS_2XX = COLOR_SUCCESS  # green

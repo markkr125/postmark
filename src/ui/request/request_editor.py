@@ -32,12 +32,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ui.code_editor import CodeEditorWidget
-from ui.icons import phi
-from ui.key_value_table import KeyValueTableWidget
 from ui.request.http_worker import SchemaFetchWorker
-from ui.theme import COLOR_WARNING, method_color
-from ui.variable_line_edit import VariableLineEdit
+from ui.styling.icons import phi
+from ui.styling.theme import COLOR_WARNING, method_color
+from ui.widgets.code_editor import CodeEditorWidget
+from ui.widgets.key_value_table import KeyValueTableWidget
+from ui.widgets.variable_line_edit import VariableLineEdit
 
 if TYPE_CHECKING:
     from services.environment_service import VariableDetail
@@ -1228,7 +1228,7 @@ class RequestEditorWidget(QWidget):
         self._gql_schema_label.setText(f"Schema ({count} types)")
 
         # Build tooltip from the schema summary.
-        from services.graphql_schema_service import GraphQLSchemaService
+        from services.http.graphql_schema_service import GraphQLSchemaService
 
         summary = GraphQLSchemaService.format_schema_summary(result)  # type: ignore[arg-type]
         self._gql_schema_label.setToolTip(summary)
@@ -1249,7 +1249,7 @@ class RequestEditorWidget(QWidget):
             self._on_fetch_schema()
             return
 
-        from services.graphql_schema_service import GraphQLSchemaService
+        from services.http.graphql_schema_service import GraphQLSchemaService
 
         summary = GraphQLSchemaService.format_schema_summary(self._gql_schema)  # type: ignore[arg-type]
         self._show_schema_dialog(summary)

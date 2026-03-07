@@ -8,9 +8,9 @@ import sys
 from PySide6.QtWidgets import QApplication
 
 from database.database import init_db
-from ui.icons import load_font
 from ui.main_window import MainWindow
-from ui.theme_manager import ThemeManager
+from ui.styling.icons import load_font
+from ui.styling.theme_manager import ThemeManager
 
 # --------------------------------------------------------------------------
 # Main entry point

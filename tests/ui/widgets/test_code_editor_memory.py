@@ -14,7 +14,7 @@ import weakref
 
 from PySide6.QtWidgets import QApplication
 
-from ui.code_editor import CodeEditorWidget
+from ui.widgets.code_editor import CodeEditorWidget
 
 # -- Helpers -----------------------------------------------------------
 

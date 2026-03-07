@@ -30,8 +30,8 @@ from PySide6.QtWidgets import (
 
 from services.import_parser.models import ImportSummary
 from services.import_service import ImportService
-from ui.icons import phi
-from ui.theme import COLOR_ACCENT, COLOR_IMPORT_ERROR, COLOR_IMPORT_SUCCESS
+from ui.styling.icons import phi
+from ui.styling.theme import COLOR_ACCENT, COLOR_IMPORT_ERROR, COLOR_IMPORT_SUCCESS
 
 logger = logging.getLogger(__name__)
 

@@ -9,8 +9,8 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QLabel, QWidget
 
-from ui.info_popup import InfoPopup
-from ui.theme import COLOR_WHITE
+from ui.styling.theme import COLOR_WHITE
+from ui.widgets.info_popup import InfoPopup
 
 # -- Status descriptions -----------------------------------------------
 # Coverage of common HTTP status codes with concise Postman-style text.

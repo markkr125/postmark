@@ -33,8 +33,8 @@ from ui.collections.tree.constants import (
     ROLE_PLACEHOLDER,
 )
 from ui.collections.tree.draggable_tree_widget import DraggableTreeWidget
-from ui.icons import phi
-from ui.theme import COLOR_ACCENT
+from ui.styling.icons import phi
+from ui.styling.theme import COLOR_ACCENT
 
 logger = logging.getLogger(__name__)
 

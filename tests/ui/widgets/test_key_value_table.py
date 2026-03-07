@@ -5,7 +5,7 @@ from __future__ import annotations
 from PySide6.QtWidgets import QApplication, QCheckBox, QPushButton, QStyledItemDelegate
 
 from services.environment_service import VariableDetail
-from ui.key_value_table import (
+from ui.widgets.key_value_table import (
     _COL_DELETE,
     _COL_KEY,
     _COL_VALUE,

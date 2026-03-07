@@ -20,7 +20,7 @@ import threading
 
 from PySide6.QtCore import QObject, Signal, Slot
 
-from services.http_service import HttpResponseDict, HttpService
+from services.http.http_service import HttpResponseDict, HttpService
 
 logger = logging.getLogger(__name__)
 
@@ -274,7 +274,7 @@ class SchemaFetchWorker(QObject):
     def run(self) -> None:
         """Send the introspection query and emit the result signal."""
         try:
-            from services.graphql_schema_service import GraphQLSchemaService
+            from services.http.graphql_schema_service import GraphQLSchemaService
 
             result = GraphQLSchemaService.fetch_schema(
                 self._url,

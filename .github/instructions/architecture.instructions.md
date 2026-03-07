@@ -16,6 +16,7 @@ and what implicit contracts exist.
    immediately starts a background DB query.
 3. **Create `ThemeManager(app)` before creating `MainWindow`** — it applies
    the global stylesheet, QPalette, and widget style on construction.
+   Import from `ui.styling.theme_manager`.
 4. **Every repository function is its own transaction.** You cannot batch
    multiple calls into one commit.
 5. **Always wrap programmatic tree-item edits in `blockSignals(True/False)`**
@@ -63,9 +64,10 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
 
 - **DO NOT** import from `database/` in any UI file.  The service layer is
   the only bridge between UI and repository.
-- `ThemeManager` is created once in `main.py` and passed to `MainWindow`.
-  It owns the app-wide stylesheet, QPalette, and QSettings persistence for
-  theme preferences.  See `pyside6.instructions.md` for widget styling rules.
+- `ThemeManager` (`ui.styling.theme_manager`) is created once in `main.py`
+  and passed to `MainWindow`.  It owns the app-wide stylesheet, QPalette,
+  and QSettings persistence for theme preferences.  See
+  `pyside6.instructions.md` for widget styling rules.
 - `CollectionService` is instantiated as `self._svc = CollectionService()` in
   `CollectionWidget.__init__`, but **every method is `@staticmethod`**.
   Do not add instance state without updating every call site.

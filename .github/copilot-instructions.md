@@ -130,10 +130,11 @@ src/
 ├── services/                      # Service layer (UI ↔ DB bridge)
 │   ├── collection_service.py      # CollectionService (static methods)
 │   ├── environment_service.py     # EnvironmentService (variable substitution + TypedDicts)
-│   ├── graphql_schema_service.py  # GraphQL introspection + schema parsing
-│   ├── http_service.py            # HttpService (httpx) + response TypedDicts
 │   ├── import_service.py          # ImportService (parse + persist)
-│   ├── snippet_generator.py       # Code snippet generation (cURL/Python/JS)
+│   ├── http/                      # HTTP request/response handling
+│   │   ├── http_service.py        # HttpService (httpx) + response TypedDicts
+│   │   ├── graphql_schema_service.py  # GraphQL introspection + schema parsing
+│   │   └── snippet_generator.py   # Code snippet generation (cURL/Python/JS)
 │   └── import_parser/             # Parser sub-package
 │       ├── models.py              # TypedDict schemas for parsed data
 │       ├── postman_parser.py      # Postman collection/environment parser
@@ -141,15 +142,17 @@ src/
 │       └── url_parser.py          # URL/raw-text auto-detect parser
 └── ui/                            # PySide6 widgets
     ├── main_window.py             # Top-level MainWindow
-    ├── theme.py                   # Palettes, colours, badge geometry, method_color()
-    ├── theme_manager.py           # ThemeManager — QPalette + global QSS + QSettings
-    ├── icons.py                   # Phosphor font-glyph icon provider (phi())
-    ├── code_editor.py             # CodeEditorWidget — syntax highlighting, line numbers, folding
-    ├── info_popup.py              # InfoPopup (QFrame) base + ClickableLabel
-    ├── key_value_table.py         # Reusable key-value editor widget
     ├── loading_screen.py          # Loading screen overlay widget
-    ├── variable_line_edit.py      # VariableLineEdit — QLineEdit with {{var}} highlighting + hover popup
-    ├── variable_popup.py          # VariablePopup — singleton hover popup for variable details
+    ├── styling/                   # Visual theming and icons
+    │   ├── theme.py               # Palettes, colours, badge geometry, method_color()
+    │   ├── theme_manager.py       # ThemeManager — QPalette + global QSS + QSettings
+    │   └── icons.py               # Phosphor font-glyph icon provider (phi())
+    ├── widgets/                   # Reusable shared components
+    │   ├── code_editor.py         # CodeEditorWidget — syntax highlighting, line numbers, folding
+    │   ├── info_popup.py          # InfoPopup (QFrame) base + ClickableLabel
+    │   ├── key_value_table.py     # Reusable key-value editor widget
+    │   ├── variable_line_edit.py  # VariableLineEdit — QLineEdit with {{var}} highlighting + hover popup
+    │   └── variable_popup.py      # VariablePopup — singleton hover popup for variable details
     ├── collections/               # Collection sidebar
     │   ├── collection_header.py
     │   ├── collection_widget.py
@@ -170,13 +173,14 @@ src/
     │   ├── console_panel.py
     │   └── history_panel.py
     └── request/                   # Request/response editing
-        ├── breadcrumb_bar.py
         ├── folder_editor.py         # Folder/collection detail editor
         ├── http_worker.py           # HttpSendWorker + SchemaFetchWorker (QThread)
         ├── request_editor.py
-        ├── request_tab_bar.py
         ├── response_viewer.py       # Response body/headers/cookies + popup toolbar
-        ├── tab_manager.py           # TabManager + TabContext (with local_overrides)
+        ├── navigation/              # Tab switching and path navigation
+        │   ├── breadcrumb_bar.py
+        │   ├── request_tab_bar.py
+        │   └── tab_manager.py       # TabManager + TabContext (with local_overrides)
         └── popups/                  # Response metadata popups
             ├── status_popup.py      # HTTP status code explanation
             ├── timing_popup.py      # Request timing breakdown
@@ -191,22 +195,25 @@ tests/
 │   └── services/                  # Service layer tests
 │       ├── test_service.py
 │       ├── test_environment_service.py
-│       ├── test_graphql_schema_service.py
-│       ├── test_http_service.py
 │       ├── test_import_parser.py
 │       ├── test_import_service.py
-│       └── test_snippet_generator.py
+│       └── http/                  # HTTP service tests
+│           ├── test_http_service.py
+│           ├── test_graphql_schema_service.py
+│           └── test_snippet_generator.py
 └── ui/                            # End-to-end PySide6 widget tests
     ├── conftest.py                # _no_fetch (autouse) + helpers
     ├── test_main_window.py
-    ├── test_theme_manager.py
-    ├── test_icons.py
-    ├── test_code_editor.py
-    ├── test_code_editor_memory.py
-    ├── test_info_popup.py
-    ├── test_key_value_table.py
-    ├── test_variable_line_edit.py
-    ├── test_variable_popup.py
+    ├── styling/                   # Theme and icon tests
+    │   ├── test_theme_manager.py
+    │   └── test_icons.py
+    ├── widgets/                   # Shared component tests
+    │   ├── test_code_editor.py
+    │   ├── test_code_editor_memory.py
+    │   ├── test_info_popup.py
+    │   ├── test_key_value_table.py
+    │   ├── test_variable_line_edit.py
+    │   └── test_variable_popup.py
     ├── collections/               # Collection sidebar tests
     │   ├── test_collection_header.py
     │   ├── test_collection_tree.py
@@ -222,13 +229,14 @@ tests/
     │   ├── test_console_panel.py
     │   └── test_history_panel.py
     └── request/                   # Request/response editing tests
-        ├── test_breadcrumb_bar.py
         ├── test_folder_editor.py
         ├── test_http_worker.py
         ├── test_request_editor.py
-        ├── test_request_tab_bar.py
         ├── test_response_viewer.py
-        ├── test_tab_manager.py
+        ├── navigation/            # Tab and breadcrumb tests
+        │   ├── test_breadcrumb_bar.py
+        │   ├── test_request_tab_bar.py
+        │   └── test_tab_manager.py
         └── popups/                # Response popup tests
             ├── test_status_popup.py
             ├── test_timing_popup.py
@@ -285,6 +293,11 @@ must stay green.  See `testing.instructions.md` for detailed conventions.
 - Named constants over magic numbers.
 - `init_db()` must be called before any DB access (app startup and test fixture).
 - Every module, class, and public function must have a docstring.
-- All hex colour values belong in `src/ui/theme.py` -- never inline.
+- All hex colour values belong in `src/ui/styling/theme.py` -- never inline.
 - Use `TypedDict` for dict schemas that cross module boundaries.
 - No emoji in code comments -- use plain numbered steps (e.g. `# 1.`).
+- **Directory file limit:** No directory may contain more than 5 `.py` files
+  (excluding `__init__.py`).  When a directory reaches this limit, group
+  related files into a sub-package before adding more.  Test directories
+  mirror the source tree; test file count may exceed 5 when multiple test
+  files cover a single source module.

@@ -24,8 +24,8 @@ from PySide6.QtWidgets import (
 )
 
 from services.collection_service import CollectionService
-from services.http_service import HttpService
-from ui.icons import phi
+from services.http.http_service import HttpService
+from ui.styling.icons import phi
 
 logger = logging.getLogger(__name__)
 

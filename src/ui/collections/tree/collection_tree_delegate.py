@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from ui.collections.tree.constants import ROLE_ITEM_TYPE, ROLE_METHOD
-from ui.theme import (
+from ui.styling.theme import (
     BADGE_BORDER_RADIUS,
     BADGE_FONT_SIZE,
     BADGE_HEIGHT,

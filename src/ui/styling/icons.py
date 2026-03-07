@@ -6,7 +6,7 @@ each unique variant is created only once, keeping memory usage flat.
 
 Usage::
 
-    from ui.icons import phi
+    from ui.styling.icons import phi
 
     action.setIcon(phi("arrow-left"))
     button.setIcon(phi("trash", color="#e74c3c", size=16))
@@ -24,9 +24,9 @@ from PySide6.QtGui import QColor, QFont, QFontDatabase, QIcon, QPainter, QPixmap
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Paths — resolve relative to the project root (one level above src/)
+# Paths — resolve relative to the project root (two levels above src/ui/styling/)
 # ---------------------------------------------------------------------------
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 _FONT_PATH = _PROJECT_ROOT / "data" / "fonts" / "phosphor.ttf"
 _CHARMAP_PATH = _PROJECT_ROOT / "data" / "fonts" / "phosphor-charmap.json"
 
@@ -109,7 +109,7 @@ def phi(name: str, *, color: str = "", size: int = _DEFAULT_SIZE) -> QIcon:
 
     if not color:
         # Import here to avoid circular import at module load time
-        from ui.theme import COLOR_TEXT_MUTED
+        from ui.styling.theme import COLOR_TEXT_MUTED
 
         color = COLOR_TEXT_MUTED
 

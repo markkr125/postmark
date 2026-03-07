@@ -121,7 +121,7 @@ from __future__ import annotations
 from PySide6.QtWidgets import QApplication
 
 from ui.main_window import MainWindow
-from ui.theme_manager import ThemeManager
+from ui.styling.theme_manager import ThemeManager
 
 
 class TestMainWindowSmoke:
@@ -139,7 +139,9 @@ Mirror the source tree exactly:
 | Source file | Test file |
 |-------------|-----------|
 | `src/ui/request/request_editor.py` | `tests/ui/request/test_request_editor.py` |
-| `src/services/http_service.py` | `tests/unit/services/test_http_service.py` |
+| `src/ui/styling/theme_manager.py` | `tests/ui/styling/test_theme_manager.py` |
+| `src/ui/widgets/code_editor.py` | `tests/ui/widgets/test_code_editor.py` |
+| `src/services/http/http_service.py` | `tests/unit/services/http/test_http_service.py` |
 | `src/database/models/collections/collection_repository.py` | `tests/unit/database/test_repository.py` |
 
 ## Shared test helpers

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from services.snippet_generator import SnippetGenerator
+from services.http.snippet_generator import SnippetGenerator
 
 
 class TestSnippetGenerator:

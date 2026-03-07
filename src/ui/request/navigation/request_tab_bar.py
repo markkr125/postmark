@@ -11,8 +11,8 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFontMetrics, QMouseEvent
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QMenu, QSizePolicy, QTabBar, QWidget
 
-from ui.icons import phi
-from ui.theme import (
+from ui.styling.icons import phi
+from ui.styling.theme import (
     BADGE_BORDER_RADIUS,
     BADGE_FONT_SIZE,
     BADGE_HEIGHT,

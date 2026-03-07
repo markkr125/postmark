@@ -21,8 +21,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ui.icons import phi
-from ui.theme_manager import (
+from ui.styling.icons import phi
+from ui.styling.theme_manager import (
     SCHEME_AUTO,
     SCHEME_DARK,
     SCHEME_LIGHT,

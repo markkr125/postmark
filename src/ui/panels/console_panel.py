@@ -12,7 +12,7 @@ import logging
 from PySide6.QtCore import QObject, Qt, Signal, Slot
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QTextEdit, QVBoxLayout, QWidget
 
-from ui.icons import phi
+from ui.styling.icons import phi
 
 # Maximum number of log lines kept in the console output.
 _MAX_LOG_LINES = 2000

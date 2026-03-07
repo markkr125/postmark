@@ -17,7 +17,7 @@ applyTo: "src/ui/**/*.py"
    `Qt.UserRole`.
 3. **Wrap programmatic item edits in `blockSignals(True)` / `blockSignals(False)`**
    or you will get infinite recursion from `itemChanged`.
-4. **Never hardcode hex colours** — import from `ui.theme`.
+4. **Never hardcode hex colours** — import from `ui.styling.theme`.
 5. **UI files must not import from `database/`** — use signals + service layer.
 6. **Use `exec()`, not `exec_()`** for menus, dialogs, and the app event loop.
 7. **Cast to `QBoxLayout`** before calling `insertWidget()` — `QLayout` does
@@ -108,21 +108,21 @@ Import them where needed:
 from ui.collections.tree import ROLE_ITEM_ID, ROLE_ITEM_TYPE
 ```
 
-## All colours and method_color() live in ui/theme.py
+## All colours and method_color() live in ui/styling/theme.py
 
-Never hardcode hex colour values in widget files. Import from `ui.theme`:
+Never hardcode hex colour values in widget files. Import from `ui.styling.theme`:
 
 ```python
-from ui.theme import COLOR_ACCENT, METHOD_COLORS, DEFAULT_METHOD_COLOR, method_color
+from ui.styling.theme import COLOR_ACCENT, METHOD_COLORS, DEFAULT_METHOD_COLOR, method_color
 ```
 
-## Icons — Phosphor font glyphs via ui/icons.py
+## Icons — Phosphor font glyphs via ui/styling/icons.py
 
-Use the `phi()` helper from `ui.icons` for all button and menu icons.
+Use the `phi()` helper from `ui.styling.icons` for all button and menu icons.
 **Never** use `QIcon.fromTheme()` — it is unreliable across platforms.
 
 ```python
-from ui.icons import phi
+from ui.styling.icons import phi
 
 button.setIcon(phi("paper-plane-right"))
 action.setIcon(phi("trash", color="#e74c3c", size=16))
@@ -143,18 +143,20 @@ action.setIcon(phi("trash", color="#e74c3c", size=16))
 
 The application uses a centralised theme system with three layers:
 
-1. **ThemeManager** (`ui/theme_manager.py`) — singleton `QObject` created
-   in `main.py` right after `QApplication`.  Reads/writes `QSettings`,
-   resolves light/dark palette, applies `QApplication.setStyle()`,
-   `QApplication.setPalette()`, and `QApplication.setStyleSheet()`.
+1. **ThemeManager** (`ui/styling/theme_manager.py`) — singleton `QObject`
+   created in `main.py` right after `QApplication`.  Reads/writes
+   `QSettings`, resolves light/dark palette, applies
+   `QApplication.setStyle()`, `QApplication.setPalette()`, and
+   `QApplication.setStyleSheet()`.
 2. **Global QSS** — a single application-wide stylesheet built by
    `ThemeManager._build_global_qss()` using `objectName` selectors.
    Widgets do **not** call `setStyleSheet()` for static styling; instead
    they set `setObjectName("primaryButton")` etc.
-3. **QPalette** — built from a `ThemePalette` dict (`ui/theme.py`) via
-   `ThemeManager._build_qpalette()`.  Two palettes exist: `LIGHT_PALETTE`
-   and `DARK_PALETTE`.  `set_active_palette()` updates the mutable
-   module-level colour aliases (`COLOR_ACCENT`, `COLOR_TEXT`, etc.).
+3. **QPalette** — built from a `ThemePalette` dict
+   (`ui/styling/theme.py`) via `ThemeManager._build_qpalette()`.  Two
+   palettes exist: `LIGHT_PALETTE` and `DARK_PALETTE`.
+   `set_active_palette()` updates the mutable module-level colour aliases
+   (`COLOR_ACCENT`, `COLOR_TEXT`, etc.).
 
 ### objectName conventions for styling
 

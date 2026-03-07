@@ -7,7 +7,7 @@ from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QApplication
 
 from ui.dialogs.settings_dialog import SettingsDialog
-from ui.theme_manager import (
+from ui.styling.theme_manager import (
     _APP,
     _ORG,
     SCHEME_AUTO,

@@ -28,16 +28,16 @@ from services.collection_service import CollectionService
 from services.environment_service import EnvironmentService, LocalOverride
 from ui.collections.collection_widget import CollectionWidget
 from ui.environments.environment_selector import EnvironmentSelector
-from ui.icons import phi
 from ui.loading_screen import LoadingScreen
 from ui.panels.console_panel import ConsolePanel
 from ui.panels.history_panel import HistoryPanel
-from ui.request.breadcrumb_bar import BreadcrumbBar
+from ui.request.navigation.breadcrumb_bar import BreadcrumbBar
+from ui.request.navigation.request_tab_bar import RequestTabBar
+from ui.request.navigation.tab_manager import TabContext
 from ui.request.request_editor import RequestEditorWidget
-from ui.request.request_tab_bar import RequestTabBar
 from ui.request.response_viewer import ResponseViewerWidget
-from ui.request.tab_manager import TabContext
-from ui.theme_manager import ThemeManager
+from ui.styling.icons import phi
+from ui.styling.theme_manager import ThemeManager
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +100,7 @@ class MainWindow(QMainWindow):
         self._env_selector.environment_changed.connect(self._on_environment_changed)
 
         # Register variable popup callbacks
-        from ui.variable_popup import VariablePopup
+        from ui.widgets.variable_popup import VariablePopup
 
         VariablePopup.set_save_callback(self._on_variable_updated)
         VariablePopup.set_local_override_callback(self._on_local_variable_override)
@@ -617,7 +617,7 @@ class MainWindow(QMainWindow):
 
     def _on_environment_changed(self, _env_id: object) -> None:
         """Refresh variable maps in all open request editors."""
-        from ui.variable_popup import VariablePopup
+        from ui.widgets.variable_popup import VariablePopup
 
         VariablePopup.set_has_environment(self._env_selector.current_environment_id() is not None)
         for ctx in self._tabs.values():

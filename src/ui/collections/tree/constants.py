@@ -10,7 +10,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon
 
-from ui.theme import COLOR_ACCENT
+from ui.styling.theme import COLOR_ACCENT
 
 # ----------------------------------------------------------------------
 # Data roles stored on QTreeWidgetItems

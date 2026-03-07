@@ -6,9 +6,9 @@ from unittest.mock import MagicMock
 
 from PySide6.QtWidgets import QApplication
 
+from ui.request.navigation.tab_manager import TabContext
 from ui.request.request_editor import RequestEditorWidget
 from ui.request.response_viewer import ResponseViewerWidget
-from ui.request.tab_manager import TabContext
 
 
 class TestTabContext:

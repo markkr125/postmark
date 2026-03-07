@@ -23,8 +23,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ui.code_editor import CodeEditorWidget
-from ui.key_value_table import KeyValueTableWidget
+from ui.widgets.code_editor import CodeEditorWidget
+from ui.widgets.key_value_table import KeyValueTableWidget
 
 # Authorization type identifiers (same as RequestEditorWidget)
 _AUTH_TYPES = ("No Auth", "Bearer Token", "Basic Auth", "API Key")

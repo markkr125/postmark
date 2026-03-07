@@ -77,7 +77,7 @@ class TestCollectionTreeDelegate:
 
     def test_delegate_size_hint_for_request(self, qapp: QApplication, qtbot) -> None:
         """Delegate returns a fixed-height size hint for request items."""
-        from ui.theme import TREE_ROW_HEIGHT
+        from ui.styling.theme import TREE_ROW_HEIGHT
 
         tree = CollectionTree()
         qtbot.addWidget(tree)

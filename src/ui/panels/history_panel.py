@@ -9,8 +9,8 @@ from __future__ import annotations
 from PySide6.QtCore import QEvent, QObject, Qt, Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget
 
-from ui.icons import phi
-from ui.theme import COLOR_BORDER, method_color
+from ui.styling.icons import phi
+from ui.styling.theme import COLOR_BORDER, method_color
 
 # Maximum number of history entries to keep
 _MAX_HISTORY_ENTRIES = 50

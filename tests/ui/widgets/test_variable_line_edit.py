@@ -13,7 +13,7 @@ from PySide6.QtGui import QHelpEvent
 from PySide6.QtWidgets import QApplication, QLineEdit
 
 from services.environment_service import VariableDetail
-from ui.variable_line_edit import VariableLineEdit
+from ui.widgets.variable_line_edit import VariableLineEdit
 
 
 def _D(v: str, s: str = "collection", sid: int = 1) -> VariableDetail:
@@ -105,7 +105,7 @@ class TestPopup:
         global_pos = w.mapToGlobal(pos)
         help_event = QHelpEvent(QEvent.Type.ToolTip, pos, global_pos)
 
-        with patch("ui.variable_popup.VariablePopup") as mock_cls:
+        with patch("ui.widgets.variable_popup.VariablePopup") as mock_cls:
             w.event(help_event)
             if mock_cls.show_variable.called:
                 args = mock_cls.show_variable.call_args[0]
@@ -127,7 +127,7 @@ class TestPopup:
         global_pos = w.mapToGlobal(pos)
         help_event = QHelpEvent(QEvent.Type.ToolTip, pos, global_pos)
 
-        with patch("ui.variable_popup.VariablePopup") as mock_cls:
+        with patch("ui.widgets.variable_popup.VariablePopup") as mock_cls:
             w.event(help_event)
             if mock_cls.show_variable.called:
                 args = mock_cls.show_variable.call_args[0]
@@ -146,7 +146,7 @@ class TestPopup:
         global_pos = w.mapToGlobal(pos)
         help_event = QHelpEvent(QEvent.Type.ToolTip, pos, global_pos)
 
-        with patch("ui.variable_popup.VariablePopup") as mock_cls:
+        with patch("ui.widgets.variable_popup.VariablePopup") as mock_cls:
             result = w.event(help_event)
             # ToolTip events are consumed to suppress native tooltips
             assert result is True

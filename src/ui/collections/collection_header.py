@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ui.icons import phi
+from ui.styling.icons import phi
 
 
 # ----------------------------------------------------------------------

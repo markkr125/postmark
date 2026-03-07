@@ -8,7 +8,7 @@ from PySide6.QtCore import QPoint
 from PySide6.QtWidgets import QApplication, QWidget
 
 from services.environment_service import VariableDetail
-from ui.variable_popup import VariablePopup
+from ui.widgets.variable_popup import VariablePopup
 
 
 class TestVariablePopupConstruction:

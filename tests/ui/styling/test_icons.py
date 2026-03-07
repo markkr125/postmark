@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtGui import QIcon
 
-from ui.icons import clear_cache, load_font, phi
+from ui.styling.icons import clear_cache, load_font, phi
 
 
 class TestLoadFont:
