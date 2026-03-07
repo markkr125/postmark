@@ -75,6 +75,14 @@ class TestLanguageSwitchingMemory:
 
         languages = ["json", "xml", "html", "text"]
 
+        # Warm-up pass — first-time lexer imports cause one-time allocations
+        # that are not leaks.  Cycle through all languages once so those
+        # costs are paid before the measurement window.
+        for lang in languages:
+            editor.set_language(lang)
+            qapp.processEvents()
+        _force_gc()
+
         tracemalloc.start()
         snap_before = tracemalloc.take_snapshot()
 

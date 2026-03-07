@@ -10,9 +10,18 @@ import logging
 from typing import Any
 
 from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
-from PySide6.QtWidgets import (QDialog, QHBoxLayout, QHeaderView, QLabel,
-                               QProgressBar, QPushButton, QTableWidget,
-                               QTableWidgetItem, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (
+    QDialog,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QProgressBar,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 from services.collection_service import CollectionService
 from services.http_service import HttpService

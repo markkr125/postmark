@@ -10,6 +10,8 @@ popup panels with breakdown details (matching Postman's UX).
 
 from __future__ import annotations
 
+import contextlib
+
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import (QColor, QKeySequence, QShortcut, QTextCharFormat,
                            QTextCursor)
@@ -731,7 +733,13 @@ class ResponseViewerWidget(QWidget):
             clipboard.setText(self._body_edit.toPlainText())
         # Brief visual feedback — swap icon to a check mark for 1.5 s
         self._copy_btn.setIcon(phi("check"))
-        QTimer.singleShot(1500, lambda: self._copy_btn.setIcon(phi("clipboard")))
+        btn = self._copy_btn
+
+        def _restore_icon() -> None:
+            with contextlib.suppress(RuntimeError):
+                btn.setIcon(phi("clipboard"))
+
+        QTimer.singleShot(1500, _restore_icon)
 
     # -- Filter handlers -----------------------------------------------
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QApplication, QCheckBox, QPushButton, QStyledItemDelegate
 
+from services.environment_service import VariableDetail
 from ui.key_value_table import (
     _COL_DELETE,
     _COL_KEY,
@@ -226,7 +227,9 @@ class TestVariableHighlightDelegate:
         """set_variable_map propagates to the delegate."""
         widget = KeyValueTableWidget()
         qtbot.addWidget(widget)
-        m = {"host": "example.com"}
+        m: dict[str, VariableDetail] = {
+            "host": {"value": "example.com", "source": "collection", "source_id": 1}
+        }
         widget.set_variable_map(m)
         assert widget._highlight_delegate._variable_map is m
 

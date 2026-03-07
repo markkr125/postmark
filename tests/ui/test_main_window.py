@@ -994,8 +994,8 @@ class TestMainWindowVariableMap:
         qtbot.addWidget(window)
 
         with patch(
-            "ui.main_window.EnvironmentService.build_combined_variable_map",
-            return_value={"key": "value"},
+            "ui.main_window.EnvironmentService.build_combined_variable_detail_map",
+            return_value={"key": {"value": "val", "source": "collection"}},
         ) as mock_build:
             window._refresh_variable_map(window.request_widget, None)
             mock_build.assert_called_once()
@@ -1011,8 +1011,8 @@ class TestMainWindowVariableMap:
         window._open_request(req.id, push_history=True)
 
         with patch(
-            "ui.main_window.EnvironmentService.build_combined_variable_map",
-            return_value={"env_var": "env_val"},
+            "ui.main_window.EnvironmentService.build_combined_variable_detail_map",
+            return_value={"env_var": {"value": "env_val", "source": "environment"}},
         ) as mock_build:
             window._on_environment_changed(None)
             assert mock_build.called

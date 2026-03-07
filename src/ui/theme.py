@@ -66,6 +66,8 @@ class ThemePalette(TypedDict):
 
     # Variable highlighting
     variable_highlight: str
+    variable_unresolved_highlight: str
+    variable_unresolved_text: str
 
     # Code editor
     editor_bracket_match: str
@@ -125,6 +127,8 @@ LIGHT_PALETTE: ThemePalette = {
     "timing_download": "#e67e22",
     "timing_process": "#e74c3c",
     "variable_highlight": "#fff3e0",
+    "variable_unresolved_highlight": "#fce4e4",
+    "variable_unresolved_text": "#c0392b",
     "editor_bracket_match": "#d4edda",
     "editor_gutter_bg": "#fafafa",
     "editor_gutter_text": "#999999",
@@ -182,6 +186,8 @@ DARK_PALETTE: ThemePalette = {
     "timing_download": "#ce9178",
     "timing_process": "#f44747",
     "variable_highlight": "#3a2a1a",
+    "variable_unresolved_highlight": "#4a2020",
+    "variable_unresolved_text": "#f44747",
     "editor_bracket_match": "#2a4a3a",
     "editor_gutter_bg": "#252526",
     "editor_gutter_text": "#858585",
@@ -255,6 +261,8 @@ COLOR_TIMING_DOWNLOAD: str = _active["timing_download"]
 COLOR_TIMING_PROCESS: str = _active["timing_process"]
 
 COLOR_VARIABLE_HIGHLIGHT: str = _active["variable_highlight"]
+COLOR_VARIABLE_UNRESOLVED_HIGHLIGHT: str = _active["variable_unresolved_highlight"]
+COLOR_VARIABLE_UNRESOLVED_TEXT: str = _active["variable_unresolved_text"]
 
 COLOR_EDITOR_BRACKET_MATCH: str = _active["editor_bracket_match"]
 COLOR_EDITOR_GUTTER_BG: str = _active["editor_gutter_bg"]
@@ -298,6 +306,7 @@ def set_active_palette(palette: ThemePalette) -> None:
     global COLOR_TIMING_TLS, COLOR_TIMING_TTFB, COLOR_TIMING_DOWNLOAD
     global COLOR_TIMING_PROCESS
     global COLOR_VARIABLE_HIGHLIGHT
+    global COLOR_VARIABLE_UNRESOLVED_HIGHLIGHT, COLOR_VARIABLE_UNRESOLVED_TEXT
     global COLOR_EDITOR_BRACKET_MATCH, COLOR_EDITOR_GUTTER_BG
     global COLOR_EDITOR_GUTTER_TEXT, COLOR_EDITOR_ERROR_UNDERLINE
     global COLOR_EDITOR_FOLD_INDICATOR
@@ -351,6 +360,8 @@ def set_active_palette(palette: ThemePalette) -> None:
     COLOR_TIMING_PROCESS = palette["timing_process"]
 
     COLOR_VARIABLE_HIGHLIGHT = palette["variable_highlight"]
+    COLOR_VARIABLE_UNRESOLVED_HIGHLIGHT = palette["variable_unresolved_highlight"]
+    COLOR_VARIABLE_UNRESOLVED_TEXT = palette["variable_unresolved_text"]
 
     COLOR_EDITOR_BRACKET_MATCH = palette["editor_bracket_match"]
     COLOR_EDITOR_GUTTER_BG = palette["editor_gutter_bg"]

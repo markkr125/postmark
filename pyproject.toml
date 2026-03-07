@@ -22,6 +22,7 @@ mypy = "^1.14"
 pytest-qt = "^4.5.0"
 types-pygments = "^2.19.0.20251121"
 types-lxml = "^2026.2.16"
+pytest-xdist = "^3.8.0"
 
 [build-system]
 requires = ["poetry-core"]
@@ -80,4 +81,5 @@ reportTypedDictNotRequiredAccess = "error"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+addopts = "-n auto --dist loadfile"
 

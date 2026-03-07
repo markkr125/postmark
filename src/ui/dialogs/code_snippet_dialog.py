@@ -10,8 +10,15 @@ from typing import ClassVar
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QClipboard, QGuiApplication
-from PySide6.QtWidgets import (QComboBox, QDialog, QHBoxLayout, QLabel,
-                               QPushButton, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (
+    QComboBox,
+    QDialog,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from services.snippet_generator import SnippetGenerator
 from ui.code_editor import CodeEditorWidget

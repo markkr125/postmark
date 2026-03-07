@@ -13,6 +13,7 @@ from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QHelpEvent, QKeyEvent, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import QApplication, QPlainTextEdit, QTextEdit, QToolTip
 
+from services.environment_service import VariableDetail
 from ui.code_editor import CodeEditorWidget, SyntaxError_
 
 # -- Helpers -----------------------------------------------------------
@@ -1136,20 +1137,26 @@ class TestVariableHighlighting:
         """set_variable_map stores the map and triggers rehighlight."""
         editor = CodeEditorWidget()
         qtbot.addWidget(editor)
-        editor.set_variable_map({"host": "example.com"})
-        assert editor._variable_map == {"host": "example.com"}
+        m: dict[str, VariableDetail] = {
+            "host": {"value": "example.com", "source": "collection", "source_id": 1}
+        }
+        editor.set_variable_map(m)
+        assert editor._variable_map == m
 
 
 class TestVariableTooltipInEditor:
     """Tests for variable tooltip display in the code editor."""
 
     def test_tooltip_for_resolved_variable(self, qapp: QApplication, qtbot) -> None:
-        """Hovering over a resolved variable shows its value."""
+        """Hovering over a resolved variable triggers the popup."""
         editor = CodeEditorWidget()
         qtbot.addWidget(editor)
         editor.show()
         editor.setPlainText("{{host}}/api")
-        editor.set_variable_map({"host": "example.com"})
+        vmap: dict[str, VariableDetail] = {
+            "host": {"value": "example.com", "source": "environment", "source_id": 10},
+        }
+        editor.set_variable_map(vmap)
 
         # Position cursor over the variable
         block = editor.document().firstBlock()
@@ -1157,16 +1164,16 @@ class TestVariableTooltipInEditor:
         local_pos = rect.center().toPoint()
         global_pos = editor.mapToGlobal(local_pos)
 
-        with patch.object(QToolTip, "showText") as mock_show:
+        with patch("ui.variable_popup.VariablePopup") as mock_cls:
             help_event = QHelpEvent(QEvent.Type.ToolTip, local_pos, global_pos)
             editor.event(help_event)
-            if mock_show.called:
-                text = mock_show.call_args[0][1]
-                assert "host" in text
-                assert "example.com" in text
+            if mock_cls.show_variable.called:
+                args = mock_cls.show_variable.call_args[0]
+                assert args[0] == "host"
+                assert args[1]["value"] == "example.com"
 
     def test_tooltip_for_unresolved_variable(self, qapp: QApplication, qtbot) -> None:
-        """Hovering over an unresolved variable shows '(unresolved)'."""
+        """Hovering over an unresolved variable shows None detail."""
         editor = CodeEditorWidget()
         qtbot.addWidget(editor)
         editor.show()
@@ -1178,10 +1185,10 @@ class TestVariableTooltipInEditor:
         local_pos = rect.center().toPoint()
         global_pos = editor.mapToGlobal(local_pos)
 
-        with patch.object(QToolTip, "showText") as mock_show:
+        with patch("ui.variable_popup.VariablePopup") as mock_cls:
             help_event = QHelpEvent(QEvent.Type.ToolTip, local_pos, global_pos)
             editor.event(help_event)
-            if mock_show.called:
-                text = mock_show.call_args[0][1]
-                assert "unknown" in text
-                assert "unresolved" in text
+            if mock_cls.show_variable.called:
+                args = mock_cls.show_variable.call_args[0]
+                assert args[0] == "unknown"
+                assert args[1] is None

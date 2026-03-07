@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import Any
 
 import pytest
-from PySide6.QtWidgets import QTreeWidgetItem
+from PySide6.QtCore import QEvent
+from PySide6.QtWidgets import QApplication, QTreeWidgetItem
 
 from ui.collections.collection_widget import CollectionWidget
 from ui.collections.tree import CollectionTree
@@ -23,6 +25,38 @@ def _no_fetch(monkeypatch: pytest.MonkeyPatch) -> None:
     widget integration (signals, service calls) is still exercised.
     """
     monkeypatch.setattr(CollectionWidget, "_start_fetch", lambda self: None)
+
+
+@pytest.fixture(autouse=True)
+def _reset_popup_and_flush_widgets(qapp: QApplication) -> Iterator[None]:
+    """Reset ``VariablePopup`` class state and flush deferred widget deletions.
+
+    ``MainWindow.__init__`` calls
+    ``VariablePopup.set_save_callback(self._on_variable_updated)``
+    which stores a bound-method reference on the **class**.  That
+    prevents ``deleteLater()`` disposals from cascading through the
+    widget tree.  Across 67+ ``MainWindow`` tests the zombie widgets
+    accumulate (~25 000) and any subsequent
+    ``QApplication.setStyleSheet()`` call becomes O(n) — turning
+    later ``ThemeManager`` tests into a multi-minute crawl.
+
+    Clearing the class-level references then dispatching pending
+    ``DeferredDelete`` events keeps the live widget count low.
+    """
+    yield
+    # 1. Break reference cycle: class var -> bound method -> MainWindow.
+    from ui.variable_popup import VariablePopup
+
+    if VariablePopup._instance is not None:
+        VariablePopup._instance.close()
+        VariablePopup._instance = None
+    VariablePopup._save_callback = None
+    VariablePopup._local_override_callback = None
+    VariablePopup._reset_local_override_callback = None
+    VariablePopup._add_variable_callback = None
+
+    # 2. Dispatch every queued DeferredDelete so C++ widgets are freed.
+    qapp.sendPostedEvents(None, int(QEvent.Type.DeferredDelete))
 
 
 # ------------------------------------------------------------------

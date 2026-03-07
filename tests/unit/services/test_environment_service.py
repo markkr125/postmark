@@ -216,3 +216,149 @@ class TestCombinedVariableMap:
         )
         result = EnvironmentService.build_combined_variable_map(env.id, req.id)
         assert result == {"a": "from-root", "b": "from-child", "c": "from-env"}
+
+
+class TestCombinedVariableDetailMap:
+    """Tests for ``build_combined_variable_detail_map`` with source metadata."""
+
+    def test_no_env_no_request(self) -> None:
+        """Both None returns empty dict."""
+        result = EnvironmentService.build_combined_variable_detail_map(None, None)
+        assert result == {}
+
+    def test_collection_source_tagged(self) -> None:
+        """Collection variables are tagged with source='collection'."""
+        coll = create_new_collection("DetailColl")
+        update_collection(
+            coll.id,
+            variables=[{"key": "host", "value": "coll-host", "enabled": True}],
+        )
+        req = create_new_request(coll.id, "GET", "http://x", "R")
+        result = EnvironmentService.build_combined_variable_detail_map(None, req.id)
+        assert result["host"]["value"] == "coll-host"
+        assert result["host"]["source"] == "collection"
+
+    def test_environment_source_tagged(self) -> None:
+        """Environment variables are tagged with source='environment'."""
+        env = EnvironmentService.create_environment(
+            "DetailEnv",
+            values=[{"key": "api_key", "value": "secret", "enabled": True}],
+        )
+        result = EnvironmentService.build_combined_variable_detail_map(env.id, None)
+        assert result["api_key"]["value"] == "secret"
+        assert result["api_key"]["source"] == "environment"
+
+    def test_env_overrides_collection_with_correct_source(self) -> None:
+        """Environment overrides collection and records 'environment' source."""
+        coll = create_new_collection("DetailOverride")
+        update_collection(
+            coll.id,
+            variables=[
+                {"key": "host", "value": "coll-host", "enabled": True},
+                {"key": "port", "value": "8080", "enabled": True},
+            ],
+        )
+        req = create_new_request(coll.id, "GET", "http://x", "R")
+        env = EnvironmentService.create_environment(
+            "DetailOverrideEnv",
+            values=[{"key": "host", "value": "env-host", "enabled": True}],
+        )
+        result = EnvironmentService.build_combined_variable_detail_map(env.id, req.id)
+        # Environment overrides with correct source
+        assert result["host"]["value"] == "env-host"
+        assert result["host"]["source"] == "environment"
+        # Collection-only var keeps collection source
+        assert result["port"]["value"] == "8080"
+        assert result["port"]["source"] == "collection"
+
+
+class TestDetailMapSourceId:
+    """Tests for ``source_id`` tracking in the detail map."""
+
+    def test_collection_source_id_matches(self) -> None:
+        """Collection variable detail carries the originating collection_id."""
+        coll = create_new_collection("SourceIdColl")
+        update_collection(
+            coll.id,
+            variables=[{"key": "host", "value": "h", "enabled": True}],
+        )
+        req = create_new_request(coll.id, "GET", "http://x", "R")
+        result = EnvironmentService.build_combined_variable_detail_map(None, req.id)
+        assert result["host"]["source_id"] == coll.id
+
+    def test_environment_source_id_matches(self) -> None:
+        """Environment variable detail carries the environment_id."""
+        env = EnvironmentService.create_environment(
+            "SourceIdEnv",
+            values=[{"key": "token", "value": "t", "enabled": True}],
+        )
+        result = EnvironmentService.build_combined_variable_detail_map(env.id, None)
+        assert result["token"]["source_id"] == env.id
+
+    def test_child_override_source_id_is_child(self) -> None:
+        """Overridden collection variable records the child's id."""
+        root = create_new_collection("Root")
+        update_collection(
+            root.id,
+            variables=[{"key": "host", "value": "root-h", "enabled": True}],
+        )
+        child = create_new_collection("Child", parent_id=root.id)
+        update_collection(
+            child.id,
+            variables=[{"key": "host", "value": "child-h", "enabled": True}],
+        )
+        req = create_new_request(child.id, "GET", "http://x", "R")
+        result = EnvironmentService.build_combined_variable_detail_map(None, req.id)
+        assert result["host"]["source_id"] == child.id
+
+
+class TestUpdateVariableValue:
+    """Tests for ``update_variable_value`` — in-place variable patching."""
+
+    def test_update_collection_variable(self) -> None:
+        """Updating a collection variable persists the new value."""
+        coll = create_new_collection("UpdColl")
+        update_collection(
+            coll.id,
+            variables=[
+                {"key": "host", "value": "old-host", "enabled": True},
+                {"key": "port", "value": "80", "enabled": True},
+            ],
+        )
+        EnvironmentService.update_variable_value("collection", coll.id, "host", "new-host")
+
+        # Re-read via a fresh request chain to verify persistence
+        req = create_new_request(coll.id, "GET", "http://x", "R")
+        chain = EnvironmentService.build_combined_variable_map(None, req.id)
+        assert chain["host"] == "new-host"
+        assert chain["port"] == "80"  # untouched
+
+    def test_update_environment_variable(self) -> None:
+        """Updating an environment variable persists the new value."""
+        env = EnvironmentService.create_environment(
+            "UpdEnv",
+            values=[
+                {"key": "api_key", "value": "old-key", "enabled": True},
+                {"key": "mode", "value": "dev", "enabled": True},
+            ],
+        )
+        EnvironmentService.update_variable_value("environment", env.id, "api_key", "new-key")
+
+        refreshed = EnvironmentService.get_environment(env.id)
+        assert refreshed is not None
+        vals = {e["key"]: e["value"] for e in refreshed.values or []}
+        assert vals["api_key"] == "new-key"
+        assert vals["mode"] == "dev"  # untouched
+
+    def test_update_nonexistent_collection_noop(self) -> None:
+        """Updating a variable in a missing collection does not raise."""
+        EnvironmentService.update_variable_value("collection", 99999, "host", "x")
+
+    def test_update_nonexistent_environment_noop(self) -> None:
+        """Updating a variable in a missing environment does not raise."""
+        EnvironmentService.update_variable_value("environment", 99999, "key", "x")
+
+    def test_unknown_source_raises(self) -> None:
+        """A source other than collection/environment raises ValueError."""
+        with pytest.raises(ValueError, match="Unknown variable source"):
+            EnvironmentService.update_variable_value("unknown", 1, "k", "v")

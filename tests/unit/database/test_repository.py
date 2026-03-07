@@ -16,6 +16,7 @@ from database.models.collections.collection_repository import (
     get_recent_requests_for_collection,
     get_request_by_id,
     get_request_variable_chain,
+    get_request_variable_chain_detailed,
     rename_collection,
     rename_request,
     update_collection,
@@ -471,3 +472,62 @@ class TestRequestVariableChain:
         req = create_new_request(leaf.id, "GET", "http://x", "R")
         result = get_request_variable_chain(req.id)
         assert result == {"a": "from-root", "b": "from-mid", "c": "from-leaf"}
+
+
+# ------------------------------------------------------------------
+# Variable inheritance chain (detailed — with source collection IDs)
+# ------------------------------------------------------------------
+class TestRequestVariableChainDetailed:
+    """Tests for ``get_request_variable_chain_detailed`` — values + source IDs."""
+
+    def test_nonexistent_request_returns_empty(self):
+        """A nonexistent request_id returns an empty dict."""
+        assert get_request_variable_chain_detailed(99999) == {}
+
+    def test_single_collection_includes_source_id(self):
+        """Variables carry the originating collection_id."""
+        coll = create_new_collection("Root")
+        update_collection(
+            coll.id,
+            variables=[{"key": "host", "value": "localhost", "enabled": True}],
+        )
+        req = create_new_request(coll.id, "GET", "http://x", "R")
+        result = get_request_variable_chain_detailed(req.id)
+        assert result == {"host": ("localhost", coll.id)}
+
+    def test_child_overrides_with_correct_source_id(self):
+        """When child overrides parent, the child's collection_id is recorded."""
+        root = create_new_collection("Root")
+        update_collection(
+            root.id,
+            variables=[
+                {"key": "host", "value": "root-host", "enabled": True},
+                {"key": "port", "value": "80", "enabled": True},
+            ],
+        )
+        child = create_new_collection("Child", parent_id=root.id)
+        update_collection(
+            child.id,
+            variables=[{"key": "host", "value": "child-host", "enabled": True}],
+        )
+        req = create_new_request(child.id, "GET", "http://x", "R")
+        result = get_request_variable_chain_detailed(req.id)
+        # 'host' overridden by child → child's collection_id
+        assert result["host"] == ("child-host", child.id)
+        # 'port' inherited from root → root's collection_id
+        assert result["port"] == ("80", root.id)
+
+    def test_disabled_variables_excluded(self):
+        """Disabled variables are not included in the detailed result."""
+        coll = create_new_collection("Root")
+        update_collection(
+            coll.id,
+            variables=[
+                {"key": "host", "value": "localhost", "enabled": True},
+                {"key": "secret", "value": "hidden", "enabled": False},
+            ],
+        )
+        req = create_new_request(coll.id, "GET", "http://x", "R")
+        result = get_request_variable_chain_detailed(req.id)
+        assert "host" in result
+        assert "secret" not in result

@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QThread
 
 if TYPE_CHECKING:
+    from services.environment_service import LocalOverride
     from ui.request.folder_editor import FolderEditorWidget
     from ui.request.http_worker import HttpSendWorker
 
@@ -42,6 +43,14 @@ class TabContext:
         is_dirty: Whether the editor has unsaved changes.
         is_sending: Whether an HTTP request is currently in flight.
         is_preview: Whether this tab is in preview mode (temporary).
+        local_overrides: Transient per-tab variable overrides.  When
+            the user edits a variable value in the popup without
+            clicking **Update**, the override is stored here and
+            applied on top of environment/collection variables at
+            send time.  Each entry is a :class:`LocalOverride` that
+            also records the original source so the popup can offer
+            **Update** (persist globally) and **Reset** (remove
+            override).  Cleared when the tab is closed.
     """
 
     def __init__(
@@ -67,6 +76,7 @@ class TabContext:
         self.is_dirty: bool = False
         self.is_sending: bool = False
         self.is_preview: bool = is_preview
+        self.local_overrides: dict[str, LocalOverride] = {}
 
     # -- Send lifecycle ------------------------------------------------
 

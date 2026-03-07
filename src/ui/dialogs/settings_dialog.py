@@ -8,13 +8,29 @@ layout is designed for future extensibility.
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QComboBox, QDialog, QHBoxLayout, QLabel,
-                               QListWidget, QPushButton, QSplitter,
-                               QStackedWidget, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (
+    QComboBox,
+    QDialog,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QPushButton,
+    QSplitter,
+    QStackedWidget,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ui.icons import phi
-from ui.theme_manager import (SCHEME_AUTO, SCHEME_DARK, SCHEME_LIGHT, SCHEMES,
-                              STYLE_FUSION, STYLES, ThemeManager)
+from ui.theme_manager import (
+    SCHEME_AUTO,
+    SCHEME_DARK,
+    SCHEME_LIGHT,
+    SCHEMES,
+    STYLE_FUSION,
+    STYLES,
+    ThemeManager,
+)
 
 
 class SettingsDialog(QDialog):

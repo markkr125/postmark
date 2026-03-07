@@ -625,4 +625,112 @@ class ThemeManager(QObject):
             max-height: 1px;
             min-height: 1px;
         }}
+
+        /* ---- Variable popup (hover tooltip for {{variables}}) ------- */
+        QFrame[objectName="variablePopup"] {{
+            background: {p["bg"]};
+            border: 1px solid {p["border"]};
+            border-radius: 6px;
+        }}
+        QLabel[objectName="variablePopupName"] {{
+            font-weight: bold;
+            font-size: 12px;
+            color: {p["warning"]};
+            padding: 0px;
+        }}
+        QLineEdit[objectName="variablePopupValue"] {{
+            background: {p["input_bg"]};
+            border: 1px solid {p["border"]};
+            border-radius: 3px;
+            padding: 3px 6px;
+            font-size: 12px;
+            color: {p["text"]};
+        }}
+        QLabel[objectName="variablePopupBadge"] {{
+            font-size: 10px;
+            font-weight: bold;
+            padding: 1px 6px;
+            border-radius: 3px;
+            color: {p["bg"]};
+            background: {p["accent"]};
+        }}
+        QLabel[objectName="variablePopupBadge"][varSource="collection"] {{
+            background: {p["success"]};
+        }}
+        QLabel[objectName="variablePopupBadge"][varSource="environment"] {{
+            background: {p["accent"]};
+        }}
+        QLabel[objectName="variablePopupBadge"][varSource="unresolved"] {{
+            background: {p["warning"]};
+        }}
+        QLabel[objectName="variablePopupBadge"][varSource="local"] {{
+            background: {p["success"]};
+        }}
+        QPushButton[objectName="variablePopupUpdateBtn"] {{
+            background: {p["accent"]};
+            color: {p["bg"]};
+            border: none;
+            border-radius: 3px;
+            padding: 2px 10px;
+            font-size: 11px;
+            font-weight: bold;
+        }}
+        QPushButton[objectName="variablePopupUpdateBtn"]:hover {{
+            background: {p["selected_bg"]};
+        }}
+        QPushButton[objectName="variablePopupResetBtn"] {{
+            background: transparent;
+            color: {p["muted"]};
+            border: 1px solid {p["border"]};
+            border-radius: 3px;
+            padding: 2px 8px;
+            font-size: 11px;
+        }}
+        QPushButton[objectName="variablePopupResetBtn"]:hover {{
+            color: {p["text"]};
+            border-color: {p["muted"]};
+        }}
+        QFrame[objectName="variablePopupAddPanel"] {{
+            border: 1px solid {p["border"]};
+            border-top: none;
+            border-radius: 0px 0px 4px 4px;
+            background: {p["input_bg"]};
+            padding: 2px 0px;
+        }}
+        QPushButton[objectName="variablePopupAddSelect"] {{
+            background: {p["input_bg"]};
+            color: {p["text"]};
+            border: 1px solid {p["border"]};
+            border-radius: 4px;
+            padding: 3px 10px;
+            font-size: 11px;
+            text-align: left;
+        }}
+        QPushButton[objectName="variablePopupAddSelect"]:hover {{
+            border-color: {p["accent"]};
+        }}
+        QPushButton[objectName="variablePopupTarget"] {{
+            background: transparent;
+            color: {p["text"]};
+            border: none;
+            border-radius: 0px;
+            padding: 6px 8px;
+            font-size: 12px;
+            text-align: left;
+        }}
+        QPushButton[objectName="variablePopupTarget"]:hover {{
+            background: {p["selected_bg"]};
+            color: {p["bg"]};
+        }}
+        QPushButton[objectName="variablePopupTarget"]:disabled {{
+            color: {p["muted"]};
+        }}
+        QLabel[objectName="variablePopupNoEnv"] {{
+            color: {p["variable_unresolved_text"]};
+            background: {p["variable_unresolved_highlight"]};
+            border: none;
+            border-radius: 0px;
+            padding: 6px 8px;
+            font-size: 11px;
+        }}
         """

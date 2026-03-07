@@ -11,24 +11,20 @@ background so they stand out at a glance.
 from __future__ import annotations
 
 import re
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
-from PySide6.QtCore import QEvent, QModelIndex, QObject, QPersistentModelIndex, QRect, Qt, Signal
-from PySide6.QtGui import QColor, QFontMetrics, QHelpEvent, QMouseEvent, QPainter
-from PySide6.QtWidgets import (
-    QAbstractItemView,
-    QCheckBox,
-    QHBoxLayout,
-    QHeaderView,
-    QPushButton,
-    QStyledItemDelegate,
-    QStyleOptionViewItem,
-    QTableWidget,
-    QTableWidgetItem,
-    QToolTip,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtCore import (QEvent, QModelIndex, QObject,
+                            QPersistentModelIndex, QPoint, QRect, Qt, QTimer,
+                            Signal)
+from PySide6.QtGui import (QColor, QFontMetrics, QHelpEvent, QMouseEvent,
+                           QPainter)
+from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QHBoxLayout,
+                               QHeaderView, QPushButton, QStyledItemDelegate,
+                               QStyleOptionViewItem, QTableWidget,
+                               QTableWidgetItem, QVBoxLayout, QWidget)
+
+if TYPE_CHECKING:
+    from services.environment_service import VariableDetail
 
 from ui.icons import phi
 
@@ -45,7 +41,7 @@ _COLUMN_COUNT = 5
 _DELETE_COL_WIDTH = 28
 
 # Regex for {{variable}} references
-_VAR_RE = re.compile(r"\{\{.+?\}\}")
+_VAR_RE = re.compile(r"\{\{(.+?)\}\}")
 
 # Padding (px) around the highlight box
 _HIGHLIGHT_PAD_X = 2
@@ -68,9 +64,9 @@ class _VariableHighlightDelegate(QStyledItemDelegate):
         """Initialise with the set of column indices to highlight."""
         super().__init__(parent)
         self._columns = highlight_columns
-        self._variable_map: dict[str, str] = {}
+        self._variable_map: dict[str, VariableDetail] = {}
 
-    def set_variable_map(self, variables: dict[str, str]) -> None:
+    def set_variable_map(self, variables: dict[str, VariableDetail]) -> None:
         """Update the variable resolution map for tooltips."""
         self._variable_map = variables
 
@@ -114,10 +110,14 @@ class _VariableHighlightDelegate(QStyledItemDelegate):
         y_center = text_rect.top() + (text_rect.height() + fm.ascent() - fm.descent()) // 2
 
         # Resolve highlight colour at paint time so theme changes apply
-        from ui.theme import COLOR_VARIABLE_HIGHLIGHT, COLOR_WARNING
+        from ui.theme import (COLOR_VARIABLE_HIGHLIGHT,
+                              COLOR_VARIABLE_UNRESOLVED_HIGHLIGHT,
+                              COLOR_VARIABLE_UNRESOLVED_TEXT, COLOR_WARNING)
 
         hl_bg = QColor(COLOR_VARIABLE_HIGHLIGHT)
         hl_fg = QColor(COLOR_WARNING)
+        unresolved_bg = QColor(COLOR_VARIABLE_UNRESOLVED_HIGHLIGHT)
+        unresolved_fg = QColor(COLOR_VARIABLE_UNRESOLVED_TEXT)
 
         # 3. Walk through the text, painting normal and highlighted spans
         x = text_rect.left()
@@ -131,6 +131,8 @@ class _VariableHighlightDelegate(QStyledItemDelegate):
                 painter.drawText(x, y_center, normal)
                 x += fm.horizontalAdvance(normal)
             # Highlighted variable reference
+            var_name = match.group(1)
+            resolved = var_name in self._variable_map
             var_text = match.group(0)
             var_w = fm.horizontalAdvance(var_text)
             bg_rect = QRect(
@@ -140,10 +142,10 @@ class _VariableHighlightDelegate(QStyledItemDelegate):
                 fm.height() + 2 * _HIGHLIGHT_PAD_Y,
             )
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(hl_bg)
+            painter.setBrush(hl_bg if resolved else unresolved_bg)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             painter.drawRoundedRect(bg_rect, _HIGHLIGHT_RADIUS, _HIGHLIGHT_RADIUS)
-            painter.setPen(hl_fg)
+            painter.setPen(hl_fg if resolved else unresolved_fg)
             painter.drawText(x, y_center, var_text)
             x += var_w
             pos = match.end()
@@ -161,43 +163,50 @@ class _VariableHighlightDelegate(QStyledItemDelegate):
         option: QStyleOptionViewItem,
         index: QModelIndex | QPersistentModelIndex,
     ) -> bool:
-        """Show resolved variable value as tooltip on hover."""
-        if event.type() != QEvent.Type.ToolTip:
-            return super().helpEvent(event, view, option, index)
+        """Suppress default tooltip for variable cells."""
+        if event.type() == QEvent.Type.ToolTip and index.column() in self._columns:
+            text = index.data(Qt.ItemDataRole.DisplayRole)
+            if text and "{{" in text:
+                return True  # swallow — popup is handled by mouse tracking
+        return super().helpEvent(event, view, option, index)
 
-        if index.column() not in self._columns:
-            return super().helpEvent(event, view, option, index)
+    def var_at_pos(
+        self,
+        pos: QMouseEvent,
+        view: QAbstractItemView,
+    ) -> str | None:
+        """Return the variable name at pixel *pos*, or ``None``.
 
+        Called by the parent widget's event filter to implement fast
+        mouse-tracking-based variable popup display.
+        """
+        mouse_pos = pos.position().toPoint()
+        index = view.indexAt(mouse_pos)
+        if not index.isValid() or index.column() not in self._columns:
+            return None
         text = index.data(Qt.ItemDataRole.DisplayRole)
         if not text or "{{" not in text:
-            QToolTip.hideText()
-            return True
+            return None
 
-        # Compute which character is under the mouse
+        option = QStyleOptionViewItem()
         self.initStyleOption(option, index)
+        option.rect = view.visualRect(index)
         text_rect = option.rect.adjusted(4, 0, -4, 0)
         fm = QFontMetrics(option.font)
-        mouse_x = event.pos().x()
+        mouse_x = mouse_pos.x()
+
         x = text_rect.left()
-        pos = 0
+        char_pos = 0
         for match in _VAR_RE.finditer(text):
-            # Advance past normal text
-            if match.start() > pos:
-                x += fm.horizontalAdvance(text[pos : match.start()])
+            if match.start() > char_pos:
+                x += fm.horizontalAdvance(text[char_pos : match.start()])
             var_w = fm.horizontalAdvance(match.group(0))
             if x <= mouse_x <= x + var_w:
-                var_name = match.group(1)
-                resolved = self._variable_map.get(var_name)
-                if resolved is not None:
-                    QToolTip.showText(event.globalPos(), f"{var_name} = {resolved}", view)
-                else:
-                    QToolTip.showText(event.globalPos(), f"{var_name} (unresolved)", view)
-                return True
+                return match.group(1)
             x += var_w
-            pos = match.end()
+            char_pos = match.end()
 
-        QToolTip.hideText()
-        return True
+        return None
 
 
 class KeyValueTableWidget(QWidget):
@@ -267,12 +276,19 @@ class KeyValueTableWidget(QWidget):
 
         layout.addWidget(self._table, 1)
 
+        # Hover tracking for fast variable popup display
+        self._var_hover_name: str | None = None
+        self._var_hover_timer = QTimer(self)
+        self._var_hover_timer.setSingleShot(True)
+        self._var_hover_timer.timeout.connect(self._show_var_hover_popup)
+        self._var_hover_global_pos = QPoint()
+
         # Start with one ghost row
         self._append_ghost_row()
 
     # -- Public API ----------------------------------------------------
 
-    def set_variable_map(self, variables: dict[str, str]) -> None:
+    def set_variable_map(self, variables: dict[str, VariableDetail]) -> None:
         """Update the variable resolution map for tooltip display."""
         self._highlight_delegate.set_variable_map(variables)
         self._table.viewport().update()
@@ -424,7 +440,7 @@ class KeyValueTableWidget(QWidget):
     # -- Event filter for hover tracking -------------------------------
 
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
-        """Track mouse hover over the table viewport to show delete buttons."""
+        """Track mouse hover for delete buttons and variable popups."""
         if obj is self._table.viewport():
             if event.type() == QEvent.Type.MouseMove:
                 mouse_event = cast(QMouseEvent, event)
@@ -433,10 +449,41 @@ class KeyValueTableWidget(QWidget):
                 if row != self._hovered_row:
                     self._hovered_row = row
                     self._update_delete_button_visibility()
+
+                # Variable hover tracking
+                var_name = self._highlight_delegate.var_at_pos(mouse_event, self._table)
+                if var_name:
+                    if var_name != self._var_hover_name:
+                        self._var_hover_name = var_name
+                        self._var_hover_global_pos = mouse_event.globalPosition().toPoint()
+                        from ui.variable_popup import VariablePopup
+
+                        self._var_hover_timer.start(VariablePopup.hover_delay_ms())
+                else:
+                    if self._var_hover_name is not None:
+                        self._var_hover_name = None
+                        self._var_hover_timer.stop()
+
             elif event.type() == QEvent.Type.Leave:
                 self._hovered_row = -1
                 self._update_delete_button_visibility()
+                self._var_hover_name = None
+                self._var_hover_timer.stop()
         return super().eventFilter(obj, event)
+
+    def _show_var_hover_popup(self) -> None:
+        """Show the variable popup for the currently hovered variable."""
+        if self._var_hover_name is None:
+            return
+        from ui.variable_popup import VariablePopup
+
+        detail = self._highlight_delegate._variable_map.get(self._var_hover_name)
+        VariablePopup.show_variable(
+            self._var_hover_name,
+            detail,
+            self._var_hover_global_pos,
+            self._table,
+        )
 
     # -- Internal helpers ----------------------------------------------
 

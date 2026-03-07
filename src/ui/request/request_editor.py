@@ -8,6 +8,7 @@ Emits ``send_requested`` when the Send button is clicked,
 from __future__ import annotations
 
 import json
+from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QModelIndex, QPersistentModelIndex, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QColor, QKeySequence, QPalette, QShortcut, QTextCharFormat, QTextCursor
@@ -37,6 +38,9 @@ from ui.key_value_table import KeyValueTableWidget
 from ui.request.http_worker import SchemaFetchWorker
 from ui.theme import COLOR_WARNING, method_color
 from ui.variable_line_edit import VariableLineEdit
+
+if TYPE_CHECKING:
+    from services.environment_service import VariableDetail
 
 # HTTP methods shown in the dropdown
 _HTTP_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS")
@@ -613,7 +617,7 @@ class RequestEditorWidget(QWidget):
         """Return whether the editor has unsaved changes."""
         return self._is_dirty
 
-    def set_variable_map(self, variables: dict[str, str]) -> None:
+    def set_variable_map(self, variables: dict[str, VariableDetail]) -> None:
         """Distribute the resolved variable map to all child widgets.
 
         This enables ``{{variable}}`` highlighting and resolved-value

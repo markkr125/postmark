@@ -98,6 +98,23 @@ class TestHttpSendWorker:
         )
         assert worker._request_id == 42
 
+    def test_set_request_with_local_overrides(self, qapp: QApplication) -> None:
+        """Local overrides dict is stored on the worker."""
+        worker = HttpSendWorker()
+        overrides = {"base_url": "http://localhost:3000"}
+        worker.set_request(
+            method="GET",
+            url="http://example.com",
+            local_overrides=overrides,
+        )
+        assert worker._local_overrides == overrides
+
+    def test_set_request_local_overrides_defaults_empty(self, qapp: QApplication) -> None:
+        """Local overrides default to empty dict when not provided."""
+        worker = HttpSendWorker()
+        worker.set_request(method="GET", url="http://example.com")
+        assert worker._local_overrides == {}
+
     def test_request_id_defaults_to_none(self, qapp: QApplication) -> None:
         """request_id defaults to None when not provided."""
         worker = HttpSendWorker()
@@ -182,3 +199,28 @@ class TestHttpSendWorker:
         assert len(errors) == 1
         assert "cancelled" in errors[0].lower()
         assert len(finished) == 0
+
+    @patch("services.environment_service.EnvironmentService.build_combined_variable_map")
+    @patch("ui.request.http_worker.HttpService.send_request")
+    def test_run_applies_local_overrides(
+        self, mock_send: MagicMock, mock_vars: MagicMock, qapp: QApplication
+    ) -> None:
+        """Local overrides take precedence over environment variables."""
+        mock_vars.return_value = {"base_url": "https://prod.example.com", "token": "abc"}
+        mock_send.return_value = _SAMPLE_RESPONSE
+
+        worker = HttpSendWorker()
+        worker.set_request(
+            method="GET",
+            url="{{base_url}}/api",
+            local_overrides={"base_url": "http://localhost:3000"},
+        )
+
+        received: list[dict] = []
+        worker.finished.connect(received.append)
+        worker.run()
+
+        assert len(received) == 1
+        # The send_request call should have received the locally-overridden URL
+        call_kwargs = mock_send.call_args[1]
+        assert "localhost:3000" in call_kwargs["url"]

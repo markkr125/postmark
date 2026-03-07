@@ -29,6 +29,33 @@ class TestTabContext:
         assert not ctx.is_sending
         assert not ctx.is_preview
 
+    def test_local_overrides_defaults_empty(self, qapp: QApplication, qtbot) -> None:
+        """TabContext initialises with empty local_overrides dict."""
+        ctx = TabContext()
+        qtbot.addWidget(ctx.editor)
+        qtbot.addWidget(ctx.response_viewer)
+        assert ctx.local_overrides == {}
+
+    def test_local_overrides_stores_values(self, qapp: QApplication, qtbot) -> None:
+        """local_overrides stores per-request variable overrides."""
+        ctx = TabContext()
+        qtbot.addWidget(ctx.editor)
+        qtbot.addWidget(ctx.response_viewer)
+
+        ctx.local_overrides["base_url"] = {
+            "value": "http://localhost:3000",
+            "original_source": "collection",
+            "original_source_id": 1,
+        }
+        ctx.local_overrides["api_key"] = {
+            "value": "test-key-123",
+            "original_source": "environment",
+            "original_source_id": 10,
+        }
+
+        assert ctx.local_overrides["base_url"]["value"] == "http://localhost:3000"
+        assert ctx.local_overrides["api_key"]["value"] == "test-key-123"
+
     def test_construction_with_request_id(self, qapp: QApplication, qtbot) -> None:
         """TabContext accepts a request_id."""
         ctx = TabContext(request_id=42)

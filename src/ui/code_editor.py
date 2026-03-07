@@ -34,48 +34,34 @@ import json
 import re
 import xml.dom.minidom
 import xml.etree.ElementTree as ET
-from typing import NamedTuple, cast
+from typing import TYPE_CHECKING, NamedTuple, cast
 
 from pygments import token as T
 from pygments.lexer import Lexer
 from pygments.lexers import TextLexer, get_lexer_by_name
-from PySide6.QtCore import QEvent, QRect, QRectF, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import (
-    QColor,
-    QFont,
-    QHelpEvent,
-    QKeyEvent,
-    QMouseEvent,
-    QPainter,
-    QPaintEvent,
-    QPen,
-    QSyntaxHighlighter,
-    QTextBlock,
-    QTextBlockUserData,
-    QTextCharFormat,
-    QTextCursor,
-    QTextDocument,
-)
+from PySide6.QtCore import (QEvent, QPoint, QRect, QRectF, QSize, Qt, QTimer,
+                            Signal)
+from PySide6.QtGui import (QColor, QFont, QHelpEvent, QKeyEvent, QMouseEvent,
+                           QPainter, QPaintEvent, QPen, QSyntaxHighlighter,
+                           QTextBlock, QTextBlockUserData, QTextCharFormat,
+                           QTextCursor, QTextDocument)
 from PySide6.QtWidgets import QPlainTextEdit, QTextEdit, QToolTip, QWidget
 
+if TYPE_CHECKING:
+    from services.environment_service import VariableDetail
+
 from ui.icons import font_family, glyph_char
-from ui.theme import (
-    COLOR_EDITOR_ACTIVE_INDENT_GUIDE,
-    COLOR_EDITOR_BRACKET_MATCH,
-    COLOR_EDITOR_ERROR_GUTTER_BG,
-    COLOR_EDITOR_ERROR_UNDERLINE,
-    COLOR_EDITOR_FOLD_BADGE_BG,
-    COLOR_EDITOR_FOLD_BADGE_TEXT,
-    COLOR_EDITOR_FOLD_HIGHLIGHT,
-    COLOR_EDITOR_FOLD_INDICATOR,
-    COLOR_EDITOR_GUTTER_BG,
-    COLOR_EDITOR_GUTTER_TEXT,
-    COLOR_EDITOR_INDENT_GUIDE,
-    COLOR_EDITOR_WHITESPACE_DOT,
-    COLOR_VARIABLE_HIGHLIGHT,
-    COLOR_WARNING,
-    current_palette,
-)
+from ui.theme import (COLOR_EDITOR_ACTIVE_INDENT_GUIDE,
+                      COLOR_EDITOR_BRACKET_MATCH, COLOR_EDITOR_ERROR_GUTTER_BG,
+                      COLOR_EDITOR_ERROR_UNDERLINE, COLOR_EDITOR_FOLD_BADGE_BG,
+                      COLOR_EDITOR_FOLD_BADGE_TEXT,
+                      COLOR_EDITOR_FOLD_HIGHLIGHT, COLOR_EDITOR_FOLD_INDICATOR,
+                      COLOR_EDITOR_GUTTER_BG, COLOR_EDITOR_GUTTER_TEXT,
+                      COLOR_EDITOR_INDENT_GUIDE, COLOR_EDITOR_WHITESPACE_DOT,
+                      COLOR_VARIABLE_HIGHLIGHT,
+                      COLOR_VARIABLE_UNRESOLVED_HIGHLIGHT,
+                      COLOR_VARIABLE_UNRESOLVED_TEXT, COLOR_WARNING,
+                      current_palette)
 
 # Regex for {{variable}} references
 _VAR_RE = re.compile(r"\{\{(.+?)\}\}")
@@ -141,6 +127,28 @@ _FOLDABLE_LANGUAGES = {"json", "xml", "html", "graphql"}
 
 # -- Pygments Highlighter ----------------------------------------------
 
+# Module-level lexer cache — avoids creating a new Pygments lexer (and
+# triggering module imports) on every language switch.
+_lexer_cache: dict[str, Lexer] = {}
+
+
+def _get_cached_lexer(language: str) -> Lexer:
+    """Return a cached Pygments lexer for *language*.
+
+    Creates the lexer on first access and reuses it thereafter.  Falls
+    back to ``TextLexer`` for unknown language names.
+    """
+    if language not in _lexer_cache:
+        try:
+            _lexer_cache[language] = get_lexer_by_name(
+                language,
+                stripnl=False,
+                ensurenl=False,
+            )
+        except Exception:
+            _lexer_cache[language] = TextLexer(stripnl=False, ensurenl=False)
+    return _lexer_cache[language]
+
 
 def _build_format(color: str, *, bold: bool = False, italic: bool = False) -> QTextCharFormat:
     """Build a ``QTextCharFormat`` from a hex colour string."""
@@ -197,6 +205,11 @@ class PygmentsHighlighter(QSyntaxHighlighter):
         # Full-document token cache for read-only mode:
         # list of (block_number, [(start_in_block, length, token_type), ...])
         self._block_tokens: dict[int, list[tuple[int, int, T._TokenType]]] | None = None
+        self._variable_map: dict[str, VariableDetail] = {}
+
+    def set_variable_map(self, variables: dict[str, VariableDetail]) -> None:
+        """Update the variable resolution map for unresolved distinction."""
+        self._variable_map = variables
 
     @property
     def language(self) -> str:
@@ -210,10 +223,7 @@ class PygmentsHighlighter(QSyntaxHighlighter):
             return
         self._language = lang
         self._block_tokens = None
-        try:
-            self._lexer = get_lexer_by_name(lang, stripnl=False, ensurenl=False)
-        except Exception:
-            self._lexer = TextLexer(stripnl=False, ensurenl=False)
+        self._lexer = _get_cached_lexer(lang)
         self.rehighlight()
 
     def rebuild_formats(self) -> None:
@@ -263,10 +273,15 @@ class PygmentsHighlighter(QSyntaxHighlighter):
         """Overlay ``{{variable}}`` highlights on the current block."""
         if "{{" not in text:
             return
-        fmt = QTextCharFormat()
-        fmt.setBackground(QColor(COLOR_VARIABLE_HIGHLIGHT))
-        fmt.setForeground(QColor(COLOR_WARNING))
+        resolved_fmt = QTextCharFormat()
+        resolved_fmt.setBackground(QColor(COLOR_VARIABLE_HIGHLIGHT))
+        resolved_fmt.setForeground(QColor(COLOR_WARNING))
+        unresolved_fmt = QTextCharFormat()
+        unresolved_fmt.setBackground(QColor(COLOR_VARIABLE_UNRESOLVED_HIGHLIGHT))
+        unresolved_fmt.setForeground(QColor(COLOR_VARIABLE_UNRESOLVED_TEXT))
         for match in _VAR_RE.finditer(text):
+            var_name = match.group(1)
+            fmt = resolved_fmt if var_name in self._variable_map else unresolved_fmt
             self.setFormat(match.start(), match.end() - match.start(), fmt)
 
     def cache_full_document(self) -> None:
@@ -413,7 +428,14 @@ class CodeEditorWidget(QPlainTextEdit):
         self._collapsed_folds: set[int] = set()
         self._search_selections: list[QTextEdit.ExtraSelection] = []
         # Variable map for tooltip resolution
-        self._variable_map: dict[str, str] = {}
+        self._variable_map: dict[str, VariableDetail] = {}
+
+        # Hover tracking for fast variable popup display
+        self._var_hover_name: str | None = None
+        self._var_hover_timer = QTimer(self)
+        self._var_hover_timer.setSingleShot(True)
+        self._var_hover_timer.timeout.connect(self._show_var_hover_popup)
+        self._var_hover_global_pos = QPoint()
 
         # Detected indent width for this document (auto-detected or default).
         self._detected_indent: int = _DEFAULT_INDENT_WIDTH
@@ -498,9 +520,10 @@ class CodeEditorWidget(QPlainTextEdit):
 
     # -- Content helpers ------------------------------------------------
 
-    def set_variable_map(self, variables: dict[str, str]) -> None:
+    def set_variable_map(self, variables: dict[str, VariableDetail]) -> None:
         """Update the variable resolution map and rehighlight."""
         self._variable_map = variables
+        self._highlighter.set_variable_map(variables)
         self._highlighter.rehighlight()
 
     def setPlainText(self, text: str) -> None:
@@ -1687,14 +1710,27 @@ class CodeEditorWidget(QPlainTextEdit):
 
     # -- Tooltip for errors ---------------------------------------------
 
+    def _var_at_cursor(self, pos: QPoint) -> str | None:
+        """Return the variable name at pixel *pos*, or ``None``."""
+        cursor = self.cursorForPosition(pos)
+        block = cursor.block()
+        block_text = block.text()
+        if "{{" not in block_text:
+            return None
+        pos_in_block = cursor.positionInBlock()
+        for match in _VAR_RE.finditer(block_text):
+            if match.start() <= pos_in_block <= match.end():
+                return match.group(1)
+        return None
+
     def event(self, event: QEvent) -> bool:
-        """Show tooltip for error messages and variable references on hover."""
+        """Show tooltip for error messages on hover; suppress for variables."""
         if event.type() == QEvent.Type.ToolTip:
             help_event = cast("QHelpEvent", event)
             cursor = self.cursorForPosition(help_event.pos())
             line = cursor.blockNumber() + 1
 
-            # 1. Check for error tooltip
+            # Error tooltips still use the built-in QToolTip mechanism
             for error in self._errors:
                 if error.line == line:
                     QToolTip.showText(
@@ -1704,32 +1740,20 @@ class CodeEditorWidget(QPlainTextEdit):
                     )
                     return True
 
-            # 2. Check for variable tooltip
-            block = cursor.block()
-            block_text = block.text()
-            pos_in_block = cursor.positionInBlock()
-            if "{{" in block_text:
-                for match in _VAR_RE.finditer(block_text):
-                    if match.start() <= pos_in_block <= match.end():
-                        var_name = match.group(1)
-                        resolved = self._variable_map.get(var_name)
-                        if resolved is not None:
-                            QToolTip.showText(
-                                help_event.globalPos(),
-                                f"{var_name} = {resolved}",
-                                self,
-                            )
-                        else:
-                            QToolTip.showText(
-                                help_event.globalPos(),
-                                f"{var_name} (unresolved)",
-                                self,
-                            )
-                        return True
-
             QToolTip.hideText()
             return True
         return super().event(event)
+
+    # -- Variable hover popup ------------------------------------------
+
+    def _show_var_hover_popup(self) -> None:
+        """Show the variable popup for the currently hovered variable."""
+        if self._var_hover_name is None:
+            return
+        from ui.variable_popup import VariablePopup
+
+        detail = self._variable_map.get(self._var_hover_name)
+        VariablePopup.show_variable(self._var_hover_name, detail, self._var_hover_global_pos, self)
 
     # -- Fold badge interaction -----------------------------------------
 
@@ -1744,13 +1768,30 @@ class CodeEditorWidget(QPlainTextEdit):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
-        """Show a hand cursor when hovering over a collapsed-fold badge."""
+        """Track variable hover and fold-badge cursor changes."""
+        pos = event.position().toPoint()
+
+        # 1. Fold badge cursor
         if self._fold_badge_rects:
-            pos = event.position().toPoint()
             for rect in self._fold_badge_rects.values():
                 if rect.contains(pos):
                     self.viewport().setCursor(Qt.CursorShape.PointingHandCursor)
                     super().mouseMoveEvent(event)
                     return
         self.viewport().setCursor(Qt.CursorShape.IBeamCursor)
+
+        # 2. Variable hover tracking
+        var_name = self._var_at_cursor(pos)
+        if var_name:
+            if var_name != self._var_hover_name:
+                self._var_hover_name = var_name
+                self._var_hover_global_pos = event.globalPosition().toPoint()
+                from ui.variable_popup import VariablePopup
+
+                self._var_hover_timer.start(VariablePopup.hover_delay_ms())
+        else:
+            if self._var_hover_name is not None:
+                self._var_hover_name = None
+                self._var_hover_timer.stop()
+
         super().mouseMoveEvent(event)

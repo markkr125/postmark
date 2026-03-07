@@ -318,6 +318,38 @@ def get_request_variable_chain(request_id: int) -> dict[str, str]:
         return merged
 
 
+def get_request_variable_chain_detailed(request_id: int) -> dict[str, tuple[str, int]]:
+    """Walk the parent chain and return ``{key: (value, collection_id)}``.
+
+    Like :func:`get_request_variable_chain` but each entry also carries
+    the ``collection_id`` where the variable is defined.  This is used
+    by the variable popup to know which collection to update when the
+    user edits a value.
+    """
+    with get_session() as session:
+        req = session.get(RequestModel, request_id)
+        if req is None:
+            return {}
+        layers: list[tuple[int, list[dict[str, Any]]]] = []
+        coll = session.get(CollectionModel, req.collection_id)
+        while coll is not None:
+            if coll.variables:
+                layers.append((coll.id, coll.variables))
+            if coll.parent_id is None:
+                break
+            coll = session.get(CollectionModel, coll.parent_id)
+        merged: dict[str, tuple[str, int]] = {}
+        for coll_id, var_list in reversed(layers):
+            for entry in var_list:
+                if not entry.get("enabled", True):
+                    continue
+                key = entry.get("key", "")
+                value = entry.get("value", "")
+                if key:
+                    merged[key] = (value, coll_id)
+        return merged
+
+
 def get_request_breadcrumb(request_id: int) -> list[dict[str, Any]]:
     """Return the breadcrumb path from root collection to the request.
 

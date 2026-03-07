@@ -7,6 +7,7 @@ import json
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import QApplication
 
+from services.environment_service import VariableDetail
 from ui.request.request_editor import RequestEditorWidget
 
 
@@ -1548,7 +1549,9 @@ class TestRequestEditorVariableMap:
         """set_variable_map pushes the map to the URL input."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
-        m = {"host": "example.com"}
+        m: dict[str, VariableDetail] = {
+            "host": {"value": "example.com", "source": "collection", "source_id": 1}
+        }
         editor.set_variable_map(m)
         assert editor._url_input._variable_map is m
 
@@ -1556,7 +1559,9 @@ class TestRequestEditorVariableMap:
         """set_variable_map pushes the map to all auth inputs."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
-        m = {"token": "abc123"}
+        m: dict[str, VariableDetail] = {
+            "token": {"value": "abc123", "source": "environment", "source_id": 10}
+        }
         editor.set_variable_map(m)
         assert editor._bearer_token_input._variable_map is m
         assert editor._basic_username_input._variable_map is m
@@ -1568,7 +1573,9 @@ class TestRequestEditorVariableMap:
         """set_variable_map pushes the map to key-value tables."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
-        m = {"key": "value"}
+        m: dict[str, VariableDetail] = {
+            "key": {"value": "value", "source": "collection", "source_id": 1}
+        }
         editor.set_variable_map(m)
         assert editor._params_table._highlight_delegate._variable_map is m
         assert editor._headers_table._highlight_delegate._variable_map is m
@@ -1578,7 +1585,9 @@ class TestRequestEditorVariableMap:
         """set_variable_map pushes the map to code editors."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
-        m = {"url": "https://api.test"}
+        m: dict[str, VariableDetail] = {
+            "url": {"value": "https://api.test", "source": "environment", "source_id": 10}
+        }
         editor.set_variable_map(m)
         assert editor._body_code_editor._variable_map is m
         assert editor._gql_query_editor._variable_map is m

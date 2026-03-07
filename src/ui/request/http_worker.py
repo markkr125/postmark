@@ -55,6 +55,7 @@ class HttpSendWorker(QObject):
         self._env_id: int | None = None
         self._request_id: int | None = None
         self._auth_data: dict | None = None
+        self._local_overrides: dict[str, str] = {}
         self._cancel_event = threading.Event()
 
     # -- Configuration (call before moveToThread) ----------------------
@@ -70,6 +71,7 @@ class HttpSendWorker(QObject):
         env_id: int | None = None,
         request_id: int | None = None,
         auth_data: dict | None = None,
+        local_overrides: dict[str, str] | None = None,
     ) -> None:
         """Configure the HTTP request to send.
 
@@ -79,6 +81,10 @@ class HttpSendWorker(QObject):
         thread.  Collection variables (inherited from the parent chain
         of *request_id*) are merged with environment variables, with
         environment variables taking precedence.
+
+        *local_overrides* are per-request overrides set by the user
+        via the variable popup ("use for this request only").  They
+        take highest precedence.
         """
         self._method = method
         self._url = url
@@ -88,6 +94,7 @@ class HttpSendWorker(QObject):
         self._env_id = env_id
         self._request_id = request_id
         self._auth_data = auth_data
+        self._local_overrides = local_overrides or {}
 
     def cancel(self) -> None:
         """Request cancellation of the in-flight HTTP request.
@@ -128,6 +135,11 @@ class HttpSendWorker(QObject):
                 self._env_id,
                 self._request_id,
             )
+
+            # 2b. Apply per-request local overrides (highest precedence)
+            if self._local_overrides:
+                variables.update(self._local_overrides)
+
             if variables:
                 url = EnvironmentService.substitute(url, variables)
                 if headers:

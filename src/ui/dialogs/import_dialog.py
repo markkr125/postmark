@@ -11,10 +11,22 @@ from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import QMimeData, QObject, Qt, QThread, Signal
-from PySide6.QtWidgets import (QDialog, QFileDialog, QFrame, QHBoxLayout,
-                               QLabel, QLineEdit, QProgressBar, QPushButton,
-                               QScrollArea, QSizePolicy, QTabWidget, QTextEdit,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (
+    QDialog,
+    QFileDialog,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QProgressBar,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QTabWidget,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 from services.import_parser.models import ImportSummary
 from services.import_service import ImportService
