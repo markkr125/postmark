@@ -175,4 +175,3 @@ class _VariableControllerMixin:
                     tab_ctx.request_id,
                     tab_ctx.local_overrides,
                 )
-                )
