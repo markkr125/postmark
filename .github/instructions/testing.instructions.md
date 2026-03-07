@@ -95,6 +95,11 @@ source file lives under `src/ui/request/`, its test lives under
 `tests/ui/request/`.  Never dump new test files into `tests/ui/` or
 `tests/unit/` root — always place them in the matching subfolder.
 
+**Test file line limit:** Test files follow the same **600-line** cap as
+source files.  When a source file is split into a sub-package, mirror the
+split in the test directory — one test file per submodule.  If a single
+test file still exceeds 600 lines, split by test class into separate files.
+
 ```
 tests/
 ├── conftest.py                    # Root: _fresh_db (autouse) + qapp (session)

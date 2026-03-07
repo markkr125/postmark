@@ -301,3 +301,9 @@ must stay green.  See `testing.instructions.md` for detailed conventions.
   related files into a sub-package before adding more.  Test directories
   mirror the source tree; test file count may exceed 5 when multiple test
   files cover a single source module.
+- **File line limit:** No single `.py` file may exceed **600 lines**
+  (including docstrings and comments).  When a file approaches this limit,
+  extract cohesive groups of methods, helper classes, or setup logic into
+  a sub-package.  Re-export public symbols from the package's `__init__.py`
+  so external imports remain stable.  Test files follow the same limit —
+  split by test class into separate files mirroring the sub-package.
