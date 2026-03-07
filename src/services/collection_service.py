@@ -10,19 +10,24 @@ import logging
 from typing import Any
 
 from database.models.collections.collection_repository import (
+    count_collection_requests,
     create_new_collection,
     create_new_request,
     delete_collection,
     delete_request,
     fetch_all_collections,
+    get_collection_breadcrumb,
     get_collection_by_id,
+    get_recent_requests_for_collection,
     get_request_auth_chain,
     get_request_breadcrumb,
     get_request_by_id,
+    get_request_variable_chain,
     get_saved_responses_for_request,
     rename_collection,
     rename_request,
     save_response,
+    update_collection,
     update_collection_parent,
     update_request,
     update_request_collection,
@@ -108,6 +113,20 @@ class CollectionService:
             raise ValueError("Cannot move a collection into itself")
         update_collection_parent(collection_id, new_parent_id)
         logger.info("Moved collection id=%s to parent=%s", collection_id, new_parent_id)
+
+    @staticmethod
+    def update_collection(collection_id: int, **fields: Any) -> None:
+        """Update one or more editable fields on a collection.
+
+        Only columns listed in the repository's
+        ``_EDITABLE_COLLECTION_FIELDS`` are accepted.
+
+        Raises:
+            ValueError: If *collection_id* does not exist or a field
+                name is invalid.
+        """
+        update_collection(collection_id, **fields)
+        logger.info("Updated collection id=%s fields=%s", collection_id, list(fields))
 
     # ------------------------------------------------------------------
     # Mutations - requests
@@ -200,6 +219,17 @@ class CollectionService:
         """
         return get_request_auth_chain(request_id)
 
+    @staticmethod
+    def get_request_variable_chain(request_id: int) -> dict[str, str]:
+        """Return the merged collection variables for a request.
+
+        Walks the parent collection chain from the request's immediate
+        parent up to the root, merging ``variables`` arrays.  Variables
+        from closer ancestors take priority over those further up.
+        Returns an empty dict if no collection variables are found.
+        """
+        return get_request_variable_chain(request_id)
+
     # ------------------------------------------------------------------
     # Breadcrumb
     # ------------------------------------------------------------------
@@ -207,6 +237,30 @@ class CollectionService:
     def get_request_breadcrumb(request_id: int) -> list[dict[str, Any]]:
         """Return the breadcrumb path from root collection to request."""
         return get_request_breadcrumb(request_id)
+
+    @staticmethod
+    def get_collection_breadcrumb(collection_id: int) -> list[dict[str, Any]]:
+        """Return the breadcrumb path from root collection to the folder."""
+        return get_collection_breadcrumb(collection_id)
+
+    # ------------------------------------------------------------------
+    # Folder stats
+    # ------------------------------------------------------------------
+    @staticmethod
+    def get_folder_request_count(collection_id: int) -> int:
+        """Return the total number of requests under a collection subtree."""
+        return count_collection_requests(collection_id)
+
+    # ------------------------------------------------------------------
+    # Recent requests
+    # ------------------------------------------------------------------
+    @staticmethod
+    def get_recent_requests(
+        collection_id: int,
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        """Return the most recently updated requests in a collection subtree."""
+        return get_recent_requests_for_collection(collection_id, limit)
 
     # ------------------------------------------------------------------
     # Saved responses

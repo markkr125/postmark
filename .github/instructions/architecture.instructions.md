@@ -14,16 +14,28 @@ and what implicit contracts exist.
 1. **UI must never import from `database/`.**  Go through the service layer.
 2. **Call `init_db()` before creating `MainWindow`** — the constructor
    immediately starts a background DB query.
-3. **Every repository function is its own transaction.** You cannot batch
+3. **Create `ThemeManager(app)` before creating `MainWindow`** — it applies
+   the global stylesheet, QPalette, and widget style on construction.
+   Import from `ui.styling.theme_manager`.
+4. **Every repository function is its own transaction.** You cannot batch
    multiple calls into one commit.
-4. **Always wrap programmatic tree-item edits in `blockSignals(True/False)`**
+5. **Always wrap programmatic tree-item edits in `blockSignals(True/False)`**
    — see `pyside6.instructions.md`.
-5. **The data interchange format is a nested `dict[str, Any]`**, not ORM
+6. **The data interchange format is a nested `dict[str, Any]`**, not ORM
    objects.  See the schema below.
-6. **`_safe_svc_call` swallows all exceptions.**  Errors are logged but never
+7. **`_safe_svc_call` swallows all exceptions.**  Errors are logged but never
    shown to the user.
-7. **`CollectionService` methods are all `@staticmethod`.**  Do not add
+8. **`CollectionService` methods are all `@staticmethod`.**  Do not add
    instance state.
+9. **Never call `setStyleSheet()` for static widget styling** — use
+   `setObjectName()` and global QSS.  See `pyside6.instructions.md`.
+10. **Never use `# type: ignore` to assign `None` to a non-optional
+    attribute.**  This silences mypy but Pylance still widens the inferred
+    type to `X | None`, propagating false errors everywhere the attribute
+    is read.  If a field truly needs to become `None`, declare it as
+    `X | None` from the start and add proper guards at usage sites.
+    If you only need to drop the reference for GC, `del` the owning
+    object instead.
 
 ## Layering recap
 
@@ -37,13 +49,30 @@ UI widgets  ──signals──►  CollectionWidget  ──calls──►  Coll
                                                      get_session() context mgr
                                                              │
                                                          SQLite file
+
+ThemeManager  ──QPalette + global QSS──►  QApplication
+              ──theme_changed signal──►   widgets (refresh dynamic styles)
+              ──QSettings──►              persistent user preferences
+
+RequestEditorWidget  ──send_requested──►  MainWindow
+  MainWindow → HttpSendWorker (QThread) → HttpService.send_request()
+    → HttpSendWorker.finished(HttpResponseDict) → ResponseViewerWidget.load_response()
+
+RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread)
+  → GraphQLSchemaService.fetch_schema() → SchemaFetchWorker.finished()
 ```
 
 - **DO NOT** import from `database/` in any UI file.  The service layer is
   the only bridge between UI and repository.
+- `ThemeManager` (`ui.styling.theme_manager`) is created once in `main.py`
+  and passed to `MainWindow`.  It owns the app-wide stylesheet, QPalette,
+  and QSettings persistence for theme preferences.  See
+  `pyside6.instructions.md` for widget styling rules.
 - `CollectionService` is instantiated as `self._svc = CollectionService()` in
   `CollectionWidget.__init__`, but **every method is `@staticmethod`**.
   Do not add instance state without updating every call site.
+- `EnvironmentService`, `HttpService`, `GraphQLSchemaService`, and
+  `SnippetGenerator` follow the same `@staticmethod` pattern.
 
 ## The dict interchange schema
 
@@ -95,179 +124,26 @@ Collections and requests share the same `children` dict, both keyed by
 collide because they are in different DB tables but the same dict.  Unlikely
 with SQLite auto-increment, but be aware of it.
 
-## Signal flow — complete map
+## Signal flow
 
-### Create operations
+> **Full signal flow diagrams, signal declaration tables, and MainWindow
+> wiring summary are in the `signal-flow` skill.**
+> Reference it when wiring new signals or debugging connections.
 
-```
-Header "+" menu
-  → CollectionHeader.new_collection_requested(None)
-    → CollectionWidget._create_new_collection(parent_id=None)
+Key signals to know (always-on summary):
 
-Tree context menu → "Add folder"
-  → CollectionTree.new_collection_requested(parent_id)
-    → CollectionWidget._create_new_collection(parent_id)
+- `CollectionWidget.item_action_triggered(str, int, str)` → opens
+  requests/folders in MainWindow.
+- `RequestEditorWidget.send_requested()` → triggers HTTP send flow.
+- `ThemeManager.theme_changed()` → widgets refresh dynamic styles.
+- `VariablePopup` uses **class-level callbacks**, not signals — wired once
+  in `MainWindow.__init__`.
 
-Tree context menu → "Add request"  /  Placeholder "Add a request" link
-  → CollectionTree.new_request_requested(parent_collection_id)
-    → CollectionWidget._create_new_request(parent_collection_id)
-```
-
-### Rename operations
-
-```
-Tree context menu → "Rename" (folder)
-  → CollectionTree._rename_folder() → Qt's editItem() inline editor
-  → itemChanged signal → _on_item_changed()
-    → CollectionTree.collection_rename_requested(id, new_name)
-      → CollectionWidget._on_collection_rename(id, new_name)
-        → CollectionService.rename_collection(id, new_name)
-
-Tree context menu → "Rename" (request)
-  → CollectionTree._rename_request() → manual QLineEdit injection
-  → returnPressed / editingFinished → _finish_request_rename()
-    → CollectionTree.request_rename_requested(id, new_name)
-      → CollectionWidget._on_request_rename(id, new_name)
-        → CollectionService.rename_request(id, new_name)
-```
-
-### Delete operations
-
-```
-Tree context menu → "Delete"
-  → Confirmation QMessageBox
-    → CollectionTree.collection_delete_requested(id)
-        or request_delete_requested(id)
-      → CollectionWidget._on_collection_delete / _on_request_delete
-        → CollectionService.delete_collection / delete_request
-  → CollectionTree.remove_item(id, type)  (immediate visual removal)
-```
-
-### Drag-and-drop
-
-```
-DraggableTreeWidget.dropEvent() validates the drop, then:
-  → DraggableTreeWidget.request_moved(request_id, new_collection_id)
-    → forwarded through CollectionTree.request_moved
-      → CollectionWidget._on_request_moved
-        → CollectionService.move_request(id, new_collection_id)
-
-  → DraggableTreeWidget.collection_moved(collection_id, new_parent_id)
-    → forwarded through CollectionTree.collection_moved
-      → CollectionWidget._on_collection_moved
-        → CollectionService.move_collection(id, new_parent_id)
-```
-
-### Initial data loading
-
-```
-CollectionWidget.__init__()
-  → _start_fetch()
-    → QThread + _CollectionFetcher (worker with moveToThread)
-      → CollectionService.fetch_all()  (runs on worker thread)
-      → _CollectionFetcher.finished(dict)  (cross-thread signal)
-        → CollectionWidget._on_collections_ready(dict)
-          → CollectionTree.set_collections(dict)
-```
-
-### Search / filter
-
-```
-CollectionHeader.search_bar (QLineEdit) textChanged
-  → CollectionHeader.search_changed(str)
-    → CollectionWidget._on_search_changed(str)
-      → CollectionTree.filter_items(str)
-        → _filter_recursive per top-level item (hide non-matches)
-        → _update_stack_visibility (show empty-state when all hidden)
-```
-
-### Double-click open & keyboard shortcuts
-
-```
-CollectionTree.itemDoubleClicked (request item)
-  → _on_item_double_clicked
-    → item_action_triggered("request", id, "Open")
-
-eventFilter on tree_widget:
-  F2  → _start_rename on selected item
-  Del → _delete_item on selected item
-```
-
-### Request open & navigation
-
-```
-CollectionWidget.item_action_triggered("request", id, "Open")
-  → MainWindow._on_item_action
-```
-
-### Import operations
-
-```
-CollectionHeader "Import" button click
-  → CollectionHeader.import_requested()
-    → CollectionWidget._on_import_requested()
-      → ImportDialog(parent=self)
-        → ImportDialog.import_completed → CollectionWidget._start_fetch
-
-MainWindow File → Import (Ctrl+I)
-  → MainWindow._on_import()
-    → ImportDialog(parent=self)
-      → ImportDialog.import_completed → CollectionWidget._start_fetch
-
-ImportDialog internally:
-  paste / file-drop / folder-select
-    → _ImportWorker (QObject on QThread)
-      → ImportService.import_files / import_folder / import_text
-        → parser layer → import_repository → DB
-      → _ImportWorker.finished(ImportSummary)
-        → ImportDialog._on_import_finished → update log + emit import_completed
-```
-  → MainWindow._on_item_action
-    → _open_request(id)
-      → CollectionService.get_request(id) → dict
-      → RequestEditorWidget.load_request(dict)
-      → _history append + _update_nav_actions
-
-MainWindow back_action / forward_action
-  → _navigate_back / _navigate_forward
-    → _open_request(history[index])
-```
-
-### Selected-collection flow
-
-```
-CollectionTree.currentItemChanged
-  → _on_current_item_changed
-    → selected_collection_changed(collection_id | None)
-      → CollectionWidget → CollectionHeader.set_selected_collection_id
-        → enables / disables "New request" action in + menu
-```
-
-## Unconnected signals and unimplemented features
-
-These signals exist in the code but are **not yet wired to anything**.
-**Do not remove them** — they are intentional extension points for future
-features.
+## Unconnected signals
 
 | Signal / Feature | Location | Status |
 |---|---|---|
-| `MainWindow.run_action` | `main_window.py` | QAction created, not connected |
-| `CollectionWidget.item_name_changed` | `collection_widget.py` | Forwarded from tree, nothing connects in MainWindow |
-| Response viewer pane | `main_window.py` | Placeholder `QWidget` |
-| `RequestEditorWidget.send_requested` | `request_editor.py` | Emitted on Send click, not connected — send not implemented |
-
-### Recently wired signals (no longer unconnected)
-
-| Signal / Feature | Wired in |
-|---|---|
-| `CollectionHeader.search_changed(str)` | `CollectionWidget` → `CollectionTree.filter_items` |
-| `CollectionHeader.new_request_requested(object)` | Emitted from header + menu when collection selected |
-| `CollectionWidget.item_action_triggered` | `MainWindow._on_item_action` (opens request editor) |
-| Request editor pane | `RequestEditorWidget` — display-only, loaded via `MainWindow._open_request` |
-| `CollectionTree.selected_collection_changed` | `CollectionWidget` → `CollectionHeader.set_selected_collection_id` |
-| `CollectionHeader.import_requested` | `CollectionWidget._on_import_requested` → opens `ImportDialog` |
-| `ImportDialog.import_completed` | `CollectionWidget._start_fetch` (refresh tree) |
-| `MainWindow` File → Import (`Ctrl+I`) | `MainWindow._on_import` → opens `ImportDialog` |
+| `MainWindow.run_action` | `main_window/window.py` | QAction created, not connected |
 
 ## Implicit contracts
 
@@ -312,65 +188,11 @@ also add explicit UI feedback (e.g. a `QMessageBox`).
 Children within a folder are **not sorted** — they appear in dict iteration
 order (insertion order in Python 3.7+).
 
-## Repository function catalogue
+## Repository and service reference
 
-| Function | Returns | Purpose |
-|----------|---------|---------|
-| `fetch_all_collections()` | `dict[str, Any]` | All root collections as nested dict |
-| `create_new_collection(name, parent_id?)` | `CollectionModel` | Create a folder |
-| `rename_collection(collection_id, new_name)` | `None` | Update name |
-| `delete_collection(collection_id)` | `None` | Delete + cascade children and requests |
-| `get_collection_by_id(collection_id)` | `CollectionModel \| None` | PK lookup |
-| `create_new_request(collection_id, method, url, name, ...)` | `RequestModel` | Create a request |
-| `rename_request(request_id, new_name)` | `None` | Update name |
-| `delete_request(request_id)` | `None` | Delete a single request |
-| `update_request_collection(request_id, new_collection_id)` | `None` | Move request |
-| `update_collection_parent(collection_id, new_parent_id)` | `None` | Move collection |
-| `get_request_by_id(request_id)` | `RequestModel \| None` | PK lookup |
-| `import_collection_tree(parsed)` | `dict[str, int]` | Atomic bulk-import of a full collection tree |
-
-### Environment repository (`environment_repository.py`)
-
-| Function | Returns | Purpose |
-|----------|---------|----------|
-| `fetch_all_environments()` | `list[dict[str, Any]]` | All environments as dicts |
-| `create_environment(name, values?)` | `EnvironmentModel` | Create an environment |
-| `get_environment_by_id(id)` | `EnvironmentModel \| None` | PK lookup |
-| `rename_environment(id, new_name)` | `None` | Update name |
-| `delete_environment(id)` | `None` | Delete environment |
-
-## Service method catalogue
-
-All methods are `@staticmethod` on `CollectionService`.  "Passthrough" means
-the method delegates directly to the repository with no added logic.
-
-| Method | Validation added over repository |
-|--------|----------------------------------|
-| `fetch_all()` | Logging only |
-| `get_collection(id)` | Passthrough |
-| `get_request(id)` | Passthrough |
-| `create_collection(name, parent_id?)` | `name.strip()`, rejects empty |
-| `rename_collection(id, new_name)` | `new_name.strip()`, rejects empty |
-| `delete_collection(id)` | Logging only |
-| `move_collection(id, new_parent_id)` | Rejects `id == new_parent_id` (no deeper cycle check) |
-| `create_request(collection_id, method, url, name, ...)` | `name.strip()`, `method.upper()`, rejects empty |
-| `rename_request(id, new_name)` | `new_name.strip()`, rejects empty |
-| `delete_request(id)` | Logging only |
-| `move_request(id, new_collection_id)` | Passthrough |
-
-### Import service (`ImportService`)
-
-All methods are `@staticmethod`.  Each parses the input, then persists via
-`import_collection_tree()` and `create_environment()`.  Returns an
-`ImportSummary` TypedDict with counts and errors.
-
-| Method | Input |
-|--------|-------|
-| `import_files(paths)` | List of JSON files (auto-detect collection vs environment) |
-| `import_folder(path)` | Postman archive folder or directory of JSON files |
-| `import_text(text)` | Raw text — auto-detects cURL, JSON, or URL |
-| `import_curl(text)` | One or more cURL commands |
-| `import_url(url)` | Fetch URL contents and parse |
+> **Full repository function catalogues, service method tables, TypedDict
+> schemas, and response viewer docs are in the `service-repository-reference`
+> skill.**  Reference it when adding or modifying repository/service methods.
 
 ## Known limitations
 
@@ -382,7 +204,24 @@ All methods are `@staticmethod`.  Each parses the input, then persists via
 3. **`request_parameters` and `headers` are `String` columns** — unlike
    `scripts`, `settings`, and `events` (which are JSON columns), these store
    serialised strings.  Consuming code must handle string-to-dict conversion.
-4. **Send not implemented** — `RequestEditorWidget.send_requested`
-   signal is emitted but not connected to any backend logic.
+4. ~~**Send not implemented**~~ — Fixed: `RequestEditorWidget.send_requested`
+   is wired to `MainWindow._on_send_request` which uses `HttpSendWorker` +
+   `HttpService.send_request()`.
 5. **Navigation history is in-memory only** — back/forward stack in
    `MainWindow` is lost on restart.
+6. **`TabContext.local_overrides` are in-memory only** —
+   `TabContext` (in `tab_manager.py`) stores per-request variable overrides
+   in `local_overrides: dict[str, LocalOverride]`.  These do **not** persist
+   to the database.  When the user edits a variable value in
+   `VariablePopup` and dismisses the popup without saving, the changed
+   value goes into `local_overrides`.  They are merged on top of the
+   combined variable map in `MainWindow._refresh_variable_map()` and
+   tagged with `is_local=True` in `VariableDetail` so the popup can show
+   Update/Reset buttons.
+7. **VariablePopup uses class-level callbacks, not Qt signals** —
+   `VariablePopup` is a **singleton** `QFrame`.  Its callbacks
+   (`set_save_callback`, `set_local_override_callback`,
+   `set_reset_local_override_callback`, `set_add_variable_callback`,
+   `set_has_environment`) are classmethods that store callables on the
+   **class itself**, not on an instance.  They are wired once in
+   `MainWindow.__init__` and survive popup hide/show cycles.

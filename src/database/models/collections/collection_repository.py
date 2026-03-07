@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from sqlalchemy import func as sa_func
 from sqlalchemy import select, update
 
 from database.database import get_session
@@ -20,42 +21,80 @@ from .model.request_model import RequestModel
 logger = logging.getLogger(__name__)
 
 
-def _collections_to_dict(collections: list[CollectionModel]) -> dict[str, Any]:
-    """Recursively convert ORM collection objects to a nested dict.
+def _build_tree_dict_lightweight() -> dict[str, Any]:
+    """Build the sidebar tree dict by streaming two lightweight queries.
 
-    Must be called **inside** an open session so that lazy-loaded
-    relationships (children, requests) can be resolved at any depth.
+    Rows are consumed one at a time via ``yield_per`` and written directly
+    into the target dict, so the intermediate SQLAlchemy ``Row`` objects
+    are discarded immediately rather than being held alongside the final
+    dict.  Only columns needed for the tree display are fetched:
+
+    - collections: ``id``, ``name``, ``parent_id``
+    - requests: ``id``, ``name``, ``method``, ``collection_id``
+
+    Heavy columns (body, headers, JSON blobs) and ``saved_responses`` are
+    never touched.
     """
-    result: dict[str, Any] = {}
-    for collection in collections:
-        children_dict = _collections_to_dict(list(collection.children or []))
-        for request in collection.requests or []:
-            children_dict[str(request.id)] = {
-                "type": "request",
-                "id": request.id,
-                "name": request.name,
-                "method": request.method,
+    _YIELD_CHUNK = 500
+
+    col_by_id: dict[int, dict[str, Any]] = {}
+
+    with get_session() as session:
+        # 1. Stream collections into the lookup dict
+        col_stmt = select(
+            CollectionModel.id,
+            CollectionModel.name,
+            CollectionModel.parent_id,
+        )
+        for cid, cname, pid in session.execute(col_stmt).yield_per(_YIELD_CHUNK):
+            col_by_id[cid] = {
+                "id": cid,
+                "name": cname,
+                "parent_id": pid,
+                "type": "folder",
+                "children": {},
             }
-        result[str(collection.id)] = {
-            "id": collection.id,
-            "name": collection.name,
-            "type": "folder",
-            "children": children_dict,
-        }
-    return result
+
+        # 2. Stream requests directly into their parent collection
+        req_stmt = select(
+            RequestModel.id,
+            RequestModel.name,
+            RequestModel.method,
+            RequestModel.collection_id,
+        )
+        for rid, rname, rmethod, rcol_id in session.execute(req_stmt).yield_per(_YIELD_CHUNK):
+            parent = col_by_id.get(rcol_id)
+            if parent is not None:
+                parent["children"][str(rid)] = {
+                    "type": "request",
+                    "id": rid,
+                    "name": rname,
+                    "method": rmethod,
+                }
+
+    # 3. Build the tree by nesting children under parents
+    roots: dict[str, Any] = {}
+    for cid, node in col_by_id.items():
+        pid = node.pop("parent_id")  # no longer needed in output
+        if pid is None:
+            roots[str(cid)] = node
+        else:
+            parent = col_by_id.get(pid)
+            if parent is not None:
+                parent["children"][str(cid)] = node
+
+    return roots
 
 
 def fetch_all_collections() -> dict[str, Any]:
     """Return every root collection as a nested dict.
 
-    The ORM-to-dict conversion happens inside the session so that
-    self-referencing ``children`` relationships are resolved at
-    arbitrary depth without ``DetachedInstanceError``.
+    Uses two streamed scalar queries (``yield_per``) that build the tree
+    dict in place, so intermediate ``Row`` objects are discarded
+    immediately.  Only the columns needed for the sidebar tree are
+    fetched — heavy columns and relationships are never touched.
     """
-    with get_session() as session:
-        stmt = select(CollectionModel).where(CollectionModel.parent_id.is_(None))
-        roots = list(session.execute(stmt).scalars().all())
-        return _collections_to_dict(roots)
+    return _build_tree_dict_lightweight()
 
 
 def create_new_collection(name: str, parent_id: int | None = None) -> CollectionModel:
@@ -244,6 +283,73 @@ def get_request_auth_chain(request_id: int) -> dict[str, Any] | None:
         return None
 
 
+def get_request_variable_chain(request_id: int) -> dict[str, str]:
+    """Walk the parent collection chain and merge all collection variables.
+
+    Starts from the request's immediate parent collection and walks up to
+    the root.  Variables defined on closer ancestors take priority over
+    those defined further up the tree (child overrides parent).
+
+    Returns an empty dict if no collection variables are found.
+    """
+    with get_session() as session:
+        req = session.get(RequestModel, request_id)
+        if req is None:
+            return {}
+        # 1. Collect variable lists from nearest ancestor first
+        layers: list[list[dict[str, Any]]] = []
+        coll = session.get(CollectionModel, req.collection_id)
+        while coll is not None:
+            if coll.variables:
+                layers.append(coll.variables)
+            if coll.parent_id is None:
+                break
+            coll = session.get(CollectionModel, coll.parent_id)
+        # 2. Merge from root to leaf so child overrides parent
+        merged: dict[str, str] = {}
+        for var_list in reversed(layers):
+            for entry in var_list:
+                if not entry.get("enabled", True):
+                    continue
+                key = entry.get("key", "")
+                value = entry.get("value", "")
+                if key:
+                    merged[key] = value
+        return merged
+
+
+def get_request_variable_chain_detailed(request_id: int) -> dict[str, tuple[str, int]]:
+    """Walk the parent chain and return ``{key: (value, collection_id)}``.
+
+    Like :func:`get_request_variable_chain` but each entry also carries
+    the ``collection_id`` where the variable is defined.  This is used
+    by the variable popup to know which collection to update when the
+    user edits a value.
+    """
+    with get_session() as session:
+        req = session.get(RequestModel, request_id)
+        if req is None:
+            return {}
+        layers: list[tuple[int, list[dict[str, Any]]]] = []
+        coll = session.get(CollectionModel, req.collection_id)
+        while coll is not None:
+            if coll.variables:
+                layers.append((coll.id, coll.variables))
+            if coll.parent_id is None:
+                break
+            coll = session.get(CollectionModel, coll.parent_id)
+        merged: dict[str, tuple[str, int]] = {}
+        for coll_id, var_list in reversed(layers):
+            for entry in var_list:
+                if not entry.get("enabled", True):
+                    continue
+                key = entry.get("key", "")
+                value = entry.get("value", "")
+                if key:
+                    merged[key] = (value, coll_id)
+        return merged
+
+
 def get_request_breadcrumb(request_id: int) -> list[dict[str, Any]]:
     """Return the breadcrumb path from root collection to the request.
 
@@ -312,6 +418,83 @@ def save_response(
         return sr.id
 
 
+# Columns on CollectionModel that may be updated via update_collection().
+_EDITABLE_COLLECTION_FIELDS = {
+    "description",
+    "auth",
+    "events",
+    "variables",
+}
+
+
+def update_collection(collection_id: int, **fields: Any) -> None:
+    """Update one or more editable fields on a collection.
+
+    Only columns listed in ``_EDITABLE_COLLECTION_FIELDS`` are accepted.
+
+    Raises:
+        ValueError: If *collection_id* does not exist or an unsupported
+            field is passed.
+    """
+    bad = set(fields) - _EDITABLE_COLLECTION_FIELDS
+    if bad:
+        raise ValueError(f"Non-editable fields: {bad}")
+    if not fields:
+        return
+    with get_session() as session:
+        coll = session.get(CollectionModel, collection_id)
+        if coll is None:
+            raise ValueError(f"No collection found with id={collection_id}")
+        stmt = update(CollectionModel).where(CollectionModel.id == collection_id).values(**fields)
+        session.execute(stmt)
+
+
+def get_collection_breadcrumb(collection_id: int) -> list[dict[str, Any]]:
+    """Return the breadcrumb path from root collection to the given folder.
+
+    Each entry has ``id``, ``name``, and ``type`` (always ``folder``) keys.
+    """
+    with get_session() as session:
+        coll = session.get(CollectionModel, collection_id)
+        if coll is None:
+            return []
+        path: list[dict[str, Any]] = []
+        while coll is not None:
+            path.append({"id": coll.id, "name": coll.name, "type": "folder"})
+            if coll.parent_id is None:
+                break
+            coll = session.get(CollectionModel, coll.parent_id)
+        path.reverse()
+        return path
+
+
+def count_collection_requests(collection_id: int) -> int:
+    """Count all requests recursively under a collection.
+
+    Walks the collection subtree (children and their descendants) and
+    returns the total number of requests contained.
+    """
+    with get_session() as session:
+        # 1. Gather all descendant collection IDs (BFS)
+        queue = [collection_id]
+        all_ids: list[int] = [collection_id]
+        while queue:
+            current = queue.pop(0)
+            stmt = select(CollectionModel.id).where(CollectionModel.parent_id == current)
+            children = list(session.execute(stmt).scalars().all())
+            all_ids.extend(children)
+            queue.extend(children)
+
+        # 2. Count requests in all collected collection IDs
+        count_stmt = (
+            select(sa_func.count())
+            .select_from(RequestModel)
+            .where(RequestModel.collection_id.in_(all_ids))
+        )
+        result = session.execute(count_stmt).scalar()
+        return result or 0
+
+
 # Columns on RequestModel that may be updated via update_request().
 _EDITABLE_REQUEST_FIELDS = {
     "name",
@@ -351,3 +534,48 @@ def update_request(request_id: int, **fields: Any) -> None:
             raise ValueError(f"No request found with id={request_id}")
         stmt = update(RequestModel).where(RequestModel.id == request_id).values(**fields)
         session.execute(stmt)
+
+
+def get_recent_requests_for_collection(
+    collection_id: int,
+    limit: int = 10,
+) -> list[dict[str, Any]]:
+    """Return the most recently updated requests under *collection_id*.
+
+    Walks the collection subtree (BFS) and returns up to *limit*
+    requests ordered by ``updated_at DESC``.  Each entry is a dict with
+    ``name``, ``method``, and ``updated_at`` keys.
+    """
+    with get_session() as session:
+        # 1. Gather all descendant collection IDs (BFS)
+        queue = [collection_id]
+        all_ids: list[int] = [collection_id]
+        while queue:
+            current = queue.pop(0)
+            stmt = select(CollectionModel.id).where(
+                CollectionModel.parent_id == current,
+            )
+            children = list(session.execute(stmt).scalars().all())
+            all_ids.extend(children)
+            queue.extend(children)
+
+        # 2. Fetch recently-updated requests
+        req_stmt = (
+            select(
+                RequestModel.name,
+                RequestModel.method,
+                RequestModel.updated_at,
+            )
+            .where(RequestModel.collection_id.in_(all_ids))
+            .order_by(RequestModel.updated_at.desc())
+            .limit(limit)
+        )
+        rows = session.execute(req_stmt).all()
+        return [
+            {
+                "name": r.name,
+                "method": r.method,
+                "updated_at": r.updated_at,
+            }
+            for r in rows
+        ]

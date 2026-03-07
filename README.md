@@ -13,6 +13,17 @@ A native desktop API client for testing and managing HTTP requests, built with *
 - In-place rename with rollback on failure
 - Background data loading (non-blocking UI)
 - SQLite persistence via SQLAlchemy
+- **Theme support** — automatic OS dark/light mode detection, with manual override
+- **Settings dialog** — choose between Fusion (default) and native OS widget style
+- Import from Postman collections, cURL commands, or raw URLs
+- Environment variables with key-value editor and `{{var}}` substitution
+- **GraphQL support** — schema introspection, syntax highlighting, and prettify
+- **Code editor** — syntax highlighting, code folding, line numbers, bracket matching
+- Code snippet generation (cURL, Python, JavaScript)
+- Tabbed request editing with breadcrumb navigation
+- Response viewer with search, JSONPath/XPath filtering, and beautify
+- Response metadata popups (status, timing, size, network/TLS details)
+- Console and history panels
 
 ## Prerequisites
 
@@ -56,41 +67,6 @@ poetry run mypy src/
 poetry run pytest
 ```
 
-## Project Structure
+## Architecture
 
-```
-src/
-├── main.py                          # Application entry point
-├── database/
-│   ├── database.py                  # Engine, session, init_db()
-│   └── models/
-│       ├── base.py                  # SQLAlchemy DeclarativeBase
-│       └── collections/
-│           ├── collection_repository.py # Repository (CRUD operations)
-│           └── model/
-│               ├── collection_model.py
-│               └── request_model.py
-├── services/
-│   └── collection_service.py        # Service layer between UI and DB
-└── ui/
-    ├── main_window.py               # Top-level MainWindow
-    ├── theme.py                     # Colours, method_color() helper
-    └── collections/
-        ├── collection_header.py     # Import / add / search bar
-        ├── collection_widget.py     # Composite widget (header + tree)
-        └── tree/                    # Tree widget sub-package
-            ├── constants.py         # Shared roles and constants
-            ├── draggable_tree_widget.py # QTreeWidget with drag-and-drop
-            └── collection_tree.py   # Tree (context menus, rename)
-tests/
-├── conftest.py                      # Autouse fresh-DB fixture + qapp
-├── unit/                            # Repository & service layer tests
-│   ├── test_repository.py
-│   └── test_service.py
-└── ui/                              # PySide6 widget integration tests
-    ├── conftest.py                  # _no_fetch (autouse) + helpers
-    ├── test_collection_header.py
-    ├── test_collection_tree.py
-    ├── test_collection_widget.py
-    └── test_main_window.py
-```
+`src/` is organized into three layers: `database/` (SQLAlchemy models and repositories), `services/` (business logic bridging UI and DB), and `ui/` (PySide6 widgets). Tests in `tests/` mirror the source tree. See [`.github/copilot-instructions.md`](.github/copilot-instructions.md) for the full architecture tree and coding conventions.

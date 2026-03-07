@@ -8,14 +8,19 @@ applyTo: "src/ui/**/*.py"
 
 ## Quick rules — read these first
 
-1. **Always use fully qualified enums:** `Qt.ItemDataRole.UserRole`, not
+1. **Every `QPushButton` / `QToolButton` MUST call
+   `setCursor(Qt.CursorShape.PointingHandCursor)`** — no exceptions.
+   This applies to icon-only buttons, outline buttons, primary buttons,
+   link buttons, toolbar buttons, and dialog buttons.  Always add the
+   call immediately after construction.
+2. **Always use fully qualified enums:** `Qt.ItemDataRole.UserRole`, not
    `Qt.UserRole`.
-2. **Wrap programmatic item edits in `blockSignals(True)` / `blockSignals(False)`**
+3. **Wrap programmatic item edits in `blockSignals(True)` / `blockSignals(False)`**
    or you will get infinite recursion from `itemChanged`.
-3. **Never hardcode hex colours** — import from `ui.theme`.
-4. **UI files must not import from `database/`** — use signals + service layer.
-5. **Use `exec()`, not `exec_()`** for menus, dialogs, and the app event loop.
-6. **Cast to `QBoxLayout`** before calling `insertWidget()` — `QLayout` does
+4. **Never hardcode hex colours** — import from `ui.styling.theme`.
+5. **UI files must not import from `database/`** — use signals + service layer.
+6. **Use `exec()`, not `exec_()`** for menus, dialogs, and the app event loop.
+7. **Cast to `QBoxLayout`** before calling `insertWidget()` — `QLayout` does
    not have it in the type stubs.
 
 ## Enum access must always be fully qualified
@@ -103,42 +108,185 @@ Import them where needed:
 from ui.collections.tree import ROLE_ITEM_ID, ROLE_ITEM_TYPE
 ```
 
-## All colours and method_color() live in ui/theme.py
+## All colours and method_color() live in ui/styling/theme.py
 
-Never hardcode hex colour values in widget files. Import from `ui.theme`:
+Never hardcode hex colour values in widget files. Import from `ui.styling.theme`:
 
 ```python
-from ui.theme import COLOR_ACCENT, METHOD_COLORS, DEFAULT_METHOD_COLOR, method_color
+from ui.styling.theme import COLOR_ACCENT, METHOD_COLORS, DEFAULT_METHOD_COLOR, method_color
 ```
+
+## Icons — Phosphor font glyphs via ui/styling/icons.py
+
+Use the `phi()` helper from `ui.styling.icons` for all button and menu icons.
+**Never** use `QIcon.fromTheme()` — it is unreliable across platforms.
+
+```python
+from ui.styling.icons import phi
+
+button.setIcon(phi("paper-plane-right"))
+action.setIcon(phi("trash", color="#e74c3c", size=16))
+```
+
+- `phi(name)` returns a cached `QIcon` rendered from the bundled Phosphor
+  TTF font (`data/fonts/phosphor.ttf`).
+- Default colour is `COLOR_TEXT_MUTED`; override with the `color` kwarg.
+- Default size is 16 px; override with `size`.
+- Icons are cached by `(name, color, size)` — each unique combo is created
+  once.
+- `load_font()` is called once in `main.py` after `QApplication` is created.
+- `clear_cache()` is called automatically by `ThemeManager.apply()` on theme
+  change so icon colours refresh.
+- Browse available icon names in `data/fonts/phosphor-charmap.json`.
+
+## Theme system — ThemeManager + global QSS + QPalette
+
+The application uses a centralised theme system with three layers:
+
+1. **ThemeManager** (`ui/styling/theme_manager.py`) — singleton `QObject`
+   created in `main.py` right after `QApplication`.  Reads/writes
+   `QSettings`, resolves light/dark palette, applies
+   `QApplication.setStyle()`, `QApplication.setPalette()`, and
+   `QApplication.setStyleSheet()`.
+2. **Global QSS** — a single application-wide stylesheet built by
+   `ThemeManager._build_global_qss()` using `objectName` selectors.
+   Widgets do **not** call `setStyleSheet()` for static styling; instead
+   they set `setObjectName("primaryButton")` etc.
+3. **QPalette** — built from a `ThemePalette` dict
+   (`ui/styling/theme.py`) via `ThemeManager._build_qpalette()`.  Two
+   palettes exist: `LIGHT_PALETTE` and `DARK_PALETTE`.
+   `set_active_palette()` updates the mutable module-level colour aliases
+   (`COLOR_ACCENT`, `COLOR_TEXT`, etc.).
+
+### objectName conventions for styling
+
+Widgets use `setObjectName()` to opt into global QSS rules.  These are the
+standard object names:
+
+| objectName | Widget type | Visual role |
+|---|---|---|
+| `primaryButton` | `QPushButton` | Accent-coloured action button |
+| `dangerButton` | `QPushButton` | Red destructive action |
+| `smallPrimaryButton` | `QPushButton` | Compact accent button |
+| `outlineButton` | `QPushButton` | Border-only button |
+| `iconButton` | `QPushButton` | Icon-only square button (no padding) |
+| `linkButton` | `QPushButton` | Text-only accent link |
+| `flatAccentButton` | `QPushButton` | Borderless accent text |
+| `flatMutedButton` | `QPushButton` | Borderless muted text |
+| `importLinkButton` | `QPushButton` | Underlined import link |
+| `dismissButton` | `QPushButton` | Dialog dismiss button |
+| `titleLabel` | `QLabel` | Bold 14px heading |
+| `sectionLabel` | `QLabel` | 12px section heading |
+| `panelTitle` | `QLabel` | Bold 12px panel title with padding |
+| `mutedLabel` | `QLabel` | Small muted text |
+| `emptyStateLabel` | `QLabel` | Italic muted empty-state message |
+| `methodBadge` | `QLabel` | HTTP method badge (tree + tabs) |
+| `monoEdit` | `QTextEdit` | Monospace text editor |
+| `consoleOutput` | `QTextEdit` | Dark console output area |
+| `importTabs` | `QTabWidget` | Box-style tabs in import dialog |
+| `codeEditor` | `QPlainTextEdit` | Syntax-highlighted code editor |
+| `gqlSplitter` | `QSplitter` | GraphQL query/variables splitter |
+| `rowDeleteButton` | `QPushButton` | Row delete button in key-value table |
+| `infoPopup` | `QFrame` | Response metadata popup container |
+| `infoPopupTitle` | `QLabel` | Popup title heading |
+| `infoPopupSeparator` | `QLabel` | Popup horizontal rule |
+| `variablePopupBadge` | `QLabel` | Source badge (collection/environment/unresolved/local) |
+| `variablePopupName` | `QLabel` | Variable name heading |
+| `variablePopupValue` | `QLineEdit` | Editable variable value field |
+| `variablePopupUpdateBtn` | `QPushButton` | "Update" button (persist local override) |
+| `variablePopupResetBtn` | `QPushButton` | "Reset" button (remove local override) |
+| `variablePopupAddSelect` | `QPushButton` | "Add to ▾" select-box toggle |
+| `variablePopupAddPanel` | `QFrame` | Expandable target panel for unresolved vars |
+| `variablePopupTarget` | `QPushButton` | Collection/environment target button |
+| `variablePopupNoEnv` | `QLabel` | "No environment selected" warning |
+| `variablePopup` | `QFrame` | Variable popup container |
+| `saveButton` | `QPushButton` | Save action button |
+| `sidebarSearch` | `QLineEdit` | Collection sidebar search input |
+| `sidebarSectionLabel` | `QLabel` | Sidebar section heading |
+| `sidebarToolButton` | `QToolButton` | Sidebar toolbar button |
+
+### When inline setStyleSheet() is still acceptable
+
+Only use `setStyleSheet()` for **dynamic per-instance** styling that
+varies at runtime and cannot be expressed with objectName selectors:
+
+- Method badge background-color (varies by HTTP method)
+- Status label colour (varies by HTTP status code)
+- History row method colour
+- Breadcrumb per-segment colour
+- Spinner animation colours
+- Drop-zone active hover overlay
+
+For everything else, use `setObjectName()` and let the global QSS handle it.
+
+### Adding new styled widgets
+
+1. Choose an appropriate `objectName` from the table above, or create a new
+   one if none fits.
+2. Call `widget.setObjectName("yourName")` in the widget constructor.
+3. Add the corresponding QSS rule in `ThemeManager._build_global_qss()`.
+4. Do **not** call `setStyleSheet()` on the widget.
 
 ### Theme module contents
 
-`theme.py` provides three categories of exports:
-
-1. **Colour constants** — semantic (`COLOR_ACCENT`, `COLOR_SUCCESS`, etc.),
-   neutral (`COLOR_WHITE`, `COLOR_TEXT`, etc.), and import-dialog-specific
-   (`COLOR_DROP_ZONE_BORDER`, etc.).
-2. **Method colour mapping** — `METHOD_COLORS: dict[str, str]` maps HTTP
-   methods to colours. `DEFAULT_METHOD_COLOR` is the fallback.
-   `method_color(method)` returns the colour for a given method string.
-3. **Badge system** — constants and helpers for the tree item request badges:
-   - `METHOD_SHORT_LABELS: dict[str, str]` — compact labels (e.g.
-     `DELETE` → `DEL`, `PATCH` → `PAT`, `OPTIONS` → `OPT`).
-   - `BADGE_FONT_SIZE` (9px), `BADGE_MIN_WIDTH` (32px), `BADGE_HEIGHT`
-     (16px), `BADGE_BORDER_RADIUS` (3px), `TREE_ROW_HEIGHT` (24px).
-   - `method_short_label(method)` — returns the short label for a method.
+> **Detailed contents (palette definitions, colour constants, method colour
+> mapping, badge system) are in the `widget-patterns` skill.**
 
 ### Tree item badge rendering
 
-Request items in the collection tree use a **custom item widget** (set via
-`QTreeWidget.setItemWidget`).  The widget is an `HBoxLayout` containing:
+> **Custom delegate details, column semantics, and data role layout are in
+> the `widget-patterns` skill.**  Key fact: the delegate reads
+> `ROLE_METHOD` (column 0) and column 1 display text.  No per-row
+> `QWidget` is created.
 
-1. A fixed-width `QLabel` badge (32×16px, monospace font, centered text,
-   coloured background from `method_color()`).
-2. A `QLabel` showing the request name (elided).
+## QPushButton — icons, cursors, and icon-only buttons
 
-Folder items use **no custom widget** — they show standard `setText` content
-with a folder icon.
+### Every button must have a pointing-hand cursor
+
+All `QPushButton` instances must set a hand cursor so users know they are
+clickable:
+
+```python
+btn.setCursor(Qt.CursorShape.PointingHandCursor)
+```
+
+### Icon-only buttons must use `iconButton`, not `outlineButton`
+
+The `outlineButton` style has `padding: 4px 12px` which leaves no room for
+the icon in a compact square button.  For icon-only buttons (no text):
+
+1. Use `setObjectName("iconButton")` — it has `padding: 0px` with hover
+   and checked states.
+2. Use `setFixedSize(28, 28)` (not `setFixedWidth`) so the button is a
+   proper square.
+3. Do **not** set text — icon only.
+
+```python
+# CORRECT — icon-only button
+btn = QPushButton()
+btn.setIcon(phi("funnel"))
+btn.setObjectName("iconButton")
+btn.setCursor(Qt.CursorShape.PointingHandCursor)
+btn.setFixedSize(28, 28)
+
+# WRONG — icon invisible due to outlineButton padding
+btn = QPushButton()
+btn.setIcon(phi("funnel"))
+btn.setObjectName("outlineButton")
+btn.setFixedWidth(28)
+```
+
+### Buttons with text + icon use `outlineButton`
+
+When a button has both text and an icon, use `outlineButton` and let Qt
+auto-size the width:
+
+```python
+btn = QPushButton("Wrap")
+btn.setIcon(phi("text-align-left"))
+btn.setObjectName("outlineButton")
+btn.setCursor(Qt.CursorShape.PointingHandCursor)
+```
 
 ## Wrap programmatic item edits in blockSignals
 
@@ -162,48 +310,22 @@ Every call to `blockSignals(True)` must have a matching
 
 ## Tree item column semantics differ by type
 
-The `CollectionTree` uses a **two-column** `QTreeWidget` with asymmetric
-semantics:
+> **Full column semantics table, data role layout, and context-menu
+> `_current_item` rules are in the `widget-patterns` skill.**
+>
+> Quick reference: folders use column 0 for display; requests use column 1
+> (delegate paints badge + name from column 0 `ROLE_METHOD` + column 1
+> text).
 
-| | Column 0 | Column 1 |
-|---|---|---|
-| **Folder** | Display name (text + icon) | Type metadata only (via data roles) |
-| **Request** | Custom widget (`setItemWidget` — method badge + label), text is `""` | Raw name text (used for rename storage) |
+## Background workers, InfoPopup, and VariablePopup
 
-Because of this asymmetry:
-- Folder rename uses Qt's built-in `editItem()` on column 0.
-- Request rename injects a manual `QLineEdit` into the custom widget layout.
-- Reading a request's display name requires fetching from the `QLabel` inside
-  the item widget, **not** from `item.text(0)` (which is always empty).
-
-## Data role layout on QTreeWidgetItems
-
-All constants are defined in `ui/collections/tree/constants.py`.
-
-| Role constant | Value | Stored on | Content |
-|---|---|---|---|
-| `ROLE_ITEM_ID` | `UserRole` | Column 0 | Database PK (`int`) |
-| `ROLE_ITEM_TYPE` | `UserRole + 1` | Column 1 | `"folder"` or `"request"` |
-| `ROLE_OLD_NAME` | `UserRole + 2` | Column 1 | Original name stashed during rename |
-| `ROLE_LINE_EDIT` | `UserRole + 3` | Column 1 | Temp `QLineEdit` ref during request rename |
-| `ROLE_NAME_LABEL` | `UserRole + 4` | Column 1 | `QLabel` ref during request rename |
-| `ROLE_MIME_DATA` | `UserRole + 5` | Column 3 | `QMimeData` for drag |
-| `ROLE_PLACEHOLDER` | `UserRole + 10` | Column 1 | `"placeholder"` marker string |
-
-Gap at `+6` through `+9` is reserved for future roles.
-
-## Context-menu state — `_current_item`
-
-`CollectionTree._current_item` is set on right-click and read by the
-triggered menu action.
-
-- It is **per-menu-invocation** state, not per-selection.
-- **DO NOT** read `_current_item` outside a context-menu handler — its value
-  is only reliable between the right-click and the menu action.
-
-## Background workers use QThread + moveToThread
-
-For blocking operations (e.g. DB fetch), create a `QObject` worker, move it
-to a `QThread`, and connect `thread.started` to `worker.run`. Emit a signal
-with the result when done. See `_CollectionFetcher` in `collection_widget.py`
-for the canonical pattern.
+> **QThread worker pattern, InfoPopup base class details, VariablePopup
+> singleton rules, and VariableLineEdit painting rules are in the
+> `widget-patterns` skill.**
+>
+> Key rules (always apply):
+> - Use `QObject` + `moveToThread()`, not `QThread` subclass.
+> - `InfoPopup` uses `QFrame` (not `QWidget`) — `QWidget` breaks QSS
+>   borders on Linux.
+> - `VariablePopup` uses class-level callbacks, **not** Qt signals.
+> - `VariableLineEdit.set_variable_map()` takes `dict[str, VariableDetail]`.

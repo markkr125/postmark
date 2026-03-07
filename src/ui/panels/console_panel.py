@@ -9,10 +9,13 @@ from __future__ import annotations
 
 import logging
 
-from PySide6.QtCore import QObject, Signal, Slot
+from PySide6.QtCore import QObject, Qt, Signal, Slot
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QTextEdit, QVBoxLayout, QWidget
 
-from ui.theme import COLOR_ACCENT, COLOR_CONSOLE_BG, COLOR_CONSOLE_TEXT, COLOR_TEXT
+from ui.styling.icons import phi
+
+# Maximum number of log lines kept in the console output.
+_MAX_LOG_LINES = 2000
 
 
 class _LogSignalBridge(QObject):
@@ -59,15 +62,13 @@ class ConsolePanel(QWidget):
         # Header
         header = QHBoxLayout()
         title = QLabel("Console")
-        title.setStyleSheet(
-            f"font-weight: bold; font-size: 12px; color: {COLOR_TEXT}; padding: 8px;"
-        )
+        title.setObjectName("panelTitle")
         header.addWidget(title)
         header.addStretch()
         clear_btn = QPushButton("Clear")
-        clear_btn.setStyleSheet(
-            f"color: {COLOR_ACCENT}; border: none; font-size: 11px; padding: 8px;"
-        )
+        clear_btn.setIcon(phi("eraser"))
+        clear_btn.setObjectName("linkButton")
+        clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         clear_btn.clicked.connect(self._clear)
         header.addWidget(clear_btn)
         root.addLayout(header)
@@ -75,10 +76,7 @@ class ConsolePanel(QWidget):
         # Console output
         self._output = QTextEdit()
         self._output.setReadOnly(True)
-        self._output.setStyleSheet(
-            f"background: {COLOR_CONSOLE_BG}; color: {COLOR_CONSOLE_TEXT};"
-            f" font-family: monospace; font-size: 11px; border: none;"
-        )
+        self._output.setObjectName("consoleOutput")
         root.addWidget(self._output, 1)
 
         # Set up log handler
@@ -97,6 +95,20 @@ class ConsolePanel(QWidget):
     def _append_log(self, message: str) -> None:
         """Append a log message to the console output."""
         self._output.append(message)
+
+        # Cap the document size to avoid unbounded memory growth.
+        doc = self._output.document()
+        if doc and doc.blockCount() > _MAX_LOG_LINES:
+            cursor = self._output.textCursor()
+            cursor.movePosition(cursor.MoveOperation.Start)
+            cursor.movePosition(
+                cursor.MoveOperation.Down,
+                cursor.MoveMode.KeepAnchor,
+                doc.blockCount() - _MAX_LOG_LINES,
+            )
+            cursor.removeSelectedText()
+            cursor.deleteChar()  # remove the trailing newline
+
         # Auto-scroll to bottom
         sb = self._output.verticalScrollBar()
         if sb:
@@ -108,4 +120,8 @@ class ConsolePanel(QWidget):
 
     def cleanup(self) -> None:
         """Remove the log handler (call on shutdown)."""
+        logging.getLogger().removeHandler(self._handler)
+        logging.getLogger().removeHandler(self._handler)
+        logging.getLogger().removeHandler(self._handler)
+        logging.getLogger().removeHandler(self._handler)
         logging.getLogger().removeHandler(self._handler)

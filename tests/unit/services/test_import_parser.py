@@ -203,6 +203,33 @@ class TestParseCollectionFile:
         assert events is not None
         assert events[0]["listen"] == "prerequest"
 
+    def test_folder_variables_extracted(self, tmp_path: Path) -> None:
+        """Folder-level variables are preserved in parsed output."""
+        data = {
+            "info": {"name": "Folder Vars"},
+            "item": [
+                {
+                    "name": "MyFolder",
+                    "item": [],
+                    "variable": [
+                        {"key": "api_key", "value": "secret123", "id": "abc"},
+                    ],
+                }
+            ],
+        }
+        f = tmp_path / "folder_vars.json"
+        f.write_text(json.dumps(data))
+
+        result = parse_collection_file(f)
+        coll = result["collections"][0]
+        folder: Any = coll["items"][0]
+        assert folder["type"] == "folder"
+        variables = folder.get("variables")
+        assert variables is not None
+        assert len(variables) == 1
+        assert variables[0]["key"] == "api_key"
+        assert variables[0]["value"] == "secret123"
+
     def test_body_modes(self, tmp_path: Path) -> None:
         """Different body modes are handled (raw, formdata, graphql)."""
         data = {

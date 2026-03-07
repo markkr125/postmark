@@ -129,6 +129,39 @@ class TestBreadcrumb:
         assert crumbs[1]["type"] == "request"
 
 
+class TestVariableChainService:
+    """Tests for collection variable inheritance via the service layer."""
+
+    def test_variable_chain_returns_merged(self) -> None:
+        """get_request_variable_chain merges collection variables upward."""
+        svc = CollectionService()
+        root = svc.create_collection("Root")
+        svc.update_collection(
+            root.id,
+            variables=[
+                {"key": "host", "value": "root-host", "enabled": True},
+                {"key": "port", "value": "80", "enabled": True},
+            ],
+        )
+        child = svc.create_collection("Child")
+        svc.move_collection(child.id, root.id)
+        svc.update_collection(
+            child.id,
+            variables=[{"key": "host", "value": "child-host", "enabled": True}],
+        )
+        req = svc.create_request(child.id, "GET", "http://x", "R")
+        result = svc.get_request_variable_chain(req.id)
+        assert result["host"] == "child-host"
+        assert result["port"] == "80"
+
+    def test_variable_chain_empty(self) -> None:
+        """Request with no collection variables returns empty dict."""
+        svc = CollectionService()
+        coll = svc.create_collection("Root")
+        req = svc.create_request(coll.id, "GET", "http://x", "R")
+        assert svc.get_request_variable_chain(req.id) == {}
+
+
 class TestSavedResponses:
     """Tests for saved responses."""
 
@@ -143,3 +176,90 @@ class TestSavedResponses:
         assert len(responses) == 1
         assert responses[0]["name"] == "Example"
         assert responses[0]["body"] == "body"
+
+
+class TestCollectionUpdates:
+    """Tests for updating collection fields via the service layer."""
+
+    def test_update_collection_description(self) -> None:
+        """update_collection sets the description field."""
+        svc = CollectionService()
+        coll = svc.create_collection("Coll")
+        svc.update_collection(coll.id, description="My description")
+        updated = svc.get_collection(coll.id)
+        assert updated is not None
+        assert updated.description == "My description"
+
+    def test_update_collection_auth(self) -> None:
+        """update_collection sets the auth JSON field."""
+        svc = CollectionService()
+        coll = svc.create_collection("Coll")
+        auth_data = {"type": "bearer", "bearer": [{"key": "token", "value": "t"}]}
+        svc.update_collection(coll.id, auth=auth_data)
+        updated = svc.get_collection(coll.id)
+        assert updated is not None
+        assert updated.auth is not None
+        assert updated.auth["type"] == "bearer"
+
+    def test_update_collection_rejects_bad_fields(self) -> None:
+        """update_collection rejects non-editable fields."""
+        svc = CollectionService()
+        coll = svc.create_collection("Coll")
+        with pytest.raises(ValueError, match="Non-editable fields"):
+            svc.update_collection(coll.id, id=999)
+
+
+class TestCollectionBreadcrumbService:
+    """Tests for the collection breadcrumb via the service layer."""
+
+    def test_collection_breadcrumb(self) -> None:
+        """get_collection_breadcrumb returns root-to-folder path."""
+        svc = CollectionService()
+        root = svc.create_collection("Root")
+        child = svc.create_collection("Child")
+        # Move child under root through the repository
+        svc.move_collection(child.id, root.id)
+        crumbs = svc.get_collection_breadcrumb(child.id)
+        assert len(crumbs) == 2
+        assert crumbs[0]["name"] == "Root"
+        assert crumbs[1]["name"] == "Child"
+
+
+class TestFolderRequestCount:
+    """Tests for folder request count via the service layer."""
+
+    def test_folder_request_count(self) -> None:
+        """get_folder_request_count counts requests recursively."""
+        svc = CollectionService()
+        root = svc.create_collection("Root")
+        child = svc.create_collection("Child")
+        svc.move_collection(child.id, root.id)
+        svc.create_request(root.id, "GET", "http://a", "R1")
+        svc.create_request(child.id, "POST", "http://b", "R2")
+        assert svc.get_folder_request_count(root.id) == 2
+
+    def test_empty_folder_count(self) -> None:
+        """An empty folder returns 0."""
+        svc = CollectionService()
+        coll = svc.create_collection("Empty")
+        assert svc.get_folder_request_count(coll.id) == 0
+
+
+class TestRecentRequestsService:
+    """Tests for recent requests via the service layer."""
+
+    def test_recent_requests_returns_list(self) -> None:
+        """get_recent_requests returns a list of request dicts."""
+        svc = CollectionService()
+        coll = svc.create_collection("Coll")
+        svc.create_request(coll.id, "GET", "http://a", "R1")
+        result = svc.get_recent_requests(coll.id)
+        assert len(result) == 1
+        assert result[0]["name"] == "R1"
+        assert result[0]["method"] == "GET"
+
+    def test_recent_requests_empty(self) -> None:
+        """An empty collection returns an empty list."""
+        svc = CollectionService()
+        coll = svc.create_collection("Empty")
+        assert svc.get_recent_requests(coll.id) == []

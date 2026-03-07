@@ -2,12 +2,24 @@
 
 from __future__ import annotations
 
+import tempfile
 from pathlib import Path
 
 import pytest
+from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QApplication
 
 from database.database import init_db
+
+# ------------------------------------------------------------------
+# Isolate QSettings so tests never overwrite user preferences
+# ------------------------------------------------------------------
+# Create the temp directory once at import time — before any QSettings
+# instance is constructed — so that even session-scoped fixtures read
+# from the sandbox rather than the real config path.
+_settings_tmp = tempfile.mkdtemp(prefix="postmark_test_settings_")
+QSettings.setPath(QSettings.Format.NativeFormat, QSettings.Scope.UserScope, _settings_tmp)
+QSettings.setPath(QSettings.Format.IniFormat, QSettings.Scope.UserScope, _settings_tmp)
 
 
 # ------------------------------------------------------------------

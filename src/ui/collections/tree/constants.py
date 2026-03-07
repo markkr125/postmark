@@ -8,9 +8,8 @@ code without circular dependencies.
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QIcon
 
-from ui.theme import COLOR_ACCENT
+from ui.styling.theme import COLOR_ACCENT
 
 # ----------------------------------------------------------------------
 # Data roles stored on QTreeWidgetItems
@@ -21,6 +20,7 @@ ROLE_OLD_NAME = Qt.ItemDataRole.UserRole + 2  # column 1 - original name (rename
 ROLE_LINE_EDIT = Qt.ItemDataRole.UserRole + 3  # column 1 - QLineEdit ref during rename
 ROLE_NAME_LABEL = Qt.ItemDataRole.UserRole + 4  # column 1 - QLabel ref during rename
 ROLE_MIME_DATA = Qt.ItemDataRole.UserRole + 5  # column 3 - drag/drop QMimeData
+ROLE_METHOD = Qt.ItemDataRole.UserRole + 6  # column 0 - HTTP method for requests
 ROLE_PLACEHOLDER = Qt.ItemDataRole.UserRole + 10  # column 1 - "placeholder" marker
 
 # ----------------------------------------------------------------------
@@ -33,5 +33,3 @@ EMPTY_COLLECTION_HTML = (
     f'<a href="#" style="color: {COLOR_ACCENT};">Add a request</a>'
     " to start working."
 )
-
-ICON_CACHE: dict[str, QIcon] = {}

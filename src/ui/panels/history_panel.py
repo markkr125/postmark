@@ -9,7 +9,8 @@ from __future__ import annotations
 from PySide6.QtCore import QEvent, QObject, Qt, Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget
 
-from ui.theme import COLOR_ACCENT, COLOR_BORDER, COLOR_TEXT, COLOR_TEXT_MUTED, method_color
+from ui.styling.icons import phi
+from ui.styling.theme import COLOR_BORDER, method_color
 
 # Maximum number of history entries to keep
 _MAX_HISTORY_ENTRIES = 50
@@ -52,15 +53,13 @@ class HistoryPanel(QWidget):
         # Header
         header = QHBoxLayout()
         title = QLabel("History")
-        title.setStyleSheet(
-            f"font-weight: bold; font-size: 12px; color: {COLOR_TEXT}; padding: 8px;"
-        )
+        title.setObjectName("panelTitle")
         header.addWidget(title)
         header.addStretch()
         clear_btn = QPushButton("Clear")
-        clear_btn.setStyleSheet(
-            f"color: {COLOR_ACCENT}; border: none; font-size: 11px; padding: 8px;"
-        )
+        clear_btn.setIcon(phi("eraser"))
+        clear_btn.setObjectName("linkButton")
+        clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         clear_btn.clicked.connect(self.clear)
         header.addWidget(clear_btn)
         root.addLayout(header)
@@ -68,7 +67,7 @@ class HistoryPanel(QWidget):
         # Scroll area for entries
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
-        self._scroll.setStyleSheet(f"border: none; border-top: 1px solid {COLOR_BORDER};")
+        self._scroll.setStyleSheet(f"border-top: 1px solid {COLOR_BORDER};")
         self._scroll_content = QWidget()
         self._scroll_layout = QVBoxLayout(self._scroll_content)
         self._scroll_layout.setContentsMargins(0, 0, 0, 0)
@@ -134,18 +133,17 @@ class HistoryPanel(QWidget):
         layout.addWidget(method_label)
 
         url_label = QLabel(entry.url)
-        url_label.setStyleSheet(f"color: {COLOR_TEXT}; font-size: 11px;")
         url_label.setWordWrap(False)
         layout.addWidget(url_label, 1)
 
         if entry.status_code is not None:
             status = QLabel(str(entry.status_code))
-            status.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 11px;")
+            status.setObjectName("mutedLabel")
             layout.addWidget(status)
 
         if entry.elapsed_ms:
             time_label = QLabel(f"{entry.elapsed_ms:.0f}ms")
-            time_label.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 11px;")
+            time_label.setObjectName("mutedLabel")
             layout.addWidget(time_label)
 
         row.setStyleSheet(f"QWidget {{ border-bottom: 1px solid {COLOR_BORDER}; }}")
@@ -163,4 +161,7 @@ class HistoryPanel(QWidget):
             if method is not None and url is not None:
                 self.entry_clicked.emit(str(method), str(url))
                 return True
+        return super().eventFilter(obj, event)
+        return super().eventFilter(obj, event)
+        return super().eventFilter(obj, event)
         return super().eventFilter(obj, event)

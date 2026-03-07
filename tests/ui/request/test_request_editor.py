@@ -1,9 +1,10 @@
-"""Tests for the RequestEditorWidget."""
+"""Tests for the RequestEditorWidget — core behaviour."""
 
 from __future__ import annotations
 
 from PySide6.QtWidgets import QApplication
 
+from services.environment_service import VariableDetail
 from ui.request.request_editor import RequestEditorWidget
 
 
@@ -42,7 +43,6 @@ class TestRequestEditorWidget:
 
         assert editor._empty_label.isHidden()
         assert not editor._tabs.isHidden()
-        assert editor._title_label.text() == "Get Users"
         assert editor._url_input.text() == "https://api.example.com/users"
         assert editor._method_combo.currentText() == "GET"
         # Params and headers are now key-value tables
@@ -111,27 +111,28 @@ class TestRequestEditorDirtyTracking:
         qtbot.addWidget(editor)
 
         editor.load_request({"name": "X", "method": "GET", "url": "http://x"})
-        editor._body_edit.setPlainText("new body")
+        editor._body_mode_buttons["raw"].setChecked(True)
+        editor._body_code_editor.setPlainText("new body")
         assert editor.is_dirty
 
     def test_dirty_indicator_in_title(self, qapp: QApplication, qtbot) -> None:
-        """Dirty state shows a bullet in the title label."""
+        """Dirty state is tracked via the is_dirty flag."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
 
         editor.load_request({"name": "My Request", "method": "GET", "url": "http://x"})
         editor._url_input.setText("http://changed")
-        assert editor._title_label.text().startswith("\u2022 ")
+        assert editor.is_dirty
 
     def test_set_dirty_false_removes_indicator(self, qapp: QApplication, qtbot) -> None:
-        """Clearing dirty state removes the bullet from the title."""
+        """Clearing dirty state resets the flag."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
 
         editor.load_request({"name": "My Request", "method": "GET", "url": "http://x"})
         editor._url_input.setText("http://changed")
         editor._set_dirty(False)
-        assert not editor._title_label.text().startswith("\u2022 ")
+        assert not editor.is_dirty
 
     def test_request_id_stored(self, qapp: QApplication, qtbot) -> None:
         """load_request stores the request_id."""
@@ -222,188 +223,6 @@ class TestRequestEditorBodyMode:
         assert data["body_options"] == {"raw": {"language": "json"}}
 
 
-class TestRequestEditorAuth:
-    """Tests for the auth tab in the request editor."""
-
-    def test_auth_tab_exists(self, qapp: QApplication, qtbot) -> None:
-        """The Auth tab is present in the editor."""
-        editor = RequestEditorWidget()
-        qtbot.addWidget(editor)
-        tab_titles = [editor._tabs.tabText(i) for i in range(editor._tabs.count())]
-        assert "Auth" in tab_titles
-
-    def test_auth_type_combo_has_options(self, qapp: QApplication, qtbot) -> None:
-        """Auth type dropdown contains all expected types."""
-        editor = RequestEditorWidget()
-        qtbot.addWidget(editor)
-        items = [
-            editor._auth_type_combo.itemText(i) for i in range(editor._auth_type_combo.count())
-        ]
-        assert "No Auth" in items
-        assert "Bearer Token" in items
-        assert "Basic Auth" in items
-        assert "API Key" in items
-
-    def test_load_bearer_auth(self, qapp: QApplication, qtbot) -> None:
-        """Loading a request with bearer auth populates the token field."""
-        editor = RequestEditorWidget()
-        qtbot.addWidget(editor)
-
-        editor.load_request(
-            {
-                "name": "X",
-                "method": "GET",
-                "url": "http://x",
-                "auth": {
-                    "type": "bearer",
-                    "bearer": [{"key": "token", "value": "mytoken123"}],
-                },
-            }
-        )
-
-        assert editor._auth_type_combo.currentText() == "Bearer Token"
-        assert editor._bearer_token_input.text() == "mytoken123"
-
-    def test_load_basic_auth(self, qapp: QApplication, qtbot) -> None:
-        """Loading a request with basic auth populates username/password."""
-        editor = RequestEditorWidget()
-        qtbot.addWidget(editor)
-
-        editor.load_request(
-            {
-                "name": "X",
-                "method": "GET",
-                "url": "http://x",
-                "auth": {
-                    "type": "basic",
-                    "basic": [
-                        {"key": "username", "value": "user"},
-                        {"key": "password", "value": "pass"},
-                    ],
-                },
-            }
-        )
-
-        assert editor._auth_type_combo.currentText() == "Basic Auth"
-        assert editor._basic_username_input.text() == "user"
-        assert editor._basic_password_input.text() == "pass"
-
-    def test_get_auth_data_bearer(self, qapp: QApplication, qtbot) -> None:
-        """get_request_data includes bearer auth configuration."""
-        editor = RequestEditorWidget()
-        qtbot.addWidget(editor)
-
-        editor.load_request({"name": "X", "method": "GET", "url": "http://x"})
-        editor._auth_type_combo.setCurrentText("Bearer Token")
-        editor._bearer_token_input.setText("abc")
-
-        data = editor.get_request_data()
-        assert data["auth"]["type"] == "bearer"
-        assert data["auth"]["bearer"][0]["value"] == "abc"
-
-    def test_get_auth_data_no_auth(self, qapp: QApplication, qtbot) -> None:
-        """get_request_data returns noauth when No Auth is selected."""
-        editor = RequestEditorWidget()
-        qtbot.addWidget(editor)
-
-        editor.load_request({"name": "X", "method": "GET", "url": "http://x"})
-        data = editor.get_request_data()
-        assert data["auth"]["type"] == "noauth"
-
-    def test_clear_resets_auth(self, qapp: QApplication, qtbot) -> None:
-        """clear_request resets auth fields."""
-        editor = RequestEditorWidget()
-        qtbot.addWidget(editor)
-
-        editor.load_request(
-            {
-                "name": "X",
-                "method": "GET",
-                "url": "http://x",
-                "auth": {
-                    "type": "bearer",
-                    "bearer": [{"key": "token", "value": "mytoken"}],
-                },
-            }
-        )
-        editor.clear_request()
-        assert editor._auth_type_combo.currentText() == "No Auth"
-        assert editor._bearer_token_input.text() == ""
-
-
-class TestApplyAuth:
-    """Tests for HttpSendWorker._apply_auth static method."""
-
-    def test_bearer_auth_adds_header(self) -> None:
-        """Bearer auth injects Authorization header."""
-        from ui.request.http_worker import HttpSendWorker
-
-        auth_data = {
-            "type": "bearer",
-            "bearer": [{"key": "token", "value": "secret123"}],
-        }
-        url, headers = HttpSendWorker._apply_auth(auth_data, "http://x", None, {})
-        assert headers is not None
-        assert "Authorization: Bearer secret123" in headers
-
-    def test_basic_auth_adds_header(self) -> None:
-        """Basic auth injects base64-encoded Authorization header."""
-        import base64
-
-        from ui.request.http_worker import HttpSendWorker
-
-        auth_data = {
-            "type": "basic",
-            "basic": [
-                {"key": "username", "value": "user"},
-                {"key": "password", "value": "pass"},
-            ],
-        }
-        url, headers = HttpSendWorker._apply_auth(auth_data, "http://x", None, {})
-        expected = base64.b64encode(b"user:pass").decode()
-        assert headers is not None
-        assert f"Authorization: Basic {expected}" in headers
-
-    def test_apikey_header(self) -> None:
-        """API key auth in header adds a custom header."""
-        from ui.request.http_worker import HttpSendWorker
-
-        auth_data = {
-            "type": "apikey",
-            "apikey": [
-                {"key": "key", "value": "X-API-Key"},
-                {"key": "value", "value": "mykey"},
-                {"key": "in", "value": "header"},
-            ],
-        }
-        url, headers = HttpSendWorker._apply_auth(auth_data, "http://x", None, {})
-        assert headers is not None
-        assert "X-API-Key: mykey" in headers
-
-    def test_apikey_query(self) -> None:
-        """API key auth in query appends to URL."""
-        from ui.request.http_worker import HttpSendWorker
-
-        auth_data = {
-            "type": "apikey",
-            "apikey": [
-                {"key": "key", "value": "api_key"},
-                {"key": "value", "value": "abc"},
-                {"key": "in", "value": "query"},
-            ],
-        }
-        url, headers = HttpSendWorker._apply_auth(auth_data, "http://x", None, {})
-        assert "api_key=abc" in url
-
-    def test_noauth_no_modification(self) -> None:
-        """No auth leaves headers and URL unchanged."""
-        from ui.request.http_worker import HttpSendWorker
-
-        url, headers = HttpSendWorker._apply_auth({"type": "noauth"}, "http://x", "H: v", {})
-        assert url == "http://x"
-        assert headers == "H: v"
-
-
 class TestRequestEditorDescription:
     """Tests for the request description field."""
 
@@ -457,3 +276,262 @@ class TestRequestEditorDescription:
         )
         editor.clear_request()
         assert editor._description_edit.toPlainText() == ""
+
+
+class TestRequestEditorDirtyChanged:
+    """Tests for dirty_changed signal on the request editor."""
+
+    def test_dirty_changed_signal_emitted(self, qapp: QApplication, qtbot) -> None:
+        """dirty_changed signal fires when dirty state transitions."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor.load_request({"name": "X", "method": "GET", "url": "http://x"})
+
+        signals: list[bool] = []
+        editor.dirty_changed.connect(signals.append)
+
+        editor._url_input.setText("http://changed")
+        assert signals == [True]
+
+        editor._set_dirty(False)
+        assert signals == [True, False]
+
+    def test_dirty_changed_not_emitted_on_same_value(self, qapp: QApplication, qtbot) -> None:
+        """dirty_changed does not fire when dirty stays the same."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor.load_request({"name": "X", "method": "GET", "url": "http://x"})
+
+        signals: list[bool] = []
+        editor.dirty_changed.connect(signals.append)
+
+        # Already False -> False: no emission
+        editor._set_dirty(False)
+        assert signals == []
+
+        # True -> True: only first transition emits
+        editor._url_input.setText("http://changed")
+        editor._url_input.setText("http://changed2")
+        assert signals == [True]
+
+
+class TestRequestEditorTabIndicators:
+    """Tests for content-dot indicators on section tabs."""
+
+    def test_tabs_clean_after_empty_load(self, qapp: QApplication, qtbot) -> None:
+        """All tabs show plain names after loading an empty request."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor.load_request({"name": "X", "method": "GET", "url": "http://x"})
+        for i, name in enumerate(("Params", "Headers", "Body", "Auth", "Description", "Scripts")):
+            assert editor._tabs.tabText(i) == name
+
+    def test_params_dot_shown(self, qapp: QApplication, qtbot) -> None:
+        """Params tab gets a dot when parameters are present."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor.load_request(
+            {
+                "name": "X",
+                "method": "GET",
+                "url": "http://x",
+                "request_parameters": [{"key": "q", "value": "1", "enabled": True}],
+            }
+        )
+        assert editor._tabs.tabText(0).endswith(" \u2022")
+
+    def test_headers_dot_shown(self, qapp: QApplication, qtbot) -> None:
+        """Headers tab gets a dot when headers are present."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor.load_request(
+            {
+                "name": "X",
+                "method": "GET",
+                "url": "http://x",
+                "headers": [{"key": "Accept", "value": "application/json", "enabled": True}],
+            }
+        )
+        assert editor._tabs.tabText(1).endswith(" \u2022")
+
+    def test_body_dot_shown_when_not_none(self, qapp: QApplication, qtbot) -> None:
+        """Body tab gets a dot when body mode is not 'none'."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor.load_request(
+            {
+                "name": "X",
+                "method": "POST",
+                "url": "http://x",
+                "body_mode": "raw",
+                "body": '{"a": 1}',
+            }
+        )
+        assert editor._tabs.tabText(2).endswith(" \u2022")
+
+    def test_auth_dot_shown(self, qapp: QApplication, qtbot) -> None:
+        """Auth tab gets a dot when auth is configured."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor.load_request(
+            {
+                "name": "X",
+                "method": "GET",
+                "url": "http://x",
+                "auth": {"type": "bearer", "bearer": [{"key": "token", "value": "abc"}]},
+            }
+        )
+        assert editor._tabs.tabText(3).endswith(" \u2022")
+
+    def test_description_dot_shown(self, qapp: QApplication, qtbot) -> None:
+        """Description tab gets a dot when description is non-empty."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor.load_request(
+            {
+                "name": "X",
+                "method": "GET",
+                "url": "http://x",
+                "description": "Some notes",
+            }
+        )
+        assert editor._tabs.tabText(4).endswith(" \u2022")
+
+    def test_scripts_dot_shown(self, qapp: QApplication, qtbot) -> None:
+        """Scripts tab gets a dot when scripts are present."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor.load_request(
+            {
+                "name": "X",
+                "method": "GET",
+                "url": "http://x",
+                "scripts": {"pre": "console.log('hi')"},
+            }
+        )
+        assert editor._tabs.tabText(5).endswith(" \u2022")
+
+    def test_dot_removed_when_content_cleared(self, qapp: QApplication, qtbot) -> None:
+        """Dot disappears when tab content is emptied."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor.load_request(
+            {
+                "name": "X",
+                "method": "GET",
+                "url": "http://x",
+                "description": "Notes",
+            }
+        )
+        assert editor._tabs.tabText(4).endswith(" \u2022")
+        editor._description_edit.setPlainText("")
+        assert editor._tabs.tabText(4) == "Description"
+
+
+class TestRequestEditorMethodComboColors:
+    """Tests for colored items in the HTTP method dropdown."""
+
+    def test_delegate_sets_method_color(self, qapp: QApplication, qtbot) -> None:
+        """The custom delegate injects the correct method colour for each item."""
+        from typing import cast
+
+        from PySide6.QtCore import QModelIndex
+        from PySide6.QtGui import QColor, QPalette
+        from PySide6.QtWidgets import QStyledItemDelegate, QStyleOptionViewItem
+
+        from ui.styling.theme import method_color
+
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        delegate = cast(QStyledItemDelegate, editor._method_combo.itemDelegate())
+        model = editor._method_combo.model()
+        for i in range(editor._method_combo.count()):
+            index: QModelIndex = model.index(i, 0)
+            option = QStyleOptionViewItem()
+            delegate.initStyleOption(option, index)
+            expected = QColor(method_color(editor._method_combo.itemText(i)))
+            assert option.palette.color(QPalette.ColorRole.Text) == expected
+            assert option.font.bold()
+
+    def test_selected_method_color_in_stylesheet(self, qapp: QApplication, qtbot) -> None:
+        """The combo box stylesheet updates to reflect the selected method colour."""
+        from ui.styling.theme import method_color
+
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        for method in ("POST", "DELETE", "GET"):
+            editor._method_combo.setCurrentText(method)
+            color = method_color(method)
+            assert color in editor._method_combo.styleSheet()
+
+
+class TestRequestEditorVariableMap:
+    """Tests for set_variable_map distribution to child widgets."""
+
+    def test_set_variable_map_propagates_to_url(self, qapp: QApplication, qtbot) -> None:
+        """set_variable_map pushes the map to the URL input."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        m: dict[str, VariableDetail] = {
+            "host": {"value": "example.com", "source": "collection", "source_id": 1}
+        }
+        editor.set_variable_map(m)
+        assert editor._url_input._variable_map is m
+
+    def test_set_variable_map_propagates_to_auth_fields(self, qapp: QApplication, qtbot) -> None:
+        """set_variable_map pushes the map to all auth inputs."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        m: dict[str, VariableDetail] = {
+            "token": {"value": "abc123", "source": "environment", "source_id": 10}
+        }
+        editor.set_variable_map(m)
+        assert editor._bearer_token_input._variable_map is m
+        assert editor._basic_username_input._variable_map is m
+        assert editor._basic_password_input._variable_map is m
+        assert editor._apikey_key_input._variable_map is m
+        assert editor._apikey_value_input._variable_map is m
+
+    def test_set_variable_map_propagates_to_tables(self, qapp: QApplication, qtbot) -> None:
+        """set_variable_map pushes the map to key-value tables."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        m: dict[str, VariableDetail] = {
+            "key": {"value": "value", "source": "collection", "source_id": 1}
+        }
+        editor.set_variable_map(m)
+        assert editor._params_table._highlight_delegate._variable_map is m
+        assert editor._headers_table._highlight_delegate._variable_map is m
+        assert editor._body_form_table._highlight_delegate._variable_map is m
+
+    def test_set_variable_map_propagates_to_code_editors(self, qapp: QApplication, qtbot) -> None:
+        """set_variable_map pushes the map to code editors."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        m: dict[str, VariableDetail] = {
+            "url": {"value": "https://api.test", "source": "environment", "source_id": 10}
+        }
+        editor.set_variable_map(m)
+        assert editor._body_code_editor._variable_map is m
+        assert editor._gql_query_editor._variable_map is m
+        assert editor._gql_variables_editor._variable_map is m
+
+    def test_url_input_is_variable_line_edit(self, qapp: QApplication, qtbot) -> None:
+        """The URL input uses VariableLineEdit for variable highlighting."""
+        from ui.widgets.variable_line_edit import VariableLineEdit
+
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        assert isinstance(editor._url_input, VariableLineEdit)
+
+    def test_auth_fields_are_variable_line_edit(self, qapp: QApplication, qtbot) -> None:
+        """Auth inputs use VariableLineEdit for variable highlighting."""
+        from ui.widgets.variable_line_edit import VariableLineEdit
+
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        assert isinstance(editor._bearer_token_input, VariableLineEdit)
+        assert isinstance(editor._basic_username_input, VariableLineEdit)
+        assert isinstance(editor._basic_password_input, VariableLineEdit)
+        assert isinstance(editor._apikey_key_input, VariableLineEdit)
+        assert isinstance(editor._apikey_value_input, VariableLineEdit)

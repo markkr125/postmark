@@ -8,6 +8,68 @@ from PySide6.QtWidgets import QApplication
 
 from ui.request.http_worker import HttpSendWorker
 
+# Minimal valid response dict matching the new HttpResponseDict schema.
+_SAMPLE_RESPONSE: dict = {
+    "status_code": 200,
+    "status_text": "OK",
+    "headers": [],
+    "body": "ok",
+    "elapsed_ms": 10.0,
+    "size_bytes": 2,
+    "timing": {
+        "dns_ms": 1.0,
+        "tcp_ms": 2.0,
+        "tls_ms": 0.0,
+        "ttfb_ms": 3.0,
+        "download_ms": 1.0,
+        "process_ms": 3.0,
+    },
+    "request_headers_size": 0,
+    "request_body_size": 0,
+    "response_headers_size": 0,
+    "network": {
+        "http_version": "HTTP/1.1",
+        "remote_address": "93.184.216.34:80",
+        "local_address": "192.168.1.10:54321",
+        "tls_protocol": None,
+        "cipher_name": None,
+        "certificate_cn": None,
+        "issuer_cn": None,
+        "valid_until": None,
+    },
+}
+
+# Minimal empty response for cancel-after-request tests.
+_EMPTY_RESPONSE: dict = {
+    "status_code": 200,
+    "status_text": "OK",
+    "headers": [],
+    "body": "",
+    "elapsed_ms": 5.0,
+    "size_bytes": 0,
+    "timing": {
+        "dns_ms": 0.0,
+        "tcp_ms": 0.0,
+        "tls_ms": 0.0,
+        "ttfb_ms": 0.0,
+        "download_ms": 0.0,
+        "process_ms": 5.0,
+    },
+    "request_headers_size": 0,
+    "request_body_size": 0,
+    "response_headers_size": 0,
+    "network": {
+        "http_version": "HTTP/1.1",
+        "remote_address": "",
+        "local_address": "",
+        "tls_protocol": None,
+        "cipher_name": None,
+        "certificate_cn": None,
+        "issuer_cn": None,
+        "valid_until": None,
+    },
+}
+
 
 class TestHttpSendWorker:
     """Tests for the HTTP send worker."""
@@ -26,17 +88,43 @@ class TestHttpSendWorker:
         assert worker._url == "http://example.com"
         assert worker._body == "data"
 
+    def test_set_request_with_request_id(self, qapp: QApplication) -> None:
+        """Setting request_id stores it for variable chain resolution."""
+        worker = HttpSendWorker()
+        worker.set_request(
+            method="GET",
+            url="http://example.com",
+            request_id=42,
+        )
+        assert worker._request_id == 42
+
+    def test_set_request_with_local_overrides(self, qapp: QApplication) -> None:
+        """Local overrides dict is stored on the worker."""
+        worker = HttpSendWorker()
+        overrides = {"base_url": "http://localhost:3000"}
+        worker.set_request(
+            method="GET",
+            url="http://example.com",
+            local_overrides=overrides,
+        )
+        assert worker._local_overrides == overrides
+
+    def test_set_request_local_overrides_defaults_empty(self, qapp: QApplication) -> None:
+        """Local overrides default to empty dict when not provided."""
+        worker = HttpSendWorker()
+        worker.set_request(method="GET", url="http://example.com")
+        assert worker._local_overrides == {}
+
+    def test_request_id_defaults_to_none(self, qapp: QApplication) -> None:
+        """request_id defaults to None when not provided."""
+        worker = HttpSendWorker()
+        worker.set_request(method="GET", url="http://example.com")
+        assert worker._request_id is None
+
     @patch("ui.request.http_worker.HttpService.send_request")
     def test_run_emits_finished(self, mock_send: MagicMock, qapp: QApplication) -> None:
         """Successful run emits the finished signal with response data."""
-        mock_send.return_value = {
-            "status_code": 200,
-            "status_text": "OK",
-            "headers": [],
-            "body": "ok",
-            "elapsed_ms": 10.0,
-            "size_bytes": 2,
-        }
+        mock_send.return_value = _SAMPLE_RESPONSE
 
         worker = HttpSendWorker()
         worker.set_request(method="GET", url="http://example.com")
@@ -89,14 +177,7 @@ class TestHttpSendWorker:
     @patch("ui.request.http_worker.HttpService.send_request")
     def test_run_cancelled_after_request(self, mock_send: MagicMock, qapp: QApplication) -> None:
         """Worker emits error if cancelled after the HTTP call returns."""
-        mock_send.return_value = {
-            "status_code": 200,
-            "status_text": "OK",
-            "headers": [],
-            "body": "",
-            "elapsed_ms": 5.0,
-            "size_bytes": 0,
-        }
+        mock_send.return_value = _EMPTY_RESPONSE
 
         worker = HttpSendWorker()
         worker.set_request(method="GET", url="http://example.com")
@@ -118,3 +199,28 @@ class TestHttpSendWorker:
         assert len(errors) == 1
         assert "cancelled" in errors[0].lower()
         assert len(finished) == 0
+
+    @patch("services.environment_service.EnvironmentService.build_combined_variable_map")
+    @patch("ui.request.http_worker.HttpService.send_request")
+    def test_run_applies_local_overrides(
+        self, mock_send: MagicMock, mock_vars: MagicMock, qapp: QApplication
+    ) -> None:
+        """Local overrides take precedence over environment variables."""
+        mock_vars.return_value = {"base_url": "https://prod.example.com", "token": "abc"}
+        mock_send.return_value = _SAMPLE_RESPONSE
+
+        worker = HttpSendWorker()
+        worker.set_request(
+            method="GET",
+            url="{{base_url}}/api",
+            local_overrides={"base_url": "http://localhost:3000"},
+        )
+
+        received: list[dict] = []
+        worker.finished.connect(received.append)
+        worker.run()
+
+        assert len(received) == 1
+        # The send_request call should have received the locally-overridden URL
+        call_kwargs = mock_send.call_args[1]
+        assert "localhost:3000" in call_kwargs["url"]

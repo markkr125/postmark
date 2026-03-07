@@ -24,8 +24,8 @@ from PySide6.QtWidgets import (
 )
 
 from services.environment_service import EnvironmentService
-from ui.key_value_table import KeyValueTableWidget
-from ui.theme import COLOR_ACCENT, COLOR_BORDER, COLOR_DANGER, COLOR_TEXT, COLOR_WHITE
+from ui.styling.icons import phi
+from ui.widgets.key_value_table import KeyValueTableWidget
 
 
 class EnvironmentEditorDialog(QDialog):
@@ -56,26 +56,21 @@ class EnvironmentEditorDialog(QDialog):
         left_layout.setContentsMargins(0, 0, 0, 0)
 
         self._env_list = QListWidget()
-        self._env_list.setStyleSheet(
-            f"QListWidget {{ border: 1px solid {COLOR_BORDER}; background: {COLOR_WHITE}; }}"
-        )
         self._env_list.currentRowChanged.connect(self._on_env_selected)
         left_layout.addWidget(self._env_list, 1)
 
         btn_row = QHBoxLayout()
         self._add_btn = QPushButton("+ Add")
-        self._add_btn.setStyleSheet(
-            f"background: {COLOR_ACCENT}; color: {COLOR_WHITE}; border: none;"
-            f" padding: 4px 12px; border-radius: 3px;"
-        )
+        self._add_btn.setIcon(phi("plus"))
+        self._add_btn.setObjectName("primaryButton")
+        self._add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._add_btn.clicked.connect(self._on_add)
         btn_row.addWidget(self._add_btn)
 
         self._del_btn = QPushButton("Delete")
-        self._del_btn.setStyleSheet(
-            f"background: {COLOR_DANGER}; color: {COLOR_WHITE}; border: none;"
-            f" padding: 4px 12px; border-radius: 3px;"
-        )
+        self._del_btn.setIcon(phi("trash"))
+        self._del_btn.setObjectName("dangerButton")
+        self._del_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._del_btn.clicked.connect(self._on_delete)
         btn_row.addWidget(self._del_btn)
         btn_row.addStretch()
@@ -90,14 +85,11 @@ class EnvironmentEditorDialog(QDialog):
 
         name_row = QHBoxLayout()
         name_label = QLabel("Name:")
-        name_label.setStyleSheet(f"color: {COLOR_TEXT}; font-weight: bold;")
+        name_label.setObjectName("sectionLabel")
+        name_label.setStyleSheet("font-weight: bold;")
         name_row.addWidget(name_label)
         self._name_input = QLineEdit()
         self._name_input.setPlaceholderText("Environment name")
-        self._name_input.setStyleSheet(
-            f"background: {COLOR_WHITE}; border: 1px solid {COLOR_BORDER};"
-            f" padding: 4px 8px; color: {COLOR_TEXT};"
-        )
         self._name_input.editingFinished.connect(self._on_name_changed)
         name_row.addWidget(self._name_input, 1)
         right_layout.addLayout(name_row)
@@ -108,10 +100,9 @@ class EnvironmentEditorDialog(QDialog):
 
         # Save button
         self._save_btn = QPushButton("Save Variables")
-        self._save_btn.setStyleSheet(
-            f"background: {COLOR_ACCENT}; color: {COLOR_WHITE}; border: none;"
-            f" padding: 6px 16px; font-weight: bold; border-radius: 3px;"
-        )
+        self._save_btn.setIcon(phi("floppy-disk"))
+        self._save_btn.setObjectName("primaryButton")
+        self._save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._save_btn.clicked.connect(self._on_save_vars)
         right_layout.addWidget(self._save_btn)
 

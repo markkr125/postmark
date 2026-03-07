@@ -1,9 +1,13 @@
-"""Background worker for sending HTTP requests on a dedicated QThread.
+"""Background workers for HTTP requests on a dedicated QThread.
 
 Follows the ``QObject.moveToThread()`` pattern established by
 ``_ImportWorker`` in ``import_dialog.py``.  Each worker is single-use:
 create, configure, move to a ``QThread``, start, and discard after the
 ``finished`` or ``error`` signal fires.
+
+Workers:
+    HttpSendWorker — send a regular HTTP request.
+    SchemaFetchWorker — fetch a GraphQL schema via introspection.
 
 Supports **cancellation**: the owning tab calls ``cancel()`` which sets a
 ``threading.Event`` flag checked before and after the network call.
@@ -16,7 +20,7 @@ import threading
 
 from PySide6.QtCore import QObject, Signal, Slot
 
-from services.http_service import HttpResponseDict, HttpService
+from services.http.http_service import HttpResponseDict, HttpService
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +53,9 @@ class HttpSendWorker(QObject):
         self._body: str | None = None
         self._timeout: float = 30.0
         self._env_id: int | None = None
+        self._request_id: int | None = None
         self._auth_data: dict | None = None
+        self._local_overrides: dict[str, str] = {}
         self._cancel_event = threading.Event()
 
     # -- Configuration (call before moveToThread) ----------------------
@@ -63,13 +69,22 @@ class HttpSendWorker(QObject):
         body: str | None = None,
         timeout: float = 30.0,
         env_id: int | None = None,
+        request_id: int | None = None,
         auth_data: dict | None = None,
+        local_overrides: dict[str, str] | None = None,
     ) -> None:
         """Configure the HTTP request to send.
 
         Must be called **before** the worker is moved to its thread.
-        When *env_id* or *auth_data* are provided, variable substitution
-        and auth injection happen on the worker thread.
+        When *env_id*, *request_id*, or *auth_data* are provided,
+        variable substitution and auth injection happen on the worker
+        thread.  Collection variables (inherited from the parent chain
+        of *request_id*) are merged with environment variables, with
+        environment variables taking precedence.
+
+        *local_overrides* are per-request overrides set by the user
+        via the variable popup ("use for this request only").  They
+        take highest precedence.
         """
         self._method = method
         self._url = url
@@ -77,7 +92,9 @@ class HttpSendWorker(QObject):
         self._body = body
         self._timeout = timeout
         self._env_id = env_id
+        self._request_id = request_id
         self._auth_data = auth_data
+        self._local_overrides = local_overrides or {}
 
     def cancel(self) -> None:
         """Request cancellation of the in-flight HTTP request.
@@ -111,18 +128,24 @@ class HttpSendWorker(QObject):
             headers = self._headers
             body = self._body
 
-            # 2. Resolve environment variables (DB access on worker thread)
-            variables: dict[str, str] = {}
-            if self._env_id is not None:
-                from services.environment_service import EnvironmentService
+            # 2. Resolve collection + environment variables (DB on worker thread)
+            from services.environment_service import EnvironmentService
 
-                variables = EnvironmentService.build_variable_map(self._env_id)
-                if variables:
-                    url = EnvironmentService.substitute(url, variables)
-                    if headers:
-                        headers = EnvironmentService.substitute(headers, variables)
-                    if body:
-                        body = EnvironmentService.substitute(body, variables)
+            variables = EnvironmentService.build_combined_variable_map(
+                self._env_id,
+                self._request_id,
+            )
+
+            # 2b. Apply per-request local overrides (highest precedence)
+            if self._local_overrides:
+                variables.update(self._local_overrides)
+
+            if variables:
+                url = EnvironmentService.substitute(url, variables)
+                if headers:
+                    headers = EnvironmentService.substitute(headers, variables)
+                if body:
+                    body = EnvironmentService.substitute(body, variables)
 
             # 3. Apply auth configuration
             if self._auth_data:
@@ -207,3 +230,57 @@ class HttpSendWorker(QObject):
                     url = f"{url}{sep}{key}={value}"
 
         return url, headers
+
+
+class SchemaFetchWorker(QObject):
+    """Fetch a GraphQL schema via introspection on a background thread.
+
+    Set the endpoint via :meth:`set_endpoint` **before** calling
+    ``moveToThread()``.  Connect ``finished`` and ``error`` signals,
+    then start the owning ``QThread``.
+
+    Signals:
+        finished(dict): Emitted with a :class:`SchemaResultDict` on success.
+        error(str): Emitted with an error message on failure.
+    """
+
+    finished = Signal(dict)  # SchemaResultDict
+    error = Signal(str)
+
+    def __init__(self) -> None:
+        """Initialise with empty endpoint parameters."""
+        super().__init__()
+        self._url: str = ""
+        self._headers: dict[str, str] | None = None
+
+    # -- Configuration (call before moveToThread) ----------------------
+
+    def set_endpoint(
+        self,
+        *,
+        url: str,
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        """Configure the GraphQL endpoint to introspect.
+
+        Must be called **before** the worker is moved to its thread.
+        """
+        self._url = url
+        self._headers = headers
+
+    # -- Execution (runs on the worker thread) -------------------------
+
+    @Slot()
+    def run(self) -> None:
+        """Send the introspection query and emit the result signal."""
+        try:
+            from services.http.graphql_schema_service import GraphQLSchemaService
+
+            result = GraphQLSchemaService.fetch_schema(
+                self._url,
+                headers=self._headers,
+            )
+            self.finished.emit(dict(result))
+        except Exception as exc:
+            logger.exception("Schema fetch worker failed")
+            self.error.emit(str(exc))

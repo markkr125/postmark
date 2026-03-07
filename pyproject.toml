@@ -11,12 +11,18 @@ python = ">=3.12,<3.14"
 pyside6 = "^6.10.0"
 sqlalchemy = "^2.0.44"
 httpx = "^0.28.1"
+pygments = "^2.19"
+jsonpath-ng = "^1.8.0"
+lxml = "^6.0.2"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0"
 ruff = "^0.9"
 mypy = "^1.14"
 pytest-qt = "^4.5.0"
+types-pygments = "^2.19.0.20251121"
+types-lxml = "^2026.2.16"
+pytest-xdist = "^3.8.0"
 
 [build-system]
 requires = ["poetry-core"]
@@ -34,6 +40,7 @@ src = ["src", "tests"]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "D"]
 ignore = [
     "E501",   # line length handled by formatter
+    "I001",   # import formatting conflicts with VS Code's Python formatter
     "D100",   # missing module docstring  (enforced by review, not linter)
     "D104",   # missing __init__.py docstring
     "D203",   # conflicts with D211 (no-blank-line-before-class)
@@ -75,4 +82,5 @@ reportTypedDictNotRequiredAccess = "error"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+addopts = "-n auto --dist loadfile"
 

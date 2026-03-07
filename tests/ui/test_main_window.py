@@ -39,6 +39,22 @@ class TestMainWindow:
         assert "&File" in menu_titles
         assert "&Collection" in menu_titles
 
+    def test_file_menu_has_settings(self, qapp: QApplication, qtbot) -> None:
+        """File menu contains a Settings action."""
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        menubar = window.menuBar()
+        assert menubar is not None
+        file_menu = None
+        for action in menubar.actions():
+            if action.text() == "&File":
+                file_menu = action.menu()
+                break
+        assert file_menu is not None
+        action_texts = [a.text() for a in file_menu.actions()]  # type: ignore[attr-defined]
+        assert "&Settings\u2026" in action_texts
+
     def test_request_editor_is_request_editor_widget(self, qapp: QApplication, qtbot) -> None:
         """MainWindow uses RequestEditorWidget for the request pane."""
         window = MainWindow()
@@ -58,6 +74,22 @@ class TestMainWindow:
         assert not window.back_action.isEnabled()
         assert not window.forward_action.isEnabled()
 
+    def test_loading_screen_transitions_to_main_ui(self, qapp: QApplication, qtbot) -> None:
+        """MainWindow starts on loading screen and switches when load finishes."""
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        # Initially on loading screen (index 0)
+        assert window._main_stack.currentIndex() == 0
+        assert window.menuBar().isHidden()
+
+        # Simulate load finished
+        window.collection_widget.load_finished.emit()
+
+        # Switches to main UI (index 1)
+        assert window._main_stack.currentIndex() == 1
+        assert not window.menuBar().isHidden()
+
 
 class TestMainWindowNavigation:
     """Tests for request open and back/forward navigation."""
@@ -74,7 +106,7 @@ class TestMainWindowNavigation:
         window._open_request(req.id, push_history=True)
 
         assert window.request_widget._url_input.text() == "https://example.com"
-        assert window.request_widget._title_label.text() == "My Req"
+        assert window.request_widget._method_combo.currentText() == "POST"
 
     def test_navigation_history_back(self, qapp: QApplication, qtbot) -> None:
         """Navigating back goes to the previous request."""
@@ -140,8 +172,8 @@ class TestMainWindowSendRequest:
         assert not window.response_widget._error_label.isHidden()
         assert "empty" in window.response_widget._error_label.text().lower()
 
-    @patch("ui.main_window.HttpSendWorker")
-    @patch("ui.main_window.QThread")
+    @patch("ui.request.http_worker.HttpSendWorker")
+    @patch("ui.main_window.send_pipeline.QThread")
     def test_send_creates_worker_and_thread(
         self,
         mock_thread_cls: MagicMock,
@@ -423,3 +455,79 @@ class TestMainWindowContextMenuHandlers:
 
         window._close_all_tabs()
         assert window._tab_bar.count() == 0
+
+
+class TestMainWindowFolderTabs:
+    """Tests for opening and closing folder tabs."""
+
+    def test_open_folder_creates_tab(self, qapp: QApplication, qtbot) -> None:
+        """Opening a folder creates a new tab in the tab bar."""
+        svc = CollectionService()
+        coll = svc.create_collection("MyFolder")
+
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._open_folder(coll.id)
+
+        assert window._tab_bar.count() == 1
+        ctx = window._tabs[0]
+        assert ctx.tab_type == "folder"
+        assert ctx.collection_id == coll.id
+
+    def test_open_folder_shows_editor(self, qapp: QApplication, qtbot) -> None:
+        """Opening a folder shows the folder editor widget."""
+        svc = CollectionService()
+        coll = svc.create_collection("Folder")
+
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._open_folder(coll.id)
+
+        ctx = window._tabs[0]
+        assert ctx.folder_editor is not None
+        assert ctx.folder_editor._title_label.text() == "Folder"
+
+    def test_open_same_folder_twice_switches_tab(self, qapp: QApplication, qtbot) -> None:
+        """Opening the same folder twice switches to the existing tab."""
+        svc = CollectionService()
+        coll = svc.create_collection("Folder")
+
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._open_folder(coll.id)
+        window._open_folder(coll.id)
+
+        assert window._tab_bar.count() == 1
+
+    def test_close_folder_tab(self, qapp: QApplication, qtbot) -> None:
+        """Closing a folder tab removes it cleanly."""
+        svc = CollectionService()
+        coll = svc.create_collection("Folder")
+
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._open_folder(coll.id)
+        assert window._tab_bar.count() == 1
+
+        window._on_tab_close(0)
+        assert window._tab_bar.count() == 0
+
+    def test_folder_and_request_tabs_coexist(self, qapp: QApplication, qtbot) -> None:
+        """Folder and request tabs can coexist in the tab bar."""
+        svc = CollectionService()
+        coll = svc.create_collection("Folder")
+        req = svc.create_request(coll.id, "GET", "http://x", "Req")
+
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._open_request(req.id, push_history=True)
+        window._open_folder(coll.id)
+
+        assert window._tab_bar.count() == 2
+        assert window._tabs[0].tab_type == "request"
+        assert window._tabs[1].tab_type == "folder"

@@ -9,7 +9,6 @@ from PySide6.QtWidgets import QMessageBox, QProgressBar, QVBoxLayout, QWidget
 from services.collection_service import CollectionService
 from ui.collections.collection_header import CollectionHeader
 from ui.collections.tree import CollectionTree
-from ui.theme import COLOR_ACCENT
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +70,9 @@ class CollectionWidget(QWidget):
     item_action_triggered = Signal(str, int, str)
     item_name_changed = Signal(str, int, str)
 
+    # Emitted when the initial background fetch completes
+    load_finished = Signal()
+
     def __init__(self, parent: QWidget | None = None) -> None:
         """Initialise the collection widget with header, tree, and loading bar."""
         super().__init__(parent)
@@ -119,12 +121,6 @@ class CollectionWidget(QWidget):
         self._loading_bar.setRange(0, 0)
         self._loading_bar.setTextVisible(False)
         self._loading_bar.setFixedHeight(4)
-        self._loading_bar.setStyleSheet(
-            f"""
-            QProgressBar {{ background-color: transparent; border: 0; }}
-            QProgressBar::chunk {{ background-color: {COLOR_ACCENT}; }}
-            """
-        )
         self._loading_bar.setGeometry(0, 0, viewport.width(), 4)
         self._loading_bar.hide()
 
@@ -136,6 +132,7 @@ class CollectionWidget(QWidget):
     def _start_fetch(self) -> None:
         """Launch the worker thread and show the loading bar."""
         self._loading_bar.show()
+        self._tree_widget.show_loading()
         self._thread = QThread(self)
         self._worker = _CollectionFetcher()
         self._worker.moveToThread(self._thread)
@@ -150,7 +147,10 @@ class CollectionWidget(QWidget):
     def _on_collections_ready(self, collection_dict: dict[str, Any]) -> None:
         """Called once the background fetch finishes."""
         self._loading_bar.hide()
+        self._tree_widget.hide_loading()
         self._tree_widget.set_collections(collection_dict)
+
+        self.load_finished.emit()
 
         if self._pending_select_id is not None:
             self._tree_widget.select_item_by_id(self._pending_select_id, "folder")
@@ -251,6 +251,18 @@ class CollectionWidget(QWidget):
     def set_collections(self, data: dict[str, Any]) -> None:
         """Replace the displayed collection data with *data*."""
         self._tree_widget.set_collections(data)
+
+    def update_item_name(self, item_id: int, item_type: str, new_name: str) -> None:
+        """Update the display text of a tree item without triggering signals."""
+        self._tree_widget.update_item_name(item_id, item_type, new_name)
+
+    def update_request_method(self, request_id: int, method: str) -> None:
+        """Update the HTTP method badge of a request item without rebuilding."""
+        self._tree_widget.update_request_method(request_id, method)
+
+    def select_and_scroll_to(self, item_id: int, item_type: str) -> None:
+        """Select and scroll to the item with the given ID and type."""
+        self._tree_widget.select_item_by_id(item_id, item_type)
 
     def selected_collection_id(self) -> int | None:
         """Return the ID of the currently selected collection, or ``None``."""
