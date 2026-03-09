@@ -6,16 +6,9 @@ application-wide Qt Style Sheet string from a ThemePalette.
 
 from __future__ import annotations
 
-from ui.styling.theme import (
-    BADGE_BORDER_RADIUS,
-    BADGE_FONT_SIZE,
-    BADGE_HEIGHT,
-    BADGE_MIN_WIDTH,
-    DARK_PALETTE,
-    LIGHT_PALETTE,
-    TREE_ROW_HEIGHT,
-    ThemePalette,
-)
+from ui.styling.theme import (BADGE_BORDER_RADIUS, BADGE_FONT_SIZE,
+                              BADGE_HEIGHT, BADGE_MIN_WIDTH, DARK_PALETTE,
+                              LIGHT_PALETTE, TREE_ROW_HEIGHT, ThemePalette)
 
 
 def build_global_qss(p: ThemePalette) -> str:
