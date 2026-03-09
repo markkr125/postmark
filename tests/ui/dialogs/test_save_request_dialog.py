@@ -6,8 +6,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QTreeWidgetItem
 
 from services.collection_service import CollectionService
-from ui.dialogs.save_request_dialog import (SaveRequestDialog,
-                                            _tree_item_iterator)
+from ui.dialogs.save_request_dialog import SaveRequestDialog, _tree_item_iterator
 
 
 class TestSaveRequestDialogConstruction:

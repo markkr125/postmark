@@ -84,3 +84,64 @@ class TestSnippetGenerator:
         """Unknown language returns an unsupported message."""
         result = SnippetGenerator.generate("Ruby", method="GET", url="https://example.com")
         assert "Unsupported" in result
+
+    def test_curl_with_bearer_auth(self) -> None:
+        """CURL snippet includes Authorization header for bearer auth."""
+        auth = {"type": "bearer", "bearer": [{"key": "token", "value": "abc123"}]}
+        result = SnippetGenerator.curl(
+            method="GET",
+            url="https://api.example.com",
+            auth=auth,
+        )
+        assert "Authorization: Bearer abc123" in result
+
+    def test_python_with_basic_auth(self) -> None:
+        """Python snippet includes Authorization header for basic auth."""
+        auth = {
+            "type": "basic",
+            "basic": [
+                {"key": "username", "value": "user"},
+                {"key": "password", "value": "pass"},
+            ],
+        }
+        result = SnippetGenerator.python_requests(
+            method="GET",
+            url="https://api.example.com",
+            auth=auth,
+        )
+        assert "Authorization" in result
+        assert "Basic" in result
+
+    def test_curl_with_apikey_header(self) -> None:
+        """CURL snippet includes custom API key header."""
+        auth = {
+            "type": "apikey",
+            "apikey": [
+                {"key": "key", "value": "X-API-Key"},
+                {"key": "value", "value": "secret"},
+                {"key": "in", "value": "header"},
+            ],
+        }
+        result = SnippetGenerator.curl(
+            method="GET",
+            url="https://api.example.com",
+            auth=auth,
+        )
+        assert "X-API-Key: secret" in result
+
+    def test_curl_with_apikey_query(self) -> None:
+        """CURL snippet appends API key to URL for query param auth."""
+        auth = {
+            "type": "apikey",
+            "apikey": [
+                {"key": "key", "value": "api_key"},
+                {"key": "value", "value": "secret"},
+                {"key": "in", "value": "query"},
+            ],
+        }
+        result = SnippetGenerator.curl(
+            method="GET",
+            url="https://api.example.com",
+            auth=auth,
+        )
+        assert "api_key=secret" in result

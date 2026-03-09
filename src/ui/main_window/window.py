@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import QSize, Qt, QThread
+from PySide6.QtCore import QSize, Qt, QThread, QTimer
 from PySide6.QtGui import QAction, QCloseEvent, QCursor, QGuiApplication, QKeySequence
 
 if TYPE_CHECKING:
@@ -39,6 +39,7 @@ from ui.request.navigation.request_tab_bar import RequestTabBar
 from ui.request.navigation.tab_manager import TabContext
 from ui.request.request_editor import RequestEditorWidget
 from ui.request.response_viewer import ResponseViewerWidget
+from ui.sidebar import RightSidebar
 from ui.styling.icons import phi
 from ui.styling.theme_manager import ThemeManager
 
@@ -54,8 +55,8 @@ class MainWindow(
 ):
     """Top-level application window.
 
-    Sets up the menu bar, toolbar, and the three-pane layout
-    (collection sidebar | request editor | response viewer).
+    Sets up the menu bar, toolbar, and four-pane layout
+    (collection sidebar | request editor | response viewer | right sidebar rail).
     """
 
     def __init__(self, theme_manager: ThemeManager | None = None) -> None:
@@ -81,6 +82,14 @@ class MainWindow(
         self._send_worker: HttpSendWorker | None = None
 
         self.collection_widget = CollectionWidget(self)
+
+        # Right sidebar (created before _setup_ui so layout can embed it)
+        self._right_sidebar = RightSidebar()
+
+        # Debounce timer for live snippet updates in the sidebar
+        self._sidebar_debounce = QTimer(self)
+        self._sidebar_debounce.setSingleShot(True)
+        self._sidebar_debounce.timeout.connect(self._refresh_sidebar_snippet)
 
         self._setup_ui()
 
@@ -175,7 +184,7 @@ class MainWindow(
         snippet_act = QAction("Generate Code &Snippet\u2026", self)
         snippet_act.setIcon(phi("code"))
         snippet_act.setShortcut(QKeySequence("Ctrl+Shift+C"))
-        snippet_act.triggered.connect(self._on_code_snippet)
+        snippet_act.triggered.connect(self._on_snippet_shortcut)
         file_menu.addAction(snippet_act)
 
         file_menu.addSeparator()
@@ -354,7 +363,7 @@ class MainWindow(
         self._main_stack.addWidget(self._loading_screen)
         self._loading_screen.start_animation()
 
-        # 3. Main splitter: left (nav) + right (request+response)
+        # 3. Main splitter: left (nav) + right (request+response+sidebar)
         central = QWidget()
         main_layout = QHBoxLayout(central)
         main_layout.setContentsMargins(9, 0, 0, 0)
@@ -367,12 +376,21 @@ class MainWindow(
         # --- Left navigation pane ---
         self._main_splitter.addWidget(self.collection_widget)
 
-        # --- Right side: vertical splitter (request + response) ---
+        # --- Centre: vertical splitter (request + response) ---
         request_area = self._build_request_area()
 
         self._right_splitter = QSplitter(Qt.Orientation.Vertical)
-        self._main_splitter.addWidget(self._right_splitter)
-        self._main_splitter.setStretchFactor(1, 3)  # right side takes 3x the space
+
+        # --- Content area: centre panes + right sidebar rail ---
+        self._content_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._content_splitter.setHandleWidth(4)
+        self._main_splitter.addWidget(self._content_splitter)
+        self._main_splitter.setStretchFactor(1, 3)
+
+        self._content_splitter.addWidget(self._right_splitter)
+        self._right_sidebar.install_in_splitter(self._content_splitter)
+        self._content_splitter.setStretchFactor(0, 1)
+        self._content_splitter.setCollapsible(0, False)
 
         # --- Request editor area ---
         self._right_splitter.addWidget(request_area)
@@ -438,27 +456,6 @@ class MainWindow(
     # ------------------------------------------------------------------
     # Dialogs
     # ------------------------------------------------------------------
-    def _on_code_snippet(self) -> None:
-        """Open the code snippet dialog for the current request."""
-        from ui.dialogs.code_snippet_dialog import CodeSnippetDialog
-
-        ctx = self._current_tab_context()
-        if ctx is not None and ctx.tab_type == "folder":
-            return
-        editor = ctx.editor if ctx else self.request_widget
-        method = editor._method_combo.currentText()
-        url = editor._url_input.text().strip()
-        headers = editor.get_headers_text()
-        body = editor.get_request_data().get("body") or None
-        dialog = CodeSnippetDialog(
-            method=method,
-            url=url,
-            headers=headers,
-            body=body,
-            parent=self,
-        )
-        dialog.exec()
-
     def _on_settings(self) -> None:
         """Open the settings dialog."""
         from ui.dialogs.settings_dialog import SettingsDialog

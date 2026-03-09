@@ -68,6 +68,8 @@ class _TabControllerMixin:
         request_id: int | None,
         local_overrides: dict | None = ...,
     ) -> None: ...
+    def _refresh_sidebar(self) -> None: ...
+    def _schedule_sidebar_snippet_refresh(self) -> None: ...
 
     # ------------------------------------------------------------------
     # Open request
@@ -173,6 +175,7 @@ class _TabControllerMixin:
         editor.send_requested.connect(self._on_send_request)
         editor.save_requested.connect(self._on_save_request)
         editor.dirty_changed.connect(self._sync_save_btn)
+        editor.request_changed.connect(lambda _: self._schedule_sidebar_snippet_refresh())
         viewer.save_response_requested.connect(self._on_save_response)
 
         # Now switch to the tab (triggers _on_tab_changed safely)
@@ -260,6 +263,9 @@ class _TabControllerMixin:
             self._breadcrumb_bar.clear()
             self._save_btn.setVisible(False)
 
+        # Refresh right sidebar for the active tab
+        self._refresh_sidebar()
+
     # ------------------------------------------------------------------
     # Tab close
     # ------------------------------------------------------------------
@@ -295,6 +301,7 @@ class _TabControllerMixin:
             editor.send_requested.disconnect(self._on_send_request)
             editor.save_requested.disconnect(self._on_save_request)
             editor.dirty_changed.disconnect(self._sync_save_btn)
+            editor.request_changed.disconnect()
             viewer.save_response_requested.disconnect(self._on_save_response)
 
             # Remove from stacked widgets and detach from parent hierarchy.

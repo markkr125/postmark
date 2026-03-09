@@ -457,6 +457,82 @@ class TestMainWindowContextMenuHandlers:
         assert window._tab_bar.count() == 0
 
 
+class TestMainWindowRightSidebar:
+    """Tests for the right sidebar icon rail and flyout panels."""
+
+    def test_toggle_right_sidebar(self, qapp: QApplication, qtbot) -> None:
+        """Toggling the right sidebar opens and closes the panel."""
+        window = MainWindow()
+        qtbot.addWidget(window)
+        # Sidebar starts with no panel open
+        assert not window._right_sidebar.panel_open
+
+        # Need a tab context to enable panels
+        svc = CollectionService()
+        coll = svc.create_collection("C")
+        req = svc.create_request(coll.id, "GET", "http://x", "R")
+        window._open_request(req.id, push_history=True)
+
+        # No auto-open; sidebar should still be closed.
+        assert not window._right_sidebar.panel_open
+        window._toggle_right_sidebar()
+        assert window._right_sidebar.panel_open
+        window._toggle_right_sidebar()
+        assert not window._right_sidebar.panel_open
+
+    def test_sidebar_rail_always_visible(self, qapp: QApplication, qtbot) -> None:
+        """The icon rail is not hidden — it is always present in the layout."""
+        window = MainWindow()
+        qtbot.addWidget(window)
+        # The sidebar itself is not explicitly hidden
+        assert not window._right_sidebar.isHidden()
+        # The rail inside the sidebar is not hidden either
+        assert not window._right_sidebar._rail.isHidden()
+
+    def test_sidebar_shows_request_panels_on_tab_switch(self, qapp: QApplication, qtbot) -> None:
+        """Switching to a request tab enables both sidebar icons."""
+        svc = CollectionService()
+        coll = svc.create_collection("C")
+        req = svc.create_request(coll.id, "GET", "http://example.com", "R")
+
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._open_request(req.id, push_history=True)
+
+        assert window._right_sidebar._var_btn.isEnabled()
+        assert not window._right_sidebar._snippet_btn.isHidden()
+
+    def test_sidebar_shows_folder_panels_on_tab_switch(self, qapp: QApplication, qtbot) -> None:
+        """Switching to a folder tab enables variables but disables snippet."""
+        svc = CollectionService()
+        coll = svc.create_collection("Folder")
+
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._open_folder(coll.id)
+
+        assert window._right_sidebar._var_btn.isEnabled()
+        assert window._right_sidebar._snippet_btn.isHidden()
+
+    def test_sidebar_clears_when_no_tab(self, qapp: QApplication, qtbot) -> None:
+        """Closing all tabs disables sidebar icons."""
+        svc = CollectionService()
+        coll = svc.create_collection("C")
+        req = svc.create_request(coll.id, "GET", "http://x", "R")
+
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._open_request(req.id, push_history=True)
+        assert window._right_sidebar._var_btn.isEnabled()
+
+        window._on_tab_close(0)
+        assert not window._right_sidebar._var_btn.isEnabled()
+        assert window._right_sidebar._snippet_btn.isHidden()
+
+
 class TestMainWindowFolderTabs:
     """Tests for opening and closing folder tabs."""
 

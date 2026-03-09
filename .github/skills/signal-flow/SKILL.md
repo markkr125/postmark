@@ -258,8 +258,9 @@ MainWindow._toggle_layout_action.triggered
 
 ```
 MainWindow snippet_act.triggered
-  → _on_code_snippet
-    → CodeSnippetDialog(request_data)
+  → _on_snippet_shortcut
+    → _right_sidebar.open_panel("snippet")
+    → SnippetPanel.update_request(method, url, headers, body)
       → SnippetGenerator.generate(language, ...)
 ```
 
@@ -496,7 +497,7 @@ All connections made in `MainWindow.__init__` (and `_create_menus`):
 - `forward_action.triggered` → `_navigate_forward`
 - `import_act.triggered` → `_on_import`
 - `save_act.triggered` → `_on_save_request`
-- `snippet_act.triggered` → `_on_code_snippet`
+- `snippet_act.triggered` → `_on_snippet_shortcut`
 - `settings_act.triggered` → `_on_settings`
 - `run_act.triggered` → `_on_run_collection`
 - `exit_act.triggered` → `close`
@@ -509,6 +510,7 @@ All connections made in `MainWindow.__init__` (and `_create_menus`):
 - `editor.send_requested` → `_on_send_request`
 - `editor.save_requested` → `_on_save_request`
 - `editor.dirty_changed` → `_sync_save_btn`
+- `editor.request_changed` → `_schedule_sidebar_snippet_refresh`
 - `viewer.save_response_requested` → `_on_save_response`
 
 **VariablePopup callbacks (classmethods, wired once):**

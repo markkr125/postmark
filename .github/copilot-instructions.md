@@ -172,8 +172,12 @@ src/
     │   ├── send_pipeline.py       # _SendPipelineMixin — HTTP send/response flow
     │   ├── draft_controller.py    # _DraftControllerMixin — draft tab open/save
     │   ├── tab_controller.py      # _TabControllerMixin — tab open/close/switch
-    │   └── variable_controller.py # _VariableControllerMixin — env variable management
+    │   └── variable_controller.py # _VariableControllerMixin — env variable + sidebar management
     ├── loading_screen.py          # Loading screen overlay widget
+    ├── sidebar/                   # Right sidebar sub-package
+    │   ├── sidebar_widget.py      # RightSidebar (icon rail) + _FlyoutPanel
+    │   ├── variables_panel.py     # VariablesPanel — read-only variable display
+    │   └── snippet_panel.py       # SnippetPanel — inline code snippet generator
     ├── styling/                   # Visual theming and icons
     │   ├── theme.py               # Palettes, colours, badge geometry, method_color()
     │   ├── theme_manager.py       # ThemeManager — QPalette + QSettings
@@ -201,7 +205,6 @@ src/
     │       ├── tree_actions.py    # _TreeActionsMixin — context menus, rename, delete
     │       └── collection_tree_delegate.py  # Custom delegate for method badges
     ├── dialogs/                   # Modal dialogs
-    │   ├── code_snippet_dialog.py
     │   ├── collection_runner.py
     │   ├── import_dialog.py
     │   ├── save_request_dialog.py  # Save draft request to collection
@@ -255,6 +258,10 @@ tests/
     ├── styling/                   # Theme and icon tests
     │   ├── test_theme_manager.py
     │   └── test_icons.py
+    ├── sidebar/                   # Sidebar widget tests
+    │   ├── test_sidebar.py
+    │   ├── test_variables_panel.py
+    │   └── test_snippet_panel.py
     ├── widgets/                   # Shared component tests
     │   ├── test_code_editor.py
     │   ├── test_code_editor_folding.py

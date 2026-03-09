@@ -1,14 +1,16 @@
-"""Variable management mixin for the main window.
+"""Variable and sidebar management mixin for the main window.
 
 Provides ``_VariableControllerMixin`` with environment variable
-refresh, update, local override, and unresolved-variable callbacks.
-Mixed into ``MainWindow``.
+refresh, update, local override, unresolved-variable callbacks, and
+right-sidebar refresh logic.  Mixed into ``MainWindow``.
 """
 
 from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING
+
+from PySide6.QtCore import QTimer
 
 from services.environment_service import EnvironmentService
 
@@ -17,20 +19,24 @@ if TYPE_CHECKING:
     from ui.environments.environment_selector import EnvironmentSelector
     from ui.request.navigation.tab_manager import TabContext
     from ui.request.request_editor import RequestEditorWidget
+    from ui.sidebar import RightSidebar
 
 logger = logging.getLogger(__name__)
 
 
 class _VariableControllerMixin:
-    """Mixin that manages variable maps and popup callbacks.
+    """Mixin that manages variable maps, popup callbacks, and sidebar.
 
     Expects the host class to provide ``_tabs``, ``_env_selector``,
-    ``_tab_bar``, ``request_widget``, and ``_current_tab_context()``.
+    ``_tab_bar``, ``request_widget``, ``_right_sidebar``, and
+    ``_current_tab_context()``.
     """
 
     # -- Host-class interface (declared for mypy) -----------------------
     _env_selector: EnvironmentSelector
     _tabs: dict[int, TabContext]
+    _right_sidebar: RightSidebar
+    _sidebar_debounce: QTimer
 
     def _current_tab_context(self) -> TabContext | None: ...
 
@@ -70,6 +76,7 @@ class _VariableControllerMixin:
         for ctx in self._tabs.values():
             if ctx.tab_type != "folder":
                 self._refresh_variable_map(ctx.editor, ctx.request_id, ctx.local_overrides)
+        self._refresh_sidebar()
 
     def _on_variable_updated(
         self,
@@ -174,3 +181,107 @@ class _VariableControllerMixin:
                     tab_ctx.request_id,
                     tab_ctx.local_overrides,
                 )
+        self._refresh_sidebar()
+
+    # ------------------------------------------------------------------
+    # Right-sidebar helpers
+    # ------------------------------------------------------------------
+    def _refresh_sidebar(self) -> None:
+        """Update the right sidebar panels for the active tab."""
+        ctx = self._current_tab_context()
+        env_id = self._env_selector.current_environment_id()
+        has_env = env_id is not None
+
+        if ctx is None:
+            self._right_sidebar.clear()
+            return
+
+        if ctx.tab_type == "folder":
+            variables = EnvironmentService.build_combined_variable_detail_map(env_id, None)
+            # Merge folder-level variables from the collection chain
+            if ctx.collection_id is not None:
+                from database.models.collections.collection_query_repository import (
+                    get_collection_variable_chain_detailed,
+                )
+
+                for key, (value, coll_id) in get_collection_variable_chain_detailed(
+                    ctx.collection_id
+                ).items():
+                    if key not in variables:
+                        variables[key] = {
+                            "value": value,
+                            "source": "collection",
+                            "source_id": coll_id,
+                        }
+            self._right_sidebar.show_folder_panels(variables, has_environment=has_env)
+        else:
+            variables = EnvironmentService.build_combined_variable_detail_map(
+                env_id, ctx.request_id
+            )
+            # Layer per-request overrides on top
+            if ctx.local_overrides:
+                for key, override in ctx.local_overrides.items():
+                    variables[key] = {
+                        "value": override["value"],
+                        "source": override["original_source"],
+                        "source_id": override["original_source_id"],
+                        "is_local": True,
+                    }
+            editor = ctx.editor
+            data = editor.get_request_data()
+            # Resolve {{variable}} placeholders for the snippet.
+            flat_vars = {k: v["value"] for k, v in variables.items()}
+            sub = EnvironmentService.substitute
+            self._right_sidebar.show_request_panels(
+                variables,
+                local_overrides=ctx.local_overrides,
+                has_environment=has_env,
+                method=editor._method_combo.currentText(),
+                url=sub(editor._url_input.text().strip(), flat_vars),
+                headers=sub(editor.get_headers_text() or "", flat_vars) or None,
+                body=sub(data.get("body") or "", flat_vars) or None,
+                auth=data.get("auth"),
+            )
+
+    def _schedule_sidebar_snippet_refresh(self) -> None:
+        """Debounce snippet refresh (300 ms) on request editor changes."""
+        self._sidebar_debounce.start(300)
+
+    def _refresh_sidebar_snippet(self) -> None:
+        """Regenerate only the snippet panel for the active request tab."""
+        ctx = self._current_tab_context()
+        if ctx is None or ctx.tab_type == "folder":
+            return
+        editor = ctx.editor
+        data = editor.get_request_data()
+        # Resolve {{variable}} placeholders for the snippet.
+        env_id = self._env_selector.current_environment_id()
+        variables = EnvironmentService.build_combined_variable_detail_map(env_id, ctx.request_id)
+        if ctx.local_overrides:
+            for key, override in ctx.local_overrides.items():
+                variables[key] = {
+                    "value": override["value"],
+                    "source": override["original_source"],
+                    "source_id": override["original_source_id"],
+                    "is_local": True,
+                }
+        flat_vars = {k: v["value"] for k, v in variables.items()}
+        sub = EnvironmentService.substitute
+        self._right_sidebar.snippet_panel.update_request(
+            method=editor._method_combo.currentText(),
+            url=sub(editor._url_input.text().strip(), flat_vars),
+            headers=sub(editor.get_headers_text() or "", flat_vars) or None,
+            body=sub(data.get("body") or "", flat_vars) or None,
+            auth=data.get("auth"),
+        )
+
+    def _toggle_right_sidebar(self) -> None:
+        """Toggle the right sidebar panel open or closed."""
+        if self._right_sidebar.panel_open:
+            self._right_sidebar._close_panel()
+        else:
+            self._right_sidebar.open_panel("variables")
+
+    def _on_snippet_shortcut(self) -> None:
+        """Open the sidebar with the snippet panel visible."""
+        self._right_sidebar.open_panel("snippet")

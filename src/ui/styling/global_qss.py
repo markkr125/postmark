@@ -6,9 +6,16 @@ application-wide Qt Style Sheet string from a ThemePalette.
 
 from __future__ import annotations
 
-from ui.styling.theme import (BADGE_BORDER_RADIUS, BADGE_FONT_SIZE,
-                              BADGE_HEIGHT, BADGE_MIN_WIDTH, DARK_PALETTE,
-                              LIGHT_PALETTE, TREE_ROW_HEIGHT, ThemePalette)
+from ui.styling.theme import (
+    BADGE_BORDER_RADIUS,
+    BADGE_FONT_SIZE,
+    BADGE_HEIGHT,
+    BADGE_MIN_WIDTH,
+    DARK_PALETTE,
+    LIGHT_PALETTE,
+    TREE_ROW_HEIGHT,
+    ThemePalette,
+)
 
 
 def build_global_qss(p: ThemePalette) -> str:
@@ -601,5 +608,66 @@ def build_global_qss(p: ThemePalette) -> str:
     QTreeWidget[objectName="collectionTree"]::item:selected {{
         background: {p["selected_bg"]};
         color: {p["text"]};
+    }}
+
+    /* ---- Right sidebar ------------------------------------------ */
+    QWidget[objectName="sidebarPanelArea"] {{
+        background: {p["bg"]};
+        border-right: 1px solid {p["border"]};
+    }}
+    QWidget[objectName="sidebarRail"] {{
+        background: {p["bg"]};
+        border-left: 1px solid {p["border"]};
+    }}
+    QToolButton[objectName="sidebarRailButton"] {{
+        background: transparent;
+        border: none;
+        border-radius: 4px;
+        margin: 2px 3px;
+        color: {p["text_muted"]};
+    }}
+    QToolButton[objectName="sidebarRailButton"]:hover {{
+        background: {"rgba(255,255,255,0.06)" if p is DARK_PALETTE else "rgba(0,0,0,0.05)"};
+    }}
+    QToolButton[objectName="sidebarRailButton"]:checked {{
+        background: {"rgba(255,255,255,0.10)" if p is DARK_PALETTE else "rgba(0,0,0,0.08)"};
+        color: {p["text"]};
+    }}
+    QToolButton[objectName="sidebarRailButton"]:disabled {{
+        color: {p["text_muted"]};
+        opacity: 0.4;
+    }}
+    QLabel[objectName="sidebarTitleLabel"] {{
+        font-weight: bold;
+        font-size: 13px;
+        color: {p["text"]};
+    }}
+    QLabel[objectName="variableKeyLabel"] {{
+        font-family: monospace;
+        font-size: 12px;
+        color: {p["text"]};
+    }}
+    QLabel[objectName="variableValueLabel"] {{
+        font-family: monospace;
+        font-size: 12px;
+        color: {p["text_muted"]};
+    }}
+    QLabel[objectName="sidebarSourceDot"] {{
+        font-size: 16px;
+        font-weight: bold;
+    }}
+    QLabel[objectName="sidebarSourceDot"][varSource="environment"] {{
+        color: {p["accent"]};
+    }}
+    QLabel[objectName="sidebarSourceDot"][varSource="collection"] {{
+        color: {p["success"]};
+    }}
+    QLabel[objectName="sidebarSourceDot"][varSource="local"] {{
+        color: {p["warning"]};
+    }}
+    QLabel[objectName="sidebarSeparator"] {{
+        background: {p["border"]};
+        margin-top: 4px;
+        margin-bottom: 4px;
     }}
     """

@@ -1,16 +1,72 @@
 """Generate code snippets for HTTP requests in various languages.
 
 Provides a ``SnippetGenerator`` with static methods that convert
-request parameters (method, URL, headers, body) into runnable code
+request parameters (method, URL, headers, body, auth) into runnable code
 snippets for different languages and libraries.
 """
 
 from __future__ import annotations
 
+import base64
 import json
 import shlex
 
 from services.http.header_utils import parse_header_dict
+
+
+def _apply_auth(
+    auth: dict | None,
+    url: str,
+    headers: dict[str, str],
+) -> tuple[str, dict[str, str]]:
+    """Inject auth credentials into *headers* / *url*.
+
+    Returns the (possibly modified) ``url`` and ``headers`` dict.
+    Mirrors the logic in ``HttpSendWorker._apply_auth`` but operates
+    on plain dicts (no variable substitution).
+    """
+    if not auth:
+        return url, headers
+
+    auth_type = auth.get("type", "noauth")
+
+    if auth_type == "bearer":
+        token = ""
+        for entry in auth.get("bearer", []):
+            if entry.get("key") == "token":
+                token = entry.get("value", "")
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+
+    elif auth_type == "basic":
+        username = password = ""
+        for entry in auth.get("basic", []):
+            if entry.get("key") == "username":
+                username = entry.get("value", "")
+            elif entry.get("key") == "password":
+                password = entry.get("value", "")
+        if username or password:
+            encoded = base64.b64encode(f"{username}:{password}".encode()).decode()
+            headers["Authorization"] = f"Basic {encoded}"
+
+    elif auth_type == "apikey":
+        key = value = ""
+        add_to = "header"
+        for entry in auth.get("apikey", []):
+            if entry.get("key") == "key":
+                key = entry.get("value", "")
+            elif entry.get("key") == "value":
+                value = entry.get("value", "")
+            elif entry.get("key") == "in":
+                add_to = entry.get("value", "header")
+        if key and value:
+            if add_to == "header":
+                headers[key] = value
+            else:
+                sep = "&" if "?" in url else "?"
+                url = f"{url}{sep}{key}={value}"
+
+    return url, headers
 
 
 class SnippetGenerator:
@@ -26,10 +82,13 @@ class SnippetGenerator:
         url: str,
         headers: str | None = None,
         body: str | None = None,
+        auth: dict | None = None,
     ) -> str:
         """Generate a cURL command."""
+        hdr = parse_header_dict(headers)
+        url, hdr = _apply_auth(auth, url, hdr)
         parts = ["curl", "-X", method.upper(), shlex.quote(url)]
-        for key, value in parse_header_dict(headers).items():
+        for key, value in hdr.items():
             parts.append("-H")
             parts.append(shlex.quote(f"{key}: {value}"))
         if body:
@@ -44,10 +103,12 @@ class SnippetGenerator:
         url: str,
         headers: str | None = None,
         body: str | None = None,
+        auth: dict | None = None,
     ) -> str:
         """Generate a Python ``requests`` snippet."""
         lines = ["import requests", ""]
         hdr = parse_header_dict(headers)
+        url, hdr = _apply_auth(auth, url, hdr)
 
         if hdr:
             lines.append(f"headers = {json.dumps(hdr, indent=4)}")
@@ -78,9 +139,11 @@ class SnippetGenerator:
         url: str,
         headers: str | None = None,
         body: str | None = None,
+        auth: dict | None = None,
     ) -> str:
         """Generate a JavaScript ``fetch`` snippet."""
         hdr = parse_header_dict(headers)
+        url, hdr = _apply_auth(auth, url, hdr)
         opts: list[str] = [f'  method: "{method.upper()}"']
         if hdr:
             hdr_str = json.dumps(hdr, indent=4)
@@ -114,6 +177,7 @@ class SnippetGenerator:
         url: str,
         headers: str | None = None,
         body: str | None = None,
+        auth: dict | None = None,
     ) -> str:
         """Generate a snippet for the given language label.
 
@@ -121,13 +185,15 @@ class SnippetGenerator:
         :meth:`available_languages`.
         """
         if language == "cURL":
-            return SnippetGenerator.curl(method=method, url=url, headers=headers, body=body)
+            return SnippetGenerator.curl(
+                method=method, url=url, headers=headers, body=body, auth=auth
+            )
         if language == "Python (requests)":
             return SnippetGenerator.python_requests(
-                method=method, url=url, headers=headers, body=body
+                method=method, url=url, headers=headers, body=body, auth=auth
             )
         if language == "JavaScript (fetch)":
             return SnippetGenerator.javascript_fetch(
-                method=method, url=url, headers=headers, body=body
+                method=method, url=url, headers=headers, body=body, auth=auth
             )
         return f"# Unsupported language: {language}"

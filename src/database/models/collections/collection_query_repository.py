@@ -225,6 +225,36 @@ def get_request_variable_chain_detailed(request_id: int) -> dict[str, tuple[str,
         return merged
 
 
+def get_collection_variable_chain_detailed(
+    collection_id: int,
+) -> dict[str, tuple[str, int]]:
+    """Walk the parent chain from *collection_id* and return variables.
+
+    Returns ``{key: (value, collection_id)}`` — the same shape as
+    :func:`get_request_variable_chain_detailed` but starting from a
+    collection instead of a request.
+    """
+    with get_session() as session:
+        layers: list[tuple[int, list[dict[str, Any]]]] = []
+        coll = session.get(CollectionModel, collection_id)
+        while coll is not None:
+            if coll.variables:
+                layers.append((coll.id, coll.variables))
+            if coll.parent_id is None:
+                break
+            coll = session.get(CollectionModel, coll.parent_id)
+        merged: dict[str, tuple[str, int]] = {}
+        for coll_id, var_list in reversed(layers):
+            for entry in var_list:
+                if not entry.get("enabled", True):
+                    continue
+                key = entry.get("key", "")
+                value = entry.get("value", "")
+                if key:
+                    merged[key] = (value, coll_id)
+        return merged
+
+
 def get_request_breadcrumb(request_id: int) -> list[dict[str, Any]]:
     """Return the breadcrumb path from root collection to the request.
 

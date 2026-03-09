@@ -37,6 +37,7 @@ cross-layer data interchange.
 | `get_request_auth_chain(request_id)` | `dict[str, Any] \| None` | Walk parent chain for auth config |
 | `get_request_variable_chain(request_id)` | `dict[str, str]` | Collect variables up the parent chain |
 | `get_request_variable_chain_detailed(request_id)` | `dict[str, tuple[str, int]]` | Variables with source collection IDs |
+| `get_collection_variable_chain_detailed(collection_id)` | `dict[str, tuple[str, int]]` | Variables from collection's parent chain with source IDs |
 | `get_request_breadcrumb(request_id)` | `list[dict[str, Any]]` | Ancestor path for breadcrumb bar |
 | `get_collection_breadcrumb(collection_id)` | `list[dict[str, Any]]` | Ancestor path for collection breadcrumb |
 | `get_saved_responses_for_request(request_id)` | `list[dict[str, Any]]` | Saved responses for a request |
