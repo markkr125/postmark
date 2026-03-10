@@ -136,25 +136,79 @@ def get_request_by_id(request_id: int) -> RequestModel | None:
 def get_request_auth_chain(request_id: int) -> dict[str, Any] | None:
     """Walk the parent collection chain to find the effective auth config.
 
-    Returns the request's own auth if set and not ``noauth``.  Otherwise
-    walks up through parent collections and returns the first auth found.
-    Returns ``None`` if no auth is configured anywhere in the chain.
+    Inheritance rules:
+
+    - ``auth is None`` means *inherit from parent* — walk up the chain.
+    - ``{"type": "noauth"}`` means *explicit no-auth* — stop and
+      return ``None``.
+    - Any other auth dict means *own auth* — return it immediately.
+
+    Returns ``None`` if nothing is configured or an ancestor opted out.
     """
     with get_session() as session:
         req = session.get(RequestModel, request_id)
         if req is None:
             return None
         # 1. Check request's own auth
-        if req.auth and req.auth.get("type") not in (None, "noauth"):
+        if req.auth is not None:
+            if req.auth.get("type") == "noauth":
+                return None
             return req.auth
-        # 2. Walk parent collection chain
+        # 2. Walk parent collection chain (request auth is None → inherit)
         coll = session.get(CollectionModel, req.collection_id)
         while coll is not None:
-            if coll.auth and coll.auth.get("type") not in (None, "noauth"):
+            if coll.auth is not None:
+                if coll.auth.get("type") == "noauth":
+                    return None
                 return coll.auth
             if coll.parent_id is None:
                 break
             coll = session.get(CollectionModel, coll.parent_id)
+        return None
+
+
+def get_request_inherited_auth(request_id: int) -> dict[str, Any] | None:
+    """Return the *parent* auth that a request would inherit.
+
+    Skips the request's own auth and starts walking from its parent
+    collection.  Used by the UI to preview inherited auth on the
+    "Inherit auth from parent" page.
+    """
+    with get_session() as session:
+        req = session.get(RequestModel, request_id)
+        if req is None:
+            return None
+        coll = session.get(CollectionModel, req.collection_id)
+        while coll is not None:
+            if coll.auth is not None:
+                if coll.auth.get("type") == "noauth":
+                    return None
+                return coll.auth
+            if coll.parent_id is None:
+                break
+            coll = session.get(CollectionModel, coll.parent_id)
+        return None
+
+
+def get_collection_inherited_auth(collection_id: int) -> dict[str, Any] | None:
+    """Return the *parent* auth that a collection would inherit.
+
+    Starts from the collection's *parent* (not itself) and walks up.
+    Used by the folder editor to preview inherited auth.
+    """
+    with get_session() as session:
+        coll = session.get(CollectionModel, collection_id)
+        if coll is None or coll.parent_id is None:
+            return None
+        parent = session.get(CollectionModel, coll.parent_id)
+        while parent is not None:
+            if parent.auth is not None:
+                if parent.auth.get("type") == "noauth":
+                    return None
+                return parent.auth
+            if parent.parent_id is None:
+                break
+            parent = session.get(CollectionModel, parent.parent_id)
         return None
 
 

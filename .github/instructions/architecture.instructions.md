@@ -194,6 +194,20 @@ signal instead of relying on `_safe_svc_call`.
 Children within a folder are **not sorted** — they appear in dict iteration
 order (insertion order in Python 3.7+).
 
+### 6. Auth inheritance convention
+
+`auth = None` in the database means "inherit from parent" — the request
+or folder walks up its ancestor chain until it finds a folder with an
+explicit `auth` dict.  `{"type": "noauth"}` means "no authentication" and
+**stops** the inheritance chain.  The UI maps `None` to
+`"Inherit auth from parent"` in the auth type combo.
+
+- `_get_auth_data()` returns `None` for inherit, `{"type": "noauth"}` for
+  explicit no-auth.
+- `_load_auth(None)` / `_load_auth({})` → selects "Inherit auth from parent".
+- `get_request_inherited_auth(request_id)` / `get_collection_inherited_auth(collection_id)`
+  resolve the effective auth by walking ancestors.
+
 ## Repository and service reference
 
 > **Full repository function catalogues, service method tables, TypedDict

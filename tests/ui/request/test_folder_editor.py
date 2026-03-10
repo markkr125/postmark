@@ -137,12 +137,29 @@ class TestFolderEditorLoad:
         assert editor._apikey_add_to_combo.currentText() == "Header"
 
     def test_load_no_auth(self, qapp: QApplication, qtbot) -> None:
-        """Loading with no auth defaults to No Auth."""
+        """Loading with no auth defaults to Inherit auth from parent."""
         editor = FolderEditorWidget()
         qtbot.addWidget(editor)
 
         editor.load_collection({"name": "Coll"}, collection_id=1)
+        assert editor._auth_type_combo.currentText() == "Inherit auth from parent"
+
+    def test_load_explicit_noauth(self, qapp: QApplication, qtbot) -> None:
+        """Loading with explicit noauth selects No Auth."""
+        editor = FolderEditorWidget()
+        qtbot.addWidget(editor)
+
+        editor.load_collection({"name": "Coll", "auth": {"type": "noauth"}}, collection_id=1)
         assert editor._auth_type_combo.currentText() == "No Auth"
+
+    def test_get_inherit_auth_returns_none(self, qapp: QApplication, qtbot) -> None:
+        """get_collection_data returns auth=None for inherit."""
+        editor = FolderEditorWidget()
+        qtbot.addWidget(editor)
+
+        editor.load_collection({"name": "Coll"}, collection_id=1)
+        result = editor.get_collection_data()
+        assert result["auth"] is None
 
     def test_load_scripts(self, qapp: QApplication, qtbot) -> None:
         """Loading populates the pre-request and test script fields."""
@@ -248,7 +265,7 @@ class TestFolderEditorClear:
         assert editor._description_edit.toPlainText() == ""
         assert editor._pre_request_edit.toPlainText() == ""
         assert editor._test_script_edit.toPlainText() == ""
-        assert editor._auth_type_combo.currentText() == "No Auth"
+        assert editor._auth_type_combo.currentText() == "Inherit auth from parent"
 
 
 class TestFolderEditorSignal:

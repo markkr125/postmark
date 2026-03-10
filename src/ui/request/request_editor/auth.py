@@ -1,33 +1,33 @@
 """Authorization tab mixin for the request editor.
 
 Provides ``_AuthMixin`` with the auth tab UI construction
-(type selector and field pages for Bearer, Basic, API Key) and
-serialisation / deserialisation helpers.  Mixed into
-``RequestEditorWidget``.
+(type selector and field pages for Inherit, No Auth, Bearer,
+Basic, API Key) and serialisation / deserialisation helpers.
+Mixed into ``RequestEditorWidget``.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QComboBox,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QStackedWidget,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QLabel, QLineEdit,
+                               QStackedWidget, QVBoxLayout, QWidget)
 
 from ui.widgets.variable_line_edit import VariableLineEdit
 
 if TYPE_CHECKING:
     from PySide6.QtCore import QTimer
 
-# Authorization type identifiers (must match editor_widget._AUTH_TYPES order)
-_AUTH_TYPES = ("No Auth", "Bearer Token", "Basic Auth", "API Key")
+# Authorization type identifiers (must match stacked-widget page order)
+_AUTH_TYPES = ("Inherit auth from parent", "No Auth", "Bearer Token", "Basic Auth", "API Key")
+
+# Human-readable labels for resolved auth types shown in the inherit preview
+_AUTH_TYPE_LABELS: dict[str, str] = {
+    "bearer": "Bearer Token",
+    "basic": "Basic Auth",
+    "apikey": "API Key",
+}
 
 
 class _AuthMixin:
@@ -40,6 +40,7 @@ class _AuthMixin:
     # -- Host-class interface (declared for mypy) -----------------------
     _loading: bool
     _debounce_timer: QTimer
+    _request_id: int | None
 
     def _on_field_changed(self) -> None: ...
     def _set_dirty(self, dirty: bool) -> None: ...
@@ -57,7 +58,7 @@ class _AuthMixin:
 
         self._auth_type_combo = QComboBox()
         self._auth_type_combo.addItems(list(_AUTH_TYPES))
-        self._auth_type_combo.setFixedWidth(140)
+        self._auth_type_combo.setFixedWidth(200)
         self._auth_type_combo.currentTextChanged.connect(self._on_auth_type_changed)
         auth_type_row.addWidget(self._auth_type_combo)
         auth_type_row.addStretch()
@@ -65,13 +66,29 @@ class _AuthMixin:
 
         self._auth_fields_stack = QStackedWidget()
 
-        # No Auth page
+        # Inherit auth from parent page (index 0)
+        inherit_page = QWidget()
+        inherit_layout = QVBoxLayout(inherit_page)
+        inherit_layout.setContentsMargins(0, 8, 0, 0)
+        inherit_msg = QLabel(
+            "The authorization header will be automatically\ngenerated when you send the request."
+        )
+        inherit_msg.setObjectName("emptyStateLabel")
+        inherit_layout.addWidget(inherit_msg)
+        self._inherit_preview_label = QLabel()
+        self._inherit_preview_label.setObjectName("sectionLabel")
+        self._inherit_preview_label.setWordWrap(True)
+        inherit_layout.addWidget(self._inherit_preview_label)
+        inherit_layout.addStretch()
+        self._auth_fields_stack.addWidget(inherit_page)
+
+        # No Auth page (index 1)
         no_auth_page = QLabel("This request does not use any authorization.")
         no_auth_page.setAlignment(Qt.AlignmentFlag.AlignCenter)
         no_auth_page.setObjectName("emptyStateLabel")
         self._auth_fields_stack.addWidget(no_auth_page)
 
-        # Bearer Token page
+        # Bearer Token page (index 2)
         bearer_page = QWidget()
         bearer_layout = QVBoxLayout(bearer_page)
         bearer_layout.setContentsMargins(0, 8, 0, 0)
@@ -85,7 +102,7 @@ class _AuthMixin:
         bearer_layout.addStretch()
         self._auth_fields_stack.addWidget(bearer_page)
 
-        # Basic Auth page
+        # Basic Auth page (index 3)
         basic_page = QWidget()
         basic_layout = QVBoxLayout(basic_page)
         basic_layout.setContentsMargins(0, 8, 0, 0)
@@ -107,7 +124,7 @@ class _AuthMixin:
         basic_layout.addStretch()
         self._auth_fields_stack.addWidget(basic_page)
 
-        # API Key page
+        # API Key page (index 4)
         apikey_page = QWidget()
         apikey_layout = QVBoxLayout(apikey_page)
         apikey_layout.setContentsMargins(0, 8, 0, 0)
@@ -144,29 +161,65 @@ class _AuthMixin:
     def _on_auth_type_changed(self, auth_type: str) -> None:
         """Switch the auth fields stack page based on the selected type."""
         page_map = {
-            "No Auth": 0,
-            "Bearer Token": 1,
-            "Basic Auth": 2,
-            "API Key": 3,
+            "Inherit auth from parent": 0,
+            "No Auth": 1,
+            "Bearer Token": 2,
+            "Basic Auth": 3,
+            "API Key": 4,
         }
         self._auth_fields_stack.setCurrentIndex(page_map.get(auth_type, 0))
+        if auth_type == "Inherit auth from parent":
+            self._update_inherit_preview()
         if not self._loading:
             self._set_dirty(True)
             self._debounce_timer.start()
             self._sync_tab_indicators()
 
+    # -- Inherit preview -----------------------------------------------
+
+    def _update_inherit_preview(self) -> None:
+        """Refresh the inherit page label with the resolved parent auth."""
+        from services.collection_service import CollectionService
+
+        request_id = getattr(self, "_request_id", None)
+        if not request_id:
+            self._inherit_preview_label.setText("No parent auth configured.")
+            return
+        resolved = CollectionService.get_request_inherited_auth(request_id)
+        self._set_inherit_preview_from_auth(resolved)
+
+    def _set_inherit_preview_from_auth(self, auth: dict[str, Any] | None) -> None:
+        """Set the inherit preview label from a resolved auth dict."""
+        if not auth:
+            self._inherit_preview_label.setText("No parent auth configured.")
+            return
+        auth_type = auth.get("type", "")
+        label = _AUTH_TYPE_LABELS.get(auth_type, auth_type)
+        self._inherit_preview_label.setText(f"Using {label} from parent.")
+
     # -- Load / save helpers -------------------------------------------
 
-    def _load_auth(self, auth: dict) -> None:
-        """Populate auth fields from a Postman-format auth dict."""
-        auth_type = auth.get("type", "noauth")
-        auth_type_map = {
+    def _load_auth(self, auth: dict | None) -> None:
+        """Populate auth fields from a Postman-format auth dict.
+
+        ``None`` or ``{}`` maps to "Inherit auth from parent".
+        ``{"type": "noauth"}`` maps to "No Auth".
+        """
+        if not auth:
+            self._auth_type_combo.setCurrentText("Inherit auth from parent")
+            return
+
+        auth_type = auth.get("type", "inherit")
+        auth_type_map: dict[str, str] = {
+            "inherit": "Inherit auth from parent",
             "noauth": "No Auth",
             "bearer": "Bearer Token",
             "basic": "Basic Auth",
             "apikey": "API Key",
         }
-        self._auth_type_combo.setCurrentText(auth_type_map.get(auth_type, "No Auth"))
+        self._auth_type_combo.setCurrentText(
+            auth_type_map.get(auth_type, "Inherit auth from parent")
+        )
         if auth_type == "bearer":
             bearer_list = auth.get("bearer", [])
             token = ""
@@ -201,8 +254,14 @@ class _AuthMixin:
             self._apikey_add_to_combo.setCurrentText(add_to_map.get(add_to, "Header"))
 
     def _get_auth_data(self) -> dict | None:
-        """Build the auth configuration dict from the current UI state."""
+        """Build the auth configuration dict from the current UI state.
+
+        Returns ``None`` for "Inherit auth from parent" (stored as
+        ``auth = None`` in the database).
+        """
         auth_type = self._auth_type_combo.currentText()
+        if auth_type == "Inherit auth from parent":
+            return None
         if auth_type == "No Auth":
             return {"type": "noauth"}
         if auth_type == "Bearer Token":

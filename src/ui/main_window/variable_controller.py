@@ -159,7 +159,8 @@ class _VariableControllerMixin:
             request_id = ctx.request_id if ctx else None
             if request_id is None:
                 return
-            from database.models.collections.collection_query_repository import get_request_by_id
+            from database.models.collections.collection_query_repository import \
+                get_request_by_id
 
             req = get_request_by_id(request_id)
             if req is None:
@@ -200,9 +201,8 @@ class _VariableControllerMixin:
             variables = EnvironmentService.build_combined_variable_detail_map(env_id, None)
             # Merge folder-level variables from the collection chain
             if ctx.collection_id is not None:
-                from database.models.collections.collection_query_repository import (
-                    get_collection_variable_chain_detailed,
-                )
+                from database.models.collections.collection_query_repository import \
+                    get_collection_variable_chain_detailed
 
                 for key, (value, coll_id) in get_collection_variable_chain_detailed(
                     ctx.collection_id
@@ -232,6 +232,12 @@ class _VariableControllerMixin:
             # Resolve {{variable}} placeholders for the snippet.
             flat_vars = {k: v["value"] for k, v in variables.items()}
             sub = EnvironmentService.substitute
+            # Resolve inherited auth for sidebar / snippet display
+            auth = data.get("auth")
+            if auth is None and ctx.request_id:
+                from services.collection_service import CollectionService
+
+                auth = CollectionService.get_request_inherited_auth(ctx.request_id)
             self._right_sidebar.show_request_panels(
                 variables,
                 local_overrides=ctx.local_overrides,
@@ -240,7 +246,7 @@ class _VariableControllerMixin:
                 url=sub(editor._url_input.text().strip(), flat_vars),
                 headers=sub(editor.get_headers_text() or "", flat_vars) or None,
                 body=sub(data.get("body") or "", flat_vars) or None,
-                auth=data.get("auth"),
+                auth=auth,
             )
 
     def _schedule_sidebar_snippet_refresh(self) -> None:
@@ -272,8 +278,21 @@ class _VariableControllerMixin:
             url=sub(editor._url_input.text().strip(), flat_vars),
             headers=sub(editor.get_headers_text() or "", flat_vars) or None,
             body=sub(data.get("body") or "", flat_vars) or None,
-            auth=data.get("auth"),
+            auth=self._resolve_snippet_auth(data.get("auth"), ctx.request_id),
         )
+
+    def _resolve_snippet_auth(self, auth: dict | None, request_id: int | None) -> dict | None:
+        """Return the effective auth for snippet generation.
+
+        If the request uses "Inherit auth from parent" (``auth is None``)
+        and has a saved request_id, resolve the inherited auth from the
+        collection chain.
+        """
+        if auth is None and request_id:
+            from services.collection_service import CollectionService
+
+            return CollectionService.get_request_inherited_auth(request_id)
+        return auth
 
     def _toggle_right_sidebar(self) -> None:
         """Toggle the right sidebar panel open or closed."""

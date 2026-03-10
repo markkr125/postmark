@@ -11,9 +11,19 @@ import time
 
 from PySide6.QtCore import QEvent, QSettings, Qt
 from PySide6.QtGui import QClipboard, QGuiApplication, QMouseEvent
-from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFormLayout,
-                               QFrame, QHBoxLayout, QLabel, QPushButton,
-                               QSpinBox, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QFormLayout,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
+)
 
 from services.http.snippet_generator import SnippetGenerator, SnippetOptions
 from ui.styling.icons import phi

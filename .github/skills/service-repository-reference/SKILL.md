@@ -35,6 +35,8 @@ cross-layer data interchange.
 | `get_collection_by_id(collection_id)` | `CollectionModel \| None` | PK lookup |
 | `get_request_by_id(request_id)` | `RequestModel \| None` | PK lookup |
 | `get_request_auth_chain(request_id)` | `dict[str, Any] \| None` | Walk parent chain for auth config |
+| `get_request_inherited_auth(request_id)` | `dict[str, Any] \| None` | Resolve inherited auth for a request (walks ancestors) |
+| `get_collection_inherited_auth(collection_id)` | `dict[str, Any] \| None` | Resolve inherited auth for a collection (walks ancestors) |
 | `get_request_variable_chain(request_id)` | `dict[str, str]` | Collect variables up the parent chain |
 | `get_request_variable_chain_detailed(request_id)` | `dict[str, tuple[str, int]]` | Variables with source collection IDs |
 | `get_collection_variable_chain_detailed(collection_id)` | `dict[str, tuple[str, int]]` | Variables from collection's parent chain with source IDs |
@@ -84,6 +86,8 @@ directly to the repository with no added logic.
 | `update_collection(id, **fields)` | Passthrough (generic field update) |
 | `update_request(id, **fields)` | Passthrough (generic field update) |
 | `get_request_auth_chain(request_id)` | Passthrough |
+| `get_request_inherited_auth(request_id)` | Passthrough |
+| `get_collection_inherited_auth(collection_id)` | Passthrough |
 | `get_request_variable_chain(request_id)` | Passthrough |
 | `get_request_breadcrumb(request_id)` | Passthrough |
 | `get_collection_breadcrumb(collection_id)` | Passthrough |

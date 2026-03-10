@@ -75,8 +75,8 @@ class _SendPipelineMixin:
         from services.collection_service import CollectionService
 
         auth_data = editor._get_auth_data()
-        if ctx and ctx.request_id and (not auth_data or auth_data.get("type") in (None, "noauth")):
-            inherited = CollectionService.get_request_auth_chain(ctx.request_id)
+        if ctx and ctx.request_id and auth_data is None:
+            inherited = CollectionService.get_request_inherited_auth(ctx.request_id)
             if inherited:
                 auth_data = inherited
 

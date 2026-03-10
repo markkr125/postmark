@@ -10,30 +10,17 @@ import logging
 from typing import Any, TypedDict
 
 from database.models.collections.collection_query_repository import (
-    count_collection_requests,
-    fetch_all_collections,
-    get_collection_breadcrumb,
-    get_collection_by_id,
-    get_recent_requests_for_collection,
-    get_request_auth_chain,
-    get_request_breadcrumb,
-    get_request_by_id,
-    get_request_variable_chain,
-    get_saved_responses_for_request,
-)
+    count_collection_requests, fetch_all_collections,
+    get_collection_breadcrumb, get_collection_by_id,
+    get_collection_inherited_auth, get_recent_requests_for_collection,
+    get_request_auth_chain, get_request_breadcrumb, get_request_by_id,
+    get_request_inherited_auth, get_request_variable_chain,
+    get_saved_responses_for_request)
 from database.models.collections.collection_repository import (
-    create_new_collection,
-    create_new_request,
-    delete_collection,
-    delete_request,
-    rename_collection,
-    rename_request,
-    save_response,
-    update_collection,
-    update_collection_parent,
-    update_request,
-    update_request_collection,
-)
+    create_new_collection, create_new_request, delete_collection,
+    delete_request, rename_collection, rename_request, save_response,
+    update_collection, update_collection_parent, update_request,
+    update_request_collection)
 from database.models.collections.model.collection_model import CollectionModel
 from database.models.collections.model.request_model import RequestModel
 
@@ -237,10 +224,32 @@ class CollectionService:
     def get_request_auth_chain(request_id: int) -> dict[str, Any] | None:
         """Return the effective auth for a request, walking parent chain.
 
-        Checks the request first, then walks up parent collections.
-        Returns ``None`` if no auth is configured anywhere in the chain.
+        Respects the inherit / noauth distinction:
+
+        - ``auth is None`` → inherit from parent (walk up the chain).
+        - ``{"type": "noauth"}`` → explicit no-auth (stop).
+        - Any other auth dict → use it.
         """
         return get_request_auth_chain(request_id)
+
+    @staticmethod
+    def get_request_inherited_auth(request_id: int) -> dict[str, Any] | None:
+        """Return only the *parent* auth a request would inherit.
+
+        Skips the request's own auth and walks from its parent
+        collection upward.  Used by the "Inherit auth from parent" UI
+        to preview the resolved auth.
+        """
+        return get_request_inherited_auth(request_id)
+
+    @staticmethod
+    def get_collection_inherited_auth(collection_id: int) -> dict[str, Any] | None:
+        """Return only the *parent* auth a collection would inherit.
+
+        Starts from the collection's parent and walks up.  Used by
+        the folder editor's "Inherit auth from parent" UI.
+        """
+        return get_collection_inherited_auth(collection_id)
 
     @staticmethod
     def get_request_variable_chain(request_id: int) -> dict[str, str]:

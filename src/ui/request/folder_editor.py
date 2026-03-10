@@ -10,24 +10,22 @@ from __future__ import annotations
 from typing import Any
 
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtWidgets import (
-    QComboBox,
-    QFrame,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QStackedWidget,
-    QTabWidget,
-    QTextEdit,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import (QComboBox, QFrame, QHBoxLayout, QLabel,
+                               QLineEdit, QStackedWidget, QTabWidget,
+                               QTextEdit, QVBoxLayout, QWidget)
 
 from ui.widgets.code_editor import CodeEditorWidget
 from ui.widgets.key_value_table import KeyValueTableWidget
 
 # Authorization type identifiers (same as RequestEditorWidget)
-_AUTH_TYPES = ("No Auth", "Bearer Token", "Basic Auth", "API Key")
+_AUTH_TYPES = ("Inherit auth from parent", "No Auth", "Bearer Token", "Basic Auth", "API Key")
+
+# Human-readable labels for resolved auth types shown in the inherit preview
+_AUTH_TYPE_LABELS: dict[str, str] = {
+    "bearer": "Bearer Token",
+    "basic": "Basic Auth",
+    "apikey": "API Key",
+}
 
 # Debounce delay (ms) for the collection_changed signal
 _DEBOUNCE_MS = 800
@@ -165,7 +163,7 @@ class FolderEditorWidget(QWidget):
 
         self._auth_type_combo = QComboBox()
         self._auth_type_combo.addItems(list(_AUTH_TYPES))
-        self._auth_type_combo.setFixedWidth(140)
+        self._auth_type_combo.setFixedWidth(200)
         self._auth_type_combo.currentTextChanged.connect(self._on_auth_type_changed)
         auth_type_row.addWidget(self._auth_type_combo)
         auth_type_row.addStretch()
@@ -174,13 +172,29 @@ class FolderEditorWidget(QWidget):
         # Auth fields stack
         self._auth_fields_stack = QStackedWidget()
 
-        # No Auth page
+        # Inherit auth from parent page (index 0)
+        inherit_page = QWidget()
+        inherit_layout = QVBoxLayout(inherit_page)
+        inherit_layout.setContentsMargins(0, 8, 0, 0)
+        inherit_msg = QLabel(
+            "The authorization header will be automatically\ngenerated when you send the request."
+        )
+        inherit_msg.setObjectName("emptyStateLabel")
+        inherit_layout.addWidget(inherit_msg)
+        self._inherit_preview_label = QLabel()
+        self._inherit_preview_label.setObjectName("sectionLabel")
+        self._inherit_preview_label.setWordWrap(True)
+        inherit_layout.addWidget(self._inherit_preview_label)
+        inherit_layout.addStretch()
+        self._auth_fields_stack.addWidget(inherit_page)
+
+        # No Auth page (index 1)
         no_auth_page = QLabel("This folder does not use any authorization.")
         no_auth_page.setAlignment(Qt.AlignmentFlag.AlignCenter)
         no_auth_page.setObjectName("emptyStateLabel")
         self._auth_fields_stack.addWidget(no_auth_page)
 
-        # Bearer Token page
+        # Bearer Token page (index 2)
         bearer_page = QWidget()
         bearer_layout = QVBoxLayout(bearer_page)
         bearer_layout.setContentsMargins(0, 8, 0, 0)
@@ -194,7 +208,7 @@ class FolderEditorWidget(QWidget):
         bearer_layout.addStretch()
         self._auth_fields_stack.addWidget(bearer_page)
 
-        # Basic Auth page
+        # Basic Auth page (index 3)
         basic_page = QWidget()
         basic_layout = QVBoxLayout(basic_page)
         basic_layout.setContentsMargins(0, 8, 0, 0)
@@ -216,7 +230,7 @@ class FolderEditorWidget(QWidget):
         basic_layout.addStretch()
         self._auth_fields_stack.addWidget(basic_page)
 
-        # API Key page
+        # API Key page (index 4)
         apikey_page = QWidget()
         apikey_layout = QVBoxLayout(apikey_page)
         apikey_layout.setContentsMargins(0, 8, 0, 0)
@@ -351,7 +365,7 @@ class FolderEditorWidget(QWidget):
             self._description_edit.setPlainText(data.get("description") or "")
 
             # Auth
-            self._load_auth(data.get("auth") or {})
+            self._load_auth(data.get("auth"))
 
             # Scripts (events -- accept both dict and Postman list format)
             events = _normalize_events(data.get("events"))
@@ -377,16 +391,27 @@ class FolderEditorWidget(QWidget):
         finally:
             self._loading = False
 
-    def _load_auth(self, auth: dict) -> None:
-        """Populate the auth UI from a Postman-style auth dict."""
-        auth_type = auth.get("type", "noauth")
-        auth_type_map = {
+    def _load_auth(self, auth: dict | None) -> None:
+        """Populate the auth UI from a Postman-style auth dict.
+
+        ``None`` or ``{}`` maps to "Inherit auth from parent".
+        ``{"type": "noauth"}`` maps to "No Auth".
+        """
+        if not auth:
+            self._auth_type_combo.setCurrentText("Inherit auth from parent")
+            return
+
+        auth_type = auth.get("type", "inherit")
+        auth_type_map: dict[str, str] = {
+            "inherit": "Inherit auth from parent",
             "noauth": "No Auth",
             "bearer": "Bearer Token",
             "basic": "Basic Auth",
             "apikey": "API Key",
         }
-        self._auth_type_combo.setCurrentText(auth_type_map.get(auth_type, "No Auth"))
+        self._auth_type_combo.setCurrentText(
+            auth_type_map.get(auth_type, "Inherit auth from parent")
+        )
         if auth_type == "bearer":
             bearer_list = auth.get("bearer", [])
             token = ""
@@ -441,7 +466,7 @@ class FolderEditorWidget(QWidget):
             self._updated_label.setText("")
             self._recent_requests_label.setText("")
             self._description_edit.clear()
-            self._auth_type_combo.setCurrentText("No Auth")
+            self._auth_type_combo.setCurrentText("Inherit auth from parent")
             self._bearer_token_input.clear()
             self._basic_username_input.clear()
             self._basic_password_input.clear()
@@ -479,18 +504,43 @@ class FolderEditorWidget(QWidget):
     def _on_auth_type_changed(self, auth_type: str) -> None:
         """Switch the auth fields stack page based on the selected type."""
         page_map = {
-            "No Auth": 0,
-            "Bearer Token": 1,
-            "Basic Auth": 2,
-            "API Key": 3,
+            "Inherit auth from parent": 0,
+            "No Auth": 1,
+            "Bearer Token": 2,
+            "Basic Auth": 3,
+            "API Key": 4,
         }
         self._auth_fields_stack.setCurrentIndex(page_map.get(auth_type, 0))
+        if auth_type == "Inherit auth from parent":
+            self._update_inherit_preview()
         if not self._loading:
             self._debounce_timer.start()
 
+    def _update_inherit_preview(self) -> None:
+        """Refresh the inherit page label with the resolved parent auth."""
+        from services.collection_service import CollectionService
+
+        collection_id = self._collection_id
+        if not collection_id:
+            self._inherit_preview_label.setText("No parent auth configured.")
+            return
+        resolved = CollectionService.get_collection_inherited_auth(collection_id)
+        if not resolved:
+            self._inherit_preview_label.setText("No parent auth configured.")
+            return
+        auth_type = resolved.get("type", "")
+        label = _AUTH_TYPE_LABELS.get(auth_type, auth_type)
+        self._inherit_preview_label.setText(f"Using {label} from parent.")
+
     def _get_auth_data(self) -> dict | None:
-        """Build the auth configuration dict from the current UI state."""
+        """Build the auth configuration dict from the current UI state.
+
+        Returns ``None`` for "Inherit auth from parent" (stored as
+        ``auth = None`` in the database).
+        """
         auth_type = self._auth_type_combo.currentText()
+        if auth_type == "Inherit auth from parent":
+            return None
         if auth_type == "No Auth":
             return {"type": "noauth"}
         if auth_type == "Bearer Token":

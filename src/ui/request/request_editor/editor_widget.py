@@ -10,23 +10,13 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QModelIndex, QPersistentModelIndex, Qt, QTimer, Signal
+from PySide6.QtCore import (QModelIndex, QPersistentModelIndex, Qt, QTimer,
+                            Signal)
 from PySide6.QtGui import QColor, QKeySequence, QPalette, QShortcut
-from PySide6.QtWidgets import (
-    QComboBox,
-    QFileDialog,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QRadioButton,
-    QSizePolicy,
-    QStyledItemDelegate,
-    QStyleOptionViewItem,
-    QTabWidget,
-    QTextEdit,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import (QComboBox, QFileDialog, QHBoxLayout, QLabel,
+                               QPushButton, QRadioButton, QSizePolicy,
+                               QStyledItemDelegate, QStyleOptionViewItem,
+                               QTabWidget, QTextEdit, QVBoxLayout, QWidget)
 
 from ui.request.request_editor.auth import _AuthMixin
 from ui.request.request_editor.body_search import _BodySearchMixin
@@ -290,7 +280,7 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, QWidget):
             else:
                 self._scripts_edit.setPlainText("")
 
-            self._load_auth(data.get("auth") or {})
+            self._load_auth(data.get("auth"))
             self._description_edit.setPlainText(data.get("description") or "")
             self._set_dirty(False)
         finally:
@@ -408,7 +398,7 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, QWidget):
             self._scripts_edit.clear()
             self._body_mode_buttons["none"].setChecked(True)
             self._raw_format_combo.setCurrentText("Text")
-            self._auth_type_combo.setCurrentText("No Auth")
+            self._auth_type_combo.setCurrentText("Inherit auth from parent")
             self._bearer_token_input.clear()
             self._basic_username_input.clear()
             self._basic_password_input.clear()
@@ -443,7 +433,7 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, QWidget):
             bool(self._params_table.get_data()),
             bool(self._headers_table.get_data()),
             not self._body_mode_buttons.get("none", QRadioButton()).isChecked(),
-            self._auth_type_combo.currentText() != "No Auth",
+            self._auth_type_combo.currentText() not in ("No Auth", "Inherit auth from parent"),
             bool(self._description_edit.toPlainText().strip()),
             bool(self._scripts_edit.toPlainText().strip()),
         ]

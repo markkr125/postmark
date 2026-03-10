@@ -24,6 +24,7 @@ class TestRequestEditorAuth:
         items = [
             editor._auth_type_combo.itemText(i) for i in range(editor._auth_type_combo.count())
         ]
+        assert "Inherit auth from parent" in items
         assert "No Auth" in items
         assert "Bearer Token" in items
         assert "Basic Auth" in items
@@ -86,12 +87,22 @@ class TestRequestEditorAuth:
         assert data["auth"]["type"] == "bearer"
         assert data["auth"]["bearer"][0]["value"] == "abc"
 
+    def test_get_auth_data_inherit(self, qapp: QApplication, qtbot) -> None:
+        """get_request_data returns None when Inherit auth is selected."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+
+        editor.load_request({"name": "X", "method": "GET", "url": "http://x"})
+        data = editor.get_request_data()
+        assert data["auth"] is None
+
     def test_get_auth_data_no_auth(self, qapp: QApplication, qtbot) -> None:
         """get_request_data returns noauth when No Auth is selected."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
 
         editor.load_request({"name": "X", "method": "GET", "url": "http://x"})
+        editor._auth_type_combo.setCurrentText("No Auth")
         data = editor.get_request_data()
         assert data["auth"]["type"] == "noauth"
 
@@ -112,8 +123,31 @@ class TestRequestEditorAuth:
             }
         )
         editor.clear_request()
-        assert editor._auth_type_combo.currentText() == "No Auth"
+        assert editor._auth_type_combo.currentText() == "Inherit auth from parent"
         assert editor._bearer_token_input.text() == ""
+
+    def test_load_inherit_auth(self, qapp: QApplication, qtbot) -> None:
+        """Loading with auth=None selects Inherit auth from parent."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+
+        editor.load_request({"name": "X", "method": "GET", "url": "http://x", "auth": None})
+        assert editor._auth_type_combo.currentText() == "Inherit auth from parent"
+
+    def test_load_noauth_selects_no_auth(self, qapp: QApplication, qtbot) -> None:
+        """Loading with explicit noauth selects No Auth."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+
+        editor.load_request(
+            {
+                "name": "X",
+                "method": "GET",
+                "url": "http://x",
+                "auth": {"type": "noauth"},
+            }
+        )
+        assert editor._auth_type_combo.currentText() == "No Auth"
 
 
 class TestApplyAuth:
