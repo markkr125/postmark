@@ -147,15 +147,23 @@ All methods are `@staticmethod`.
 
 ### SnippetGenerator
 
-All methods are `@staticmethod`.
+Located in `services/http/snippet_generator/` sub-package (re-exported via
+`services/http/__init__.py`).  All methods are `@staticmethod`.
 
 | Method | Purpose |
 |--------|---------|
-| `curl(method, url, headers, body)` | cURL command |
-| `python_requests(method, url, headers, body)` | Python requests library |
-| `javascript_fetch(method, url, headers, body)` | JavaScript fetch API |
-| `available_languages()` | List of supported language names |
-| `generate(language, method, url, headers, body)` | Dispatch to language-specific generator |
+| `available_languages()` | List of 23 supported language display names |
+| `get_language_info(name)` | Return `LanguageEntry` for a display name, or `None` |
+| `generate(language, method, url, headers, body, auth, options)` | Dispatch to language-specific generator |
+
+**`LanguageEntry`** (`NamedTuple`): `display_name`, `lexer`, `applicable_options`, `generate_fn`.
+
+**Supported languages (23):** cURL, HTTP, PowerShell (RestMethod),
+Shell (HTTPie), Shell (wget), Python (requests), Python (http.client),
+JavaScript (fetch), JavaScript (XHR), NodeJS (Axios), NodeJS (Native),
+Ruby (Net::HTTP), PHP (cURL), PHP (Guzzle), Dart (http), C (libcurl),
+C# (HttpClient), C# (RestSharp), Go (net/http), Java (OkHttp),
+Kotlin (OkHttp), Rust (reqwest), Swift (URLSession).
 
 ### Shared HTTP utilities (`services/http/header_utils.py`)
 
@@ -164,6 +172,26 @@ All methods are `@staticmethod`.
 | `parse_header_dict(raw)` | `dict[str, str]` | Parse `Key: Value\n` lines into a dict |
 
 ## TypedDict schemas
+
+### SnippetOptions (`services/http/snippet_generator/generator.py`)
+
+```python
+class SnippetOptions(TypedDict, total=False):
+    indent_count: int              # default 2
+    indent_type: str               # "space" or "tab", default "space"
+    trim_body: bool                # default False
+    follow_redirect: bool          # default True
+    request_timeout: int           # seconds, 0 = no timeout
+    include_boilerplate: bool      # default True — imports/main wrappers
+    async_await: bool              # default False — async/await vs promise chains
+    es6_features: bool             # default False — ES6 import/arrow syntax
+    multiline: bool                # default True — split shell commands across lines
+    long_form: bool                # default True — --header vs -H
+    line_continuation: str         # default "\\" — continuation char (\, ^, `)
+    quote_type: str                # default "single" — URL quoting style
+    follow_original_method: bool   # default False — keep method on redirect
+    silent_mode: bool              # default False — suppress progress meter
+```
 
 ### HttpService TypedDicts (`services/http/http_service.py`)
 

@@ -260,8 +260,9 @@ MainWindow._toggle_layout_action.triggered
 MainWindow snippet_act.triggered
   → _on_snippet_shortcut
     → _right_sidebar.open_panel("snippet")
-    → SnippetPanel.update_request(method, url, headers, body)
-      → SnippetGenerator.generate(language, ...)
+    → SnippetPanel.update_request(method, url, headers, body, auth)
+      → SnippetGenerator.generate(language, ..., options=SnippetOptions)
+        → registry dispatch to language-specific generator (23 languages)
 ```
 
 ### Settings flow

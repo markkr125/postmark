@@ -115,7 +115,10 @@ tests/
 │       └── http/                  # HTTP service tests
 │           ├── test_http_service.py
 │           ├── test_graphql_schema_service.py
-│           └── test_snippet_generator.py
+│           ├── test_snippet_generator.py
+│           ├── test_snippet_shell.py
+│           ├── test_snippet_dynamic.py
+│           └── test_snippet_compiled.py
 └── ui/                            # PySide6 widget tests (need qapp + qtbot)
     ├── conftest.py                # _no_fetch (autouse) + helper functions
     ├── test_main_window.py        # Top-level MainWindow smoke tests

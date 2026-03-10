@@ -18,8 +18,15 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtWidgets import (QLabel, QPushButton, QSizePolicy, QSplitter,
-                               QToolButton, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (
+    QLabel,
+    QPushButton,
+    QSizePolicy,
+    QSplitter,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ui.sidebar.snippet_panel import SnippetPanel
 from ui.sidebar.variables_panel import VariablesPanel

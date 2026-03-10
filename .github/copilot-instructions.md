@@ -116,7 +116,7 @@ Fastest paths to understand and navigate the codebase:
   TypedDicts (`RequestLoadDict`, `VariableDetail`, `LocalOverride`).
 - **HTTP subsystem:** Read `src/services/http/__init__.py` — re-exports
   `HttpService`, `GraphQLSchemaService`, `SnippetGenerator`,
-  `HttpResponseDict`, `parse_header_dict`.
+  `SnippetOptions`, `HttpResponseDict`, `parse_header_dict`.
 - **All DB models:** Read `src/database/database.py` — re-exports all four
   ORM models (`CollectionModel`, `RequestModel`, `SavedResponseModel`,
   `EnvironmentModel`).
@@ -159,7 +159,11 @@ src/
 │   ├── http/                      # HTTP request/response handling
 │   │   ├── http_service.py        # HttpService (httpx) + response TypedDicts
 │   │   ├── graphql_schema_service.py  # GraphQL introspection + schema parsing
-│   │   ├── snippet_generator.py   # Code snippet generation (cURL/Python/JS)
+│   │   ├── snippet_generator/     # Code snippet generation sub-package (23 languages)
+│   │   │   ├── generator.py       # SnippetGenerator, SnippetOptions, LanguageEntry, registry
+│   │   │   ├── shell_snippets.py  # cURL, HTTP raw, wget, HTTPie, PowerShell
+│   │   │   ├── dynamic_snippets.py  # Python, JS, Node, Ruby, PHP, Dart
+│   │   │   └── compiled_snippets.py # Go, Rust, C, Swift, Java, Kotlin, C#
 │   │   └── header_utils.py        # Shared header parsing utility
 │   └── import_parser/             # Parser sub-package
 │       ├── models.py              # TypedDict schemas for parsed data
@@ -249,7 +253,10 @@ tests/
 │       └── http/                  # HTTP service tests
 │           ├── test_http_service.py
 │           ├── test_graphql_schema_service.py
-│           └── test_snippet_generator.py
+│           ├── test_snippet_generator.py
+│           ├── test_snippet_shell.py
+│           ├── test_snippet_dynamic.py
+│           └── test_snippet_compiled.py
 └── ui/                            # End-to-end PySide6 widget tests
     ├── conftest.py                # _no_fetch (autouse) + helpers
     ├── test_main_window.py
