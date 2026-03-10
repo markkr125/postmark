@@ -149,7 +149,14 @@ class HttpSendWorker(QObject):
 
             # 3. Apply auth configuration
             if self._auth_data:
-                url, headers = self._apply_auth(self._auth_data, url, headers, variables)
+                url, headers = self._apply_auth(
+                    self._auth_data,
+                    url,
+                    headers,
+                    variables,
+                    method=self._method,
+                    body=body,
+                )
 
             result: HttpResponseDict = HttpService.send_request(
                 method=self._method,
@@ -175,61 +182,52 @@ class HttpSendWorker(QObject):
         url: str,
         headers: str | None,
         variables: dict[str, str],
+        *,
+        method: str = "GET",
+        body: str | None = None,
     ) -> tuple[str, str | None]:
         """Inject auth credentials into the URL or headers.
 
+        Substitutes environment variables in auth entry values, then
+        delegates to :func:`services.http.auth_handler.apply_auth`.
         Returns the (possibly modified) ``url`` and ``headers``.
         """
         if not auth_data:
             return url, headers
 
         from services.environment_service import EnvironmentService
+        from services.http.auth_handler import apply_auth
+        from services.http.header_utils import parse_header_dict
 
-        auth_type = auth_data.get("type", "noauth")
         sub = EnvironmentService.substitute
+        auth_type = auth_data.get("type", "noauth")
 
-        if auth_type == "bearer":
-            token = ""
-            for entry in auth_data.get("bearer", []):
-                if entry.get("key") == "token":
-                    token = sub(entry.get("value", ""), variables)
-            if token:
-                auth_line = f"Authorization: Bearer {token}"
-                headers = f"{headers}\n{auth_line}" if headers else auth_line
+        # Substitute variables in entry values (shallow copy to avoid mutation)
+        entries = auth_data.get(auth_type, [])
+        if entries and variables:
+            substituted = dict(auth_data)
+            substituted[auth_type] = [
+                {**e, "value": sub(str(e.get("value", "")), variables)}
+                if isinstance(e, dict)
+                else e
+                for e in entries
+            ]
+        else:
+            substituted = auth_data
 
-        elif auth_type == "basic":
-            import base64
-
-            username = password = ""
-            for entry in auth_data.get("basic", []):
-                if entry.get("key") == "username":
-                    username = sub(entry.get("value", ""), variables)
-                elif entry.get("key") == "password":
-                    password = sub(entry.get("value", ""), variables)
-            if username or password:
-                encoded = base64.b64encode(f"{username}:{password}".encode()).decode()
-                auth_line = f"Authorization: Basic {encoded}"
-                headers = f"{headers}\n{auth_line}" if headers else auth_line
-
-        elif auth_type == "apikey":
-            key = value = ""
-            add_to = "header"
-            for entry in auth_data.get("apikey", []):
-                if entry.get("key") == "key":
-                    key = sub(entry.get("value", ""), variables)
-                elif entry.get("key") == "value":
-                    value = sub(entry.get("value", ""), variables)
-                elif entry.get("key") == "in":
-                    add_to = entry.get("value", "header")
-            if key and value:
-                if add_to == "header":
-                    auth_line = f"{key}: {value}"
-                    headers = f"{headers}\n{auth_line}" if headers else auth_line
-                else:
-                    sep = "&" if "?" in url else "?"
-                    url = f"{url}{sep}{key}={value}"
-
-        return url, headers
+        # Convert header string to dict, apply auth, convert back
+        hdr_dict = parse_header_dict(headers)
+        url, hdr_dict = apply_auth(
+            substituted,
+            url,
+            hdr_dict,
+            method=method,
+            body=body,
+        )
+        new_headers: str | None = (
+            "\n".join(f"{k}: {v}" for k, v in hdr_dict.items()) if hdr_dict else None
+        )
+        return url, new_headers
 
 
 class SchemaFetchWorker(QObject):
@@ -283,4 +281,5 @@ class SchemaFetchWorker(QObject):
             self.finished.emit(dict(result))
         except Exception as exc:
             logger.exception("Schema fetch worker failed")
+            self.error.emit(str(exc))
             self.error.emit(str(exc))

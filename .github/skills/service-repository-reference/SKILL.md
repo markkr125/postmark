@@ -175,6 +175,20 @@ Kotlin (OkHttp), Rust (reqwest), Swift (URLSession).
 |----------|---------|---------|
 | `parse_header_dict(raw)` | `dict[str, str]` | Parse `Key: Value\n` lines into a dict |
 
+### Auth handler (`services/http/auth_handler.py`)
+
+Shared auth header injection used by both `http_worker.py` (actual send)
+and `snippet_generator/generator.py` (code snippets).
+
+| Function | Returns | Purpose |
+|----------|---------|---------|
+| `apply_auth(auth, url, headers, *, method, body)` | `(url, headers)` | Dispatch to type-specific handler |
+
+Supports 12 field-based auth types: bearer, basic, apikey, oauth2, digest,
+oauth1, hawk, awsv4, jwt, asap, ntlm, edgegrid.  HMAC-based JWT (HS256/384/512)
+uses stdlib; RSA/EC algorithms require optional `PyJWT`.  NTLM is pass-through
+(requires live challenge-response).
+
 ## TypedDict schemas
 
 ### SnippetOptions (`services/http/snippet_generator/generator.py`)

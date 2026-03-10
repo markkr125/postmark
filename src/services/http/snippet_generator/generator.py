@@ -2,15 +2,15 @@
 
 Defines :class:`SnippetGenerator` (the public API), :class:`SnippetOptions`
 (per-snippet configuration), :class:`LanguageEntry` (registry metadata),
-and the ``_apply_auth`` helper shared by all generators.
+and delegates auth injection to :func:`services.http.auth_handler.apply_auth`.
 """
 
 from __future__ import annotations
 
-import base64
 from collections.abc import Callable
 from typing import NamedTuple, TypedDict
 
+from services.http.auth_handler import apply_auth
 from services.http.header_utils import parse_header_dict
 
 # ---------------------------------------------------------------------------
@@ -93,64 +93,6 @@ def prepare_body(body: str | None, options: SnippetOptions) -> str | None:
     if options.get("trim_body"):
         body = body.strip()
     return body if body else None
-
-
-# ---------------------------------------------------------------------------
-# Auth helper
-# ---------------------------------------------------------------------------
-
-
-def apply_auth(
-    auth: dict | None,
-    url: str,
-    headers: dict[str, str],
-) -> tuple[str, dict[str, str]]:
-    """Inject auth credentials into *headers* / *url*.
-
-    Returns the (possibly modified) ``url`` and ``headers`` dict.
-    """
-    if not auth:
-        return url, headers
-
-    auth_type = auth.get("type", "noauth")
-
-    if auth_type == "bearer":
-        token = ""
-        for entry in auth.get("bearer", []):
-            if entry.get("key") == "token":
-                token = entry.get("value", "")
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
-
-    elif auth_type == "basic":
-        username = password = ""
-        for entry in auth.get("basic", []):
-            if entry.get("key") == "username":
-                username = entry.get("value", "")
-            elif entry.get("key") == "password":
-                password = entry.get("value", "")
-        if username or password:
-            encoded = base64.b64encode(f"{username}:{password}".encode()).decode()
-            headers["Authorization"] = f"Basic {encoded}"
-
-    elif auth_type == "apikey":
-        key = value = ""
-        add_to = "header"
-        for entry in auth.get("apikey", []):
-            if entry.get("key") == "key":
-                key = entry.get("value", "")
-            elif entry.get("key") == "value":
-                value = entry.get("value", "")
-            elif entry.get("key") == "in":
-                add_to = entry.get("value", "header")
-        if key and value:
-            if add_to == "header":
-                headers[key] = value
-            else:
-                sep = "&" if "?" in url else "?"
-                url = f"{url}{sep}{key}={value}"
-
-    return url, headers
 
 
 # ---------------------------------------------------------------------------
@@ -237,7 +179,7 @@ class SnippetGenerator:
             return f"# Unsupported language: {language}"
 
         hdr = parse_header_dict(headers)
-        url, hdr = apply_auth(auth, url, hdr)
+        url, hdr = apply_auth(auth, url, hdr, method=method, body=body)
         opts = resolve_options(options)
         body = prepare_body(body, opts)
 

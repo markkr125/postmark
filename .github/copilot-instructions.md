@@ -117,6 +117,7 @@ Fastest paths to understand and navigate the codebase:
 - **HTTP subsystem:** Read `src/services/http/__init__.py` — re-exports
   `HttpService`, `GraphQLSchemaService`, `SnippetGenerator`,
   `SnippetOptions`, `HttpResponseDict`, `parse_header_dict`.
+  Auth header injection lives in `src/services/http/auth_handler.py`.
 - **All DB models:** Read `src/database/database.py` — re-exports all four
   ORM models (`CollectionModel`, `RequestModel`, `SavedResponseModel`,
   `EnvironmentModel`).
@@ -159,6 +160,7 @@ src/
 │   ├── http/                      # HTTP request/response handling
 │   │   ├── http_service.py        # HttpService (httpx) + response TypedDicts
 │   │   ├── graphql_schema_service.py  # GraphQL introspection + schema parsing
+│   │   ├── auth_handler.py        # Shared auth header injection (all 12 auth types)
 │   │   ├── snippet_generator/     # Code snippet generation sub-package (23 languages)
 │   │   │   ├── generator.py       # SnippetGenerator, SnippetOptions, LanguageEntry, registry
 │   │   │   ├── shell_snippets.py  # cURL, HTTP raw, wget, HTTPie, PowerShell
@@ -222,9 +224,14 @@ src/
     └── request/                   # Request/response editing
         ├── folder_editor.py         # Folder/collection detail editor
         ├── http_worker.py           # HttpSendWorker + SchemaFetchWorker (QThread)
+        ├── auth/                    # Shared auth sub-package (14 auth types)
+        │   ├── auth_field_specs.py  # Per-type FieldSpec definitions (AUTH_FIELD_SPECS)
+        │   ├── auth_mixin.py        # _AuthMixin — shared by both editors
+        │   ├── auth_pages.py        # FieldSpec dataclass, page builders, auth constants
+        │   └── auth_serializer.py   # Generic load/save for all auth types
         ├── request_editor/          # RequestEditor sub-package
         │   ├── editor_widget.py     # RequestEditor — main request editing widget
-        │   ├── auth.py              # _AuthMixin — authentication UI
+        │   ├── auth.py              # Re-export of _AuthMixin from auth sub-package
         │   ├── body_search.py       # _BodySearchMixin — search/replace in body
         │   └── graphql.py           # _GraphQLMixin — GraphQL mode + schema
         ├── response_viewer/         # ResponseViewer sub-package
@@ -256,7 +263,8 @@ tests/
 │           ├── test_snippet_generator.py
 │           ├── test_snippet_shell.py
 │           ├── test_snippet_dynamic.py
-│           └── test_snippet_compiled.py
+│           ├── test_snippet_compiled.py
+│           └── test_auth_handler.py
 └── ui/                            # End-to-end PySide6 widget tests
     ├── conftest.py                # _no_fetch (autouse) + helpers
     ├── test_main_window.py

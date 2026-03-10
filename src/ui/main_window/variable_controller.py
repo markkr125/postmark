@@ -159,8 +159,7 @@ class _VariableControllerMixin:
             request_id = ctx.request_id if ctx else None
             if request_id is None:
                 return
-            from database.models.collections.collection_query_repository import \
-                get_request_by_id
+            from database.models.collections.collection_query_repository import get_request_by_id
 
             req = get_request_by_id(request_id)
             if req is None:
@@ -201,8 +200,9 @@ class _VariableControllerMixin:
             variables = EnvironmentService.build_combined_variable_detail_map(env_id, None)
             # Merge folder-level variables from the collection chain
             if ctx.collection_id is not None:
-                from database.models.collections.collection_query_repository import \
-                    get_collection_variable_chain_detailed
+                from database.models.collections.collection_query_repository import (
+                    get_collection_variable_chain_detailed,
+                )
 
                 for key, (value, coll_id) in get_collection_variable_chain_detailed(
                     ctx.collection_id
