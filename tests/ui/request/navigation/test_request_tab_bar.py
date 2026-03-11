@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from PySide6.QtCore import QPoint, Qt
+from PySide6.QtGui import QMouseEvent
 from PySide6.QtWidgets import QApplication, QTabBar
 
 from ui.request.navigation.request_tab_bar import RequestTabBar
@@ -144,6 +146,32 @@ class TestRequestTabBarCloseButton:
         close_btn = bar.tabButton(0, QTabBar.ButtonPosition.RightSide)
         if close_btn is not None:
             assert not close_btn.isHidden()
+
+    def test_middle_click_closes_tab(self, qapp: QApplication, qtbot) -> None:
+        """Middle-clicking a tab emits tab_close_requested."""
+        bar = RequestTabBar()
+        qtbot.addWidget(bar)
+        bar.add_request_tab("GET", "First")
+        bar.add_request_tab("POST", "Second")
+        bar.show()
+        bar.resize(400, 30)
+        qapp.processEvents()
+
+        tab_rect = bar.tabRect(1)
+        pos = tab_rect.center()
+
+        with qtbot.waitSignal(bar.tab_close_requested) as blocker:
+            event = QMouseEvent(
+                QMouseEvent.Type.MouseButtonPress,
+                QPoint(pos.x(), pos.y()),
+                bar.mapToGlobal(QPoint(pos.x(), pos.y())),
+                Qt.MouseButton.MiddleButton,
+                Qt.MouseButton.MiddleButton,
+                Qt.KeyboardModifier.NoModifier,
+            )
+            bar.mousePressEvent(event)
+
+        assert blocker.args == [1]
 
 
 class TestMainWindowMultiTab:
