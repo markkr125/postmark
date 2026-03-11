@@ -118,7 +118,9 @@ tests/
 │           ├── test_snippet_generator.py
 │           ├── test_snippet_shell.py
 │           ├── test_snippet_dynamic.py
-│           └── test_snippet_compiled.py
+│           ├── test_snippet_compiled.py
+│           ├── test_auth_handler.py
+│           └── test_oauth2_service.py
 └── ui/                            # PySide6 widget tests (need qapp + qtbot)
     ├── conftest.py                # _no_fetch (autouse) + helper functions
     ├── test_main_window.py        # Top-level MainWindow smoke tests

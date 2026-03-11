@@ -312,6 +312,22 @@ RequestEditorWidget._on_fetch_schema()
       → RequestEditorWidget._on_schema_ready(result)
 ```
 
+### OAuth 2.0 token flow
+
+```
+OAuth2Page.get_token_requested  (user clicks "Get New Access Token")
+  → _AuthMixin._on_get_oauth2_token()
+    → OAuth2TokenWorker.set_config(config)
+    → QThread.started → OAuth2TokenWorker.run()
+      → OAuth2Service.get_token(config)
+      → OAuth2TokenWorker.finished(OAuth2TokenResult)
+        → _AuthMixin._on_oauth2_token_received(data)
+          → OAuth2Page.set_token(token, name)
+    → OAuth2TokenWorker.error(str)
+      → _AuthMixin._on_oauth2_token_error(msg)
+        → QMessageBox.warning()
+```
+
 ### Variable popup flow
 
 ```
@@ -412,6 +428,10 @@ All other signals in the flow diagrams above are fully wired.
 | `HttpSendWorker` | `error` | `Signal(str)` |
 | `SchemaFetchWorker` | `finished` | `Signal(dict)` — `SchemaResultDict` |
 | `SchemaFetchWorker` | `error` | `Signal(str)` |
+| `OAuth2TokenWorker` | `finished` | `Signal(dict)` — `OAuth2TokenResult` |
+| `OAuth2TokenWorker` | `error` | `Signal(str)` |
+| `OAuth2Page` | `field_changed` | `Signal()` |
+| `OAuth2Page` | `get_token_requested` | `Signal()` |
 
 ### Tab bar
 

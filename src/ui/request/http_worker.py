@@ -272,7 +272,8 @@ class SchemaFetchWorker(QObject):
     def run(self) -> None:
         """Send the introspection query and emit the result signal."""
         try:
-            from services.http.graphql_schema_service import GraphQLSchemaService
+            from services.http.graphql_schema_service import \
+                GraphQLSchemaService
 
             result = GraphQLSchemaService.fetch_schema(
                 self._url,
@@ -281,5 +282,48 @@ class SchemaFetchWorker(QObject):
             self.finished.emit(dict(result))
         except Exception as exc:
             logger.exception("Schema fetch worker failed")
+            self.error.emit(str(exc))
+
+
+class OAuth2TokenWorker(QObject):
+    """Execute an OAuth 2.0 token flow on a background thread.
+
+    Set configuration via :meth:`set_config` **before** calling
+    ``moveToThread()``.  Connect ``finished`` and ``error`` signals,
+    then start the owning ``QThread``.
+
+    Signals:
+        finished(dict): Emitted with an :class:`OAuth2TokenResult` on success.
+        error(str): Emitted with an error message on failure.
+    """
+
+    finished = Signal(dict)
+    error = Signal(str)
+
+    def __init__(self) -> None:
+        """Initialise with empty configuration."""
+        super().__init__()
+        self._config: dict = {}
+
+    def set_config(self, config: dict) -> None:
+        """Configure the OAuth 2.0 flow parameters.
+
+        Must be called **before** the worker is moved to its thread.
+        """
+        self._config = config
+
+    @Slot()
+    def run(self) -> None:
+        """Perform the token exchange and emit the result signal."""
+        try:
+            from services.http.oauth2_service import OAuth2Service
+
+            result = OAuth2Service.get_token(self._config)
+            if result.get("error"):
+                self.error.emit(str(result["error"]))
+            else:
+                self.finished.emit(dict(result))
+        except Exception as exc:
+            logger.exception("OAuth 2.0 token worker failed")
             self.error.emit(str(exc))
             self.error.emit(str(exc))

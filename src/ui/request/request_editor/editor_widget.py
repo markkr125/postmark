@@ -10,23 +10,13 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QModelIndex, QPersistentModelIndex, Qt, QTimer, Signal
+from PySide6.QtCore import (QModelIndex, QPersistentModelIndex, Qt, QTimer,
+                            Signal)
 from PySide6.QtGui import QColor, QKeySequence, QPalette, QShortcut
-from PySide6.QtWidgets import (
-    QComboBox,
-    QFileDialog,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QRadioButton,
-    QSizePolicy,
-    QStyledItemDelegate,
-    QStyleOptionViewItem,
-    QTabWidget,
-    QTextEdit,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import (QComboBox, QFileDialog, QHBoxLayout, QLabel,
+                               QPushButton, QRadioButton, QSizePolicy,
+                               QStyledItemDelegate, QStyleOptionViewItem,
+                               QTabWidget, QTextEdit, QVBoxLayout, QWidget)
 
 from ui.request.request_editor.auth import _AuthMixin
 from ui.request.request_editor.body_search import _BodySearchMixin
@@ -439,6 +429,8 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, QWidget):
 
     def _sync_tab_indicators(self) -> None:
         """Append a dot indicator to section tabs that contain data."""
+        if not hasattr(self, "_scripts_edit"):
+            return
         has_content = [
             bool(self._params_table.get_data()),
             bool(self._headers_table.get_data()),

@@ -253,7 +253,7 @@ def _apply_oauth1(
     method: str = "GET",
     body: str | None = None,
 ) -> tuple[str, dict[str, str]]:
-    """OAuth 1.0 — ``Authorization: OAuth ...`` or query params."""
+    """OAuth 1.0 — ``Authorization: OAuth ...`` or query/body params."""
     v = _entries_map(auth, "oauth1")
     consumer_key = v.get("consumerKey", "")
     consumer_secret = v.get("consumerSecret", "")
@@ -264,7 +264,11 @@ def _apply_oauth1(
     nonce = v.get("nonce", "") or secrets.token_hex(16)
     version = v.get("version", "1.0")
     realm = v.get("realm", "")
-    to_header = v.get("addParamsToHeader", "true")
+    callback_url = v.get("callbackUrl", "")
+    verifier = v.get("verifier", "")
+    include_body_hash = v.get("includeBodyHash", "false") == "true"
+    add_empty = v.get("addEmptyParamsToSign", "false") == "true"
+    to_header_raw = v.get("addParamsToHeader", "true")
 
     # 1. Collect OAuth params
     oauth: dict[str, str] = {
@@ -276,6 +280,24 @@ def _apply_oauth1(
     }
     if token:
         oauth["oauth_token"] = token
+    if callback_url:
+        oauth["oauth_callback"] = callback_url
+    if verifier:
+        oauth["oauth_verifier"] = verifier
+
+    # Body hash (RFC 5849 §3.4.1.3.1)
+    if include_body_hash and body:
+        if sig_method == "HMAC-SHA256":
+            bh = base64.b64encode(hashlib.sha256(body.encode()).digest()).decode()
+        else:
+            bh = base64.b64encode(hashlib.sha1(body.encode()).digest()).decode()
+        oauth["oauth_body_hash"] = bh
+
+    # Add empty params if requested
+    if add_empty:
+        for k, val in list(oauth.items()):
+            if not val:
+                oauth[k] = ""
 
     # 2. Merge query params for base-string
     parsed = urlparse(url)
@@ -315,8 +337,8 @@ def _apply_oauth1(
         logger.warning("OAuth 1.0 %s requires external libraries", sig_method)
     oauth["oauth_signature"] = sig
 
-    # 5. Emit
-    if to_header == "true":
+    # 5. Emit — "true" = headers, "false" = URL query, "body" = request body
+    if to_header_raw == "true":
         parts = [
             f'{_percent_encode(k)}="{_percent_encode(val)}"' for k, val in sorted(oauth.items())
         ]

@@ -444,3 +444,123 @@ class TestBooleanEntries:
         _, hdr = apply_auth(auth, "https://x.io", {}, method="GET")
         # addParamsToHeader=True means header mode
         assert "Authorization" in hdr
+
+
+class TestOAuth1BodyHash:
+    """OAuth 1.0 body hash and new fields."""
+
+    def test_include_body_hash_sha1(self) -> None:
+        """Body hash is included when includeBodyHash is true (HMAC-SHA1)."""
+        auth = {
+            "type": "oauth1",
+            "oauth1": [
+                {"key": "consumerKey", "value": "ck"},
+                {"key": "consumerSecret", "value": "cs"},
+                {"key": "token", "value": "tok"},
+                {"key": "tokenSecret", "value": "ts"},
+                {"key": "signatureMethod", "value": "HMAC-SHA1"},
+                {"key": "timestamp", "value": "1234567890"},
+                {"key": "nonce", "value": "testnonce"},
+                {"key": "addParamsToHeader", "value": "true"},
+                {"key": "includeBodyHash", "value": True},
+            ],
+        }
+        _, hdr = apply_auth(auth, "https://x.io/api", {}, method="POST", body="data=1")
+        val = hdr["Authorization"]
+        assert "oauth_body_hash" in val
+
+    def test_body_hash_not_included_when_false(self) -> None:
+        """Body hash is NOT included when includeBodyHash is false."""
+        auth = {
+            "type": "oauth1",
+            "oauth1": [
+                {"key": "consumerKey", "value": "ck"},
+                {"key": "consumerSecret", "value": "cs"},
+                {"key": "token", "value": "tok"},
+                {"key": "tokenSecret", "value": "ts"},
+                {"key": "signatureMethod", "value": "HMAC-SHA1"},
+                {"key": "timestamp", "value": "1234567890"},
+                {"key": "nonce", "value": "testnonce"},
+                {"key": "addParamsToHeader", "value": "true"},
+                {"key": "includeBodyHash", "value": False},
+            ],
+        }
+        _, hdr = apply_auth(auth, "https://x.io/api", {}, method="POST", body="data=1")
+        val = hdr["Authorization"]
+        assert "oauth_body_hash" not in val
+
+    def test_callback_url_included(self) -> None:
+        """Callback URL adds oauth_callback to the signature."""
+        auth = {
+            "type": "oauth1",
+            "oauth1": [
+                {"key": "consumerKey", "value": "ck"},
+                {"key": "consumerSecret", "value": "cs"},
+                {"key": "token", "value": ""},
+                {"key": "tokenSecret", "value": ""},
+                {"key": "signatureMethod", "value": "HMAC-SHA1"},
+                {"key": "timestamp", "value": "0"},
+                {"key": "nonce", "value": "n"},
+                {"key": "addParamsToHeader", "value": "true"},
+                {"key": "callbackUrl", "value": "https://example.com/cb"},
+            ],
+        }
+        _, hdr = apply_auth(auth, "https://x.io", {}, method="GET")
+        assert "oauth_callback" in hdr["Authorization"]
+
+    def test_verifier_included(self) -> None:
+        """Verifier adds oauth_verifier to the signature."""
+        auth = {
+            "type": "oauth1",
+            "oauth1": [
+                {"key": "consumerKey", "value": "ck"},
+                {"key": "consumerSecret", "value": "cs"},
+                {"key": "token", "value": "tok"},
+                {"key": "tokenSecret", "value": "ts"},
+                {"key": "signatureMethod", "value": "HMAC-SHA1"},
+                {"key": "timestamp", "value": "0"},
+                {"key": "nonce", "value": "n"},
+                {"key": "addParamsToHeader", "value": "true"},
+                {"key": "verifier", "value": "v123"},
+            ],
+        }
+        _, hdr = apply_auth(auth, "https://x.io", {}, method="GET")
+        assert "oauth_verifier" in hdr["Authorization"]
+
+    def test_add_params_to_url(self) -> None:
+        """addParamsToHeader=false appends oauth params to URL query string."""
+        auth = {
+            "type": "oauth1",
+            "oauth1": [
+                {"key": "consumerKey", "value": "ck"},
+                {"key": "consumerSecret", "value": "cs"},
+                {"key": "token", "value": ""},
+                {"key": "tokenSecret", "value": ""},
+                {"key": "signatureMethod", "value": "PLAINTEXT"},
+                {"key": "timestamp", "value": "0"},
+                {"key": "nonce", "value": "n"},
+                {"key": "addParamsToHeader", "value": "false"},
+            ],
+        }
+        url, hdr = apply_auth(auth, "https://x.io/path", {}, method="GET")
+        assert "Authorization" not in hdr
+        assert "oauth_consumer_key=ck" in url
+
+    def test_add_params_to_body(self) -> None:
+        """addParamsToHeader=body appends oauth params to URL (body mode)."""
+        auth = {
+            "type": "oauth1",
+            "oauth1": [
+                {"key": "consumerKey", "value": "ck"},
+                {"key": "consumerSecret", "value": "cs"},
+                {"key": "token", "value": ""},
+                {"key": "tokenSecret", "value": ""},
+                {"key": "signatureMethod", "value": "PLAINTEXT"},
+                {"key": "timestamp", "value": "0"},
+                {"key": "nonce", "value": "n"},
+                {"key": "addParamsToHeader", "value": "body"},
+            ],
+        }
+        url, hdr = apply_auth(auth, "https://x.io/path", {}, method="POST")
+        assert "Authorization" not in hdr
+        assert "oauth_consumer_key=ck" in url

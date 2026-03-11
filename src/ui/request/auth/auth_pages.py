@@ -12,9 +12,9 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QComboBox, QFormLayout, QHBoxLayout, QLabel,
-                               QLineEdit, QScrollArea, QTextEdit, QToolButton,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QFormLayout, QHBoxLayout,
+                               QLabel, QLineEdit, QScrollArea, QTextEdit,
+                               QToolButton, QVBoxLayout, QWidget)
 
 from ui.widgets.variable_line_edit import VariableLineEdit
 
@@ -192,6 +192,9 @@ def _build_widget(spec: FieldSpec, on_change: Callable[[], None]) -> QWidget:
         else:
             w.setMaximumWidth(_INPUT_MAX_WIDTH)
         w.currentTextChanged.connect(on_change)
+    elif spec.kind == "checkbox":
+        w = QCheckBox(spec.label)
+        w.stateChanged.connect(lambda _: on_change())
     elif spec.kind == "password":
         w = VariableLineEdit()
         w.setPlaceholderText(spec.placeholder)
@@ -218,7 +221,10 @@ def _add_field_row(
     spec: FieldSpec,
     widget: QWidget,
 ) -> None:
-    """Add a label + widget row to *form*, handling suffix text."""
+    """Add a label + widget row to *form*, handling suffix/checkbox."""
+    if spec.kind == "checkbox":
+        form.addRow(widget)
+        return
     lbl = QLabel(spec.label)
     lbl.setObjectName("sectionLabel")
     if spec.suffix:

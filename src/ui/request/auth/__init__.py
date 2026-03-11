@@ -12,6 +12,7 @@ from ui.request.auth.auth_pages import (AUTH_FIELD_ORDER, AUTH_KEY_TO_DISPLAY,
                                         AUTH_PAGE_INDEX,
                                         AUTH_TYPE_DESCRIPTIONS, AUTH_TYPE_KEYS,
                                         AUTH_TYPE_LABELS, AUTH_TYPES)
+from ui.request.auth.oauth2_page import OAuth2Page
 
 __all__ = [
     "AUTH_FIELD_ORDER",
@@ -22,5 +23,6 @@ __all__ = [
     "AUTH_TYPE_DESCRIPTIONS",
     "AUTH_TYPE_KEYS",
     "AUTH_TYPE_LABELS",
+    "OAuth2Page",
     "_AuthMixin",
 ]

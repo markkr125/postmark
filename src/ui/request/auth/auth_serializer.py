@@ -6,7 +6,8 @@ so that adding a new auth type requires **zero** changes here.
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QComboBox, QLineEdit, QTextEdit, QWidget
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QLineEdit, QTextEdit,
+                               QWidget)
 
 from ui.request.auth.auth_field_specs import AUTH_FIELD_SPECS
 
@@ -42,6 +43,8 @@ def load_auth_fields(
         if spec.kind == "combo" and isinstance(widget, QComboBox):
             display = spec.combo_map.get(value, value) if spec.combo_map else value
             widget.setCurrentText(display)
+        elif spec.kind == "checkbox" and isinstance(widget, QCheckBox):
+            widget.setChecked(value == "true")
         elif spec.kind == "textarea" and isinstance(widget, QTextEdit):
             widget.setPlainText(value)
         elif isinstance(widget, QLineEdit):
@@ -70,6 +73,8 @@ def get_auth_fields(
                 raw_value: str | bool = reverse.get(widget.currentText(), widget.currentText())
             else:
                 raw_value = widget.currentText()
+        elif spec.kind == "checkbox" and isinstance(widget, QCheckBox):
+            raw_value = "true" if widget.isChecked() else "false"
         elif spec.kind == "textarea" and isinstance(widget, QTextEdit):
             raw_value = widget.toPlainText()
         elif isinstance(widget, QLineEdit):
@@ -82,4 +87,5 @@ def get_auth_fields(
             result.append({"key": spec.key, "value": raw_value == "true", "type": "string"})
         else:
             result.append({"key": spec.key, "value": raw_value, "type": "string"})
+    return result
     return result

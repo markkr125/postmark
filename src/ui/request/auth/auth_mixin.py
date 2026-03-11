@@ -10,12 +10,13 @@ Mixed into both :class:`RequestEditorWidget` and
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any, cast
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QComboBox, QFrame, QHBoxLayout, QLabel,
-                               QLineEdit, QStackedWidget, QTextEdit,
-                               QVBoxLayout, QWidget)
+from PySide6.QtCore import Qt, QThread
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QFrame, QHBoxLayout,
+                               QLabel, QLineEdit, QMessageBox, QStackedWidget,
+                               QTextEdit, QVBoxLayout, QWidget)
 
 from ui.request.auth.auth_field_specs import AUTH_FIELD_SPECS
 from ui.request.auth.auth_pages import (AUTH_FIELD_ORDER, AUTH_KEY_TO_DISPLAY,
@@ -25,11 +26,14 @@ from ui.request.auth.auth_pages import (AUTH_FIELD_ORDER, AUTH_KEY_TO_DISPLAY,
                                         build_fields_page, build_inherit_page,
                                         build_noauth_page)
 from ui.request.auth.auth_serializer import get_auth_fields, load_auth_fields
+from ui.request.auth.oauth2_page import OAuth2Page
 
 if TYPE_CHECKING:
     from PySide6.QtCore import QTimer
 
     from ui.widgets.variable_line_edit import VariableLineEdit
+
+logger = logging.getLogger(__name__)
 
 
 class _AuthMixin:
@@ -114,11 +118,20 @@ class _AuthMixin:
         self._auth_fields_stack.addWidget(build_noauth_page())
 
         # 3. Field-based pages (bearer, basic, apikey, digest, ...)
+        #    OAuth 2.0 gets a custom page instead of FieldSpec.
+        self._oauth2_page: OAuth2Page | None = None
         for auth_key in AUTH_FIELD_ORDER:
-            specs = AUTH_FIELD_SPECS.get(auth_key, ())
-            page, widgets = build_fields_page(specs, self._on_field_changed)
-            self._auth_fields_stack.addWidget(page)
-            self._auth_widget_map[auth_key] = widgets
+            if auth_key == "oauth2":
+                oauth2_page = OAuth2Page(self._on_field_changed)
+                oauth2_page.get_token_requested.connect(self._on_get_oauth2_token)
+                self._oauth2_page = oauth2_page
+                self._auth_fields_stack.addWidget(oauth2_page)
+                self._auth_widget_map[auth_key] = {}
+            else:
+                specs = AUTH_FIELD_SPECS.get(auth_key, ())
+                page, widgets = build_fields_page(specs, self._on_field_changed)
+                self._auth_fields_stack.addWidget(page)
+                self._auth_widget_map[auth_key] = widgets
 
         # Backward-compat attributes used by existing tests
         bw = self._auth_widget_map.get("bearer", {})
@@ -130,6 +143,9 @@ class _AuthMixin:
         self._apikey_key_input = cast("VariableLineEdit", akw.get("key"))
         self._apikey_value_input = cast("VariableLineEdit", akw.get("value"))
         self._apikey_add_to_combo = cast(QComboBox, akw.get("in"))
+
+        # OAuth 2.0 worker state
+        self._oauth2_thread: QThread | None = None
 
         columns.addWidget(self._auth_fields_stack, 1)
         auth_layout.addLayout(columns, 1)
@@ -173,6 +189,51 @@ class _AuthMixin:
         label = AUTH_TYPE_LABELS.get(auth_type, auth_type)
         self._inherit_preview_label.setText(f"Using {label} from parent.")
 
+    # -- OAuth 2.0 token flow ------------------------------------------
+
+    def _on_get_oauth2_token(self) -> None:
+        """Launch the OAuth 2.0 token worker on a background thread."""
+        if self._oauth2_page is None:
+            return
+
+        config = self._oauth2_page.get_config()
+        if not config:
+            return
+
+        from ui.request.http_worker import OAuth2TokenWorker
+
+        worker = OAuth2TokenWorker()
+        worker.set_config(config)
+
+        thread = QThread()
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.finished.connect(self._on_oauth2_token_received)
+        worker.error.connect(self._on_oauth2_token_error)
+        worker.finished.connect(thread.quit)
+        worker.error.connect(thread.quit)
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(worker.deleteLater)
+
+        self._oauth2_thread = thread
+        thread.start()
+
+    def _on_oauth2_token_received(self, data: dict) -> None:
+        """Store the obtained token in the OAuth 2.0 page."""
+        if self._oauth2_page is None:
+            return
+        token = data.get("access_token", "")
+        name = self._oauth2_page.get_config().get("tokenName", "")
+        if token:
+            self._oauth2_page.set_token(token, str(name))
+            self._on_field_changed()
+
+    def _on_oauth2_token_error(self, msg: str) -> None:
+        """Show an error dialog when the token flow fails."""
+        logger.error("OAuth 2.0 token error: %s", msg)
+        parent = self if isinstance(self, QWidget) else None
+        QMessageBox.warning(parent, "OAuth 2.0 Error", msg)
+
     # -- Load / save / clear -------------------------------------------
 
     def _load_auth(self, auth: dict | None) -> None:
@@ -190,9 +251,12 @@ class _AuthMixin:
         self._auth_type_combo.setCurrentText(display)
 
         entries = auth.get(auth_type, [])
-        widgets = self._auth_widget_map.get(auth_type, {})
-        if entries and widgets:
-            load_auth_fields(auth_type, widgets, entries)
+        if auth_type == "oauth2" and self._oauth2_page is not None:
+            self._oauth2_page.load(entries)
+        else:
+            widgets = self._auth_widget_map.get(auth_type, {})
+            if entries and widgets:
+                load_auth_fields(auth_type, widgets, entries)
 
     def _get_auth_data(self) -> dict | None:
         """Build the auth configuration dict from the current UI state.
@@ -210,8 +274,11 @@ class _AuthMixin:
         if not auth_key:
             return None
 
-        widgets = self._auth_widget_map.get(auth_key, {})
-        entries = get_auth_fields(auth_key, widgets)
+        if auth_key == "oauth2" and self._oauth2_page is not None:
+            entries = self._oauth2_page.get_entries()
+        else:
+            widgets = self._auth_widget_map.get(auth_key, {})
+            entries = get_auth_fields(auth_key, widgets)
         return {"type": auth_key, auth_key: entries}
 
     def _clear_auth(self) -> None:
@@ -225,3 +292,7 @@ class _AuthMixin:
                     widget.setCurrentIndex(0)
                 elif isinstance(widget, QTextEdit):
                     widget.clear()
+                elif isinstance(widget, QCheckBox):
+                    widget.setChecked(False)
+        if self._oauth2_page is not None:
+            self._oauth2_page.clear()

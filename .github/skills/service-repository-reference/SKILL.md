@@ -189,6 +189,20 @@ oauth1, hawk, awsv4, jwt, asap, ntlm, edgegrid.  HMAC-based JWT (HS256/384/512)
 uses stdlib; RSA/EC algorithms require optional `PyJWT`.  NTLM is pass-through
 (requires live challenge-response).
 
+### OAuth2Service (`services/http/oauth2_service.py`)
+
+OAuth 2.0 token exchange for all four grant types.
+
+| Method | Returns | Purpose |
+|--------|---------|---------|
+| `get_token(config)` | `OAuth2TokenResult` | Dispatch to grant-type handler |
+| `refresh_token(token_url, refresh_token, client_id, client_secret, client_auth)` | `OAuth2TokenResult` | Refresh an expired token |
+
+Grant types: Authorization Code (browser + redirect), Implicit (browser +
+fragment capture), Password Credentials (direct POST), Client Credentials
+(direct POST).  Browser-based flows open the system browser and start a
+local HTTP server to capture the callback.
+
 ## TypedDict schemas
 
 ### SnippetOptions (`services/http/snippet_generator/generator.py`)
@@ -246,6 +260,18 @@ class HttpResponseDict(TypedDict):
     response_headers_size: NotRequired[int]
     response_uncompressed_size: NotRequired[int]
     network: NotRequired[NetworkDict]
+```
+
+### OAuth2TokenResult (`services/http/oauth2_service.py`)
+
+```python
+class OAuth2TokenResult(TypedDict):
+    access_token: str
+    token_type: str
+    expires_in: int
+    refresh_token: str
+    scope: str
+    error: str
 ```
 
 ### CollectionService TypedDicts (`services/collection_service.py`)

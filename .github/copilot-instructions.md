@@ -118,6 +118,7 @@ Fastest paths to understand and navigate the codebase:
   `HttpService`, `GraphQLSchemaService`, `SnippetGenerator`,
   `SnippetOptions`, `HttpResponseDict`, `parse_header_dict`.
   Auth header injection lives in `src/services/http/auth_handler.py`.
+  OAuth 2.0 token exchange lives in `src/services/http/oauth2_service.py`.
 - **All DB models:** Read `src/database/database.py` — re-exports all four
   ORM models (`CollectionModel`, `RequestModel`, `SavedResponseModel`,
   `EnvironmentModel`).
@@ -161,6 +162,7 @@ src/
 │   │   ├── http_service.py        # HttpService (httpx) + response TypedDicts
 │   │   ├── graphql_schema_service.py  # GraphQL introspection + schema parsing
 │   │   ├── auth_handler.py        # Shared auth header injection (all 12 auth types)
+│   │   ├── oauth2_service.py      # OAuth 2.0 token exchange (4 grant types)
 │   │   ├── snippet_generator/     # Code snippet generation sub-package (23 languages)
 │   │   │   ├── generator.py       # SnippetGenerator, SnippetOptions, LanguageEntry, registry
 │   │   │   ├── shell_snippets.py  # cURL, HTTP raw, wget, HTTPie, PowerShell
@@ -228,7 +230,8 @@ src/
         │   ├── auth_field_specs.py  # Per-type FieldSpec definitions (AUTH_FIELD_SPECS)
         │   ├── auth_mixin.py        # _AuthMixin — shared by both editors
         │   ├── auth_pages.py        # FieldSpec dataclass, page builders, auth constants
-        │   └── auth_serializer.py   # Generic load/save for all auth types
+        │   ├── auth_serializer.py   # Generic load/save for all auth types
+        │   └── oauth2_page.py       # OAuth 2.0 custom page (grant-type switching)
         ├── request_editor/          # RequestEditor sub-package
         │   ├── editor_widget.py     # RequestEditor — main request editing widget
         │   ├── auth.py              # Re-export of _AuthMixin from auth sub-package
@@ -264,7 +267,8 @@ tests/
 │           ├── test_snippet_shell.py
 │           ├── test_snippet_dynamic.py
 │           ├── test_snippet_compiled.py
-│           └── test_auth_handler.py
+│           ├── test_auth_handler.py
+│           └── test_oauth2_service.py
 └── ui/                            # End-to-end PySide6 widget tests
     ├── conftest.py                # _no_fetch (autouse) + helpers
     ├── test_main_window.py
