@@ -280,8 +280,53 @@ class TestHawkAuth:
         assert 'nonce="testnonce"' in val
         assert 'mac="' in val
 
+    def test_payload_hash_included_when_checkbox_true(self) -> None:
+        """Hawk includes payload hash when includePayloadHash is true."""
+        auth = {
+            "type": "hawk",
+            "hawk": [
+                {"key": "authId", "value": "myid"},
+                {"key": "authKey", "value": "mykey"},
+                {"key": "algorithm", "value": "sha256"},
+                {"key": "nonce", "value": "n"},
+                {"key": "timestamp", "value": "0"},
+                {"key": "includePayloadHash", "value": True},
+            ],
+        }
+        _, hdr = apply_auth(auth, "https://x.io", {}, method="POST", body="data")
+        assert 'hash="' in hdr["Authorization"]
 
-class TestAwsV4Auth:
+    def test_payload_hash_excluded_when_checkbox_false(self) -> None:
+        """Hawk omits payload hash when includePayloadHash is false."""
+        auth = {
+            "type": "hawk",
+            "hawk": [
+                {"key": "authId", "value": "myid"},
+                {"key": "authKey", "value": "mykey"},
+                {"key": "algorithm", "value": "sha256"},
+                {"key": "nonce", "value": "n"},
+                {"key": "timestamp", "value": "0"},
+                {"key": "includePayloadHash", "value": "false"},
+            ],
+        }
+        _, hdr = apply_auth(auth, "https://x.io", {}, method="POST", body="data")
+        assert 'hash="' not in hdr["Authorization"]
+
+    def test_payload_hash_excluded_by_default(self) -> None:
+        """Hawk omits payload hash when checkbox entry is absent."""
+        auth = {
+            "type": "hawk",
+            "hawk": [
+                {"key": "authId", "value": "myid"},
+                {"key": "authKey", "value": "mykey"},
+                {"key": "algorithm", "value": "sha256"},
+                {"key": "nonce", "value": "n"},
+                {"key": "timestamp", "value": "0"},
+            ],
+        }
+        _, hdr = apply_auth(auth, "https://x.io", {}, method="POST", body="data")
+        assert 'hash="' not in hdr["Authorization"]
+
     """AWS Signature V4 header generation."""
 
     def test_adds_required_headers(self) -> None:

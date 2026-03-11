@@ -111,10 +111,8 @@ class LanguageEntry(NamedTuple):
 
 def _build_registry() -> dict[str, LanguageEntry]:
     """Import all generator modules and build the master registry."""
-    from services.http.snippet_generator.compiled_snippets import \
-        COMPILED_LANGUAGES
-    from services.http.snippet_generator.dynamic_snippets import \
-        DYNAMIC_LANGUAGES
+    from services.http.snippet_generator.compiled_snippets import COMPILED_LANGUAGES
+    from services.http.snippet_generator.dynamic_snippets import DYNAMIC_LANGUAGES
     from services.http.snippet_generator.shell_snippets import SHELL_LANGUAGES
 
     registry: dict[str, LanguageEntry] = {}
@@ -188,7 +186,5 @@ class SnippetGenerator:
             url=url,
             headers=hdr,
             body=body,
-            options=opts,
-        )
             options=opts,
         )

@@ -375,15 +375,16 @@ def _apply_hawk(
     app_id = v.get("appId", "")
     delegation = v.get("delegation", "")
     ts = v.get("timestamp", "") or str(int(time.time()))
+    include_hash = v.get("includePayloadHash", "false") == "true"
 
     parsed = urlparse(url)
     host = parsed.hostname or ""
     port = str(parsed.port or (443 if parsed.scheme == "https" else 80))
     resource = parsed.path + (f"?{parsed.query}" if parsed.query else "")
 
-    # Payload hash
+    # Payload hash (gated by includePayloadHash checkbox)
     payload_hash = ""
-    if body:
+    if include_hash and body:
         ctype = headers.get("Content-Type", "").split(";")[0].strip()
         hash_input = f"hawk.1.payload\n{ctype}\n{body}\n"
         raw = hashlib.new(algorithm, hash_input.encode()).digest()

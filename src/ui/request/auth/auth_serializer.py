@@ -6,8 +6,7 @@ so that adding a new auth type requires **zero** changes here.
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QLineEdit, QTextEdit,
-                               QWidget)
+from PySide6.QtWidgets import QCheckBox, QComboBox, QLineEdit, QTextEdit, QWidget
 
 from ui.request.auth.auth_field_specs import AUTH_FIELD_SPECS
 

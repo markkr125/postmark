@@ -7,9 +7,7 @@ from __future__ import annotations
 
 import json
 
-from services.http.snippet_generator.generator import (LanguageEntry,
-                                                       SnippetOptions,
-                                                       indent_str)
+from services.http.snippet_generator.generator import LanguageEntry, SnippetOptions, indent_str
 
 # ---------------------------------------------------------------------------
 # Go
@@ -571,7 +569,5 @@ COMPILED_LANGUAGES: list[LanguageEntry] = [
         "swift",
         ("indent_count", "indent_type", "trim_body", "request_timeout", "include_boilerplate"),
         swift_urlsession,
-    ),
-]
     ),
 ]

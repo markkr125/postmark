@@ -8,10 +8,15 @@ from __future__ import annotations
 
 from ui.request.auth.auth_field_specs import AUTH_FIELD_SPECS
 from ui.request.auth.auth_mixin import _AuthMixin
-from ui.request.auth.auth_pages import (AUTH_FIELD_ORDER, AUTH_KEY_TO_DISPLAY,
-                                        AUTH_PAGE_INDEX,
-                                        AUTH_TYPE_DESCRIPTIONS, AUTH_TYPE_KEYS,
-                                        AUTH_TYPE_LABELS, AUTH_TYPES)
+from ui.request.auth.auth_pages import (
+    AUTH_FIELD_ORDER,
+    AUTH_KEY_TO_DISPLAY,
+    AUTH_PAGE_INDEX,
+    AUTH_TYPE_DESCRIPTIONS,
+    AUTH_TYPE_KEYS,
+    AUTH_TYPE_LABELS,
+    AUTH_TYPES,
+)
 from ui.request.auth.oauth2_page import OAuth2Page
 
 __all__ = [

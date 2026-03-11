@@ -6,8 +6,12 @@ from unittest.mock import MagicMock, patch
 
 import httpx
 
-from services.http.oauth2_service import (OAuth2Service, _error_result,
-                                          _parse_redirect, _post_token_request)
+from services.http.oauth2_service import (
+    OAuth2Service,
+    _error_result,
+    _parse_redirect,
+    _post_token_request,
+)
 
 # ------------------------------------------------------------------
 # Helper function tests

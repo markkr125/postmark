@@ -14,17 +14,33 @@ import logging
 from typing import TYPE_CHECKING, Any, cast
 
 from PySide6.QtCore import Qt, QThread
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QFrame, QHBoxLayout,
-                               QLabel, QLineEdit, QMessageBox, QStackedWidget,
-                               QTextEdit, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QStackedWidget,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ui.request.auth.auth_field_specs import AUTH_FIELD_SPECS
-from ui.request.auth.auth_pages import (AUTH_FIELD_ORDER, AUTH_KEY_TO_DISPLAY,
-                                        AUTH_PAGE_INDEX,
-                                        AUTH_TYPE_DESCRIPTIONS, AUTH_TYPE_KEYS,
-                                        AUTH_TYPE_LABELS, AUTH_TYPES,
-                                        build_fields_page, build_inherit_page,
-                                        build_noauth_page)
+from ui.request.auth.auth_pages import (
+    AUTH_FIELD_ORDER,
+    AUTH_KEY_TO_DISPLAY,
+    AUTH_PAGE_INDEX,
+    AUTH_TYPE_DESCRIPTIONS,
+    AUTH_TYPE_KEYS,
+    AUTH_TYPE_LABELS,
+    AUTH_TYPES,
+    build_fields_page,
+    build_inherit_page,
+    build_noauth_page,
+)
 from ui.request.auth.auth_serializer import get_auth_fields, load_auth_fields
 from ui.request.auth.oauth2_page import OAuth2Page
 

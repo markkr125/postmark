@@ -272,8 +272,7 @@ class SchemaFetchWorker(QObject):
     def run(self) -> None:
         """Send the introspection query and emit the result signal."""
         try:
-            from services.http.graphql_schema_service import \
-                GraphQLSchemaService
+            from services.http.graphql_schema_service import GraphQLSchemaService
 
             result = GraphQLSchemaService.fetch_schema(
                 self._url,

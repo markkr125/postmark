@@ -7,9 +7,7 @@ from __future__ import annotations
 
 import json
 
-from services.http.snippet_generator.generator import (LanguageEntry,
-                                                       SnippetOptions,
-                                                       indent_str)
+from services.http.snippet_generator.generator import LanguageEntry, SnippetOptions, indent_str
 
 # ---------------------------------------------------------------------------
 # Python
@@ -553,7 +551,5 @@ DYNAMIC_LANGUAGES: list[LanguageEntry] = [
         python_http_client,
     ),
     LanguageEntry("Python (requests)", "python", _OPT_STD, python_requests),
-    LanguageEntry("Ruby (Net::HTTP)", "ruby", _OPT_STD, ruby_nethttp),
-]
     LanguageEntry("Ruby (Net::HTTP)", "ruby", _OPT_STD, ruby_nethttp),
 ]
