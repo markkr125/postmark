@@ -13,9 +13,16 @@ and every connection made in `MainWindow.__init__`.
 ### Create operations
 
 ```
-Header "+" menu
-  → CollectionHeader.new_collection_requested(None)
-    → CollectionWidget._create_new_collection(parent_id=None)
+Header "New" button → NewItemPopup
+  → NewItemPopup.new_collection_clicked()
+    → CollectionHeader.new_collection_requested(None)
+      → CollectionWidget._create_new_collection(parent_id=None)
+
+  → NewItemPopup.new_request_clicked()
+    → CollectionHeader.new_request_requested(None)
+      → CollectionWidget._create_new_request(collection_id=None)
+        → CollectionWidget.draft_request_requested()
+          → MainWindow._open_draft_request()
 
 Tree context menu → "Add folder"
   → CollectionTree.new_collection_requested(parent_id)
@@ -151,7 +158,17 @@ CollectionTree.currentItemChanged
   → _on_current_item_changed
     → selected_collection_changed(collection_id | None)
       → CollectionWidget → CollectionHeader.set_selected_collection_id
-        → enables / disables "New request" action in + menu
+```
+
+### Draft request save flow
+
+```
+MainWindow._on_save_request() [request_id is None, ctx is not None]
+  → MainWindow._save_draft_request(ctx, editor)
+    → SaveRequestDialog.exec()
+      → on accept: CollectionService.create_request()
+        → upgrade tab (request_id, dirty=False)
+        → CollectionWidget tree update
 ```
 
 ### Tab bar flow
@@ -183,7 +200,8 @@ BreadcrumbBar.item_clicked(type, id)
 
 BreadcrumbBar.last_segment_renamed(new_name)
   → MainWindow._on_breadcrumb_rename
-    → CollectionService.rename_request / rename_collection
+    → if draft tab (request_id=None): update ctx.draft_name + tab label only
+    → else: CollectionService.rename_request / rename_collection
 ```
 
 ### Environment selector flow
@@ -240,9 +258,11 @@ MainWindow._toggle_layout_action.triggered
 
 ```
 MainWindow snippet_act.triggered
-  → _on_code_snippet
-    → CodeSnippetDialog(request_data)
-      → SnippetGenerator.generate(language, ...)
+  → _on_snippet_shortcut
+    → _right_sidebar.open_panel("snippet")
+    → SnippetPanel.update_request(method, url, headers, body, auth)
+      → SnippetGenerator.generate(language, ..., options=SnippetOptions)
+        → registry dispatch to language-specific generator (23 languages)
 ```
 
 ### Settings flow
@@ -290,6 +310,22 @@ RequestEditorWidget._on_fetch_schema()
     → GraphQLSchemaService.fetch_schema(url, headers)
     → SchemaFetchWorker.finished(SchemaResultDict)
       → RequestEditorWidget._on_schema_ready(result)
+```
+
+### OAuth 2.0 token flow
+
+```
+OAuth2Page.get_token_requested  (user clicks "Get New Access Token")
+  → _AuthMixin._on_get_oauth2_token()
+    → OAuth2TokenWorker.set_config(config)
+    → QThread.started → OAuth2TokenWorker.run()
+      → OAuth2Service.get_token(config)
+      → OAuth2TokenWorker.finished(OAuth2TokenResult)
+        → _AuthMixin._on_oauth2_token_received(data)
+          → OAuth2Page.set_token(token, name)
+    → OAuth2TokenWorker.error(str)
+      → _AuthMixin._on_oauth2_token_error(msg)
+        → QMessageBox.warning()
 ```
 
 ### Variable popup flow
@@ -375,6 +411,9 @@ All other signals in the flow diagrams above are fully wired.
 | `CollectionWidget` | `item_action_triggered` | `Signal(str, int, str)` |
 | `CollectionWidget` | `item_name_changed` | `Signal(str, int, str)` |
 | `CollectionWidget` | `load_finished` | `Signal()` |
+| `CollectionWidget` | `draft_request_requested` | `Signal()` |
+| `NewItemPopup` | `new_request_clicked` | `Signal()` |
+| `NewItemPopup` | `new_collection_clicked` | `Signal()` |
 
 ### Request / response subsystem
 
@@ -389,6 +428,10 @@ All other signals in the flow diagrams above are fully wired.
 | `HttpSendWorker` | `error` | `Signal(str)` |
 | `SchemaFetchWorker` | `finished` | `Signal(dict)` — `SchemaResultDict` |
 | `SchemaFetchWorker` | `error` | `Signal(str)` |
+| `OAuth2TokenWorker` | `finished` | `Signal(dict)` — `OAuth2TokenResult` |
+| `OAuth2TokenWorker` | `error` | `Signal(str)` |
+| `OAuth2Page` | `field_changed` | `Signal()` |
+| `OAuth2Page` | `get_token_requested` | `Signal()` |
 
 ### Tab bar
 
@@ -475,7 +518,7 @@ All connections made in `MainWindow.__init__` (and `_create_menus`):
 - `forward_action.triggered` → `_navigate_forward`
 - `import_act.triggered` → `_on_import`
 - `save_act.triggered` → `_on_save_request`
-- `snippet_act.triggered` → `_on_code_snippet`
+- `snippet_act.triggered` → `_on_snippet_shortcut`
 - `settings_act.triggered` → `_on_settings`
 - `run_act.triggered` → `_on_run_collection`
 - `exit_act.triggered` → `close`
@@ -488,6 +531,7 @@ All connections made in `MainWindow.__init__` (and `_create_menus`):
 - `editor.send_requested` → `_on_send_request`
 - `editor.save_requested` → `_on_save_request`
 - `editor.dirty_changed` → `_sync_save_btn`
+- `editor.request_changed` → `_schedule_sidebar_snippet_refresh`
 - `viewer.save_response_requested` → `_on_save_response`
 
 **VariablePopup callbacks (classmethods, wired once):**

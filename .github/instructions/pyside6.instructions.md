@@ -204,6 +204,20 @@ standard object names:
 | `sidebarSearch` | `QLineEdit` | Collection sidebar search input |
 | `sidebarSectionLabel` | `QLabel` | Sidebar section heading |
 | `sidebarToolButton` | `QToolButton` | Sidebar toolbar button |
+| `newItemPopup` | `QDialog` | Postman-style "Create New" dialog |
+| `newItemTile` | `QPushButton` | Tile button inside the new-item dialog |
+| `newItemTileLabel` | `QLabel` | Tile label text inside the dialog |
+| `newItemTitle` | `QLabel` | Dialog heading ("What do you want to create?") |
+| `newItemDescription` | `QLabel` | Description text below tiles |
+| `collectionTree` | `QTreeWidget` | Collection tree in SaveRequestDialog |
+| `sidebarRail` | `QWidget` | Always-visible icon rail (RightSidebar widget) |
+| `sidebarRailButton` | `QToolButton` | Checkable icon button in the rail |
+| `sidebarPanelArea` | `QWidget` | Collapsible flyout panel (separate splitter child) |
+| `sidebarTitleLabel` | `QLabel` | Bold panel title in flyout header |
+| `variableKeyLabel` | `QLabel` | Variable key in sidebar panel |
+| `variableValueLabel` | `QLabel` | Variable value in sidebar panel |
+| `sidebarSourceDot` | `QLabel` | Colour-coded variable source dot |
+| `sidebarSeparator` | `QFrame` | Separator line in sidebar panels |
 
 ### When inline setStyleSheet() is still acceptable
 

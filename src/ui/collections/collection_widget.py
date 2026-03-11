@@ -73,6 +73,9 @@ class CollectionWidget(QWidget):
     # Emitted when the initial background fetch completes
     load_finished = Signal()
 
+    # Emitted when the user wants a draft (unsaved) request tab
+    draft_request_requested = Signal()
+
     def __init__(self, parent: QWidget | None = None) -> None:
         """Initialise the collection widget with header, tree, and loading bar."""
         super().__init__(parent)
@@ -123,8 +126,6 @@ class CollectionWidget(QWidget):
         self._loading_bar.setFixedHeight(4)
         self._loading_bar.setGeometry(0, 0, viewport.width(), 4)
         self._loading_bar.hide()
-
-        self._start_fetch()
 
     # ------------------------------------------------------------------
     # Background fetch
@@ -213,9 +214,13 @@ class CollectionWidget(QWidget):
     # Create helpers
     # ------------------------------------------------------------------
     def _create_new_request(self, collection_id: int | None = None) -> None:
-        """Create a new request and add it to the tree."""
+        """Create a new request and add it to the tree.
+
+        When *collection_id* is ``None`` (draft mode), emits
+        :pyattr:`draft_request_requested` instead of persisting.
+        """
         if collection_id is None:
-            logger.warning("Cannot create request without a collection_id")
+            self.draft_request_requested.emit()
             return
         new_request = self._svc.create_request(
             collection_id, _DEFAULT_METHOD, _DEFAULT_URL, _DEFAULT_REQUEST_NAME

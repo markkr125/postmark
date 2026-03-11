@@ -134,6 +134,10 @@ Key signals to know (always-on summary):
 
 - `CollectionWidget.item_action_triggered(str, int, str)` → opens
   requests/folders in MainWindow.
+- `CollectionWidget.draft_request_requested()` → opens a new draft
+  (unsaved) request tab in MainWindow.
+- `NewItemPopup.new_request_clicked()` / `new_collection_clicked()` →
+  emitted by the icon grid popup when tiles are clicked.
 - `RequestEditorWidget.send_requested()` → triggers HTTP send flow.
 - `ThemeManager.theme_changed()` → widgets refresh dynamic styles.
 - `VariablePopup` uses **class-level callbacks**, not signals — wired once
@@ -190,6 +194,20 @@ signal instead of relying on `_safe_svc_call`.
 Children within a folder are **not sorted** — they appear in dict iteration
 order (insertion order in Python 3.7+).
 
+### 6. Auth inheritance convention
+
+`auth = None` in the database means "inherit from parent" — the request
+or folder walks up its ancestor chain until it finds a folder with an
+explicit `auth` dict.  `{"type": "noauth"}` means "no authentication" and
+**stops** the inheritance chain.  The UI maps `None` to
+`"Inherit auth from parent"` in the auth type combo.
+
+- `_get_auth_data()` returns `None` for inherit, `{"type": "noauth"}` for
+  explicit no-auth.
+- `_load_auth(None)` / `_load_auth({})` → selects "Inherit auth from parent".
+- `get_request_inherited_auth(request_id)` / `get_collection_inherited_auth(collection_id)`
+  resolve the effective auth by walking ancestors.
+
 ## Repository and service reference
 
 > **Full repository function catalogues, service method tables, TypedDict
@@ -220,7 +238,11 @@ order (insertion order in Python 3.7+).
    combined variable map in `MainWindow._refresh_variable_map()` and
    tagged with `is_local=True` in `VariableDetail` so the popup can show
    Update/Reset buttons.
-7. **VariablePopup uses class-level callbacks, not Qt signals** —
+7. **`TabContext.draft_name` tracks the display name of unsaved tabs** —
+   Set to `"Untitled Request"` when a draft tab is opened.  Updated when
+   the user renames via the breadcrumb bar.  Used as fallback label in the
+   save-to-collection dialog.  `None` for persisted request tabs.
+8. **VariablePopup uses class-level callbacks, not Qt signals** —
    `VariablePopup` is a **singleton** `QFrame`.  Its callbacks
    (`set_save_callback`, `set_local_override_callback`,
    `set_reset_local_override_callback`, `set_add_variable_callback`,

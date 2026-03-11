@@ -116,7 +116,9 @@ Fastest paths to understand and navigate the codebase:
   TypedDicts (`RequestLoadDict`, `VariableDetail`, `LocalOverride`).
 - **HTTP subsystem:** Read `src/services/http/__init__.py` — re-exports
   `HttpService`, `GraphQLSchemaService`, `SnippetGenerator`,
-  `HttpResponseDict`, `parse_header_dict`.
+  `SnippetOptions`, `HttpResponseDict`, `parse_header_dict`.
+  Auth header injection lives in `src/services/http/auth_handler.py`.
+  OAuth 2.0 token exchange lives in `src/services/http/oauth2_service.py`.
 - **All DB models:** Read `src/database/database.py` — re-exports all four
   ORM models (`CollectionModel`, `RequestModel`, `SavedResponseModel`,
   `EnvironmentModel`).
@@ -159,7 +161,13 @@ src/
 │   ├── http/                      # HTTP request/response handling
 │   │   ├── http_service.py        # HttpService (httpx) + response TypedDicts
 │   │   ├── graphql_schema_service.py  # GraphQL introspection + schema parsing
-│   │   ├── snippet_generator.py   # Code snippet generation (cURL/Python/JS)
+│   │   ├── auth_handler.py        # Shared auth header injection (all 12 auth types)
+│   │   ├── oauth2_service.py      # OAuth 2.0 token exchange (4 grant types)
+│   │   ├── snippet_generator/     # Code snippet generation sub-package (23 languages)
+│   │   │   ├── generator.py       # SnippetGenerator, SnippetOptions, LanguageEntry, registry
+│   │   │   ├── shell_snippets.py  # cURL, HTTP raw, wget, HTTPie, PowerShell
+│   │   │   ├── dynamic_snippets.py  # Python, JS, Node, Ruby, PHP, Dart
+│   │   │   └── compiled_snippets.py # Go, Rust, C, Swift, Java, Kotlin, C#
 │   │   └── header_utils.py        # Shared header parsing utility
 │   └── import_parser/             # Parser sub-package
 │       ├── models.py              # TypedDict schemas for parsed data
@@ -170,9 +178,14 @@ src/
     ├── main_window/               # Top-level MainWindow sub-package
     │   ├── window.py              # MainWindow widget + signal wiring
     │   ├── send_pipeline.py       # _SendPipelineMixin — HTTP send/response flow
+    │   ├── draft_controller.py    # _DraftControllerMixin — draft tab open/save
     │   ├── tab_controller.py      # _TabControllerMixin — tab open/close/switch
-    │   └── variable_controller.py # _VariableControllerMixin — env variable management
+    │   └── variable_controller.py # _VariableControllerMixin — env variable + sidebar management
     ├── loading_screen.py          # Loading screen overlay widget
+    ├── sidebar/                   # Right sidebar sub-package
+    │   ├── sidebar_widget.py      # RightSidebar (icon rail) + _FlyoutPanel
+    │   ├── variables_panel.py     # VariablesPanel — read-only variable display
+    │   └── snippet_panel.py       # SnippetPanel — inline code snippet generator
     ├── styling/                   # Visual theming and icons
     │   ├── theme.py               # Palettes, colours, badge geometry, method_color()
     │   ├── theme_manager.py       # ThemeManager — QPalette + QSettings
@@ -192,6 +205,7 @@ src/
     ├── collections/               # Collection sidebar
     │   ├── collection_header.py
     │   ├── collection_widget.py
+    │   ├── new_item_popup.py      # NewItemPopup — Postman-style icon grid popup
     │   └── tree/                  # Tree widget sub-package
     │       ├── constants.py
     │       ├── draggable_tree_widget.py
@@ -199,9 +213,9 @@ src/
     │       ├── tree_actions.py    # _TreeActionsMixin — context menus, rename, delete
     │       └── collection_tree_delegate.py  # Custom delegate for method badges
     ├── dialogs/                   # Modal dialogs
-    │   ├── code_snippet_dialog.py
     │   ├── collection_runner.py
     │   ├── import_dialog.py
+    │   ├── save_request_dialog.py  # Save draft request to collection
     │   └── settings_dialog.py     # Settings (theme, colour scheme)
     ├── environments/              # Environment management widgets
     │   ├── environment_editor.py
@@ -212,9 +226,15 @@ src/
     └── request/                   # Request/response editing
         ├── folder_editor.py         # Folder/collection detail editor
         ├── http_worker.py           # HttpSendWorker + SchemaFetchWorker (QThread)
+        ├── auth/                    # Shared auth sub-package (14 auth types)
+        │   ├── auth_field_specs.py  # Per-type FieldSpec definitions (AUTH_FIELD_SPECS)
+        │   ├── auth_mixin.py        # _AuthMixin — shared by both editors
+        │   ├── auth_pages.py        # FieldSpec dataclass, page builders, auth constants
+        │   ├── auth_serializer.py   # Generic load/save for all auth types
+        │   └── oauth2_page.py       # OAuth 2.0 custom page (grant-type switching)
         ├── request_editor/          # RequestEditor sub-package
         │   ├── editor_widget.py     # RequestEditor — main request editing widget
-        │   ├── auth.py              # _AuthMixin — authentication UI
+        │   ├── auth.py              # Re-export of _AuthMixin from auth sub-package
         │   ├── body_search.py       # _BodySearchMixin — search/replace in body
         │   └── graphql.py           # _GraphQLMixin — GraphQL mode + schema
         ├── response_viewer/         # ResponseViewer sub-package
@@ -223,7 +243,7 @@ src/
         ├── navigation/              # Tab switching and path navigation
         │   ├── breadcrumb_bar.py
         │   ├── request_tab_bar.py
-        │   └── tab_manager.py       # TabManager + TabContext (with local_overrides)
+        │   └── tab_manager.py       # TabManager + TabContext (with local_overrides, draft_name)
         └── popups/                  # Response metadata popups
             ├── status_popup.py      # HTTP status code explanation
             ├── timing_popup.py      # Request timing breakdown
@@ -243,14 +263,24 @@ tests/
 │       └── http/                  # HTTP service tests
 │           ├── test_http_service.py
 │           ├── test_graphql_schema_service.py
-│           └── test_snippet_generator.py
+│           ├── test_snippet_generator.py
+│           ├── test_snippet_shell.py
+│           ├── test_snippet_dynamic.py
+│           ├── test_snippet_compiled.py
+│           ├── test_auth_handler.py
+│           └── test_oauth2_service.py
 └── ui/                            # End-to-end PySide6 widget tests
     ├── conftest.py                # _no_fetch (autouse) + helpers
     ├── test_main_window.py
     ├── test_main_window_save.py   # SaveButton + RequestSaveEndToEnd tests
+    ├── test_main_window_draft.py  # Draft tab open/save lifecycle tests
     ├── styling/                   # Theme and icon tests
     │   ├── test_theme_manager.py
     │   └── test_icons.py
+    ├── sidebar/                   # Sidebar widget tests
+    │   ├── test_sidebar.py
+    │   ├── test_variables_panel.py
+    │   └── test_snippet_panel.py
     ├── widgets/                   # Shared component tests
     │   ├── test_code_editor.py
     │   ├── test_code_editor_folding.py
@@ -266,9 +296,11 @@ tests/
     │   ├── test_collection_tree.py
     │   ├── test_collection_tree_actions.py
     │   ├── test_collection_tree_delegate.py
-    │   └── test_collection_widget.py
+    │   ├── test_collection_widget.py
+    │   └── test_new_item_popup.py
     ├── dialogs/                   # Dialog tests
     │   ├── test_import_dialog.py
+    │   ├── test_save_request_dialog.py
     │   └── test_settings_dialog.py
     ├── environments/              # Environment widget tests
     │   ├── test_environment_editor.py

@@ -68,6 +68,8 @@ class _TabControllerMixin:
         request_id: int | None,
         local_overrides: dict | None = ...,
     ) -> None: ...
+    def _refresh_sidebar(self) -> None: ...
+    def _schedule_sidebar_snippet_refresh(self) -> None: ...
 
     # ------------------------------------------------------------------
     # Open request
@@ -173,6 +175,7 @@ class _TabControllerMixin:
         editor.send_requested.connect(self._on_send_request)
         editor.save_requested.connect(self._on_save_request)
         editor.dirty_changed.connect(self._sync_save_btn)
+        editor.request_changed.connect(lambda _: self._schedule_sidebar_snippet_refresh())
         viewer.save_response_requested.connect(self._on_save_response)
 
         # Now switch to the tab (triggers _on_tab_changed safely)
@@ -238,6 +241,11 @@ class _TabControllerMixin:
             if ctx.request_id is not None:
                 crumbs = CollectionService.get_request_breadcrumb(ctx.request_id)
                 self._breadcrumb_bar.set_path(crumbs)
+            elif ctx.draft_name is not None:
+                # Draft tab — show editable single-segment breadcrumb
+                self._breadcrumb_bar.set_path(
+                    [{"name": ctx.draft_name, "type": "request", "id": 0}]
+                )
             else:
                 self._breadcrumb_bar.clear()
             # Load saved responses
@@ -254,6 +262,9 @@ class _TabControllerMixin:
             self.response_widget = self._default_response_viewer
             self._breadcrumb_bar.clear()
             self._save_btn.setVisible(False)
+
+        # Refresh right sidebar for the active tab
+        self._refresh_sidebar()
 
     # ------------------------------------------------------------------
     # Tab close
@@ -290,6 +301,7 @@ class _TabControllerMixin:
             editor.send_requested.disconnect(self._on_send_request)
             editor.save_requested.disconnect(self._on_save_request)
             editor.dirty_changed.disconnect(self._sync_save_btn)
+            editor.request_changed.disconnect()
             viewer.save_response_requested.disconnect(self._on_save_response)
 
             # Remove from stacked widgets and detach from parent hierarchy.
@@ -451,6 +463,15 @@ class _TabControllerMixin:
 
     def _on_breadcrumb_rename(self, new_name: str) -> None:
         """Rename the current request/folder from the breadcrumb bar."""
+        idx = self._tab_bar.currentIndex()
+        ctx = self._tabs.get(idx)
+
+        # Draft tab — no DB entry yet, update tab name and context only
+        if ctx is not None and ctx.request_id is None and ctx.draft_name is not None:
+            ctx.draft_name = new_name
+            self._tab_bar.update_tab(idx, name=new_name)
+            return
+
         seg = self._breadcrumb_bar.last_segment_info
         if seg is None:
             return

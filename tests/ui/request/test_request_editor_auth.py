@@ -24,6 +24,7 @@ class TestRequestEditorAuth:
         items = [
             editor._auth_type_combo.itemText(i) for i in range(editor._auth_type_combo.count())
         ]
+        assert "Inherit auth from parent" in items
         assert "No Auth" in items
         assert "Bearer Token" in items
         assert "Basic Auth" in items
@@ -86,12 +87,22 @@ class TestRequestEditorAuth:
         assert data["auth"]["type"] == "bearer"
         assert data["auth"]["bearer"][0]["value"] == "abc"
 
+    def test_get_auth_data_inherit(self, qapp: QApplication, qtbot) -> None:
+        """get_request_data returns None when Inherit auth is selected."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+
+        editor.load_request({"name": "X", "method": "GET", "url": "http://x"})
+        data = editor.get_request_data()
+        assert data["auth"] is None
+
     def test_get_auth_data_no_auth(self, qapp: QApplication, qtbot) -> None:
         """get_request_data returns noauth when No Auth is selected."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
 
         editor.load_request({"name": "X", "method": "GET", "url": "http://x"})
+        editor._auth_type_combo.setCurrentText("No Auth")
         data = editor.get_request_data()
         assert data["auth"]["type"] == "noauth"
 
@@ -112,8 +123,31 @@ class TestRequestEditorAuth:
             }
         )
         editor.clear_request()
-        assert editor._auth_type_combo.currentText() == "No Auth"
+        assert editor._auth_type_combo.currentText() == "Inherit auth from parent"
         assert editor._bearer_token_input.text() == ""
+
+    def test_load_inherit_auth(self, qapp: QApplication, qtbot) -> None:
+        """Loading with auth=None selects Inherit auth from parent."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+
+        editor.load_request({"name": "X", "method": "GET", "url": "http://x", "auth": None})
+        assert editor._auth_type_combo.currentText() == "Inherit auth from parent"
+
+    def test_load_noauth_selects_no_auth(self, qapp: QApplication, qtbot) -> None:
+        """Loading with explicit noauth selects No Auth."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+
+        editor.load_request(
+            {
+                "name": "X",
+                "method": "GET",
+                "url": "http://x",
+                "auth": {"type": "noauth"},
+            }
+        )
+        assert editor._auth_type_combo.currentText() == "No Auth"
 
 
 class TestApplyAuth:
@@ -187,3 +221,137 @@ class TestApplyAuth:
         url, headers = HttpSendWorker._apply_auth({"type": "noauth"}, "http://x", "H: v", {})
         assert url == "http://x"
         assert headers == "H: v"
+
+
+class TestOAuth2PageWidget:
+    """Tests for the OAuth2Page custom widget."""
+
+    def test_load_and_get_entries_roundtrip(self, qapp: QApplication, qtbot) -> None:
+        """Loading entries and reading them back preserves values."""
+        from ui.request.auth.oauth2_page import OAuth2Page
+
+        page = OAuth2Page(on_change=lambda: None)
+        qtbot.addWidget(page)
+
+        entries = [
+            {"key": "accessToken", "value": "tok123"},
+            {"key": "headerPrefix", "value": "Bearer"},
+            {"key": "tokenName", "value": "My Token"},
+            {"key": "addTokenTo", "value": "header"},
+            {"key": "grant_type", "value": "client_credentials"},
+            {"key": "accessTokenUrl", "value": "https://auth.test/token"},
+            {"key": "clientId", "value": "cid"},
+            {"key": "clientSecret", "value": "csec"},
+            {"key": "scope", "value": "api"},
+            {"key": "client_authentication", "value": "header"},
+        ]
+        page.load(entries)
+
+        result = page.get_entries()
+        result_map = {e["key"]: e["value"] for e in result}
+
+        assert result_map["accessToken"] == "tok123"
+        assert result_map["headerPrefix"] == "Bearer"
+        assert result_map["tokenName"] == "My Token"
+        assert result_map["addTokenTo"] == "header"
+        assert result_map["grant_type"] == "client_credentials"
+        assert result_map["clientId"] == "cid"
+
+    def test_grant_type_switching(self, qapp: QApplication, qtbot) -> None:
+        """Changing grant type shows correct field containers."""
+        from ui.request.auth.oauth2_page import OAuth2Page
+
+        page = OAuth2Page(on_change=lambda: None)
+        qtbot.addWidget(page)
+
+        page._grant_type.setCurrentText("Password Credentials")
+        assert not page._grant_containers["Password Credentials"].isHidden()
+        assert page._grant_containers["Authorization Code"].isHidden()
+
+        page._grant_type.setCurrentText("Implicit")
+        assert not page._grant_containers["Implicit"].isHidden()
+        assert page._grant_containers["Password Credentials"].isHidden()
+
+    def test_get_config_returns_grant_type(self, qapp: QApplication, qtbot) -> None:
+        """get_config returns the correct grant_type key."""
+        from ui.request.auth.oauth2_page import OAuth2Page
+
+        page = OAuth2Page(on_change=lambda: None)
+        qtbot.addWidget(page)
+
+        page._grant_type.setCurrentText("Client Credentials")
+        config = page.get_config()
+        assert config["grant_type"] == "client_credentials"
+
+    def test_set_token(self, qapp: QApplication, qtbot) -> None:
+        """set_token populates the access token and display name."""
+        from ui.request.auth.oauth2_page import OAuth2Page
+
+        page = OAuth2Page(on_change=lambda: None)
+        qtbot.addWidget(page)
+
+        page.set_token("new_token_value", "Test Token")
+        assert page._access_token.text() == "new_token_value"
+        assert page._token_name_display.text() == "Test Token"
+
+    def test_clear_resets_all(self, qapp: QApplication, qtbot) -> None:
+        """clear() resets all fields to defaults."""
+        from ui.request.auth.oauth2_page import OAuth2Page
+
+        page = OAuth2Page(on_change=lambda: None)
+        qtbot.addWidget(page)
+
+        page._access_token.setText("tok")
+        page._token_name.setText("name")
+        page.clear()
+
+        assert page._access_token.text() == ""
+        assert page._token_name.text() == ""
+        assert page._header_prefix.text() == "Bearer"
+
+    def test_load_oauth2_in_editor(self, qapp: QApplication, qtbot) -> None:
+        """Loading OAuth 2.0 auth in RequestEditor selects correct type."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+
+        editor.load_request(
+            {
+                "name": "X",
+                "method": "GET",
+                "url": "http://x",
+                "auth": {
+                    "type": "oauth2",
+                    "oauth2": [
+                        {"key": "accessToken", "value": "mytoken"},
+                        {"key": "headerPrefix", "value": "Bearer"},
+                        {"key": "grant_type", "value": "client_credentials"},
+                    ],
+                },
+            }
+        )
+        assert editor._auth_type_combo.currentText() == "OAuth 2.0"
+
+    def test_get_auth_data_oauth2(self, qapp: QApplication, qtbot) -> None:
+        """get_request_data returns OAuth 2.0 entries."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+
+        editor.load_request(
+            {
+                "name": "X",
+                "method": "GET",
+                "url": "http://x",
+                "auth": {
+                    "type": "oauth2",
+                    "oauth2": [
+                        {"key": "accessToken", "value": "tok"},
+                        {"key": "grant_type", "value": "authorization_code"},
+                    ],
+                },
+            }
+        )
+        data = editor.get_request_data()
+        assert data["auth"]["type"] == "oauth2"
+        entries = data["auth"]["oauth2"]
+        entry_map = {e["key"]: e["value"] for e in entries}
+        assert entry_map["accessToken"] == "tok"

@@ -35,8 +35,11 @@ cross-layer data interchange.
 | `get_collection_by_id(collection_id)` | `CollectionModel \| None` | PK lookup |
 | `get_request_by_id(request_id)` | `RequestModel \| None` | PK lookup |
 | `get_request_auth_chain(request_id)` | `dict[str, Any] \| None` | Walk parent chain for auth config |
+| `get_request_inherited_auth(request_id)` | `dict[str, Any] \| None` | Resolve inherited auth for a request (walks ancestors) |
+| `get_collection_inherited_auth(collection_id)` | `dict[str, Any] \| None` | Resolve inherited auth for a collection (walks ancestors) |
 | `get_request_variable_chain(request_id)` | `dict[str, str]` | Collect variables up the parent chain |
 | `get_request_variable_chain_detailed(request_id)` | `dict[str, tuple[str, int]]` | Variables with source collection IDs |
+| `get_collection_variable_chain_detailed(collection_id)` | `dict[str, tuple[str, int]]` | Variables from collection's parent chain with source IDs |
 | `get_request_breadcrumb(request_id)` | `list[dict[str, Any]]` | Ancestor path for breadcrumb bar |
 | `get_collection_breadcrumb(collection_id)` | `list[dict[str, Any]]` | Ancestor path for collection breadcrumb |
 | `get_saved_responses_for_request(request_id)` | `list[dict[str, Any]]` | Saved responses for a request |
@@ -83,6 +86,8 @@ directly to the repository with no added logic.
 | `update_collection(id, **fields)` | Passthrough (generic field update) |
 | `update_request(id, **fields)` | Passthrough (generic field update) |
 | `get_request_auth_chain(request_id)` | Passthrough |
+| `get_request_inherited_auth(request_id)` | Passthrough |
+| `get_collection_inherited_auth(collection_id)` | Passthrough |
 | `get_request_variable_chain(request_id)` | Passthrough |
 | `get_request_breadcrumb(request_id)` | Passthrough |
 | `get_collection_breadcrumb(collection_id)` | Passthrough |
@@ -146,15 +151,23 @@ All methods are `@staticmethod`.
 
 ### SnippetGenerator
 
-All methods are `@staticmethod`.
+Located in `services/http/snippet_generator/` sub-package (re-exported via
+`services/http/__init__.py`).  All methods are `@staticmethod`.
 
 | Method | Purpose |
 |--------|---------|
-| `curl(method, url, headers, body)` | cURL command |
-| `python_requests(method, url, headers, body)` | Python requests library |
-| `javascript_fetch(method, url, headers, body)` | JavaScript fetch API |
-| `available_languages()` | List of supported language names |
-| `generate(language, method, url, headers, body)` | Dispatch to language-specific generator |
+| `available_languages()` | List of 23 supported language display names |
+| `get_language_info(name)` | Return `LanguageEntry` for a display name, or `None` |
+| `generate(language, method, url, headers, body, auth, options)` | Dispatch to language-specific generator |
+
+**`LanguageEntry`** (`NamedTuple`): `display_name`, `lexer`, `applicable_options`, `generate_fn`.
+
+**Supported languages (23):** cURL, HTTP, PowerShell (RestMethod),
+Shell (HTTPie), Shell (wget), Python (requests), Python (http.client),
+JavaScript (fetch), JavaScript (XHR), NodeJS (Axios), NodeJS (Native),
+Ruby (Net::HTTP), PHP (cURL), PHP (Guzzle), Dart (http), C (libcurl),
+C# (HttpClient), C# (RestSharp), Go (net/http), Java (OkHttp),
+Kotlin (OkHttp), Rust (reqwest), Swift (URLSession).
 
 ### Shared HTTP utilities (`services/http/header_utils.py`)
 
@@ -162,7 +175,55 @@ All methods are `@staticmethod`.
 |----------|---------|---------|
 | `parse_header_dict(raw)` | `dict[str, str]` | Parse `Key: Value\n` lines into a dict |
 
+### Auth handler (`services/http/auth_handler.py`)
+
+Shared auth header injection used by both `http_worker.py` (actual send)
+and `snippet_generator/generator.py` (code snippets).
+
+| Function | Returns | Purpose |
+|----------|---------|---------|
+| `apply_auth(auth, url, headers, *, method, body)` | `(url, headers)` | Dispatch to type-specific handler |
+
+Supports 12 field-based auth types: bearer, basic, apikey, oauth2, digest,
+oauth1, hawk, awsv4, jwt, asap, ntlm, edgegrid.  HMAC-based JWT (HS256/384/512)
+uses stdlib; RSA/EC algorithms require optional `PyJWT`.  NTLM is pass-through
+(requires live challenge-response).
+
+### OAuth2Service (`services/http/oauth2_service.py`)
+
+OAuth 2.0 token exchange for all four grant types.
+
+| Method | Returns | Purpose |
+|--------|---------|---------|
+| `get_token(config)` | `OAuth2TokenResult` | Dispatch to grant-type handler |
+| `refresh_token(token_url, refresh_token, client_id, client_secret, client_auth)` | `OAuth2TokenResult` | Refresh an expired token |
+
+Grant types: Authorization Code (browser + redirect), Implicit (browser +
+fragment capture), Password Credentials (direct POST), Client Credentials
+(direct POST).  Browser-based flows open the system browser and start a
+local HTTP server to capture the callback.
+
 ## TypedDict schemas
+
+### SnippetOptions (`services/http/snippet_generator/generator.py`)
+
+```python
+class SnippetOptions(TypedDict, total=False):
+    indent_count: int              # default 2
+    indent_type: str               # "space" or "tab", default "space"
+    trim_body: bool                # default False
+    follow_redirect: bool          # default True
+    request_timeout: int           # seconds, 0 = no timeout
+    include_boilerplate: bool      # default True — imports/main wrappers
+    async_await: bool              # default False — async/await vs promise chains
+    es6_features: bool             # default False — ES6 import/arrow syntax
+    multiline: bool                # default True — split shell commands across lines
+    long_form: bool                # default True — --header vs -H
+    line_continuation: str         # default "\\" — continuation char (\, ^, `)
+    quote_type: str                # default "single" — URL quoting style
+    follow_original_method: bool   # default False — keep method on redirect
+    silent_mode: bool              # default False — suppress progress meter
+```
 
 ### HttpService TypedDicts (`services/http/http_service.py`)
 
@@ -199,6 +260,18 @@ class HttpResponseDict(TypedDict):
     response_headers_size: NotRequired[int]
     response_uncompressed_size: NotRequired[int]
     network: NotRequired[NetworkDict]
+```
+
+### OAuth2TokenResult (`services/http/oauth2_service.py`)
+
+```python
+class OAuth2TokenResult(TypedDict):
+    access_token: str
+    token_type: str
+    expires_in: int
+    refresh_token: str
+    scope: str
+    error: str
 ```
 
 ### CollectionService TypedDicts (`services/collection_service.py`)

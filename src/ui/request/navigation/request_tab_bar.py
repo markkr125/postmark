@@ -322,10 +322,19 @@ class RequestTabBar(QTabBar):
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
         """Emit double-click signal for tab promotion."""
-        index = self.tabAt(event.pos())
+        index = self.tabAt(event.position().toPoint())
         if index >= 0:
             self.tab_double_clicked.emit(index)
         super().mouseDoubleClickEvent(event)
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        """Close tab on middle-click."""
+        if event.button() == Qt.MouseButton.MiddleButton:
+            index = self.tabAt(event.position().toPoint())
+            if index >= 0:
+                self.tab_close_requested.emit(index)
+                return
+        super().mousePressEvent(event)
 
     def contextMenuEvent(self, event: QMouseEvent) -> None:  # type: ignore[override]
         """Show right-click context menu with Close / Close Others / Close All."""

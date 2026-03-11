@@ -561,4 +561,113 @@ def build_global_qss(p: ThemePalette) -> str:
         padding: 6px 8px;
         font-size: 11px;
     }}
+
+    /* ---- New-item dialog (icon grid) ------------------------------ */
+    QDialog[objectName="newItemPopup"] {{
+        background: {p["bg"]};
+    }}
+    QLabel[objectName="newItemTitle"] {{
+        font-size: 14px;
+        font-weight: 600;
+        color: {p["text"]};
+    }}
+    QPushButton[objectName="newItemTile"] {{
+        background: {p["bg_alt"]};
+        border: 1px solid {p["border"]};
+        border-radius: 8px;
+    }}
+    QPushButton[objectName="newItemTile"]:hover {{
+        border-color: {p["accent"]};
+        background: {"rgba(79,193,255,0.08)" if p is DARK_PALETTE else "rgba(52,152,219,0.06)"};
+    }}
+    QLabel[objectName="newItemTileLabel"] {{
+        font-size: 12px;
+        font-weight: 500;
+        color: {p["text"]};
+    }}
+    QLabel[objectName="newItemDescription"] {{
+        font-size: 11px;
+        color: {p["text_muted"]};
+        padding: 8px 4px 0px 4px;
+    }}
+
+    /* ---- Save-request dialog ------------------------------------ */
+    QTreeWidget[objectName="collectionTree"] {{
+        border: 1px solid {p["border"]};
+        background: {p["input_bg"]};
+        border-radius: 4px;
+        outline: none;
+    }}
+    QTreeWidget[objectName="collectionTree"]::item {{
+        padding: 6px 8px;
+        border: none;
+    }}
+    QTreeWidget[objectName="collectionTree"]::item:hover {{
+        background: {p["hover_tree_bg"]};
+    }}
+    QTreeWidget[objectName="collectionTree"]::item:selected {{
+        background: {p["selected_bg"]};
+        color: {p["text"]};
+    }}
+
+    /* ---- Right sidebar ------------------------------------------ */
+    QWidget[objectName="sidebarPanelArea"] {{
+        background: {p["bg"]};
+        border-right: 1px solid {p["border"]};
+    }}
+    QWidget[objectName="sidebarRail"] {{
+        background: {p["bg"]};
+        border-left: 1px solid {p["border"]};
+    }}
+    QToolButton[objectName="sidebarRailButton"] {{
+        background: transparent;
+        border: none;
+        border-radius: 4px;
+        margin: 2px 3px;
+        color: {p["text_muted"]};
+    }}
+    QToolButton[objectName="sidebarRailButton"]:hover {{
+        background: {"rgba(255,255,255,0.06)" if p is DARK_PALETTE else "rgba(0,0,0,0.05)"};
+    }}
+    QToolButton[objectName="sidebarRailButton"]:checked {{
+        background: {"rgba(255,255,255,0.10)" if p is DARK_PALETTE else "rgba(0,0,0,0.08)"};
+        color: {p["text"]};
+    }}
+    QToolButton[objectName="sidebarRailButton"]:disabled {{
+        color: {p["text_muted"]};
+        opacity: 0.4;
+    }}
+    QLabel[objectName="sidebarTitleLabel"] {{
+        font-weight: bold;
+        font-size: 13px;
+        color: {p["text"]};
+    }}
+    QLabel[objectName="variableKeyLabel"] {{
+        font-family: monospace;
+        font-size: 12px;
+        color: {p["text"]};
+    }}
+    QLabel[objectName="variableValueLabel"] {{
+        font-family: monospace;
+        font-size: 12px;
+        color: {p["text_muted"]};
+    }}
+    QLabel[objectName="sidebarSourceDot"] {{
+        font-size: 16px;
+        font-weight: bold;
+    }}
+    QLabel[objectName="sidebarSourceDot"][varSource="environment"] {{
+        color: {p["accent"]};
+    }}
+    QLabel[objectName="sidebarSourceDot"][varSource="collection"] {{
+        color: {p["success"]};
+    }}
+    QLabel[objectName="sidebarSourceDot"][varSource="local"] {{
+        color: {p["warning"]};
+    }}
+    QLabel[objectName="sidebarSeparator"] {{
+        background: {p["border"]};
+        margin-top: 4px;
+        margin-bottom: 4px;
+    }}
     """
