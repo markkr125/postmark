@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import json
 
-from services.http.snippet_generator.generator import LanguageEntry, SnippetOptions, indent_str
+from services.http.snippet_generator.generator import (LanguageEntry,
+                                                       SnippetOptions,
+                                                       indent_str)
 
 # ---------------------------------------------------------------------------
 # Go
