@@ -9,8 +9,7 @@ from __future__ import annotations
 import json
 import shlex
 
-from services.http.snippet_generator.generator import (LanguageEntry,
-                                                       SnippetOptions)
+from services.http.snippet_generator.generator import LanguageEntry, SnippetOptions
 
 
 def curl(

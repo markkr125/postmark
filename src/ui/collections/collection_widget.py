@@ -127,8 +127,6 @@ class CollectionWidget(QWidget):
         self._loading_bar.setGeometry(0, 0, viewport.width(), 4)
         self._loading_bar.hide()
 
-        self._start_fetch()
-
     # ------------------------------------------------------------------
     # Background fetch
     # ------------------------------------------------------------------

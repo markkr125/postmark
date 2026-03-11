@@ -136,6 +136,10 @@ class MainWindow(
         # Wire tree rename -> update open tabs
         self.collection_widget.item_name_changed.connect(self._on_item_name_changed)
 
+        # Start the collection fetch *after* all signals are connected so
+        # a fast-completing fetch cannot emit load_finished before we listen.
+        self.collection_widget._start_fetch()
+
         # ---- Move to the screen that contains the mouse --------------
         self._move_to_mouse_screen()
 
