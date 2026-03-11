@@ -6,15 +6,23 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QSize, Qt, QThread, QTimer
-from PySide6.QtGui import (QAction, QCloseEvent, QCursor, QGuiApplication,
-                           QKeySequence)
+from PySide6.QtGui import QAction, QCloseEvent, QCursor, QGuiApplication, QKeySequence
 
 if TYPE_CHECKING:
     from ui.request.http_worker import HttpSendWorker
 
-from PySide6.QtWidgets import (QHBoxLayout, QMainWindow, QPushButton,
-                               QSizePolicy, QSplitter, QStackedWidget,
-                               QTabWidget, QToolBar, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QMainWindow,
+    QPushButton,
+    QSizePolicy,
+    QSplitter,
+    QStackedWidget,
+    QTabWidget,
+    QToolBar,
+    QVBoxLayout,
+    QWidget,
+)
 
 from services.collection_service import CollectionService
 from ui.collections.collection_widget import CollectionWidget
