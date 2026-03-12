@@ -8,6 +8,7 @@ live in ``collection_repository``.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import func as sa_func
@@ -412,16 +413,38 @@ def get_saved_responses_for_request(request_id: int) -> list[dict[str, Any]]:
     from .model.saved_response_model import SavedResponseModel
 
     with get_session() as session:
-        stmt = select(SavedResponseModel).where(SavedResponseModel.request_id == request_id)
+        stmt = (
+            select(SavedResponseModel)
+            .where(SavedResponseModel.request_id == request_id)
+            .order_by(SavedResponseModel.created_at.desc(), SavedResponseModel.id.desc())
+        )
         responses = list(session.execute(stmt).scalars().all())
-        return [
-            {
-                "id": sr.id,
-                "name": sr.name,
-                "status": sr.status,
-                "code": sr.code,
-                "headers": sr.headers,
-                "body": sr.body,
-            }
-            for sr in responses
-        ]
+        return [_saved_response_to_dict(sr) for sr in responses]
+
+
+def get_saved_response(response_id: int) -> dict[str, Any] | None:
+    """Return one saved response as a dict, or ``None`` if missing."""
+    from .model.saved_response_model import SavedResponseModel
+
+    with get_session() as session:
+        response = session.get(SavedResponseModel, response_id)
+        if response is None:
+            return None
+        return _saved_response_to_dict(response)
+
+
+def _saved_response_to_dict(response: Any) -> dict[str, Any]:
+    """Convert a ``SavedResponseModel`` into a plain dict."""
+    created_at: datetime | None = response.created_at
+    return {
+        "id": response.id,
+        "request_id": response.request_id,
+        "name": response.name,
+        "status": response.status,
+        "code": response.code,
+        "headers": response.headers,
+        "body": response.body,
+        "preview_language": response.preview_language,
+        "original_request": response.original_request,
+        "created_at": created_at,
+    }

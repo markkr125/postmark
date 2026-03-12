@@ -170,6 +170,7 @@ standard object names:
 | `smallPrimaryButton` | `QPushButton` | Compact accent button |
 | `outlineButton` | `QPushButton` | Border-only button |
 | `iconButton` | `QPushButton` | Icon-only square button (no padding) |
+| `iconDangerButton` | `QPushButton` | Icon-only button with danger-red hover |
 | `linkButton` | `QPushButton` | Text-only accent link |
 | `flatAccentButton` | `QPushButton` | Borderless accent text |
 | `flatMutedButton` | `QPushButton` | Borderless muted text |

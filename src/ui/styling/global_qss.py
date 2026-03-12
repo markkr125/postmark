@@ -76,6 +76,10 @@ def build_global_qss(p: ThemePalette) -> str:
         padding: 8px;
     }}
 
+    QLabel#savedResponseStatusBadge {{
+        margin-top: 6px;
+    }}
+
     /* ---- Inputs ------------------------------------------------- */
     QLineEdit, QComboBox {{
         background: {p["input_bg"]};
@@ -193,6 +197,18 @@ def build_global_qss(p: ThemePalette) -> str:
     QPushButton[objectName="iconButton"]:checked {{
         background: {"rgba(255,255,255,0.12)" if p is DARK_PALETTE else "rgba(0,0,0,0.10)"};
         border-color: {p["accent"]};
+    }}
+    QPushButton[objectName="iconDangerButton"] {{
+        border: 1px solid {p["border"]};
+        padding: 0px;
+        border-radius: 4px;
+        background: transparent;
+        color: {p["text_muted"]};
+    }}
+    QPushButton[objectName="iconDangerButton"]:hover {{
+        background: {"rgba(244,71,71,0.12)" if p is DARK_PALETTE else "rgba(231,76,60,0.10)"};
+        color: {p["danger"]};
+        border-color: {p["danger"]};
     }}
     QPushButton[objectName="linkButton"] {{
         color: {p["accent"]};

@@ -68,7 +68,7 @@ class _TabControllerMixin:
         request_id: int | None,
         local_overrides: dict | None = ...,
     ) -> None: ...
-    def _refresh_sidebar(self) -> None: ...
+    def _refresh_sidebar(self, ctx: TabContext | None = None) -> None: ...
     def _schedule_sidebar_snippet_refresh(self) -> None: ...
 
     # ------------------------------------------------------------------
@@ -177,6 +177,7 @@ class _TabControllerMixin:
         editor.dirty_changed.connect(self._sync_save_btn)
         editor.request_changed.connect(lambda _: self._schedule_sidebar_snippet_refresh())
         viewer.save_response_requested.connect(self._on_save_response)
+        viewer.save_availability_changed.connect(lambda _enabled: self._refresh_sidebar())
 
         # Now switch to the tab (triggers _on_tab_changed safely)
         self._tab_bar.setCurrentIndex(idx)
@@ -248,10 +249,6 @@ class _TabControllerMixin:
                 )
             else:
                 self._breadcrumb_bar.clear()
-            # Load saved responses
-            if ctx.request_id is not None:
-                saved = CollectionService.get_saved_responses(ctx.request_id)
-                ctx.response_viewer.load_saved_responses(saved)
             # Refresh variable map for highlighting and tooltips
             self._refresh_variable_map(ctx.editor, ctx.request_id, ctx.local_overrides)
         else:
@@ -263,8 +260,9 @@ class _TabControllerMixin:
             self._breadcrumb_bar.clear()
             self._save_btn.setVisible(False)
 
-        # Refresh right sidebar for the active tab
-        self._refresh_sidebar()
+        # Refresh right sidebar for the active tab using the same context
+        # that drove the stacked-widget switch.
+        self._refresh_sidebar(ctx)
 
     # ------------------------------------------------------------------
     # Tab close

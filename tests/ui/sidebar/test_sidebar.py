@@ -6,6 +6,7 @@ from typing import Any
 
 from PySide6.QtWidgets import QApplication
 
+from ui.sidebar.saved_responses.panel import SavedResponsesPanel
 from ui.sidebar.sidebar_widget import RightSidebar
 from ui.sidebar.snippet_panel import SnippetPanel
 from ui.sidebar.variables_panel import VariablesPanel
@@ -21,18 +22,20 @@ class TestRightSidebar:
         assert sidebar.objectName() == "sidebarRail"
 
     def test_panels_exist(self, qapp: QApplication, qtbot) -> None:
-        """Sidebar exposes variables_panel and snippet_panel."""
+        """Sidebar exposes variables, snippet, and saved-responses panels."""
         sidebar = RightSidebar()
         qtbot.addWidget(sidebar)
         assert isinstance(sidebar.variables_panel, VariablesPanel)
         assert isinstance(sidebar.snippet_panel, SnippetPanel)
+        assert isinstance(sidebar.saved_responses_panel, SavedResponsesPanel)
 
     def test_rail_buttons_exist(self, qapp: QApplication, qtbot) -> None:
-        """Sidebar has rail buttons for variables and code snippet."""
+        """Sidebar has rail buttons for variables, snippet, and saved responses."""
         sidebar = RightSidebar()
         qtbot.addWidget(sidebar)
         assert sidebar._var_btn is not None
         assert sidebar._snippet_btn is not None
+        assert sidebar._saved_btn is not None
 
     def test_buttons_start_disabled(self, qapp: QApplication, qtbot) -> None:
         """Rail buttons are disabled until a tab context is set."""
@@ -40,6 +43,7 @@ class TestRightSidebar:
         qtbot.addWidget(sidebar)
         assert not sidebar._var_btn.isEnabled()
         assert sidebar._snippet_btn.isHidden()
+        assert sidebar._saved_btn.isHidden()
 
     def test_panel_starts_closed(self, qapp: QApplication, qtbot) -> None:
         """No panel is open on construction."""
@@ -70,6 +74,22 @@ class TestRightSidebar:
         assert not sidebar._var_btn.isChecked()
         assert sidebar._snippet_btn.isChecked()
 
+    def test_open_panel_saved_responses(self, qapp: QApplication, qtbot) -> None:
+        """open_panel('saved_responses') opens the saved responses panel."""
+        sidebar = RightSidebar()
+        qtbot.addWidget(sidebar)
+        sidebar.show_request_panels({}, method="GET", url="")
+        sidebar.set_saved_response_context(
+            request_id=1,
+            request_name="Search",
+            items=[],
+            can_save_current=False,
+            is_persisted_request=True,
+        )
+        sidebar.open_panel("saved_responses")
+        assert sidebar.active_panel == "saved_responses"
+        assert sidebar._saved_btn.isChecked()
+
     def test_toggle_panel_closes_active(self, qapp: QApplication, qtbot) -> None:
         """Clicking the active panel's icon closes the panel."""
         sidebar = RightSidebar()
@@ -99,7 +119,7 @@ class TestRightSidebar:
         qapp: QApplication,
         qtbot,
     ) -> None:
-        """show_request_panels enables both rail icons."""
+        """show_request_panels enables all request-scoped rail icons."""
         sidebar = RightSidebar()
         qtbot.addWidget(sidebar)
         variables: dict[str, Any] = {
@@ -113,6 +133,8 @@ class TestRightSidebar:
         assert sidebar._var_btn.isEnabled()
         assert not sidebar._snippet_btn.isHidden()
         assert sidebar._snippet_btn.isEnabled()
+        assert not sidebar._saved_btn.isHidden()
+        assert sidebar._saved_btn.isEnabled()
 
     def test_show_folder_panels_disables_snippet(
         self,
@@ -128,6 +150,7 @@ class TestRightSidebar:
         sidebar.show_folder_panels(variables)
         assert sidebar._var_btn.isEnabled()
         assert sidebar._snippet_btn.isHidden()
+        assert sidebar._saved_btn.isHidden()
 
     def test_show_folder_closes_snippet_panel(
         self,
@@ -153,6 +176,7 @@ class TestRightSidebar:
         sidebar.clear()
         assert not sidebar._var_btn.isEnabled()
         assert sidebar._snippet_btn.isHidden()
+        assert sidebar._saved_btn.isHidden()
         assert sidebar.active_panel is None
 
     def test_close_button_closes_panel(self, qapp: QApplication, qtbot) -> None:

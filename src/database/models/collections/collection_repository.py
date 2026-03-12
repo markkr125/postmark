@@ -170,6 +170,8 @@ def save_response(
     code: int | None,
     headers: Any,
     body: str | None,
+    preview_language: str | None = None,
+    original_request: dict[str, Any] | None = None,
 ) -> int:
     """Save a response as a named example and return its ID."""
     from .model.saved_response_model import SavedResponseModel
@@ -182,10 +184,60 @@ def save_response(
             code=code,
             headers=headers,
             body=body,
+            preview_language=preview_language,
+            original_request=original_request,
         )
         session.add(sr)
         session.flush()
         return sr.id
+
+
+def rename_saved_response(response_id: int, new_name: str) -> None:
+    """Rename a saved response."""
+    from .model.saved_response_model import SavedResponseModel
+
+    with get_session() as session:
+        stmt = (
+            update(SavedResponseModel)
+            .where(SavedResponseModel.id == response_id)
+            .values(name=new_name)
+        )
+        session.execute(stmt)
+
+
+def delete_saved_response(response_id: int) -> None:
+    """Delete a saved response by primary key."""
+    from .model.saved_response_model import SavedResponseModel
+
+    with get_session() as session:
+        response = session.get(SavedResponseModel, response_id)
+        if response is None:
+            raise ValueError(f"No saved response found with id={response_id}")
+        session.delete(response)
+
+
+def duplicate_saved_response(response_id: int) -> int:
+    """Create a full copy of a saved response and return the new ID."""
+    from .model.saved_response_model import SavedResponseModel
+
+    with get_session() as session:
+        source = session.get(SavedResponseModel, response_id)
+        if source is None:
+            raise ValueError(f"No saved response found with id={response_id}")
+
+        duplicate = SavedResponseModel(
+            request_id=source.request_id,
+            name=f"{source.name} (copy)",
+            status=source.status,
+            code=source.code,
+            headers=source.headers,
+            body=source.body,
+            preview_language=source.preview_language,
+            original_request=source.original_request,
+        )
+        session.add(duplicate)
+        session.flush()
+        return duplicate.id
 
 
 # Columns on CollectionModel that may be updated via update_collection().

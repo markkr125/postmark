@@ -24,6 +24,9 @@ cross-layer data interchange.
 | `update_request_collection(request_id, new_collection_id)` | `None` | Move request |
 | `update_collection_parent(collection_id, new_parent_id)` | `None` | Move collection |
 | `save_response(request_id, ...)` | `int` | Persist a response snapshot, return its ID |
+| `rename_saved_response(response_id, new_name)` | `None` | Rename a saved response |
+| `delete_saved_response(response_id)` | `None` | Delete a saved response |
+| `duplicate_saved_response(response_id)` | `int` | Copy a saved response, return new ID |
 | `update_collection(collection_id, **fields)` | `None` | Generic field update on a collection |
 | `update_request(request_id, **fields)` | `None` | Generic field update on a request |
 
@@ -43,6 +46,7 @@ cross-layer data interchange.
 | `get_request_breadcrumb(request_id)` | `list[dict[str, Any]]` | Ancestor path for breadcrumb bar |
 | `get_collection_breadcrumb(collection_id)` | `list[dict[str, Any]]` | Ancestor path for collection breadcrumb |
 | `get_saved_responses_for_request(request_id)` | `list[dict[str, Any]]` | Saved responses for a request |
+| `get_saved_response(response_id)` | `dict[str, Any] \| None` | Single saved response detail by ID |
 | `count_collection_requests(collection_id)` | `int` | Total request count in folder subtree |
 | `get_recent_requests_for_collection(collection_id, ...)` | `list[dict[str, Any]]` | Recently modified requests in subtree |
 
@@ -93,8 +97,29 @@ directly to the repository with no added logic.
 | `get_collection_breadcrumb(collection_id)` | Passthrough |
 | `get_folder_request_count(collection_id)` | Passthrough |
 | `get_recent_requests(collection_id, ...)` | Passthrough |
-| `get_saved_responses(request_id)` | Passthrough |
+| `get_saved_responses(request_id)` | Formats `created_at` and `body_size` into `SavedResponseDict` |
+| `get_saved_response(response_id)` | Formats one row into `SavedResponseDict` |
 | `save_response(request_id, ...)` | Passthrough |
+| `rename_saved_response(response_id, new_name)` | `new_name.strip()`, rejects empty |
+| `delete_saved_response(response_id)` | Logging only |
+| `duplicate_saved_response(response_id)` | Logging only |
+
+### SavedResponseDict (`services/collection_service.py`)
+
+```python
+class SavedResponseDict(TypedDict):
+    id: int
+    request_id: int
+    name: str
+    status: str | None
+    code: int | None
+    headers: list[dict[str, Any]] | None
+    body: str | None
+    preview_language: str | None
+    original_request: dict[str, Any] | None
+    created_at: str | None
+    body_size: int
+```
 
 ### ImportService
 

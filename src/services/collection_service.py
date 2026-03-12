@@ -7,6 +7,8 @@ the widgets never import ``collection_repository`` directly.
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
+from datetime import datetime
 from typing import Any, TypedDict
 
 from database.models.collections.collection_query_repository import (
@@ -21,6 +23,7 @@ from database.models.collections.collection_query_repository import (
     get_request_by_id,
     get_request_inherited_auth,
     get_request_variable_chain,
+    get_saved_response,
     get_saved_responses_for_request,
 )
 from database.models.collections.collection_repository import (
@@ -28,8 +31,11 @@ from database.models.collections.collection_repository import (
     create_new_request,
     delete_collection,
     delete_request,
+    delete_saved_response,
+    duplicate_saved_response,
     rename_collection,
     rename_request,
+    rename_saved_response,
     save_response,
     update_collection,
     update_collection_parent,
@@ -61,6 +67,85 @@ class RequestLoadDict(TypedDict, total=False):
     body_mode: str | None
     body_options: dict[str, Any] | None
     auth: dict[str, Any] | None
+
+
+class SavedResponseDict(TypedDict):
+    """Full saved response payload used by the sidebar UI."""
+
+    id: int
+    request_id: int
+    name: str
+    status: str | None
+    code: int | None
+    headers: list[dict[str, Any]] | None
+    body: str | None
+    preview_language: str | None
+    original_request: dict[str, Any] | None
+    created_at: str | None
+    body_size: int
+
+
+def _normalize_header_list(headers: Any) -> list[dict[str, Any]] | None:
+    """Return saved-response headers in the canonical ``[{key, value}]`` shape."""
+    if headers is None:
+        return None
+
+    if isinstance(headers, Mapping):
+        return [
+            {"key": str(key), "value": "" if value is None else str(value)}
+            for key, value in headers.items()
+        ]
+
+    if isinstance(headers, str):
+        lines = [line.strip() for line in headers.splitlines() if line.strip()]
+        if not lines:
+            return None
+        normalized: list[dict[str, Any]] = []
+        for line in lines:
+            key, separator, value = line.partition(":")
+            normalized.append(
+                {
+                    "key": key.strip() if separator else line,
+                    "value": value.strip() if separator else "",
+                }
+            )
+        return normalized
+
+    if not isinstance(headers, list):
+        return None
+
+    normalized = []
+    for header in headers:
+        if isinstance(header, Mapping):
+            raw_key = header.get("key") or header.get("name") or header.get("header") or ""
+            raw_value = header.get("value")
+            normalized.append(
+                {
+                    "key": str(raw_key),
+                    "value": "" if raw_value is None else str(raw_value),
+                }
+            )
+            continue
+        if isinstance(header, str):
+            key, separator, value = header.partition(":")
+            normalized.append(
+                {
+                    "key": key.strip() if separator else header,
+                    "value": value.strip() if separator else "",
+                }
+            )
+    return normalized or None
+
+
+def _normalize_request_snapshot(original_request: Any) -> dict[str, Any] | None:
+    """Normalize saved original-request snapshots for read-only UI rendering."""
+    if not isinstance(original_request, Mapping):
+        return None
+
+    normalized = dict(original_request)
+    if "headers" in normalized:
+        normalized["headers"] = _normalize_header_list(normalized.get("headers"))
+    return normalized
 
 
 class CollectionService:
@@ -313,9 +398,20 @@ class CollectionService:
     # Saved responses
     # ------------------------------------------------------------------
     @staticmethod
-    def get_saved_responses(request_id: int) -> list[dict[str, Any]]:
+    def get_saved_responses(request_id: int) -> list[SavedResponseDict]:
         """Return all saved responses (examples) for a request."""
-        return get_saved_responses_for_request(request_id)
+        return [
+            CollectionService._format_saved_response_dict(item)
+            for item in get_saved_responses_for_request(request_id)
+        ]
+
+    @staticmethod
+    def get_saved_response(response_id: int) -> SavedResponseDict | None:
+        """Return one saved response (example) with full metadata."""
+        item = get_saved_response(response_id)
+        if item is None:
+            return None
+        return CollectionService._format_saved_response_dict(item)
 
     @staticmethod
     def save_response(
@@ -325,8 +421,63 @@ class CollectionService:
         code: int | None,
         headers: Any,
         body: str | None,
+        preview_language: str | None = None,
+        original_request: dict[str, Any] | None = None,
     ) -> int:
         """Save a response as a named example and return its ID."""
-        result = save_response(request_id, name, status, code, headers, body)
+        result = save_response(
+            request_id,
+            name,
+            status,
+            code,
+            _normalize_header_list(headers),
+            body,
+            preview_language=preview_language,
+            original_request=_normalize_request_snapshot(original_request),
+        )
         logger.info("Saved response for request id=%s", request_id)
         return result
+
+    @staticmethod
+    def rename_saved_response(response_id: int, new_name: str) -> None:
+        """Rename an existing saved response."""
+        clean_name = new_name.strip()
+        if not clean_name:
+            raise ValueError("Saved response name must not be empty")
+        rename_saved_response(response_id, clean_name)
+        logger.info("Renamed saved response id=%s to %r", response_id, clean_name)
+
+    @staticmethod
+    def delete_saved_response(response_id: int) -> None:
+        """Delete a saved response."""
+        delete_saved_response(response_id)
+        logger.info("Deleted saved response id=%s", response_id)
+
+    @staticmethod
+    def duplicate_saved_response(response_id: int) -> int:
+        """Duplicate a saved response and return the new ID."""
+        result = duplicate_saved_response(response_id)
+        logger.info("Duplicated saved response id=%s -> %s", response_id, result)
+        return result
+
+    @staticmethod
+    def _format_saved_response_dict(item: dict[str, Any]) -> SavedResponseDict:
+        """Normalize repository saved-response rows for UI consumption."""
+        body = item.get("body")
+        created_at = item.get("created_at")
+        created_text = (
+            created_at.strftime("%Y-%m-%d %H:%M") if isinstance(created_at, datetime) else None
+        )
+        return {
+            "id": int(item["id"]),
+            "request_id": int(item["request_id"]),
+            "name": str(item.get("name") or "Untitled Response"),
+            "status": item.get("status"),
+            "code": item.get("code"),
+            "headers": _normalize_header_list(item.get("headers")),
+            "body": body,
+            "preview_language": item.get("preview_language"),
+            "original_request": _normalize_request_snapshot(item.get("original_request")),
+            "created_at": created_text,
+            "body_size": len(body.encode("utf-8")) if isinstance(body, str) else 0,
+        }
