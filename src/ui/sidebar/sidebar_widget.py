@@ -28,6 +28,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from services.collection_service import SavedResponseDict
+from ui.sidebar.saved_responses.panel import SavedResponsesPanel
 from ui.sidebar.snippet_panel import SnippetPanel
 from ui.sidebar.variables_panel import VariablesPanel
 from ui.styling.icons import phi
@@ -43,7 +45,7 @@ class _FlyoutPanel(QWidget):
     """Collapsible content panel placed as its own splitter child."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
-        """Build title bar, variables panel and snippet panel."""
+        """Build title bar and all flyout content panels."""
         super().__init__(parent)
         self.setObjectName("sidebarPanelArea")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -80,14 +82,17 @@ class _FlyoutPanel(QWidget):
         # Content panels
         self.variables_panel = VariablesPanel()
         self.snippet_panel = SnippetPanel()
+        self.saved_responses_panel = SavedResponsesPanel()
         self.snippet_panel.setSizePolicy(
             QSizePolicy.Policy.Preferred,
             QSizePolicy.Policy.Expanding,
         )
         layout.addWidget(self.variables_panel, 1)
         layout.addWidget(self.snippet_panel, 1)
+        layout.addWidget(self.saved_responses_panel, 1)
         self.variables_panel.hide()
         self.snippet_panel.hide()
+        self.saved_responses_panel.hide()
 
     def minimumSizeHint(self) -> QSize:
         """Enforce a readable minimum width for the flyout."""
@@ -124,6 +129,7 @@ class RightSidebar(QWidget):
         self._title_label = self._flyout.title_label
         self._variables_panel = self._flyout.variables_panel
         self._snippet_panel = self._flyout.snippet_panel
+        self._saved_responses_panel = self._flyout.saved_responses_panel
         self._close_btn.clicked.connect(self._close_panel)
 
         # --- Rail layout ----------------------------------------------
@@ -136,9 +142,12 @@ class RightSidebar(QWidget):
             "Variables",
         )
         self._snippet_btn = self._make_rail_button("code", "Code snippet")
+        self._saved_btn = self._make_rail_button("floppy-disk-back", "Saved responses")
         self._snippet_btn.hide()
+        self._saved_btn.hide()
         rail_layout.addWidget(self._var_btn)
         rail_layout.addWidget(self._snippet_btn)
+        rail_layout.addWidget(self._saved_btn)
         rail_layout.addStretch()
 
         # State
@@ -153,6 +162,9 @@ class RightSidebar(QWidget):
         self._var_btn.clicked.connect(lambda: self._toggle_panel("variables"))
         self._snippet_btn.clicked.connect(
             lambda: self._toggle_panel("snippet"),
+        )
+        self._saved_btn.clicked.connect(
+            lambda: self._toggle_panel("saved_responses"),
         )
 
     # Keep a reference for the ``_rail`` attribute used by tests.
@@ -213,6 +225,11 @@ class RightSidebar(QWidget):
         return self._snippet_panel
 
     @property
+    def saved_responses_panel(self) -> SavedResponsesPanel:
+        """Return the saved responses panel widget."""
+        return self._saved_responses_panel
+
+    @property
     def active_panel(self) -> str | None:
         """Return the key of the currently open panel, or *None*."""
         return self._active_panel
@@ -235,11 +252,13 @@ class RightSidebar(QWidget):
         auth: dict | None = None,
     ) -> None:
         """Configure the sidebar for a request tab."""
-        self._available_panels = {"variables", "snippet"}
+        self._available_panels = {"variables", "snippet", "saved_responses"}
         self._default_panel = "snippet"
         self._var_btn.setEnabled(True)
         self._snippet_btn.show()
         self._snippet_btn.setEnabled(True)
+        self._saved_btn.show()
+        self._saved_btn.setEnabled(True)
 
         self._variables_panel.load_variables(
             variables,
@@ -267,27 +286,61 @@ class RightSidebar(QWidget):
         self._default_panel = "variables"
         self._var_btn.setEnabled(True)
         self._snippet_btn.hide()
+        self._saved_btn.hide()
 
         self._variables_panel.load_variables(
             variables,
             has_environment=has_environment,
         )
 
-        if self._active_panel == "snippet":
+        if self._active_panel in {"snippet", "saved_responses"}:
             self._close_panel()
+
+    def set_saved_response_context(
+        self,
+        *,
+        request_id: int | None,
+        request_name: str | None,
+        items: list[SavedResponseDict],
+        can_save_current: bool,
+        is_persisted_request: bool,
+    ) -> None:
+        """Populate the saved responses panel for the active request context."""
+        self._saved_btn.setVisible(True)
+        self._saved_btn.setEnabled(is_persisted_request)
+        self._saved_responses_panel.set_request_context(request_id, request_name)
+        self._saved_responses_panel.set_live_response_available(can_save_current)
+        if not is_persisted_request:
+            if self._active_panel == "saved_responses":
+                self._close_panel()
+            self._saved_responses_panel.show_request_required_state(
+                "Save the request first to store and browse saved responses."
+            )
+            return
+        self._saved_responses_panel.set_saved_responses(items)
 
     def clear(self) -> None:
         """Reset the sidebar to an empty state (no tab open)."""
         self._available_panels = set()
         self._var_btn.setEnabled(False)
         self._snippet_btn.hide()
+        self._saved_btn.hide()
         self._close_panel()
         self._variables_panel.clear()
         self._snippet_panel.clear()
+        self._saved_responses_panel.clear()
 
     def open_panel(self, panel: str) -> None:
         """Programmatically open a specific panel by key."""
         if panel in self._available_panels:
+            self._show_panel(panel)
+
+    def open_default_panel(self) -> None:
+        """Open the most relevant available panel for the current context."""
+        panel = self._last_panel if self._last_panel in self._available_panels else None
+        if panel is None:
+            panel = self._default_panel
+        if panel is not None:
             self._show_panel(panel)
 
     # ------------------------------------------------------------------
@@ -318,10 +371,16 @@ class RightSidebar(QWidget):
         self._last_panel = panel
         self._variables_panel.setVisible(panel == "variables")
         self._snippet_panel.setVisible(panel == "snippet")
+        self._saved_responses_panel.setVisible(panel == "saved_responses")
         self._var_btn.setChecked(panel == "variables")
         self._snippet_btn.setChecked(panel == "snippet")
+        self._saved_btn.setChecked(panel == "saved_responses")
         self._title_label.setText(
-            "Variables" if panel == "variables" else "Code snippet",
+            "Variables"
+            if panel == "variables"
+            else "Code snippet"
+            if panel == "snippet"
+            else "Saved Responses",
         )
         self._flyout.show()
         self._expand_flyout()
@@ -331,8 +390,10 @@ class RightSidebar(QWidget):
         self._active_panel = None
         self._variables_panel.hide()
         self._snippet_panel.hide()
+        self._saved_responses_panel.hide()
         self._var_btn.setChecked(False)
         self._snippet_btn.setChecked(False)
+        self._saved_btn.setChecked(False)
         self._collapse_flyout()
 
     def _expand_flyout(self) -> None:
@@ -372,8 +433,10 @@ class RightSidebar(QWidget):
             self._active_panel = None
             self._variables_panel.hide()
             self._snippet_panel.hide()
+            self._saved_responses_panel.hide()
             self._var_btn.setChecked(False)
             self._snippet_btn.setChecked(False)
+            self._saved_btn.setChecked(False)
 
         if flyout_width > 0 and not self._active_panel:
             # User expanded the flyout by dragging — open a panel.
@@ -387,9 +450,15 @@ class RightSidebar(QWidget):
                 self._last_panel = panel
                 self._variables_panel.setVisible(panel == "variables")
                 self._snippet_panel.setVisible(panel == "snippet")
+                self._saved_responses_panel.setVisible(panel == "saved_responses")
                 self._var_btn.setChecked(panel == "variables")
                 self._snippet_btn.setChecked(panel == "snippet")
+                self._saved_btn.setChecked(panel == "saved_responses")
                 self._title_label.setText(
-                    "Variables" if panel == "variables" else "Code snippet",
+                    "Variables"
+                    if panel == "variables"
+                    else "Code snippet"
+                    if panel == "snippet"
+                    else "Saved Responses",
                 )
                 self._flyout.show()

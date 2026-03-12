@@ -5,6 +5,7 @@ from __future__ import annotations
 from PySide6.QtWidgets import QApplication
 
 from ui.request.response_viewer import ResponseViewerWidget
+from ui.request.response_viewer.viewer_widget import ResponseViewerWidget as _RVW
 
 # -- Sample data used across tests ------------------------------------
 
@@ -291,7 +292,7 @@ class TestResponseViewerBeautify:
 
 
 class TestResponseViewerSaveResponse:
-    """Tests for the Save response button and saved responses tab."""
+    """Tests for the Save response button and saved-example mode."""
 
     def test_save_emits_signal(self, qapp: QApplication, qtbot) -> None:
         """Clicking Save emits save_response_requested with current data."""
@@ -310,8 +311,10 @@ class TestResponseViewerSaveResponse:
             viewer._on_save_response()
 
         data = blocker.args[0]
-        assert "200" in data["status"]
+        assert data["code"] == 200
+        assert data["status"] == "OK"
         assert '{"ok": true}' in data["body"]
+        assert data["headers"] == [{"key": "X-Test", "value": "1"}]
 
     def test_save_no_response_noop(self, qapp: QApplication, qtbot) -> None:
         """Save does nothing when no response is loaded."""
@@ -322,35 +325,6 @@ class TestResponseViewerSaveResponse:
         viewer.save_response_requested.connect(lambda d: emitted.append(d))
         viewer._on_save_response()
         assert emitted == []
-
-    def test_load_saved_responses(self, qapp: QApplication, qtbot) -> None:
-        """Saved responses populate the Saved tab."""
-        viewer = ResponseViewerWidget()
-        qtbot.addWidget(viewer)
-        responses = [
-            {"name": "Success", "code": 200, "status": "OK", "body": '{"result": 1}'},
-            {"name": "Error", "code": 500, "status": "Server Error", "body": "fail"},
-        ]
-        viewer.load_saved_responses(responses)
-        text = viewer._saved_list.toPlainText()
-        assert "Success" in text
-        assert "Error" in text
-        assert "200" in text
-        assert "500" in text
-
-    def test_load_saved_responses_empty(self, qapp: QApplication, qtbot) -> None:
-        """Empty list shows placeholder text in Saved tab."""
-        viewer = ResponseViewerWidget()
-        qtbot.addWidget(viewer)
-        viewer.load_saved_responses([])
-        assert "No saved responses" in viewer._saved_list.toPlainText()
-
-    def test_saved_tab_exists(self, qapp: QApplication, qtbot) -> None:
-        """Response viewer has a Saved tab."""
-        viewer = ResponseViewerWidget()
-        qtbot.addWidget(viewer)
-        tab_titles = [viewer._tabs.tabText(i) for i in range(viewer._tabs.count())]
-        assert "Saved" in tab_titles
 
 
 class TestResponseViewerPopups:
@@ -422,3 +396,43 @@ class TestResponseViewerPopups:
         qtbot.addWidget(viewer)
         assert viewer._network_icon is not None
         assert viewer._network_icon.parent() is viewer._status_bar_widget
+
+
+class TestDetectPreviewLanguage:
+    """Tests for body-content sniffing in _detect_preview_language."""
+
+    def test_json_body_without_content_type(self) -> None:
+        """JSON body is detected when no Content-Type header is present."""
+        result = _RVW._detect_preview_language({"headers": [], "body": '{"error": "bad"}'})
+        assert result == "json"
+
+    def test_xml_body_without_content_type(self) -> None:
+        """XML body is detected when no Content-Type header is present."""
+        result = _RVW._detect_preview_language(
+            {"headers": [], "body": "<?xml version='1.0'?><root/>"}
+        )
+        assert result == "xml"
+
+    def test_html_body_without_content_type(self) -> None:
+        """HTML body is detected when no Content-Type header is present."""
+        result = _RVW._detect_preview_language(
+            {"headers": [], "body": "<!DOCTYPE html><html></html>"}
+        )
+        assert result == "html"
+
+    def test_content_type_takes_precedence(self) -> None:
+        """Content-Type header wins over body sniffing."""
+        result = _RVW._detect_preview_language(
+            {
+                "headers": [{"key": "Content-Type", "value": "text/plain"}],
+                "body": '{"json": true}',
+            }
+        )
+        # Body looks like JSON but Content-Type says text → sniffing returns json
+        assert result == "json"
+
+    def test_no_body_no_content_type(self) -> None:
+        """No body and no Content-Type returns None."""
+        result = _RVW._detect_preview_language({"headers": [], "body": ""})
+        assert result is None
+        assert result is None

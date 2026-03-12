@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from database.models.collections.collection_repository import save_response as repo_save_response
 from services.collection_service import CollectionService
 
 
@@ -170,12 +171,83 @@ class TestSavedResponses:
         svc = CollectionService()
         coll = svc.create_collection("C")
         req = svc.create_request(coll.id, "GET", "http://x", "R")
-        sr_id = svc.save_response(req.id, "Example", "200 OK", 200, "H: V", "body")
+        sr_id = svc.save_response(
+            req.id,
+            "Example",
+            "OK",
+            200,
+            [{"key": "Content-Type", "value": "application/json"}],
+            '{"ok": true}',
+            preview_language="json",
+            original_request={"method": "GET", "url": "http://x"},
+        )
         assert sr_id > 0
         responses = svc.get_saved_responses(req.id)
         assert len(responses) == 1
         assert responses[0]["name"] == "Example"
-        assert responses[0]["body"] == "body"
+        assert responses[0]["body"] == '{"ok": true}'
+        assert responses[0]["preview_language"] == "json"
+        assert responses[0]["original_request"] == {"method": "GET", "url": "http://x"}
+        assert responses[0]["body_size"] > 0
+
+    def test_get_single_saved_response(self) -> None:
+        """A saved response can be fetched back by ID."""
+        svc = CollectionService()
+        coll = svc.create_collection("C")
+        req = svc.create_request(coll.id, "GET", "http://x", "R")
+        sr_id = svc.save_response(req.id, "Example", "OK", 200, [], "body")
+        response = svc.get_saved_response(sr_id)
+        assert response is not None
+        assert response["id"] == sr_id
+        assert response["request_id"] == req.id
+
+    def test_rename_duplicate_and_delete(self) -> None:
+        """Saved responses support rename, duplicate, and delete operations."""
+        svc = CollectionService()
+        coll = svc.create_collection("C")
+        req = svc.create_request(coll.id, "GET", "http://x", "R")
+        sr_id = svc.save_response(req.id, "Example", "OK", 200, [], "body")
+
+        svc.rename_saved_response(sr_id, "Renamed")
+        renamed = svc.get_saved_response(sr_id)
+        assert renamed is not None
+        assert renamed["name"] == "Renamed"
+
+        dup_id = svc.duplicate_saved_response(sr_id)
+        duplicate = svc.get_saved_response(dup_id)
+        assert duplicate is not None
+        assert duplicate["name"] == "Renamed (copy)"
+
+        svc.delete_saved_response(sr_id)
+        assert svc.get_saved_response(sr_id) is None
+
+    def test_get_saved_response_normalizes_legacy_dict_headers(self) -> None:
+        """Legacy saved responses with dict-shaped headers are normalized for the UI."""
+        svc = CollectionService()
+        coll = svc.create_collection("C")
+        req = svc.create_request(coll.id, "GET", "http://x", "R")
+        sr_id = repo_save_response(
+            req.id,
+            "Legacy",
+            "OK",
+            200,
+            {"Content-Type": "application/json"},
+            "body",
+            original_request={
+                "method": "GET",
+                "url": "http://x",
+                "headers": {"Accept": "application/json"},
+            },
+        )
+
+        response = svc.get_saved_response(sr_id)
+
+        assert response is not None
+        assert response["headers"] == [{"key": "Content-Type", "value": "application/json"}]
+        assert response["original_request"] is not None
+        assert response["original_request"]["headers"] == [
+            {"key": "Accept", "value": "application/json"}
+        ]
 
 
 class TestCollectionUpdates:
@@ -262,4 +334,5 @@ class TestRecentRequestsService:
         """An empty collection returns an empty list."""
         svc = CollectionService()
         coll = svc.create_collection("Empty")
+        assert svc.get_recent_requests(coll.id) == []
         assert svc.get_recent_requests(coll.id) == []

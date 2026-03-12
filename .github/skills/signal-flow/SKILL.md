@@ -222,6 +222,39 @@ EnvironmentSelector.manage_requested
 ResponseViewerWidget.save_response_requested(dict)
   → MainWindow._on_save_response
     → CollectionService.save_response(request_id, ...)
+
+SavedResponsesPanel.save_current_requested()
+  → MainWindow._on_save_current_response_requested
+    → active ResponseViewerWidget.get_save_response_data()
+    → MainWindow._on_save_response
+
+SavedResponsesPanel.rename_requested(response_id)
+  → MainWindow._on_rename_saved_response
+    → CollectionService.rename_saved_response(response_id, new_name)
+
+SavedResponsesPanel.duplicate_requested(response_id)
+  → MainWindow._on_duplicate_saved_response
+    → CollectionService.duplicate_saved_response(response_id)
+
+SavedResponsesPanel.delete_requested(response_id)
+  → MainWindow._on_delete_saved_response
+    → QMessageBox.question(...)
+    → CollectionService.delete_saved_response(response_id)
+```
+
+### Saved responses sidebar flow
+
+```
+MainWindow._on_tab_changed / _refresh_sidebar
+  → RightSidebar.show_request_panels(...)
+  → RightSidebar.set_saved_response_context(...)
+    → SavedResponsesPanel.set_request_context(...)
+    → SavedResponsesPanel.set_saved_responses(...)
+
+ResponseViewerWidget.save_availability_changed(bool)
+  → _TabControllerMixin lambda
+    → MainWindow._refresh_sidebar()
+      → RightSidebar.set_saved_response_context(...can_save_current=...)
 ```
 
 ### Folder editor flow

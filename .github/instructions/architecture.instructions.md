@@ -139,6 +139,11 @@ Key signals to know (always-on summary):
 - `NewItemPopup.new_request_clicked()` / `new_collection_clicked()` →
   emitted by the icon grid popup when tiles are clicked.
 - `RequestEditorWidget.send_requested()` → triggers HTTP send flow.
+- `ResponseViewerWidget.save_response_requested(dict)` → saves the current live response.
+- `ResponseViewerWidget.save_availability_changed(bool)` → refreshes right-sidebar saved-response affordances.
+- `SavedResponsesPanel` emits `save_current_requested`,
+  `rename_requested`, `duplicate_requested`, and `delete_requested` — all
+  handled in `MainWindow` through `CollectionService`.
 - `ThemeManager.theme_changed()` → widgets refresh dynamic styles.
 - `VariablePopup` uses **class-level callbacks**, not signals — wired once
   in `MainWindow.__init__`.
@@ -208,6 +213,40 @@ explicit `auth` dict.  `{"type": "noauth"}` means "no authentication" and
 - `get_request_inherited_auth(request_id)` / `get_collection_inherited_auth(collection_id)`
   resolve the effective auth by walking ancestors.
 
+### 7. Saved responses are now split across two UI surfaces
+
+- **Saving** a response remains a response-viewer action.  The live response
+  viewer emits `save_response_requested(dict)` only when it has a live
+  `HttpResponseDict` loaded.
+- **Browsing/managing** saved responses now lives in the right sidebar's
+  `SavedResponsesPanel`, alongside Variables and Snippets.
+- The panel is fully self-contained: selecting a saved response shows its
+  details (headers, body, metadata) inline, with built-in search and filter.
+- The old plain-text Saved tab in `ResponseViewerWidget` has been removed.
+
+### 8. Saved response data contract
+
+`CollectionService` now normalizes saved responses into `SavedResponseDict`:
+
+```python
+class SavedResponseDict(TypedDict):
+    id: int
+    request_id: int
+    name: str
+    status: str | None
+    code: int | None
+    headers: list[dict[str, Any]] | None
+    body: str | None
+    preview_language: str | None
+    original_request: dict[str, Any] | None
+    created_at: str | None
+    body_size: int
+```
+
+`get_saved_responses_for_request()` orders rows newest-first by
+`created_at DESC, id DESC`, and `CollectionService` formats `created_at`
+into `%Y-%m-%d %H:%M` strings for the UI.
+
 ## Repository and service reference
 
 > **Full repository function catalogues, service method tables, TypedDict
@@ -249,3 +288,8 @@ explicit `auth` dict.  `{"type": "noauth"}` means "no authentication" and
    `set_has_environment`) are classmethods that store callables on the
    **class itself**, not on an instance.  They are wired once in
    `MainWindow.__init__` and survive popup hide/show cycles.
+  9. **Saved response mutations are MainWindow-owned** —
+    `SavedResponsesPanel` is a read-only/browser widget.  It never imports the
+    repository or service directly for mutations; it only emits signals to
+    `MainWindow`, which calls `CollectionService` and then refreshes the
+    sidebar state.

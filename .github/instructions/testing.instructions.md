@@ -139,10 +139,11 @@ tests/
     │   ├── test_variable_line_edit.py
     │   ├── test_variable_popup.py
     │   └── test_variable_popup_local.py
-    ├── sidebar/                   # Sidebar widget tests
-    │   ├── test_sidebar.py
-    │   ├── test_variables_panel.py
-    │   └── test_snippet_panel.py
+   ├── sidebar/                   # Sidebar widget tests
+   │   ├── test_sidebar.py
+   │   ├── test_variables_panel.py
+   │   ├── test_snippet_panel.py
+   │   └── test_saved_responses_panel.py
     ├── collections/               # Collection sidebar tests
     │   ├── test_collection_header.py
     │   ├── test_collection_tree.py

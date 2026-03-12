@@ -7,6 +7,7 @@ Re-exports :class:`RightSidebar` for use from the main window:
 
 from __future__ import annotations
 
+from ui.sidebar.saved_responses.panel import SavedResponsesPanel
 from ui.sidebar.sidebar_widget import RightSidebar
 
-__all__ = ["RightSidebar"]
+__all__ = ["RightSidebar", "SavedResponsesPanel"]

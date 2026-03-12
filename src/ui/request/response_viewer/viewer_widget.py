@@ -84,6 +84,7 @@ class ResponseViewerWidget(_SearchFilterMixin, QWidget):
     """
 
     save_response_requested = Signal(dict)
+    save_availability_changed = Signal(bool)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Initialise the response viewer layout."""
@@ -130,6 +131,7 @@ class ResponseViewerWidget(_SearchFilterMixin, QWidget):
         self._save_response_btn.setObjectName("flatMutedButton")
         self._save_response_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._save_response_btn.clicked.connect(self._on_save_response)
+        self._save_response_btn.setEnabled(False)
         status_row.addWidget(self._save_response_btn)
 
         self._status_bar_widget = QWidget()
@@ -149,6 +151,7 @@ class ResponseViewerWidget(_SearchFilterMixin, QWidget):
         self._last_status_text: str = ""
         self._last_status_color: str = ""
         self._last_elapsed_ms: float = 0.0
+        self._last_live_response: dict | None = None
 
         # -- Progress bar (loading state) -----------------------------
         self._progress_bar = QProgressBar()
@@ -256,13 +259,6 @@ class ResponseViewerWidget(_SearchFilterMixin, QWidget):
         self._cookies_edit.setObjectName("monoEdit")
         self._tabs.addTab(self._cookies_edit, "Cookies")
 
-        # Saved responses tab
-        self._saved_list = QTextEdit()
-        self._saved_list.setReadOnly(True)
-        self._saved_list.setPlaceholderText("No saved responses")
-        self._saved_list.setObjectName("monoEdit")
-        self._tabs.addTab(self._saved_list, "Saved")
-
         root.addWidget(self._tabs, 1)
 
         # -- Empty state label ----------------------------------------
@@ -308,6 +304,7 @@ class ResponseViewerWidget(_SearchFilterMixin, QWidget):
     def show_error(self, message: str) -> None:
         """Display an error message (e.g. connection refused)."""
         self._error_label.setText(f"Could not send request\n\n{message}")
+        self._set_save_enabled(False)
         self._set_state("error")
 
     def load_response(self, data: dict) -> None:
@@ -323,6 +320,30 @@ class ResponseViewerWidget(_SearchFilterMixin, QWidget):
             self.show_error(f"{data['error']}{suffix}")
             return
 
+        self._last_live_response = dict(data)
+        self._set_save_enabled(True)
+
+        self._render_response_data(data)
+
+    def has_live_response(self) -> bool:
+        """Return whether a live response is currently available for saving."""
+        return self._last_live_response is not None
+
+    def get_save_response_data(self) -> dict | None:
+        """Return the current live response payload suitable for saving."""
+        if not self.has_live_response() or self._last_live_response is None:
+            return None
+        preview_language = self._detect_preview_language(self._last_live_response)
+        return {
+            "status": self._last_live_response.get("status_text"),
+            "code": self._last_live_response.get("status_code"),
+            "body": self._last_live_response.get("body"),
+            "headers": self._last_live_response.get("headers"),
+            "preview_language": preview_language,
+        }
+
+    def _render_response_data(self, data: dict) -> None:
+        """Render response data into the viewer widgets."""
         self._set_state("response")
 
         # Status code
@@ -377,6 +398,7 @@ class ResponseViewerWidget(_SearchFilterMixin, QWidget):
 
     def clear(self) -> None:
         """Reset to the empty state."""
+        self._set_save_enabled(False)
         self._set_state("empty")
         self._status_label.setText("")
         self._time_label.setText("")
@@ -385,6 +407,7 @@ class ResponseViewerWidget(_SearchFilterMixin, QWidget):
         self._headers_edit.clear()
         self._cookies_edit.clear()
         self._error_label.setText("")
+        self._last_live_response = None
         self._raw_body = ""
         self._filtered_body = ""
         self._is_filtered = False
@@ -474,31 +497,50 @@ class ResponseViewerWidget(_SearchFilterMixin, QWidget):
 
     def _on_save_response(self) -> None:
         """Emit the save_response_requested signal with current response data."""
-        if not self._raw_body and not self._status_label.text():
+        data = self.get_save_response_data()
+        if data is None:
             return
-        data = {
-            "status": self._status_label.text(),
-            "body": self._raw_body,
-            "headers": self._headers_edit.toPlainText(),
-        }
         self.save_response_requested.emit(data)
 
-    def load_saved_responses(self, responses: list[dict]) -> None:
-        """Populate the Saved tab with a list of saved response dicts."""
-        if not responses:
-            self._saved_list.setPlainText("No saved responses")
-            return
-        lines = []
-        for resp in responses:
-            name = resp.get("name", "Untitled")
-            code = resp.get("code", "")
-            status = resp.get("status", "")
-            lines.append(f"--- {name} ({code} {status}) ---")
-            body = resp.get("body", "")
-            if body:
-                lines.append(body[:500])
-            lines.append("")
-        self._saved_list.setPlainText("\n".join(lines))
+    def _set_save_enabled(self, enabled: bool) -> None:
+        """Update Save Response button enabled state and notify listeners."""
+        self._save_response_btn.setEnabled(enabled)
+        self.save_availability_changed.emit(enabled)
+
+    @staticmethod
+    def _detect_preview_language(data: dict) -> str | None:
+        """Guess the preview language from the response headers."""
+        headers = data.get("headers") or []
+        content_type = ""
+        for header in headers:
+            key = str(header.get("key", "")).lower()
+            if key == "content-type":
+                content_type = str(header.get("value", "")).lower()
+                break
+        if "json" in content_type:
+            return "json"
+        if "xml" in content_type:
+            return "xml"
+        if "html" in content_type:
+            return "html"
+        # Fallback: sniff body content
+        body = str(data.get("body") or "").strip()
+        if body and body[0] in ("{", "["):
+            import json
+
+            try:
+                json.loads(body)
+                return "json"
+            except (json.JSONDecodeError, ValueError):
+                pass
+        lower = body[:100].lower()
+        if lower.startswith("<?xml"):
+            return "xml"
+        if lower.startswith("<!doctype html") or lower.startswith("<html"):
+            return "html"
+        if content_type:
+            return "text"
+        return None
 
     # -- Popup handlers ------------------------------------------------
 

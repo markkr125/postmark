@@ -42,6 +42,10 @@ class _SendPipelineMixin:
 
     def _current_tab_context(self) -> TabContext | None: ...
 
+    if TYPE_CHECKING:
+
+        def _refresh_sidebar(self, ctx: TabContext | None = None) -> None: ...
+
     def _on_send_request(self) -> None:
         """Send the current request on a background thread."""
         ctx: TabContext | None = self._current_tab_context()
@@ -152,6 +156,7 @@ class _SendPipelineMixin:
             data.get("status_code"),
             data.get("elapsed_ms", 0),
         )
+        self._refresh_sidebar()
 
     def _on_send_error(self, message: str) -> None:
         """Handle an error from the HTTP send worker."""
@@ -171,6 +176,7 @@ class _SendPipelineMixin:
             editor._method_combo.currentText(),
             editor._url_input.text(),
         )
+        self._refresh_sidebar()
 
     def _cancel_send(self) -> None:
         """Cancel the in-flight HTTP request."""

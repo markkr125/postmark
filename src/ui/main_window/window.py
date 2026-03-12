@@ -13,7 +13,9 @@ if TYPE_CHECKING:
 
 from PySide6.QtWidgets import (
     QHBoxLayout,
+    QInputDialog,
     QMainWindow,
+    QMessageBox,
     QPushButton,
     QSizePolicy,
     QSplitter,
@@ -113,6 +115,18 @@ class MainWindow(
 
         # Wire environment editor
         self._env_selector.manage_requested.connect(self._on_manage_environments)
+        self._right_sidebar.saved_responses_panel.save_current_requested.connect(
+            self._on_save_current_response_requested
+        )
+        self._right_sidebar.saved_responses_panel.rename_requested.connect(
+            self._on_rename_saved_response
+        )
+        self._right_sidebar.saved_responses_panel.duplicate_requested.connect(
+            self._on_duplicate_saved_response
+        )
+        self._right_sidebar.saved_responses_panel.delete_requested.connect(
+            self._on_delete_saved_response
+        )
 
         # Refresh variable highlighting when the environment changes
         self._env_selector.environment_changed.connect(self._on_environment_changed)
@@ -592,13 +606,74 @@ class MainWindow(
         ctx = self._current_tab_context()
         if ctx is None or ctx.request_id is None:
             return
+        code = data.get("code")
+        status = data.get("status") or ""
+        default_name = f"{code} {status}".strip() or "Saved Response"
+        name, accepted = QInputDialog.getText(
+            self,
+            "Save Response",
+            "Example name:",
+            text=default_name,
+        )
+        if not accepted:
+            return
+        clean_name = name.strip() or default_name
+        request_data = ctx.editor.get_request_data()
         CollectionService.save_response(
             ctx.request_id,
-            name="Saved Response",
-            status=data.get("status"),
-            code=None,
+            name=clean_name,
+            status=status or None,
+            code=code if isinstance(code, int) else None,
             headers=data.get("headers"),
             body=data.get("body"),
+            preview_language=data.get("preview_language"),
+            original_request=request_data,
         )
-        saved = CollectionService.get_saved_responses(ctx.request_id)
-        ctx.response_viewer.load_saved_responses(saved)
+        self._refresh_sidebar()
+
+    def _on_save_current_response_requested(self) -> None:
+        """Save the current live response from the active response viewer."""
+        ctx = self._current_tab_context()
+        if ctx is None:
+            return
+        payload = ctx.response_viewer.get_save_response_data()
+        if payload is None:
+            return
+        self._on_save_response(payload)
+
+    def _on_rename_saved_response(self, response_id: int) -> None:
+        """Rename a saved response from the sidebar panel."""
+        detail = CollectionService.get_saved_response(response_id)
+        if detail is None:
+            return
+        name, accepted = QInputDialog.getText(
+            self,
+            "Rename Saved Response",
+            "New name:",
+            text=detail["name"],
+        )
+        if not accepted:
+            return
+        CollectionService.rename_saved_response(response_id, name)
+        self._refresh_sidebar()
+        self._right_sidebar.saved_responses_panel.select_response(response_id)
+
+    def _on_duplicate_saved_response(self, response_id: int) -> None:
+        """Duplicate a saved response from the sidebar panel."""
+        new_id = CollectionService.duplicate_saved_response(response_id)
+        self._refresh_sidebar()
+        self._right_sidebar.saved_responses_panel.select_response(new_id)
+
+    def _on_delete_saved_response(self, response_id: int) -> None:
+        """Delete a saved response from the sidebar panel after confirmation."""
+        confirm = QMessageBox.question(
+            self,
+            "Delete Saved Response",
+            "Delete this saved response?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+        CollectionService.delete_saved_response(response_id)
+        self._refresh_sidebar()

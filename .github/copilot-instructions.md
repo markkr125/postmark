@@ -185,9 +185,14 @@ src/
     ├── sidebar/                   # Right sidebar sub-package
     │   ├── sidebar_widget.py      # RightSidebar (icon rail) + _FlyoutPanel
     │   ├── variables_panel.py     # VariablesPanel — read-only variable display
-    │   └── snippet_panel.py       # SnippetPanel — inline code snippet generator
+    │   ├── snippet_panel.py       # SnippetPanel — inline code snippet generator
+    │   └── saved_responses/           # Saved responses sub-package
+    │       ├── panel.py               # SavedResponsesPanel — saved example list/detail flyout
+    │       ├── search_filter.py       # _PanelSearchFilterMixin — body search/filter
+    │       ├── helpers.py             # Formatting helpers (body size, language detect, etc.)
+    │       └── delegate.py            # Custom delegate for saved response list items
     ├── styling/                   # Visual theming and icons
-    │   ├── theme.py               # Palettes, colours, badge geometry, method_color()
+    │   ├── theme.py               # Palettes, colours, badge geometry, method_color(), status_color()
     │   ├── theme_manager.py       # ThemeManager — QPalette + QSettings
     │   ├── global_qss.py          # build_global_qss() — global stylesheet builder
     │   └── icons.py               # Phosphor font-glyph icon provider (phi())
@@ -280,7 +285,8 @@ tests/
     ├── sidebar/                   # Sidebar widget tests
     │   ├── test_sidebar.py
     │   ├── test_variables_panel.py
-    │   └── test_snippet_panel.py
+    │   ├── test_snippet_panel.py
+    │   └── test_saved_responses_panel.py
     ├── widgets/                   # Shared component tests
     │   ├── test_code_editor.py
     │   ├── test_code_editor_folding.py

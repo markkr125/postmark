@@ -186,9 +186,10 @@ class _VariableControllerMixin:
     # ------------------------------------------------------------------
     # Right-sidebar helpers
     # ------------------------------------------------------------------
-    def _refresh_sidebar(self) -> None:
+    def _refresh_sidebar(self, ctx: TabContext | None = None) -> None:
         """Update the right sidebar panels for the active tab."""
-        ctx = self._current_tab_context()
+        if ctx is None:
+            ctx = self._current_tab_context()
         env_id = self._env_selector.current_environment_id()
         has_env = env_id is not None
 
@@ -248,6 +249,22 @@ class _VariableControllerMixin:
                 body=sub(data.get("body") or "", flat_vars) or None,
                 auth=auth,
             )
+            request_name = None
+            saved_responses = []
+            is_persisted_request = ctx.request_id is not None
+            if ctx.request_id is not None:
+                from services.collection_service import CollectionService
+
+                request = CollectionService.get_request(ctx.request_id)
+                request_name = request.name if request is not None else None
+                saved_responses = CollectionService.get_saved_responses(ctx.request_id)
+            self._right_sidebar.set_saved_response_context(
+                request_id=ctx.request_id,
+                request_name=request_name,
+                items=saved_responses,
+                can_save_current=ctx.response_viewer.has_live_response(),
+                is_persisted_request=is_persisted_request,
+            )
 
     def _schedule_sidebar_snippet_refresh(self) -> None:
         """Debounce snippet refresh (300 ms) on request editor changes."""
@@ -299,7 +316,11 @@ class _VariableControllerMixin:
         if self._right_sidebar.panel_open:
             self._right_sidebar._close_panel()
         else:
-            self._right_sidebar.open_panel("variables")
+            ctx = self._current_tab_context()
+            if ctx is None:
+                return
+            self._refresh_sidebar(ctx)
+            self._right_sidebar.open_default_panel()
 
     def _on_snippet_shortcut(self) -> None:
         """Open the sidebar with the snippet panel visible."""

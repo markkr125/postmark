@@ -428,3 +428,16 @@ def method_color(method: str) -> str:
 def method_short_label(method: str) -> str:
     """Return a compact badge label for a given HTTP method."""
     return METHOD_SHORT_LABELS.get(method.upper(), method.upper()[:3])
+
+
+def status_color(code: int | None) -> str:
+    """Return the theme colour for an HTTP status code."""
+    if code is None:
+        return COLOR_MUTED
+    if code < 300:
+        return COLOR_SUCCESS
+    if code < 400:
+        return COLOR_WARNING
+    if code < 500:
+        return COLOR_DELETE
+    return COLOR_DANGER
