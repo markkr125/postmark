@@ -262,5 +262,3 @@ def _eval_xpath(expr: str, body: str) -> str | None:
         else:
             parts.append(str(node))
     return "\n".join(parts).rstrip()
-            parts.append(str(node))
-    return "\n".join(parts).rstrip()
