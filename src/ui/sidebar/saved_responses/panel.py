@@ -6,21 +6,35 @@ from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import Qt, Signal, SignalInstance
 from PySide6.QtGui import QKeySequence, QShortcut
-from PySide6.QtWidgets import (QApplication, QComboBox, QHBoxLayout, QLabel,
-                               QLineEdit, QListWidget, QListWidgetItem,
-                               QPushButton, QSplitter, QTabWidget, QVBoxLayout,
-                               QWidget)
+from PySide6.QtWidgets import (
+    QApplication,
+    QComboBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QPushButton,
+    QSplitter,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
+)
 
-from ui.sidebar.saved_responses.delegate import (ROLE_RESPONSE_CODE,
-                                                 ROLE_RESPONSE_META,
-                                                 ROLE_RESPONSE_NAME,
-                                                 SavedResponseDelegate)
-from ui.sidebar.saved_responses.helpers import (build_row_meta,
-                                                detect_body_language,
-                                                format_body_size,
-                                                format_code_text,
-                                                format_headers,
-                                                format_json_text)
+from ui.sidebar.saved_responses.delegate import (
+    ROLE_RESPONSE_CODE,
+    ROLE_RESPONSE_META,
+    ROLE_RESPONSE_NAME,
+    SavedResponseDelegate,
+)
+from ui.sidebar.saved_responses.helpers import (
+    build_row_meta,
+    detect_body_language,
+    format_body_size,
+    format_code_text,
+    format_headers,
+    format_json_text,
+)
 from ui.sidebar.saved_responses.search_filter import _PanelSearchFilterMixin
 from ui.styling.icons import phi
 from ui.styling.theme import status_color

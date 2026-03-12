@@ -7,9 +7,11 @@ from typing import cast
 from PySide6.QtWidgets import QApplication
 
 from services.collection_service import SavedResponseDict
-from ui.sidebar.saved_responses.delegate import (ROLE_RESPONSE_CODE,
-                                                 ROLE_RESPONSE_META,
-                                                 ROLE_RESPONSE_NAME)
+from ui.sidebar.saved_responses.delegate import (
+    ROLE_RESPONSE_CODE,
+    ROLE_RESPONSE_META,
+    ROLE_RESPONSE_NAME,
+)
 from ui.sidebar.saved_responses.helpers import detect_body_language
 from ui.sidebar.saved_responses.panel import SavedResponsesPanel
 
