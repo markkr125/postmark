@@ -5,7 +5,8 @@ from __future__ import annotations
 from PySide6.QtWidgets import QApplication
 
 from ui.request.response_viewer import ResponseViewerWidget
-from ui.request.response_viewer.viewer_widget import ResponseViewerWidget as _RVW
+from ui.request.response_viewer.viewer_widget import \
+    ResponseViewerWidget as _RVW
 
 # -- Sample data used across tests ------------------------------------
 
@@ -434,4 +435,5 @@ class TestDetectPreviewLanguage:
     def test_no_body_no_content_type(self) -> None:
         """No body and no Content-Type returns None."""
         result = _RVW._detect_preview_language({"headers": [], "body": ""})
+        assert result is None
         assert result is None

@@ -14,19 +14,9 @@ import contextlib
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QKeySequence
-from PySide6.QtWidgets import (
-    QApplication,
-    QComboBox,
-    QHBoxLayout,
-    QLabel,
-    QProgressBar,
-    QPushButton,
-    QSizePolicy,
-    QTabWidget,
-    QTextEdit,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import (QApplication, QComboBox, QHBoxLayout, QLabel,
+                               QProgressBar, QPushButton, QSizePolicy,
+                               QTabWidget, QTextEdit, QVBoxLayout, QWidget)
 
 from ui.request.popups.network_popup import NetworkPopup
 from ui.request.popups.size_popup import SizePopup
@@ -34,14 +24,8 @@ from ui.request.popups.status_popup import StatusPopup
 from ui.request.popups.timing_popup import TimingPopup
 from ui.request.response_viewer.search_filter import _SearchFilterMixin
 from ui.styling.icons import phi
-from ui.styling.theme import (
-    COLOR_DANGER,
-    COLOR_DELETE,
-    COLOR_IMPORT_ERROR,
-    COLOR_SUCCESS,
-    COLOR_WARNING,
-    COLOR_WHITE,
-)
+from ui.styling.theme import (COLOR_DANGER, COLOR_DELETE, COLOR_IMPORT_ERROR,
+                              COLOR_SUCCESS, COLOR_WARNING, COLOR_WHITE)
 from ui.widgets.code_editor import CodeEditorWidget
 from ui.widgets.info_popup import ClickableLabel, InfoPopup
 

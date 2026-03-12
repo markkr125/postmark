@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from PySide6.QtGui import QColor, QTextCharFormat, QTextCursor
-from PySide6.QtWidgets import QLabel, QLineEdit, QPushButton, QTextEdit, QWidget
+from PySide6.QtWidgets import (QLabel, QLineEdit, QPushButton, QTextEdit,
+                               QWidget)
 
 from ui.styling.theme import COLOR_WARNING
 from ui.widgets.code_editor import CodeEditorWidget
@@ -233,7 +234,8 @@ def _eval_jsonpath(expr: str, body: str) -> str | None:
     """Evaluate a JSONPath expression against a JSON *body* string."""
     import json
 
-    from jsonpath_ng import parse as jsonpath_parse  # type: ignore[import-untyped]
+    from jsonpath_ng import \
+        parse as jsonpath_parse  # type: ignore[import-untyped]
 
     data = json.loads(body)
     matches = jsonpath_parse(expr).find(data)
@@ -258,5 +260,7 @@ def _eval_xpath(expr: str, body: str) -> str | None:
         if isinstance(node, etree._Element):
             parts.append(etree.tostring(node, pretty_print=True, encoding="unicode"))
         else:
+            parts.append(str(node))
+    return "\n".join(parts).rstrip()
             parts.append(str(node))
     return "\n".join(parts).rstrip()
