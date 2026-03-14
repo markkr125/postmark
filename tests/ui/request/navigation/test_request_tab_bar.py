@@ -7,6 +7,7 @@ from PySide6.QtGui import QMouseEvent
 from PySide6.QtWidgets import QApplication, QTabBar
 
 from ui.request.navigation.request_tab_bar import RequestTabBar
+from ui.styling.tab_settings_manager import WRAP_SINGLE_ROW, TabSettingsManager
 
 
 class TestRequestTabBar:
@@ -125,6 +126,118 @@ class TestRequestTabBar:
         assert label_b._name == "B"
         assert label_c is not None
         assert label_c._name == "C"
+
+    def test_duplicate_names_show_path_suffix_when_enabled(self, qapp: QApplication, qtbot) -> None:
+        """Duplicate request names show a compact path suffix."""
+        settings = TabSettingsManager(qapp)
+        settings.show_path_for_duplicates = True
+        bar = RequestTabBar(settings)
+        qtbot.addWidget(bar)
+
+        bar.add_request_tab("GET", "Reservation", path="API / Booking / Reservation")
+        bar.add_request_tab("POST", "Reservation", path="API / Billing / Reservation")
+
+        label = bar.tab_label(0)
+        assert label is not None
+        assert "Booking" in label._name_label.text()
+
+    def test_small_labels_setting_compacts_tab_height(self, qapp: QApplication, qtbot) -> None:
+        """Compact label mode reduces the tab-bar height."""
+        settings = TabSettingsManager(qapp)
+        settings.small_labels = False
+        bar = RequestTabBar(settings)
+        qtbot.addWidget(bar)
+        standard_height = bar.height()
+
+        settings.small_labels = True
+
+        assert bar.height() < standard_height
+
+    def test_narrow_width_wraps_tabs_to_multiple_rows(self, qapp: QApplication, qtbot) -> None:
+        """A narrow deck wraps tabs into additional top rows."""
+        bar = RequestTabBar()
+        qtbot.addWidget(bar)
+        bar.resize(220, bar.height())
+        bar.show()
+
+        for name in ("First Request", "Second Request", "Third Request"):
+            bar.add_request_tab("GET", name)
+
+        qapp.processEvents()
+
+        assert bar.height() > 40
+        assert bar.tabRect(2).top() > bar.tabRect(0).top()
+
+    def test_move_tab_reorders_visual_indices(self, qapp: QApplication, qtbot) -> None:
+        """Moving a tab updates label order and emits the reorder signal."""
+        bar = RequestTabBar()
+        qtbot.addWidget(bar)
+        bar.add_request_tab("GET", "A")
+        bar.add_request_tab("POST", "B")
+        bar.add_request_tab("PUT", "C")
+
+        with qtbot.waitSignal(bar.tab_reordered, timeout=1000) as blocker:
+            bar.move_tab(2, 0)
+
+        label_c = bar.tab_label(0)
+        label_a = bar.tab_label(1)
+        label_b = bar.tab_label(2)
+
+        assert blocker.args == [2, 0]
+        assert label_c is not None
+        assert label_c._name == "C"
+        assert label_a is not None
+        assert label_a._name == "A"
+        assert label_b is not None
+        assert label_b._name == "B"
+
+    def test_single_row_mode_keeps_tabs_on_one_row(self, qapp: QApplication, qtbot) -> None:
+        """Single-row mode compresses tabs instead of wrapping them."""
+        settings = TabSettingsManager(qapp)
+        settings.wrap_mode = WRAP_SINGLE_ROW
+        bar = RequestTabBar(settings)
+        qtbot.addWidget(bar)
+        bar.resize(220, bar.height())
+        bar.show()
+
+        for name in ("First Request", "Second Request", "Third Request"):
+            bar.add_request_tab("GET", name)
+
+        qapp.processEvents()
+
+        assert bar.tabRect(0).top() == bar.tabRect(2).top()
+
+    def test_arrow_keys_change_current_tab(self, qapp: QApplication, qtbot) -> None:
+        """Arrow keys move between tabs when the wrapped deck has focus."""
+        bar = RequestTabBar()
+        qtbot.addWidget(bar)
+        bar.add_request_tab("GET", "One")
+        bar.add_request_tab("POST", "Two")
+        bar.add_request_tab("PUT", "Three")
+        bar.show()
+        bar.setCurrentIndex(1)
+        bar.setFocus()
+
+        qtbot.keyClick(bar, Qt.Key.Key_Right)
+        assert bar.currentIndex() == 2
+
+        qtbot.keyClick(bar, Qt.Key.Key_Left)
+        assert bar.currentIndex() == 1
+
+    def test_add_tab_after_show_keeps_chip_visible(self, qapp: QApplication, qtbot) -> None:
+        """Tabs opened after the deck is already visible still show their chip widgets."""
+        bar = RequestTabBar()
+        qtbot.addWidget(bar)
+        bar.resize(480, bar.height())
+        bar.show()
+
+        bar.add_request_tab("GET", "Visible After Show")
+        qapp.processEvents()
+
+        label = bar.tab_label(0)
+        assert label is not None
+        assert label.isVisibleTo(bar)
+        assert not bar.tabRect(0).isEmpty()
 
 
 class TestRequestTabBarCloseButton:

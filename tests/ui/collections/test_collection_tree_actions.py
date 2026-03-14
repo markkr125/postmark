@@ -12,10 +12,10 @@ from ..conftest import make_collection_dict, top_level_items
 
 
 class TestCollectionTreeDoubleClick:
-    """Tests for double-click to open request and folder."""
+    """Tests for double-click — now a no-op."""
 
-    def test_double_click_request_emits_open(self, qapp: QApplication, qtbot) -> None:
-        """Double-clicking a request item emits item_action_triggered."""
+    def test_double_click_request_is_noop(self, qapp: QApplication, qtbot) -> None:
+        """Double-clicking a request item does not emit a signal."""
         tree = CollectionTree()
         qtbot.addWidget(tree)
 
@@ -33,10 +33,11 @@ class TestCollectionTreeDoubleClick:
         folder = top_level_items(tree)[0]
         req_item = folder.child(0)
 
-        with qtbot.waitSignal(tree.item_action_triggered, timeout=1000) as blocker:
-            tree._on_item_double_clicked(req_item, 0)
+        emitted: list[list] = []
+        tree.item_action_triggered.connect(lambda *args: emitted.append(list(args)))
+        tree._on_item_double_clicked(req_item, 0)
 
-        assert blocker.args == ["request", 10, "Open"]
+        assert emitted == []
 
     def test_double_click_folder_does_not_emit_signal(self, qapp: QApplication, qtbot) -> None:
         """Double-clicking a folder does not emit item_action_triggered.
@@ -103,8 +104,8 @@ class TestCollectionTreeContextMenuOverview:
 class TestCollectionTreeSingleClick:
     """Tests for single-click behaviour on tree items."""
 
-    def test_single_click_folder_does_not_expand(self, qapp: QApplication, qtbot) -> None:
-        """Single-clicking a folder does not toggle expand."""
+    def test_single_click_folder_toggles_expand(self, qapp: QApplication, qtbot) -> None:
+        """Single-clicking a folder toggles its expanded state."""
         tree = CollectionTree()
         qtbot.addWidget(tree)
 
@@ -122,15 +123,14 @@ class TestCollectionTreeSingleClick:
         folder = top_level_items(tree)[0]
         folder.setExpanded(False)
 
-        emitted: list[list] = []
-        tree.item_action_triggered.connect(lambda *args: emitted.append(list(args)))
         tree._on_item_clicked(folder, 0)
+        assert folder.isExpanded()
 
+        tree._on_item_clicked(folder, 0)
         assert not folder.isExpanded()
-        assert emitted == []
 
-    def test_single_click_request_emits_preview(self, qapp: QApplication, qtbot) -> None:
-        """Single-clicking a request emits Preview action."""
+    def test_single_click_request_emits_open(self, qapp: QApplication, qtbot) -> None:
+        """Single-clicking a request emits Open action."""
         tree = CollectionTree()
         qtbot.addWidget(tree)
 
@@ -151,7 +151,7 @@ class TestCollectionTreeSingleClick:
         with qtbot.waitSignal(tree.item_action_triggered, timeout=1000) as blocker:
             tree._on_item_clicked(req_item, 0)
 
-        assert blocker.args == ["request", 10, "Preview"]
+        assert blocker.args == ["request", 10, "Open"]
 
 
 class TestCollectionTreeKeyboardShortcuts:

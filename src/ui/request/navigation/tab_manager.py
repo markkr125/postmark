@@ -54,6 +54,11 @@ class TabContext:
             also records the original source so the popup can offer
             **Update** (persist globally) and **Reset** (remove
             override).  Cleared when the tab is closed.
+        opened_order: Monotonic token tracking creation order.  Used by
+            tab-closing policies such as "Close unchanged".
+        last_activated_order: Monotonic token tracking recent activation.
+            Used by policies such as "Close unused" and
+            "Activate most recently used tab on close".
     """
 
     def __init__(
@@ -66,6 +71,7 @@ class TabContext:
         folder_editor: FolderEditorWidget | None = None,
         response_viewer: ResponseViewerWidget | None = None,
         is_preview: bool = False,
+        opened_order: int = 0,
     ) -> None:
         """Create a new tab context with optional pre-built widgets."""
         self.tab_type = tab_type
@@ -81,6 +87,8 @@ class TabContext:
         self.is_preview: bool = is_preview
         self.draft_name: str | None = None
         self.local_overrides: dict[str, LocalOverride] = {}
+        self.opened_order: int = opened_order
+        self.last_activated_order: int = 0
 
     # -- Send lifecycle ------------------------------------------------
 

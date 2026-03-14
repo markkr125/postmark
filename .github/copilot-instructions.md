@@ -194,6 +194,7 @@ src/
     ├── styling/                   # Visual theming and icons
     │   ├── theme.py               # Palettes, colours, badge geometry, method_color(), status_color()
     │   ├── theme_manager.py       # ThemeManager — QPalette + QSettings
+    │   ├── tab_settings_manager.py # TabSettingsManager — request-tab QSettings bridge (preview, limits, activate-on-close, wrap mode)
     │   ├── global_qss.py          # build_global_qss() — global stylesheet builder
     │   └── icons.py               # Phosphor font-glyph icon provider (phi())
     ├── widgets/                   # Reusable shared components
@@ -221,7 +222,7 @@ src/
     │   ├── collection_runner.py
     │   ├── import_dialog.py
     │   ├── save_request_dialog.py  # Save draft request to collection
-    │   └── settings_dialog.py     # Settings (theme, colour scheme)
+    │   └── settings_dialog.py     # Settings (theme + request-tab behaviour)
     ├── environments/              # Environment management widgets
     │   ├── environment_editor.py
     │   └── environment_selector.py
@@ -247,7 +248,12 @@ src/
         │   └── search_filter.py     # _SearchFilterMixin — response search/filter
         ├── navigation/              # Tab switching and path navigation
         │   ├── breadcrumb_bar.py
-        │   ├── request_tab_bar.py
+        │   ├── request_tab_bar.py   # Compatibility wrapper re-exporting the wrapped deck
+        │   ├── request_tabs/        # Wrapped multi-row request tab deck sub-package
+        │   │   ├── __init__.py
+        │   │   ├── bar.py           # RequestTabBar custom wrapped-row deck
+        │   │   ├── labels.py        # TabLabel / FolderTabLabel chip content widgets
+        │   │   └── tab_button.py    # TabButton chip with close + reorder interactions
         │   └── tab_manager.py       # TabManager + TabContext (with local_overrides, draft_name)
         └── popups/                  # Response metadata popups
             ├── status_popup.py      # HTTP status code explanation
@@ -255,7 +261,7 @@ src/
             ├── size_popup.py        # Response/request size breakdown
             └── network_popup.py     # Network/TLS connection details
 tests/
-├── conftest.py                    # Autouse fresh-DB fixture + qapp fixture
+├── conftest.py                    # Autouse fresh-DB fixture + qapp fixture + tab-settings reset
 ├── unit/                          # Repository & service layer tests
 │   ├── database/                  # Repository tests
 │   │   ├── test_repository.py
@@ -277,6 +283,7 @@ tests/
 └── ui/                            # End-to-end PySide6 widget tests
     ├── conftest.py                # _no_fetch (autouse) + helpers
     ├── test_main_window.py
+    ├── test_main_window_tabs_navigation.py # Wrapped tab deck shortcuts + search tests
     ├── test_main_window_save.py   # SaveButton + RequestSaveEndToEnd tests
     ├── test_main_window_draft.py  # Draft tab open/save lifecycle tests
     ├── styling/                   # Theme and icon tests

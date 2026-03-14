@@ -54,6 +54,9 @@ ThemeManager  ──QPalette + global QSS──►  QApplication
               ──theme_changed signal──►   widgets (refresh dynamic styles)
               ──QSettings──►              persistent user preferences
 
+TabSettingsManager  ──QSettings──►        persistent request-tab preferences
+                    ──settings_changed──► MainWindow / RequestTabBar
+
 RequestEditorWidget  ──send_requested──►  MainWindow
   MainWindow → HttpSendWorker (QThread) → HttpService.send_request()
     → HttpSendWorker.finished(HttpResponseDict) → ResponseViewerWidget.load_response()
@@ -68,6 +71,11 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   and passed to `MainWindow`.  It owns the app-wide stylesheet, QPalette,
   and QSettings persistence for theme preferences.  See
   `pyside6.instructions.md` for widget styling rules.
+- `TabSettingsManager` (`ui.styling.tab_settings_manager`) is created once
+  in `main.py` and passed to `MainWindow`.  It persists request-tab
+  behaviour (preview enablement, compact labels, duplicate-name path
+  disambiguation, wrap mode, tab limit, and close-activation policy)
+  via QSettings.
 - `CollectionService` is instantiated as `self._svc = CollectionService()` in
   `CollectionWidget.__init__`, but **every method is `@staticmethod`**.
   Do not add instance state without updating every call site.
@@ -144,7 +152,15 @@ Key signals to know (always-on summary):
 - `SavedResponsesPanel` emits `save_current_requested`,
   `rename_requested`, `duplicate_requested`, and `delete_requested` — all
   handled in `MainWindow` through `CollectionService`.
-- `ThemeManager.theme_changed()` → widgets refresh dynamic styles.
+- `ThemeManager.theme_changed()` → widgets refresh dynamic styles, including
+  the wrapped request-tab deck chip styling.
+- `TabSettingsManager.settings_changed()` → `MainWindow` / `RequestTabBar`
+  refresh tab behaviour and label presentation, including switching
+  between single-row and wrapped-row layouts.
+- `MainWindow` View menu exposes `Search Tabs…` (`Ctrl+P`), `Next Tab`
+  (`Ctrl+Tab`, `Ctrl+PgDown`), and `Previous Tab`
+  (`Ctrl+Shift+Tab`, `Ctrl+PgUp`) so the wrapped deck keeps editor-style
+  keyboard navigation even though it is no longer a native `QTabBar`.
 - `VariablePopup` uses **class-level callbacks**, not signals — wired once
   in `MainWindow.__init__`.
 
@@ -281,15 +297,31 @@ into `%Y-%m-%d %H:%M` strings for the UI.
    Set to `"Untitled Request"` when a draft tab is opened.  Updated when
    the user renames via the breadcrumb bar.  Used as fallback label in the
    save-to-collection dialog.  `None` for persisted request tabs.
-8. **VariablePopup uses class-level callbacks, not Qt signals** —
+8. **Request-tab behaviour is settings-driven** — preview tabs, compact
+  labels, duplicate-name path suffixes, tab insertion position, wrap
+  mode, tab limit, and close-activation policy are read from
+  `TabSettingsManager`.
+  `RequestTabBar` is a custom wrapped multi-row widget, not a native
+  `QTabBar`; it keeps a small compatibility API (`currentIndex()`,
+  `setCurrentIndex()`, `count()`, `tabRect()`, `tabButton()`,
+  `tabToolTip()`, `select_next_tab()`, `select_previous_tab()`,
+  `tab_search_text()`) so `MainWindow` and tests do not depend on Qt
+  tab-bar internals.  `MainWindow` enforces the limit/promotion policies
+  when opening and closing tabs.
+9. **Manual tab reorder changes close-unchanged priority** — when the user
+  drags tabs into a new visible order, `_TabControllerMixin._on_tab_reordered`
+  rewrites `TabContext.opened_order` to match that order.  The
+  `close_unchanged` limit policy then evicts the leftmost eligible,
+  unchanged tab instead of an older pre-drag ordering.
+10. **VariablePopup uses class-level callbacks, not Qt signals** —
    `VariablePopup` is a **singleton** `QFrame`.  Its callbacks
    (`set_save_callback`, `set_local_override_callback`,
    `set_reset_local_override_callback`, `set_add_variable_callback`,
    `set_has_environment`) are classmethods that store callables on the
    **class itself**, not on an instance.  They are wired once in
    `MainWindow.__init__` and survive popup hide/show cycles.
-  9. **Saved response mutations are MainWindow-owned** —
-    `SavedResponsesPanel` is a read-only/browser widget.  It never imports the
-    repository or service directly for mutations; it only emits signals to
-    `MainWindow`, which calls `CollectionService` and then refreshes the
-    sidebar state.
+11. **Saved response mutations are MainWindow-owned** —
+  `SavedResponsesPanel` is a read-only/browser widget.  It never imports the
+  repository or service directly for mutations; it only emits signals to
+  `MainWindow`, which calls `CollectionService` and then refreshes the
+  sidebar state.

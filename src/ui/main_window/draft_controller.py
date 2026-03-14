@@ -52,7 +52,13 @@ class _DraftControllerMixin:
         def _on_save_request(self) -> None: ...
         def _on_save_response(self, data: dict) -> None: ...
         def _sync_save_btn(self, dirty: bool) -> None: ...
+        def _on_editor_dirty_changed(self, dirty: bool) -> None: ...
         def _on_tab_changed(self, index: int) -> None: ...
+        def _enforce_tab_limit_before_open(self) -> bool: ...
+        def _next_tab_open_order(self) -> int: ...
+        def _next_tab_insert_index(self) -> int: ...
+        def _shift_tabs_for_insert(self, index: int) -> None: ...
+        def _request_full_path(self, request_id: int) -> str | None: ...
 
     # ------------------------------------------------------------------
     # Open a new draft request tab
@@ -64,6 +70,9 @@ class _DraftControllerMixin:
         the Save button is enabled.  Saving triggers the save-to-collection
         dialog.
         """
+        if not self._enforce_tab_limit_before_open():
+            return
+
         data: RequestLoadDict = {
             "name": _DRAFT_TAB_NAME,
             "method": "GET",
@@ -80,11 +89,20 @@ class _DraftControllerMixin:
             request_id=None,
             editor=editor,
             response_viewer=viewer,
+            opened_order=self._next_tab_open_order(),
         )
+
+        insert_index = self._next_tab_insert_index()
+        self._shift_tabs_for_insert(insert_index)
 
         self._tab_bar.blockSignals(True)
         try:
-            idx = self._tab_bar.add_request_tab("GET", _DRAFT_TAB_NAME)
+            idx = self._tab_bar.add_request_tab(
+                "GET",
+                _DRAFT_TAB_NAME,
+                path=_DRAFT_TAB_NAME,
+                index=insert_index,
+            )
         finally:
             self._tab_bar.blockSignals(False)
 
@@ -95,6 +113,7 @@ class _DraftControllerMixin:
         editor.send_requested.connect(self._on_send_request)
         editor.save_requested.connect(self._on_save_request)
         editor.dirty_changed.connect(self._sync_save_btn)
+        editor.dirty_changed.connect(self._on_editor_dirty_changed)
         viewer.save_response_requested.connect(self._on_save_response)
 
         # Mark as dirty so Save button is enabled for the new draft
@@ -156,7 +175,13 @@ class _DraftControllerMixin:
             ctx.request_id = new_request.id
             idx = self._tab_bar.currentIndex()
             display_name = url if url else request_name
-            self._tab_bar.update_tab(idx, method=method, name=display_name, is_dirty=False)
+            self._tab_bar.update_tab(
+                idx,
+                method=method,
+                name=display_name,
+                path=self._request_full_path(new_request.id),
+                is_dirty=False,
+            )
             # Refresh breadcrumb
             crumbs = CollectionService.get_request_breadcrumb(new_request.id)
             self._breadcrumb_bar.set_path(crumbs)

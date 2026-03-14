@@ -15,14 +15,17 @@ applyTo: "tests/**/*.py"
    full validation checklist.
 3. **Each test gets a fresh SQLite database** — the `_fresh_db` autouse
    fixture handles this.  Never share DB state between tests.
-4. **UI tests need `qapp` and `qtbot` fixtures.**  Register widgets with
+4. **Each test starts with cleared tab preferences** — the
+   `_reset_tab_settings` autouse fixture removes the `tabs/*` QSettings
+   group so preview/tab-limit settings never leak between cases.
+5. **UI tests need `qapp` and `qtbot` fixtures.**  Register widgets with
    `qtbot.addWidget(widget)`.
-5. **The `_no_fetch` fixture is autouse in `tests/ui/`** — it prevents
+6. **The `_no_fetch` fixture is autouse in `tests/ui/`** — it prevents
    `CollectionWidget` from spawning a background thread.  You do not need
    to apply it manually.
-6. **Use bare module imports** (e.g. `from database.database import init_db`)
+7. **Use bare module imports** (e.g. `from database.database import init_db`)
    — `src/` is on the Python path.
-7. **Do not test the session or engine directly** — test through the
+8. **Do not test the session or engine directly** — test through the
    repository or service layer.
 
 ## Fresh database per test (autouse fixture)
@@ -46,6 +49,13 @@ init_db(tmp_path / "test.db")
 `conftest.py` provides a `qapp` fixture (session-scoped) that returns the
 single `QApplication` instance. All UI tests must accept `qapp` and use
 `qtbot.addWidget(widget)` for cleanup.
+
+## Fresh QSettings tab preferences per test (autouse fixture)
+
+`conftest.py` also provides `_reset_tab_settings`, which removes the
+`tabs` QSettings group before every test. Use this when adding persisted
+request-tab settings so one test cannot silently change preview or tab-limit
+behaviour for the next.
 
 ## `_no_fetch` fixture — avoiding background threads in tests
 
@@ -102,7 +112,7 @@ test file still exceeds 600 lines, split by test class into separate files.
 
 ```
 tests/
-├── conftest.py                    # Root: _fresh_db (autouse) + qapp (session)
+├── conftest.py                    # Root: _fresh_db + _reset_tab_settings (autouse) + qapp
 ├── unit/                          # Pure logic — no Qt widgets
 │   ├── database/                  # Repository layer tests
 │   │   ├── test_repository.py
@@ -123,7 +133,8 @@ tests/
 │           └── test_oauth2_service.py
 └── ui/                            # PySide6 widget tests (need qapp + qtbot)
     ├── conftest.py                # _no_fetch (autouse) + helper functions
-    ├── test_main_window.py        # Top-level MainWindow smoke tests
+   ├── test_main_window.py        # Top-level MainWindow smoke tests
+   ├── test_main_window_tabs_navigation.py # Wrapped tab deck shortcuts + search tests
     ├── test_main_window_save.py   # SaveButton + RequestSaveEndToEnd tests
     ├── test_main_window_draft.py  # Draft tab open/save lifecycle tests
     ├── styling/                   # Theme and icon tests

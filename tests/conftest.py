@@ -64,6 +64,14 @@ def _fresh_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     db_mod._SessionLocal = None
 
 
+@pytest.fixture(autouse=True)
+def _reset_tab_settings() -> None:
+    """Clear persisted tab settings so tests do not leak UI preferences."""
+    settings = QSettings("Postmark", "Postmark")
+    settings.remove("tabs")
+    settings.sync()
+
+
 # ------------------------------------------------------------------
 # Collection + request factory (convenience for UI & service tests)
 # ------------------------------------------------------------------

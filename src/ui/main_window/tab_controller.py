@@ -7,7 +7,7 @@ handling, and navigation history.  Mixed into ``MainWindow``.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from services.collection_service import CollectionService, RequestLoadDict
 from ui.request.navigation.tab_manager import TabContext
@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from ui.collections.collection_widget import CollectionWidget
     from ui.request.navigation.breadcrumb_bar import BreadcrumbBar
     from ui.request.navigation.request_tab_bar import RequestTabBar
+    from ui.styling.tab_settings_manager import TabSettingsManager
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,9 @@ class _TabControllerMixin:
     collection_widget: CollectionWidget
     back_action: QAction
     forward_action: QAction
+    _tab_settings_manager: TabSettingsManager
+    _tab_open_counter: int
+    _tab_activation_counter: int
 
     def _on_send_request(self) -> None: ...
     def _on_save_request(self) -> None: ...
@@ -87,10 +91,15 @@ class _TabControllerMixin:
         replaced by subsequent preview opens.  When ``False`` (the
         default) the tab is permanent.
         """
+        if is_preview and not self._tab_settings_manager.enable_preview_tab:
+            is_preview = False
+
         request = CollectionService.get_request(request_id)
         if request is None:
             logger.warning("Request id=%s not found", request_id)
             return
+
+        request_path = self._request_full_path(request_id)
 
         data: RequestLoadDict = {
             "name": request.name,
@@ -120,10 +129,16 @@ class _TabControllerMixin:
         current_idx = self._tab_bar.currentIndex()
         current_ctx = self._tabs.get(current_idx)
         if current_ctx is not None and current_ctx.is_preview:
-            self._replace_tab(current_idx, request_id, data, is_preview=is_preview)
+            self._replace_tab(
+                current_idx,
+                request_id,
+                data,
+                is_preview=is_preview,
+                path=request_path,
+            )
         else:
             # 3. Open a new tab
-            self._create_tab(request_id, data, is_preview=is_preview)
+            self._create_tab(request_id, data, is_preview=is_preview, path=request_path)
 
         if push_history:
             self._history = self._history[: self._history_index + 1]
@@ -142,8 +157,12 @@ class _TabControllerMixin:
         data: RequestLoadDict,
         *,
         is_preview: bool = False,
+        path: str | None = None,
     ) -> int:
         """Create a new tab for a request and switch to it."""
+        if not self._enforce_tab_limit_before_open():
+            return self._tab_bar.currentIndex()
+
         editor = RequestEditorWidget()
         viewer = ResponseViewerWidget()
 
@@ -155,7 +174,11 @@ class _TabControllerMixin:
             editor=editor,
             response_viewer=viewer,
             is_preview=is_preview,
+            opened_order=self._next_tab_open_order(),
         )
+
+        insert_index = self._next_tab_insert_index()
+        self._shift_tabs_for_insert(insert_index)
 
         # Block signals while adding the tab to avoid premature
         # _on_tab_changed before ctx is stored.
@@ -165,6 +188,8 @@ class _TabControllerMixin:
                 data.get("method", "GET"),
                 data.get("name", ""),
                 is_preview=is_preview,
+                path=path,
+                index=insert_index,
             )
         finally:
             self._tab_bar.blockSignals(False)
@@ -175,6 +200,7 @@ class _TabControllerMixin:
         editor.send_requested.connect(self._on_send_request)
         editor.save_requested.connect(self._on_save_request)
         editor.dirty_changed.connect(self._sync_save_btn)
+        editor.dirty_changed.connect(self._on_editor_dirty_changed)
         editor.request_changed.connect(lambda _: self._schedule_sidebar_snippet_refresh())
         viewer.save_response_requested.connect(self._on_save_response)
         viewer.save_availability_changed.connect(lambda _enabled: self._refresh_sidebar())
@@ -192,6 +218,7 @@ class _TabControllerMixin:
         data: RequestLoadDict,
         *,
         is_preview: bool = False,
+        path: str | None = None,
     ) -> None:
         """Replace the content of an existing tab with a new request."""
         ctx = self._tabs.get(index)
@@ -211,13 +238,56 @@ class _TabControllerMixin:
             index,
             method=data.get("method", "GET"),
             name=data.get("name", ""),
+            path=path,
             is_preview=is_preview,
             is_dirty=False,
         )
 
+    def _request_full_path(self, request_id: int) -> str | None:
+        """Return the full breadcrumb path for a request tab."""
+        crumbs = CollectionService.get_request_breadcrumb(request_id)
+        if not crumbs:
+            return None
+        return " / ".join(str(crumb.get("name", "")) for crumb in crumbs if crumb.get("name"))
+
+    def _next_tab_open_order(self) -> int:
+        """Return the next creation-order token for a new tab."""
+        self._tab_open_counter += 1
+        return self._tab_open_counter
+
+    def _next_tab_insert_index(self) -> int:
+        """Return the insertion index for a new tab according to settings."""
+        current = self._tab_bar.currentIndex()
+        if self._tab_settings_manager.open_new_tabs_at_end or current < 0:
+            return self._tab_bar.count()
+        return current + 1
+
+    def _shift_tabs_for_insert(self, index: int) -> None:
+        """Shift tab contexts when inserting a tab into the middle."""
+        self._tabs = {
+            (old_idx if old_idx < index else old_idx + 1): ctx
+            for old_idx, ctx in self._tabs.items()
+        }
+
+    def _on_editor_dirty_changed(self, dirty: bool) -> None:
+        """Sync dirty state from the emitting editor back into the tab metadata."""
+        sender_fn = cast(Any, getattr(self, "sender", None))
+        sender = sender_fn() if callable(sender_fn) else None
+        if sender is None:
+            return
+        for idx, ctx in self._tabs.items():
+            if ctx.tab_type == "request" and ctx.editor is sender:
+                ctx.is_dirty = dirty
+                self._tab_bar.update_tab(idx, is_dirty=dirty)
+                break
+
     def _on_tab_changed(self, index: int) -> None:
         """Switch the stacked widgets when the active tab changes."""
         ctx = self._tabs.get(index)
+        if ctx is not None:
+            self._tab_activation_counter += 1
+            ctx.last_activated_order = self._tab_activation_counter
+
         if ctx is not None and ctx.tab_type == "folder":
             # Folder tab -- show folder editor, hide response pane
             if ctx.folder_editor is not None:
@@ -264,11 +334,24 @@ class _TabControllerMixin:
         # that drove the stacked-widget switch.
         self._refresh_sidebar(ctx)
 
+        # Sync collection tree selection to the active tab.
+        self._sync_tree_selection(ctx)
+
+    def _sync_tree_selection(self, ctx: TabContext | None) -> None:
+        """Highlight the active tab's item in the collection tree."""
+        if ctx is None:
+            return
+        if ctx.tab_type == "folder" and ctx.collection_id is not None:
+            self.collection_widget.select_and_scroll_to(ctx.collection_id, "folder")
+        elif ctx.request_id is not None:
+            self.collection_widget.select_and_scroll_to(ctx.request_id, "request")
+
     # ------------------------------------------------------------------
     # Tab close
     # ------------------------------------------------------------------
     def _on_tab_close(self, index: int) -> None:
         """Close a tab and clean up its context."""
+        target_old_index = self._target_tab_after_close(index)
         ctx = self._tabs.pop(index, None)
         if ctx is None:
             return
@@ -299,6 +382,7 @@ class _TabControllerMixin:
             editor.send_requested.disconnect(self._on_send_request)
             editor.save_requested.disconnect(self._on_save_request)
             editor.dirty_changed.disconnect(self._sync_save_btn)
+            editor.dirty_changed.disconnect(self._on_editor_dirty_changed)
             editor.request_changed.disconnect()
             viewer.save_response_requested.disconnect(self._on_save_response)
 
@@ -328,11 +412,12 @@ class _TabControllerMixin:
             new_tabs[new_idx] = old_ctx
         self._tabs = new_tabs
 
-        # Reset widget references so closed widgets can be collected.
-        # _on_tab_changed may already have run (triggered by removeTab),
-        # but the re-indexing above can leave stale refs.  Force a sync.
-        current = self._tab_bar.currentIndex()
-        self._on_tab_changed(current)
+        target_new_index = self._normalize_target_index_after_close(index, target_old_index)
+        if target_new_index is not None and 0 <= target_new_index < self._tab_bar.count():
+            self._tab_bar.setCurrentIndex(target_new_index)
+            self._on_tab_changed(target_new_index)
+        else:
+            self._on_tab_changed(self._tab_bar.currentIndex())
 
     def _on_tab_double_click(self, index: int) -> None:
         """Promote a preview tab to a permanent tab."""
@@ -340,6 +425,104 @@ class _TabControllerMixin:
         if ctx is not None and ctx.is_preview:
             ctx.is_preview = False
             self._tab_bar.update_tab(index, is_preview=False)
+
+    def _target_tab_after_close(self, closing_index: int) -> int | None:
+        """Return the preferred old-index tab to activate after closing one."""
+        if not self._tabs:
+            return None
+
+        current = self._tab_bar.currentIndex()
+        if current != closing_index:
+            return current
+
+        remaining = [idx for idx in self._tabs if idx != closing_index]
+        if not remaining:
+            return None
+
+        policy = self._tab_settings_manager.activate_on_close
+        if policy == "left":
+            left = [idx for idx in remaining if idx < closing_index]
+            return max(left) if left else min(remaining)
+        if policy == "right":
+            right = [idx for idx in remaining if idx > closing_index]
+            return min(right) if right else max(remaining)
+
+        best_idx: int | None = None
+        best_order = -1
+        for idx in remaining:
+            last_activated = self._tabs[idx].last_activated_order
+            if last_activated > best_order:
+                best_idx = idx
+                best_order = last_activated
+        return best_idx
+
+    @staticmethod
+    def _normalize_target_index_after_close(
+        closing_index: int,
+        target_old_index: int | None,
+    ) -> int | None:
+        """Translate a pre-close target index into the post-close index space."""
+        if target_old_index is None:
+            return None
+        return target_old_index if target_old_index < closing_index else target_old_index - 1
+
+    def _safe_limit_candidate_indices(self) -> list[int]:
+        """Return the indices that are eligible for safe auto-close policies."""
+        active = self._tab_bar.currentIndex()
+        eligible: list[int] = []
+        for idx, ctx in self._tabs.items():
+            if idx == active:
+                continue
+            if ctx.tab_type != "request":
+                continue
+            if ctx.request_id is None:
+                continue
+            if ctx.is_sending or ctx.is_dirty:
+                continue
+            eligible.append(idx)
+        return eligible
+
+    def _find_tab_limit_candidate(self) -> int | None:
+        """Choose a safe tab to close when the configured limit is exceeded."""
+        candidates = self._safe_limit_candidate_indices()
+        if not candidates:
+            return None
+
+        policy = self._tab_settings_manager.tab_limit_policy
+        if policy == "close_unchanged":
+            return min(candidates)
+        return min(candidates, key=lambda idx: self._tabs[idx].last_activated_order)
+
+    def _enforce_tab_limit_before_open(self) -> bool:
+        """Close one safe tab when needed so a new tab can be opened."""
+        if self._tab_bar.count() < self._tab_settings_manager.tab_limit:
+            return True
+
+        candidate = self._find_tab_limit_candidate()
+        if candidate is not None:
+            self._on_tab_close(candidate)
+            return True
+
+        from PySide6.QtWidgets import QMessageBox
+
+        QMessageBox.information(
+            self,  # type: ignore[arg-type]
+            "Tab limit reached",
+            "All open tabs are protected. Close a tab manually before opening another request.",
+        )
+        return False
+
+    def _on_tab_reordered(self, from_index: int, to_index: int) -> None:
+        """Keep logical tab state aligned with the visual tab order after drag-reorder."""
+        if from_index == to_index:
+            return
+        ordered_indices = sorted(self._tabs)
+        ordered_contexts = [self._tabs[idx] for idx in ordered_indices]
+        moved = ordered_contexts.pop(from_index)
+        ordered_contexts.insert(to_index, moved)
+        for order, ctx in enumerate(ordered_contexts, start=1):
+            ctx.opened_order = order
+        self._tabs = {idx: ctx for idx, ctx in enumerate(ordered_contexts)}
 
     # ------------------------------------------------------------------
     # Folder tab management
@@ -381,10 +564,15 @@ class _TabControllerMixin:
                 return
 
         # 2. Open a new folder tab
+        crumbs = CollectionService.get_collection_breadcrumb(collection_id)
+        folder_path = " / ".join(
+            str(crumb.get("name", "")) for crumb in crumbs if crumb.get("name")
+        )
         self._create_folder_tab(
             collection_id,
             data,
             request_count,
+            path=folder_path,
             created_at=created_at,
             updated_at=updated_at,
             recent_requests=recent_requests,
@@ -396,11 +584,15 @@ class _TabControllerMixin:
         data: dict,
         request_count: int,
         *,
+        path: str | None = None,
         created_at: str | None = None,
         updated_at: str | None = None,
         recent_requests: list[dict] | None = None,
     ) -> int:
         """Create a new folder tab and switch to it."""
+        if not self._enforce_tab_limit_before_open():
+            return self._tab_bar.currentIndex()
+
         from ui.request.folder_editor import FolderEditorWidget
 
         folder_editor = FolderEditorWidget()
@@ -411,13 +603,21 @@ class _TabControllerMixin:
             tab_type="folder",
             collection_id=collection_id,
             folder_editor=folder_editor,
+            opened_order=self._next_tab_open_order(),
         )
+
+        insert_index = self._next_tab_insert_index()
+        self._shift_tabs_for_insert(insert_index)
 
         # Block signals while adding the tab to avoid premature
         # _on_tab_changed before ctx is stored.
         self._tab_bar.blockSignals(True)
         try:
-            idx = self._tab_bar.add_folder_tab(data.get("name", ""))
+            idx = self._tab_bar.add_folder_tab(
+                data.get("name", ""),
+                path=path,
+                index=insert_index,
+            )
         finally:
             self._tab_bar.blockSignals(False)
 
@@ -467,7 +667,7 @@ class _TabControllerMixin:
         # Draft tab — no DB entry yet, update tab name and context only
         if ctx is not None and ctx.request_id is None and ctx.draft_name is not None:
             ctx.draft_name = new_name
-            self._tab_bar.update_tab(idx, name=new_name)
+            self._tab_bar.update_tab(idx, name=new_name, path=new_name)
             return
 
         seg = self._breadcrumb_bar.last_segment_info
@@ -496,14 +696,22 @@ class _TabControllerMixin:
         """Update the tab label and breadcrumb for any open tab matching the item."""
         for idx, ctx in self._tabs.items():
             if item_type == "request" and ctx.request_id == item_id:
-                self._tab_bar.update_tab(idx, name=new_name)
+                self._tab_bar.update_tab(
+                    idx,
+                    name=new_name,
+                    path=self._request_full_path(item_id),
+                )
                 # Refresh breadcrumb if this is the active tab
                 if idx == self._tab_bar.currentIndex():
                     self._breadcrumb_bar.update_last_segment_text(new_name)
             elif (
                 item_type == "folder" and ctx.tab_type == "folder" and ctx.collection_id == item_id
             ):
-                self._tab_bar.update_tab(idx, name=new_name)
+                crumbs = CollectionService.get_collection_breadcrumb(item_id)
+                folder_path = " / ".join(
+                    str(crumb.get("name", "")) for crumb in crumbs if crumb.get("name")
+                )
+                self._tab_bar.update_tab(idx, name=new_name, path=folder_path)
                 if idx == self._tab_bar.currentIndex():
                     self._breadcrumb_bar.update_last_segment_text(new_name)
 
