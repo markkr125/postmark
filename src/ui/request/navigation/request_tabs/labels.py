@@ -9,16 +9,9 @@ from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QWidget
 
 from ui.styling.icons import phi
-from ui.styling.theme import (
-    BADGE_BORDER_RADIUS,
-    BADGE_FONT_SIZE,
-    BADGE_HEIGHT,
-    BADGE_MIN_WIDTH,
-    COLOR_SENDING,
-    COLOR_WHITE,
-    method_color,
-    method_short_label,
-)
+from ui.styling.theme import (BADGE_BORDER_RADIUS, BADGE_FONT_SIZE,
+                              BADGE_HEIGHT, BADGE_MIN_WIDTH, COLOR_SENDING,
+                              COLOR_WHITE, method_color, method_short_label)
 
 _DIRTY_BULLET = "\u2022 "
 

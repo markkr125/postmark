@@ -6,7 +6,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QPoint, QRect, QSize, Qt, Signal
-from PySide6.QtGui import QContextMenuEvent, QKeyEvent, QMouseEvent, QResizeEvent, QWheelEvent
+from PySide6.QtGui import (QContextMenuEvent, QKeyEvent, QMouseEvent,
+                           QResizeEvent, QWheelEvent)
 from PySide6.QtWidgets import QMenu, QSizePolicy, QTabBar, QWidget
 
 from .labels import FolderTabLabel, TabLabel, layout_config
@@ -609,5 +610,6 @@ class RequestTabBar(QWidget):
         elif chosen == close_all_act:
             self.close_all_requested.emit()
         elif chosen == force_close_all_act:
+            self.force_close_all_requested.emit()
             self.force_close_all_requested.emit()
             self.force_close_all_requested.emit()

@@ -6,24 +6,14 @@ import logging
 from typing import Any
 
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtWidgets import (
-    QLabel,
-    QStackedWidget,
-    QTreeWidget,
-    QTreeWidgetItem,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import (QLabel, QStackedWidget, QTreeWidget,
+                               QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from ui.collections.tree.collection_tree_delegate import CollectionTreeDelegate
-from ui.collections.tree.constants import (
-    EMPTY_COLLECTION_HTML,
-    PLACEHOLDER_MARKER,
-    ROLE_ITEM_ID,
-    ROLE_ITEM_TYPE,
-    ROLE_METHOD,
-    ROLE_PLACEHOLDER,
-)
+from ui.collections.tree.constants import (EMPTY_COLLECTION_HTML,
+                                           PLACEHOLDER_MARKER, ROLE_ITEM_ID,
+                                           ROLE_ITEM_TYPE, ROLE_METHOD,
+                                           ROLE_PLACEHOLDER)
 from ui.collections.tree.draggable_tree_widget import DraggableTreeWidget
 from ui.collections.tree.tree_actions import _TreeActionsMixin
 from ui.styling.icons import phi
