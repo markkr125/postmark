@@ -157,13 +157,15 @@ class TestRequestTabBar:
         """A narrow deck wraps tabs into additional top rows."""
         bar = RequestTabBar()
         qtbot.addWidget(bar)
-        bar.resize(220, bar.height())
         bar.show()
+        qapp.processEvents()
 
+        bar.setFixedWidth(220)
         for name in ("First Request", "Second Request", "Third Request"):
             bar.add_request_tab("GET", name)
 
         qapp.processEvents()
+        bar._relayout_tabs()
 
         assert bar.height() > 40
         assert bar.tabRect(2).top() > bar.tabRect(0).top()

@@ -121,6 +121,7 @@ class _DraftControllerMixin:
 
         self._tab_bar.setCurrentIndex(idx)
         self._on_tab_changed(idx)
+        self._persist_open_tabs()  # type: ignore[attr-defined]
 
     # ------------------------------------------------------------------
     # Save draft request → save-to-collection dialog

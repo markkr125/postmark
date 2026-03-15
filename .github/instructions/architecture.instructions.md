@@ -75,7 +75,10 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   in `main.py` and passed to `MainWindow`.  It persists request-tab
   behaviour (preview enablement, compact labels, duplicate-name path
   disambiguation, wrap mode, tab limit, and close-activation policy)
-  via QSettings.
+  via QSettings.  It also stores the open-tab session (tab list + active
+  index) for restore-on-launch via `save_open_tabs()` /
+  `load_open_tabs()` / `clear_open_tabs()`.  Session data is a JSON
+  string under QSettings key `tabs/session`.
 - `CollectionService` is instantiated as `self._svc = CollectionService()` in
   `CollectionWidget.__init__`, but **every method is `@staticmethod`**.
   Do not add instance state without updating every call site.
@@ -305,9 +308,24 @@ into `%Y-%m-%d %H:%M` strings for the UI.
   `QTabBar`; it keeps a small compatibility API (`currentIndex()`,
   `setCurrentIndex()`, `count()`, `tabRect()`, `tabButton()`,
   `tabToolTip()`, `select_next_tab()`, `select_previous_tab()`,
-  `tab_search_text()`) so `MainWindow` and tests do not depend on Qt
-  tab-bar internals.  `MainWindow` enforces the limit/promotion policies
-  when opening and closing tabs.
+  `tab_search_text()`, `tab_request_info()`) so `MainWindow` and tests
+  do not depend on Qt tab-bar internals.  `MainWindow` enforces the
+  limit/promotion policies when opening and closing tabs.
+  **Session persistence:** `_TabControllerMixin._persist_open_tabs()` saves
+  the current tab list (type + DB id + method + name for requests) and
+  active index after every tab open/close/reorder and in `closeEvent`.
+  **Deferred tab materialisation:** `_restore_tabs()` restores tabs
+  lazily after `CollectionWidget.load_finished` fires.  Request tabs
+  with `method` and `name` in the session data are created as
+  lightweight tab-bar chips stored in `_deferred_tabs`; the editor and
+  viewer widgets are built on first selection via
+  `_materialise_deferred_tab()`.  Old-format entries (without
+  `method`/`name`) fall back to eager `_open_request()` for backward
+  compatibility.  Deleted requests/collections are silently skipped.
+  Draft (unsaved) tabs are serialized with `type: "draft"` and an inline
+  snapshot of the editor state (`get_request_data()` + `draft_name`).
+  On restore, `_restore_draft()` calls `_open_draft_request()` and
+  replays the saved state into the editor.
 9. **Manual tab reorder changes close-unchanged priority** — when the user
   drags tabs into a new visible order, `_TabControllerMixin._on_tab_reordered`
   rewrites `TabContext.opened_order` to match that order.  The

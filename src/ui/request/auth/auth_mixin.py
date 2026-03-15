@@ -6,6 +6,12 @@ inherit-preview logic, and load / save / clear helpers.
 
 Mixed into both :class:`RequestEditorWidget` and
 :class:`FolderEditorWidget`.
+
+Auth pages are built **lazily** — only the inherit and no-auth pages
+are constructed eagerly.  Field-based pages (bearer, basic, apikey, …)
+and the OAuth 2.0 page are materialised on first use (user selection,
+data load, or test property access) to avoid ~1 s of widget-creation
+overhead per editor instance at startup.
 """
 
 from __future__ import annotations
@@ -47,6 +53,7 @@ from ui.request.auth.oauth2_page import OAuth2Page
 if TYPE_CHECKING:
     from PySide6.QtCore import QTimer
 
+    from services.environment_service import VariableDetail
     from ui.widgets.variable_line_edit import VariableLineEdit
 
 logger = logging.getLogger(__name__)
@@ -74,6 +81,10 @@ class _AuthMixin:
 
         Left column: auth type selector + description text.
         Right column: stacked field pages for the selected auth type.
+
+        Field-based pages are **not** built here — lightweight placeholder
+        widgets are inserted instead.  The real page is materialised on
+        first use by :meth:`_ensure_auth_page`.
         """
         columns = QHBoxLayout()
         columns.setSpacing(0)
@@ -125,6 +136,9 @@ class _AuthMixin:
         # -- Right column: stacked field pages ----------------------------
         self._auth_fields_stack = QStackedWidget()
         self._auth_widget_map: dict[str, dict[str, QWidget]] = {}
+        self._auth_built_pages: set[str] = set()
+        self._auth_placeholders: dict[str, QWidget] = {}
+        self._auth_variable_map: dict[str, VariableDetail] | None = None
 
         # 1. Inherit page (index 0) — just a preview label
         inherit_page, _ = build_inherit_page()
@@ -133,32 +147,14 @@ class _AuthMixin:
         # 2. No Auth page (index 1) — empty placeholder
         self._auth_fields_stack.addWidget(build_noauth_page())
 
-        # 3. Field-based pages (bearer, basic, apikey, digest, ...)
-        #    OAuth 2.0 gets a custom page instead of FieldSpec.
+        # 3. Lightweight placeholders for field-based pages.
+        #    Real widgets created on demand by _ensure_auth_page().
         self._oauth2_page: OAuth2Page | None = None
         for auth_key in AUTH_FIELD_ORDER:
-            if auth_key == "oauth2":
-                oauth2_page = OAuth2Page(self._on_field_changed)
-                oauth2_page.get_token_requested.connect(self._on_get_oauth2_token)
-                self._oauth2_page = oauth2_page
-                self._auth_fields_stack.addWidget(oauth2_page)
-                self._auth_widget_map[auth_key] = {}
-            else:
-                specs = AUTH_FIELD_SPECS.get(auth_key, ())
-                page, widgets = build_fields_page(specs, self._on_field_changed)
-                self._auth_fields_stack.addWidget(page)
-                self._auth_widget_map[auth_key] = widgets
-
-        # Backward-compat attributes used by existing tests
-        bw = self._auth_widget_map.get("bearer", {})
-        self._bearer_token_input = cast("VariableLineEdit", bw.get("token"))
-        baw = self._auth_widget_map.get("basic", {})
-        self._basic_username_input = cast("VariableLineEdit", baw.get("username"))
-        self._basic_password_input = cast("VariableLineEdit", baw.get("password"))
-        akw = self._auth_widget_map.get("apikey", {})
-        self._apikey_key_input = cast("VariableLineEdit", akw.get("key"))
-        self._apikey_value_input = cast("VariableLineEdit", akw.get("value"))
-        self._apikey_add_to_combo = cast(QComboBox, akw.get("in"))
+            placeholder = QWidget()
+            self._auth_fields_stack.addWidget(placeholder)
+            self._auth_placeholders[auth_key] = placeholder
+            self._auth_widget_map[auth_key] = {}
 
         # OAuth 2.0 worker state
         self._oauth2_thread: QThread | None = None
@@ -166,10 +162,107 @@ class _AuthMixin:
         columns.addWidget(self._auth_fields_stack, 1)
         auth_layout.addLayout(columns, 1)
 
+    # -- Lazy page construction ----------------------------------------
+
+    def _ensure_auth_page(self, auth_key: str) -> None:
+        """Materialise the field page for *auth_key* if not yet built.
+
+        Replaces the lightweight placeholder in the stacked widget with
+        the real form page (or :class:`OAuth2Page`).  Applies the stored
+        variable map to any :class:`VariableLineEdit` children so that
+        ``{{variable}}`` highlighting works immediately.
+        """
+        if auth_key in self._auth_built_pages:
+            return
+        if auth_key not in self._auth_placeholders:
+            return  # inherit / noauth — always present
+        self._auth_built_pages.add(auth_key)
+
+        placeholder = self._auth_placeholders.pop(auth_key)
+        idx = self._auth_fields_stack.indexOf(placeholder)
+        self._auth_fields_stack.removeWidget(placeholder)
+        placeholder.deleteLater()
+
+        if auth_key == "oauth2":
+            page: QWidget = OAuth2Page(self._on_field_changed)
+            assert isinstance(page, OAuth2Page)
+            page.get_token_requested.connect(self._on_get_oauth2_token)
+            self._oauth2_page = page
+            self._auth_widget_map[auth_key] = {}
+        else:
+            specs = AUTH_FIELD_SPECS.get(auth_key, ())
+            page, widgets = build_fields_page(specs, self._on_field_changed)
+            self._auth_widget_map[auth_key] = widgets
+            # Apply stored variable map to new VariableLineEdit widgets
+            if self._auth_variable_map is not None:
+                from ui.widgets.variable_line_edit import VariableLineEdit
+
+                for widget in widgets.values():
+                    if isinstance(widget, VariableLineEdit):
+                        widget.set_variable_map(self._auth_variable_map)
+        self._auth_fields_stack.insertWidget(idx, page)
+
+    # -- Backward-compat lazy properties --------------------------------
+
+    @property
+    def _bearer_token_input(self) -> VariableLineEdit:
+        """Lazily build the bearer page and return the token input."""
+        self._ensure_auth_page("bearer")
+        return cast("VariableLineEdit", self._auth_widget_map["bearer"]["token"])
+
+    @property
+    def _basic_username_input(self) -> VariableLineEdit:
+        """Lazily build the basic-auth page and return the username input."""
+        self._ensure_auth_page("basic")
+        return cast("VariableLineEdit", self._auth_widget_map["basic"]["username"])
+
+    @property
+    def _basic_password_input(self) -> VariableLineEdit:
+        """Lazily build the basic-auth page and return the password input."""
+        self._ensure_auth_page("basic")
+        return cast("VariableLineEdit", self._auth_widget_map["basic"]["password"])
+
+    @property
+    def _apikey_key_input(self) -> VariableLineEdit:
+        """Lazily build the API-key page and return the key input."""
+        self._ensure_auth_page("apikey")
+        return cast("VariableLineEdit", self._auth_widget_map["apikey"]["key"])
+
+    @property
+    def _apikey_value_input(self) -> VariableLineEdit:
+        """Lazily build the API-key page and return the value input."""
+        self._ensure_auth_page("apikey")
+        return cast("VariableLineEdit", self._auth_widget_map["apikey"]["value"])
+
+    @property
+    def _apikey_add_to_combo(self) -> QComboBox:
+        """Lazily build the API-key page and return the *Add to* combo."""
+        self._ensure_auth_page("apikey")
+        return cast(QComboBox, self._auth_widget_map["apikey"]["in"])
+
+    # -- Auth variable map propagation ---------------------------------
+
+    def _set_auth_variable_map(self, variables: dict[str, VariableDetail]) -> None:
+        """Store the variable map and propagate to built auth widgets.
+
+        Pages that have not been materialised yet will receive the map
+        when :meth:`_ensure_auth_page` constructs them.
+        """
+        from ui.widgets.variable_line_edit import VariableLineEdit
+
+        self._auth_variable_map = variables
+        for auth_key in self._auth_built_pages:
+            for widget in self._auth_widget_map.get(auth_key, {}).values():
+                if isinstance(widget, VariableLineEdit):
+                    widget.set_variable_map(variables)
+
     # -- Auth type switching -------------------------------------------
 
     def _on_auth_type_changed(self, auth_type: str) -> None:
         """Switch the stacked page, update description, and track changes."""
+        auth_key = AUTH_TYPE_KEYS.get(auth_type)
+        if auth_key:
+            self._ensure_auth_page(auth_key)
         idx = AUTH_PAGE_INDEX.get(auth_type, 0)
         self._auth_fields_stack.setCurrentIndex(idx)
         self._auth_description_label.setText(AUTH_TYPE_DESCRIPTIONS.get(auth_type, ""))
@@ -264,6 +357,11 @@ class _AuthMixin:
 
         auth_type = auth.get("type", "inherit")
         display = AUTH_KEY_TO_DISPLAY.get(auth_type, "Inherit auth from parent")
+
+        # Materialise the page before populating fields
+        if auth_type not in ("inherit", "noauth"):
+            self._ensure_auth_page(auth_type)
+
         self._auth_type_combo.setCurrentText(display)
 
         entries = auth.get(auth_type, [])
@@ -290,6 +388,7 @@ class _AuthMixin:
         if not auth_key:
             return None
 
+        self._ensure_auth_page(auth_key)
         if auth_key == "oauth2" and self._oauth2_page is not None:
             entries = self._oauth2_page.get_entries()
         else:
@@ -298,10 +397,14 @@ class _AuthMixin:
         return {"type": auth_key, auth_key: entries}
 
     def _clear_auth(self) -> None:
-        """Reset the auth combo and all field widgets to defaults."""
+        """Reset the auth combo and all field widgets to defaults.
+
+        Only clears pages that have been materialised — unbuilt
+        placeholder pages have no widgets to reset.
+        """
         self._auth_type_combo.setCurrentText("Inherit auth from parent")
-        for widgets in self._auth_widget_map.values():
-            for widget in widgets.values():
+        for auth_key in self._auth_built_pages:
+            for widget in self._auth_widget_map.get(auth_key, {}).values():
                 if isinstance(widget, QLineEdit):
                     widget.clear()
                 elif isinstance(widget, QComboBox):

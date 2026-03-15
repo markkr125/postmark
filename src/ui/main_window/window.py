@@ -6,26 +6,16 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QSize, Qt, QThread, QTimer
-from PySide6.QtGui import QAction, QCloseEvent, QCursor, QGuiApplication, QKeySequence
+from PySide6.QtGui import (QAction, QCloseEvent, QCursor, QGuiApplication,
+                           QKeySequence)
 
 if TYPE_CHECKING:
     from ui.request.http_worker import HttpSendWorker
 
-from PySide6.QtWidgets import (
-    QApplication,
-    QHBoxLayout,
-    QInputDialog,
-    QMainWindow,
-    QMessageBox,
-    QPushButton,
-    QSizePolicy,
-    QSplitter,
-    QStackedWidget,
-    QTabWidget,
-    QToolBar,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import (QApplication, QHBoxLayout, QInputDialog,
+                               QMainWindow, QMessageBox, QPushButton,
+                               QSizePolicy, QSplitter, QStackedWidget,
+                               QTabWidget, QToolBar, QVBoxLayout, QWidget)
 
 from services.collection_service import CollectionService
 from ui.collections.collection_widget import CollectionWidget
@@ -85,9 +75,12 @@ class MainWindow(
         self._history_index: int = -1
         self._tab_open_counter: int = 0
         self._tab_activation_counter: int = 0
+        self._restoring_session: bool = False
 
         # Per-tab state: tab-bar index -> TabContext
         self._tabs: dict[int, TabContext] = {}
+        # Deferred (not-yet-materialised) request tabs restored from session
+        self._deferred_tabs: dict[int, dict] = {}
 
         # Legacy single-send state (used when no tab is found)
         self._send_thread: QThread | None = None
@@ -468,6 +461,9 @@ class MainWindow(
         for tb in self.findChildren(QToolBar):
             tb.show()
 
+        # Restore tabs from the previous session after collections are ready.
+        self._restore_tabs()
+
     # ------------------------------------------------------------------
     # Sidebar -> editor wiring
     # ------------------------------------------------------------------
@@ -645,7 +641,8 @@ class MainWindow(
     # Close event
     # ------------------------------------------------------------------
     def closeEvent(self, event: QCloseEvent) -> None:
-        """Clean up all tabs and the console panel before closing."""
+        """Persist session and clean up all tabs before closing."""
+        self._persist_open_tabs()
         for ctx in self._tabs.values():
             ctx.cancel_send()
             ctx.cleanup_thread()

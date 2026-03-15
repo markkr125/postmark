@@ -60,6 +60,8 @@ class _TabControllerMixin:
     _tab_settings_manager: TabSettingsManager
     _tab_open_counter: int
     _tab_activation_counter: int
+    _restoring_session: bool
+    _deferred_tabs: dict[int, dict]
 
     def _on_send_request(self) -> None: ...
     def _on_save_request(self) -> None: ...
@@ -94,6 +96,23 @@ class _TabControllerMixin:
         if is_preview and not self._tab_settings_manager.enable_preview_tab:
             is_preview = False
 
+        # 1. Check if already open in a materialised tab — no DB needed
+        for idx, ctx in self._tabs.items():
+            if ctx.request_id == request_id:
+                self._tab_bar.setCurrentIndex(idx)
+                # Promote preview -> permanent on explicit Open
+                if not is_preview and ctx.is_preview:
+                    ctx.is_preview = False
+                    self._tab_bar.update_tab(idx, is_preview=False)
+                return
+
+        # 1b. Check if already open in a deferred (lazy) tab — no DB needed
+        for idx, info in self._deferred_tabs.items():
+            if info.get("request_id") == request_id:
+                self._tab_bar.setCurrentIndex(idx)
+                return
+
+        # 2. Fetch from database only when we actually need to create a tab
         request = CollectionService.get_request(request_id)
         if request is None:
             logger.warning("Request id=%s not found", request_id)
@@ -115,17 +134,7 @@ class _TabControllerMixin:
             "auth": request.auth,
         }
 
-        # 1. Check if already open in a tab
-        for idx, ctx in self._tabs.items():
-            if ctx.request_id == request_id:
-                self._tab_bar.setCurrentIndex(idx)
-                # Promote preview -> permanent on explicit Open
-                if not is_preview and ctx.is_preview:
-                    ctx.is_preview = False
-                    self._tab_bar.update_tab(idx, is_preview=False)
-                return
-
-        # 2. Replace current preview tab if one exists
+        # 3. Replace current preview tab if one exists
         current_idx = self._tab_bar.currentIndex()
         current_ctx = self._tabs.get(current_idx)
         if current_ctx is not None and current_ctx.is_preview:
@@ -137,7 +146,7 @@ class _TabControllerMixin:
                 path=request_path,
             )
         else:
-            # 3. Open a new tab
+            # 4. Open a new tab
             self._create_tab(request_id, data, is_preview=is_preview, path=request_path)
 
         if push_history:
@@ -209,6 +218,7 @@ class _TabControllerMixin:
         self._tab_bar.setCurrentIndex(idx)
         # Ensure stacks are synced even if setCurrentIndex didn't emit
         self._on_tab_changed(idx)
+        self._persist_open_tabs()
         return idx
 
     def _replace_tab(
@@ -242,6 +252,7 @@ class _TabControllerMixin:
             is_preview=is_preview,
             is_dirty=False,
         )
+        self._persist_open_tabs()
 
     def _request_full_path(self, request_id: int) -> str | None:
         """Return the full breadcrumb path for a request tab."""
@@ -268,6 +279,10 @@ class _TabControllerMixin:
             (old_idx if old_idx < index else old_idx + 1): ctx
             for old_idx, ctx in self._tabs.items()
         }
+        self._deferred_tabs = {
+            (old_idx if old_idx < index else old_idx + 1): info
+            for old_idx, info in self._deferred_tabs.items()
+        }
 
     def _on_editor_dirty_changed(self, dirty: bool) -> None:
         """Sync dirty state from the emitting editor back into the tab metadata."""
@@ -283,6 +298,13 @@ class _TabControllerMixin:
 
     def _on_tab_changed(self, index: int) -> None:
         """Switch the stacked widgets when the active tab changes."""
+        if getattr(self, "_restoring_session", False):
+            return
+
+        # Materialise deferred (lazy-loaded) tab on first selection
+        if index in getattr(self, "_deferred_tabs", {}):
+            self._materialise_deferred_tab(index)
+
         ctx = self._tabs.get(index)
         if ctx is not None:
             self._tab_activation_counter += 1
@@ -308,9 +330,14 @@ class _TabControllerMixin:
             self._response_area.show()
             self._save_btn.setVisible(True)
             self._sync_save_btn(ctx.editor.is_dirty)
-            # Update breadcrumb
+            # Update breadcrumb (reuse cached crumbs from materialisation)
             if ctx.request_id is not None:
-                crumbs = CollectionService.get_request_breadcrumb(ctx.request_id)
+                cached = getattr(ctx, "_cached_crumbs", None)
+                if cached is not None:
+                    crumbs = cached
+                    del ctx._cached_crumbs  # type: ignore[attr-defined]
+                else:
+                    crumbs = CollectionService.get_request_breadcrumb(ctx.request_id)
                 self._breadcrumb_bar.set_path(crumbs)
             elif ctx.draft_name is not None:
                 # Draft tab — show editable single-segment breadcrumb
@@ -347,10 +374,248 @@ class _TabControllerMixin:
             self.collection_widget.select_and_scroll_to(ctx.request_id, "request")
 
     # ------------------------------------------------------------------
+    # Session persistence
+    # ------------------------------------------------------------------
+    def _persist_open_tabs(self) -> None:
+        """Save the current tab list to settings for session restore."""
+        if getattr(self, "_restoring_session", False):
+            return
+        tabs_list: list[dict[str, object]] = []
+        all_indices = sorted(set(self._tabs) | set(self._deferred_tabs))
+        for idx in all_indices:
+            ctx = self._tabs.get(idx)
+            if ctx is not None:
+                if ctx.tab_type == "folder" and ctx.collection_id is not None:
+                    tabs_list.append({"type": "folder", "id": ctx.collection_id})
+                elif ctx.tab_type == "request" and ctx.request_id is not None:
+                    method, name = self._tab_bar.tab_request_info(idx)
+                    tabs_list.append(
+                        {
+                            "type": "request",
+                            "id": ctx.request_id,
+                            "method": method or ctx.editor.get_request_data().get("method", "GET"),
+                            "name": name,
+                        }
+                    )
+                elif ctx.tab_type == "request" and ctx.request_id is None:
+                    # Draft (unsaved) tab — snapshot the editor state.
+                    entry: dict[str, object] = {
+                        "type": "draft",
+                        "data": ctx.editor.get_request_data(),
+                    }
+                    if ctx.draft_name:
+                        entry["draft_name"] = ctx.draft_name
+                    tabs_list.append(entry)
+            else:
+                # Deferred (not-yet-materialised) tab
+                info = self._deferred_tabs.get(idx)
+                if info is not None:
+                    tabs_list.append(
+                        {
+                            "type": "request",
+                            "id": info["request_id"],
+                            "method": info.get("method", "GET"),
+                            "name": info.get("name", ""),
+                        }
+                    )
+        data = {
+            "tabs": tabs_list,
+            "active": self._tab_bar.currentIndex(),
+        }
+        self._tab_settings_manager.save_open_tabs(data)
+
+    def _restore_tabs(self) -> None:
+        """Restore tabs from the last session after collections have loaded.
+
+        Request tabs are restored **lazily**: only a lightweight tab-bar
+        chip is created upfront.  The actual editor and response viewer
+        widgets are materialised on first selection via
+        :meth:`_materialise_deferred_tab`.  Draft and folder tabs are
+        still created eagerly because they require immediate state
+        (editor snapshot / folder metadata).
+        """
+        data = self._tab_settings_manager.load_open_tabs()
+        if data is None:
+            return
+
+        tabs_list = data.get("tabs")
+        if not isinstance(tabs_list, list):
+            return
+
+        active = data.get("active", 0)
+
+        # Suppress per-tab persist calls — the data is already saved.
+        self._restoring_session = True
+        try:
+            for entry in tabs_list:
+                if not isinstance(entry, dict):
+                    continue
+                tab_type = entry.get("type")
+                if tab_type == "draft":
+                    self._restore_draft(entry)
+                    continue
+                item_id = entry.get("id")
+                if not isinstance(item_id, int):
+                    continue
+                if tab_type == "request":
+                    self._restore_request_deferred(entry, item_id)
+                elif tab_type == "folder":
+                    self._open_folder(item_id)
+        finally:
+            self._restoring_session = False
+
+        if isinstance(active, int) and 0 <= active < self._tab_bar.count():
+            self._tab_bar.setCurrentIndex(active)
+            self._on_tab_changed(active)
+
+    def _restore_request_deferred(self, entry: dict, request_id: int) -> None:
+        """Create a lightweight tab chip for a persisted request tab.
+
+        If the session entry contains ``method`` and ``name`` (new format),
+        the chip is created without any database query.  Otherwise we fall
+        back to eager loading via :meth:`_open_request`.
+        """
+        method = entry.get("method")
+        name = entry.get("name")
+        if not isinstance(method, str) or not isinstance(name, str):
+            # Old format — fall back to eager loading
+            self._open_request(request_id, push_history=False, is_preview=False)
+            return
+
+        # Block signals while adding the tab to avoid premature events.
+        self._tab_bar.blockSignals(True)
+        try:
+            idx = self._tab_bar.add_request_tab(
+                method,
+                name,
+                is_preview=False,
+                path=None,
+            )
+        finally:
+            self._tab_bar.blockSignals(False)
+
+        self._deferred_tabs[idx] = {
+            "request_id": request_id,
+            "method": method,
+            "name": name,
+        }
+
+    def _materialise_deferred_tab(self, index: int) -> None:
+        """Build the editor and viewer for a deferred tab on first selection.
+
+        Fetches the full request data from the database, creates the
+        editor/viewer pair, populates the editor, and wires signals.
+        If the database record was deleted between sessions, the tab
+        chip is silently removed.
+
+        The breadcrumb crumbs are cached on the context as
+        ``_cached_crumbs`` so that :meth:`_on_tab_changed` can skip
+        the redundant ``get_request_breadcrumb`` call.
+        """
+        info = self._deferred_tabs.pop(index)
+        request_id: int = info["request_id"]
+
+        request = CollectionService.get_request(request_id)
+        if request is None:
+            logger.warning("Deferred request id=%s not found, removing tab", request_id)
+            self._tab_bar.remove_request_tab(index)
+            self._reindex_tabs_after_close(index)
+            return
+
+        req_data: RequestLoadDict = {
+            "name": request.name,
+            "method": request.method,
+            "url": request.url,
+            "body": request.body,
+            "request_parameters": request.request_parameters,
+            "headers": request.headers,
+            "description": request.description,
+            "scripts": request.scripts,
+            "body_mode": request.body_mode,
+            "body_options": request.body_options,
+            "auth": request.auth,
+        }
+
+        editor = RequestEditorWidget()
+        viewer = ResponseViewerWidget()
+        self._editor_stack.addWidget(editor)
+        self._response_stack.addWidget(viewer)
+
+        ctx = TabContext(
+            request_id=request_id,
+            editor=editor,
+            response_viewer=viewer,
+            is_preview=False,
+            opened_order=self._next_tab_open_order(),
+        )
+        self._tabs[index] = ctx
+
+        editor.load_request(req_data, request_id=request_id)
+        editor.send_requested.connect(self._on_send_request)
+        editor.save_requested.connect(self._on_save_request)
+        editor.dirty_changed.connect(self._sync_save_btn)
+        editor.dirty_changed.connect(self._on_editor_dirty_changed)
+        editor.request_changed.connect(lambda _: self._schedule_sidebar_snippet_refresh())
+        viewer.save_response_requested.connect(self._on_save_response)
+        viewer.save_availability_changed.connect(lambda _enabled: self._refresh_sidebar())
+
+        # Fetch breadcrumb once — reused by both the tab tooltip and
+        # _on_tab_changed (via _cached_crumbs) to avoid a duplicate query.
+        crumbs = CollectionService.get_request_breadcrumb(request_id)
+        request_path = (
+            " / ".join(str(c.get("name", "")) for c in crumbs if c.get("name")) if crumbs else None
+        )
+        ctx._cached_crumbs = crumbs  # type: ignore[attr-defined]
+
+        self._tab_bar.update_tab(
+            index,
+            method=req_data.get("method", "GET"),
+            name=req_data.get("name", ""),
+            path=request_path,
+        )
+
+    def _restore_draft(self, entry: dict) -> None:
+        """Restore a single draft tab from persisted session data."""
+        draft_data = entry.get("data")
+        if not isinstance(draft_data, dict):
+            return
+        draft_name = entry.get("draft_name")
+        if isinstance(draft_name, str):
+            draft_data["name"] = draft_name
+        self._open_draft_request()  # type: ignore[attr-defined]
+        # The new draft tab is now the active tab — overwrite its
+        # default blank state with the persisted editor snapshot.
+        idx = self._tab_bar.currentIndex()
+        ctx = self._tabs.get(idx)
+        if ctx is None or ctx.request_id is not None:
+            return
+        ctx.editor.load_request(cast(RequestLoadDict, draft_data), request_id=None)
+        ctx.editor._set_dirty(True)
+        if isinstance(draft_name, str):
+            ctx.draft_name = draft_name
+            method = draft_data.get("method", "GET")
+            self._tab_bar.update_tab(idx, method=method, name=draft_name)
+
+    # ------------------------------------------------------------------
     # Tab close
     # ------------------------------------------------------------------
     def _on_tab_close(self, index: int) -> None:
         """Close a tab and clean up its context."""
+        # Handle deferred (lazy) tab close — no widgets to clean up
+        if index in self._deferred_tabs:
+            target_old_index = self._target_tab_after_close(index)
+            self._deferred_tabs.pop(index)
+            self._tab_bar.remove_request_tab(index)
+            self._reindex_tabs_after_close(index)
+            target_new_index = self._normalize_target_index_after_close(index, target_old_index)
+            if target_new_index is not None and 0 <= target_new_index < self._tab_bar.count():
+                self._tab_bar.setCurrentIndex(target_new_index)
+                self._on_tab_changed(target_new_index)
+            else:
+                self._on_tab_changed(self._tab_bar.currentIndex())
+            self._persist_open_tabs()
+            return
+
         target_old_index = self._target_tab_after_close(index)
         ctx = self._tabs.pop(index, None)
         if ctx is None:
@@ -405,12 +670,8 @@ class _TabControllerMixin:
 
             self._tab_bar.remove_request_tab(index)
 
-        # Re-index remaining tabs
-        new_tabs: dict[int, TabContext] = {}
-        for old_idx, old_ctx in self._tabs.items():
-            new_idx = old_idx if old_idx < index else old_idx - 1
-            new_tabs[new_idx] = old_ctx
-        self._tabs = new_tabs
+        # Re-index remaining tabs (both materialised and deferred)
+        self._reindex_tabs_after_close(index)
 
         target_new_index = self._normalize_target_index_after_close(index, target_old_index)
         if target_new_index is not None and 0 <= target_new_index < self._tab_bar.count():
@@ -418,6 +679,17 @@ class _TabControllerMixin:
             self._on_tab_changed(target_new_index)
         else:
             self._on_tab_changed(self._tab_bar.currentIndex())
+        self._persist_open_tabs()
+
+    def _reindex_tabs_after_close(self, closed_index: int) -> None:
+        """Shift tab indices down after removing a tab at *closed_index*."""
+        self._tabs = {
+            (idx if idx < closed_index else idx - 1): ctx for idx, ctx in self._tabs.items()
+        }
+        self._deferred_tabs = {
+            (idx if idx < closed_index else idx - 1): info
+            for idx, info in self._deferred_tabs.items()
+        }
 
     def _on_tab_double_click(self, index: int) -> None:
         """Promote a preview tab to a permanent tab."""
@@ -428,14 +700,15 @@ class _TabControllerMixin:
 
     def _target_tab_after_close(self, closing_index: int) -> int | None:
         """Return the preferred old-index tab to activate after closing one."""
-        if not self._tabs:
+        all_indices = set(self._tabs) | set(self._deferred_tabs)
+        if not all_indices:
             return None
 
         current = self._tab_bar.currentIndex()
         if current != closing_index:
             return current
 
-        remaining = [idx for idx in self._tabs if idx != closing_index]
+        remaining = [idx for idx in all_indices if idx != closing_index]
         if not remaining:
             return None
 
@@ -447,10 +720,12 @@ class _TabControllerMixin:
             right = [idx for idx in remaining if idx > closing_index]
             return min(right) if right else max(remaining)
 
+        # MRU policy — deferred tabs have last_activated_order = 0
         best_idx: int | None = None
         best_order = -1
         for idx in remaining:
-            last_activated = self._tabs[idx].last_activated_order
+            ctx = self._tabs.get(idx)
+            last_activated = ctx.last_activated_order if ctx is not None else 0
             if last_activated > best_order:
                 best_idx = idx
                 best_order = last_activated
@@ -480,6 +755,10 @@ class _TabControllerMixin:
             if ctx.is_sending or ctx.is_dirty:
                 continue
             eligible.append(idx)
+        # Deferred tabs are always safe (not dirty, not sending)
+        for idx in self._deferred_tabs:
+            if idx != active:
+                eligible.append(idx)
         return eligible
 
     def _find_tab_limit_candidate(self) -> int | None:
@@ -491,7 +770,10 @@ class _TabControllerMixin:
         policy = self._tab_settings_manager.tab_limit_policy
         if policy == "close_unchanged":
             return min(candidates)
-        return min(candidates, key=lambda idx: self._tabs[idx].last_activated_order)
+        return min(
+            candidates,
+            key=lambda idx: self._tabs[idx].last_activated_order if idx in self._tabs else 0,
+        )
 
     def _enforce_tab_limit_before_open(self) -> bool:
         """Close one safe tab when needed so a new tab can be opened."""
@@ -516,13 +798,25 @@ class _TabControllerMixin:
         """Keep logical tab state aligned with the visual tab order after drag-reorder."""
         if from_index == to_index:
             return
-        ordered_indices = sorted(self._tabs)
-        ordered_contexts = [self._tabs[idx] for idx in ordered_indices]
-        moved = ordered_contexts.pop(from_index)
-        ordered_contexts.insert(to_index, moved)
-        for order, ctx in enumerate(ordered_contexts, start=1):
-            ctx.opened_order = order
-        self._tabs = {idx: ctx for idx, ctx in enumerate(ordered_contexts)}
+        # Build a unified ordered list of (index, state) where state is
+        # either a TabContext or a deferred info dict.
+        all_indices = sorted(set(self._tabs) | set(self._deferred_tabs))
+        entries: list[TabContext | dict] = [
+            self._tabs.get(idx) or self._deferred_tabs[idx] for idx in all_indices
+        ]
+        moved = entries.pop(from_index)
+        entries.insert(to_index, moved)
+        new_tabs: dict[int, TabContext] = {}
+        new_deferred: dict[int, dict] = {}
+        for order, item in enumerate(entries):
+            if isinstance(item, TabContext):
+                item.opened_order = order + 1
+                new_tabs[order] = item
+            else:
+                new_deferred[order] = item
+        self._tabs = new_tabs
+        self._deferred_tabs = new_deferred
+        self._persist_open_tabs()
 
     # ------------------------------------------------------------------
     # Folder tab management
@@ -637,6 +931,7 @@ class _TabControllerMixin:
             updated_at=updated_at,
             recent_requests=recent_requests,
         )
+        self._persist_open_tabs()
         return idx
 
     def _on_folder_auto_save(self, data: dict) -> None:
@@ -714,6 +1009,12 @@ class _TabControllerMixin:
                 self._tab_bar.update_tab(idx, name=new_name, path=folder_path)
                 if idx == self._tab_bar.currentIndex():
                     self._breadcrumb_bar.update_last_segment_text(new_name)
+        # Also update deferred tab chips (label only, no editor to refresh).
+        if item_type == "request":
+            for idx, info in self._deferred_tabs.items():
+                if info["request_id"] == item_id:
+                    info["name"] = new_name
+                    self._tab_bar.update_tab(idx, name=new_name)
 
     # ------------------------------------------------------------------
     # Navigation history
@@ -742,13 +1043,13 @@ class _TabControllerMixin:
     # ------------------------------------------------------------------
     def _close_others_tabs(self, keep_index: int) -> None:
         """Close every tab except the one at *keep_index*."""
-        indices = sorted(self._tabs.keys(), reverse=True)
+        indices = sorted(set(self._tabs) | set(self._deferred_tabs), reverse=True)
         for idx in indices:
             if idx != keep_index:
                 self._on_tab_close(idx)
 
     def _close_all_tabs(self) -> None:
         """Close all open tabs."""
-        indices = sorted(self._tabs.keys(), reverse=True)
+        indices = sorted(set(self._tabs) | set(self._deferred_tabs), reverse=True)
         for idx in indices:
             self._on_tab_close(idx)

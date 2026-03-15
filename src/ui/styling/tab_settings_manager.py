@@ -7,9 +7,14 @@ Widgets that render or manage request tabs subscribe to
 
 from __future__ import annotations
 
+import json
+import logging
+
 from PySide6.QtCore import QObject, Signal
 
 from ui.styling.theme_manager import _APP, _ORG
+
+logger = logging.getLogger(__name__)
 
 _KEY_SMALL_LABELS = "tabs/small_labels"
 _KEY_SHOW_PATH_FOR_DUPLICATES = "tabs/show_path_for_duplicates"
@@ -21,6 +26,7 @@ _KEY_TAB_LIMIT = "tabs/tab_limit"
 _KEY_TAB_LIMIT_POLICY = "tabs/tab_limit_policy"
 _KEY_ACTIVATE_ON_CLOSE = "tabs/activate_on_close"
 _KEY_WRAP_MODE = "tabs/wrap_mode"
+_KEY_SESSION = "tabs/session"
 
 LIMIT_CLOSE_UNCHANGED = "close_unchanged"
 LIMIT_CLOSE_UNUSED = "close_unused"
@@ -226,3 +232,29 @@ class TabSettingsManager(QObject):
         """Persist the request-tab wrap-mode preference."""
         choice = value if value in WRAP_MODES else WRAP_MULTIPLE_ROWS
         self._set_and_emit(_KEY_WRAP_MODE, "_wrap_mode", choice)
+
+    # -- Session persistence -------------------------------------------
+
+    def save_open_tabs(self, data: dict) -> None:
+        """Persist the open-tab session state as JSON."""
+        try:
+            self._settings.setValue(_KEY_SESSION, json.dumps(data))
+        except (TypeError, ValueError):
+            logger.exception("Failed to serialize tab session")
+
+    def load_open_tabs(self) -> dict | None:
+        """Load the persisted open-tab session state, or ``None``."""
+        raw = self._settings.value(_KEY_SESSION)
+        if raw is None:
+            return None
+        try:
+            parsed = json.loads(str(raw))
+            if isinstance(parsed, dict):
+                return parsed
+        except (json.JSONDecodeError, TypeError, ValueError):
+            logger.warning("Corrupt tab session data — ignoring")
+        return None
+
+    def clear_open_tabs(self) -> None:
+        """Remove the persisted tab session."""
+        self._settings.remove(_KEY_SESSION)

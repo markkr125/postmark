@@ -17,6 +17,7 @@ from services.environment_service import EnvironmentService
 if TYPE_CHECKING:
     from services.environment_service import LocalOverride
     from ui.environments.environment_selector import EnvironmentSelector
+    from ui.request.navigation.request_tab_bar import RequestTabBar
     from ui.request.navigation.tab_manager import TabContext
     from ui.request.request_editor import RequestEditorWidget
     from ui.sidebar import RightSidebar
@@ -37,6 +38,7 @@ class _VariableControllerMixin:
     _tabs: dict[int, TabContext]
     _right_sidebar: RightSidebar
     _sidebar_debounce: QTimer
+    _tab_bar: RequestTabBar
 
     def _current_tab_context(self) -> TabContext | None: ...
 
@@ -159,7 +161,8 @@ class _VariableControllerMixin:
             request_id = ctx.request_id if ctx else None
             if request_id is None:
                 return
-            from database.models.collections.collection_query_repository import get_request_by_id
+            from database.models.collections.collection_query_repository import \
+                get_request_by_id
 
             req = get_request_by_id(request_id)
             if req is None:
@@ -201,9 +204,8 @@ class _VariableControllerMixin:
             variables = EnvironmentService.build_combined_variable_detail_map(env_id, None)
             # Merge folder-level variables from the collection chain
             if ctx.collection_id is not None:
-                from database.models.collections.collection_query_repository import (
-                    get_collection_variable_chain_detailed,
-                )
+                from database.models.collections.collection_query_repository import \
+                    get_collection_variable_chain_detailed
 
                 for key, (value, coll_id) in get_collection_variable_chain_detailed(
                     ctx.collection_id
@@ -239,6 +241,7 @@ class _VariableControllerMixin:
                 from services.collection_service import CollectionService
 
                 auth = CollectionService.get_request_inherited_auth(ctx.request_id)
+            auth = self._substitute_auth(auth, flat_vars)
             self._right_sidebar.show_request_panels(
                 variables,
                 local_overrides=ctx.local_overrides,
@@ -255,8 +258,7 @@ class _VariableControllerMixin:
             if ctx.request_id is not None:
                 from services.collection_service import CollectionService
 
-                request = CollectionService.get_request(ctx.request_id)
-                request_name = request.name if request is not None else None
+                _, request_name = self._tab_bar.tab_request_info(self._tab_bar.currentIndex())
                 saved_responses = CollectionService.get_saved_responses(ctx.request_id)
             self._right_sidebar.set_saved_response_context(
                 request_id=ctx.request_id,
@@ -290,13 +292,32 @@ class _VariableControllerMixin:
                 }
         flat_vars = {k: v["value"] for k, v in variables.items()}
         sub = EnvironmentService.substitute
+        auth = self._resolve_snippet_auth(data.get("auth"), ctx.request_id)
+        auth = self._substitute_auth(auth, flat_vars)
         self._right_sidebar.snippet_panel.update_request(
             method=editor._method_combo.currentText(),
             url=sub(editor._url_input.text().strip(), flat_vars),
             headers=sub(editor.get_headers_text() or "", flat_vars) or None,
             body=sub(data.get("body") or "", flat_vars) or None,
-            auth=self._resolve_snippet_auth(data.get("auth"), ctx.request_id),
+            auth=auth,
         )
+
+    @staticmethod
+    def _substitute_auth(auth: dict | None, variables: dict[str, str]) -> dict | None:
+        """Substitute ``{{variable}}`` placeholders in auth entry values."""
+        if not auth or not variables:
+            return auth
+        auth_type = auth.get("type", "noauth")
+        entries = auth.get(auth_type, [])
+        if not entries:
+            return auth
+        sub = EnvironmentService.substitute
+        substituted = dict(auth)
+        substituted[auth_type] = [
+            {**e, "value": sub(str(e.get("value", "")), variables)} if isinstance(e, dict) else e
+            for e in entries
+        ]
+        return substituted
 
     def _resolve_snippet_auth(self, auth: dict | None, request_id: int | None) -> dict | None:
         """Return the effective auth for snippet generation.

@@ -140,6 +140,17 @@ class RequestTabBar(QWidget):
             return f"{text} - {entry.path}"
         return text
 
+    def tab_request_info(self, index: int) -> tuple[str, str]:
+        """Return ``(method, name)`` for the request tab at *index*.
+
+        Returns ``("", "")`` when the index is out of range or the tab
+        is not a request tab.
+        """
+        entry = self._entry(index)
+        if entry is None or not isinstance(entry.label, TabLabel):
+            return ("", "")
+        return (entry.label._method, entry.label._name)
+
     def select_next_tab(self) -> None:
         """Activate the next tab, wrapping at the end of the deck."""
         self._cycle_current(1)
@@ -610,6 +621,7 @@ class RequestTabBar(QWidget):
         elif chosen == close_all_act:
             self.close_all_requested.emit()
         elif chosen == force_close_all_act:
+            self.force_close_all_requested.emit()
             self.force_close_all_requested.emit()
             self.force_close_all_requested.emit()
             self.force_close_all_requested.emit()

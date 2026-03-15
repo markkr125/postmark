@@ -286,6 +286,7 @@ tests/
     ├── test_main_window_tabs_navigation.py # Wrapped tab deck shortcuts + search tests
     ├── test_main_window_save.py   # SaveButton + RequestSaveEndToEnd tests
     ├── test_main_window_draft.py  # Draft tab open/save lifecycle tests
+    ├── test_main_window_session.py # Tab session persistence (save/restore) tests
     ├── styling/                   # Theme and icon tests
     │   ├── test_theme_manager.py
     │   └── test_icons.py

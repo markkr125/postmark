@@ -93,6 +93,26 @@ class TestSnippetPanel:
         assert "Authorization" in text
         assert "Bearer tok123" in text
 
+    def test_snippet_with_substituted_auth_variable(self, qapp: QApplication, qtbot) -> None:
+        """Snippet resolves {{variable}} placeholders in auth values."""
+        from ui.main_window.variable_controller import _VariableControllerMixin
+
+        auth = {
+            "type": "bearer",
+            "bearer": [{"key": "token", "value": "{{api_key}}"}],
+        }
+        resolved = _VariableControllerMixin._substitute_auth(auth, {"api_key": "secret123"})
+        panel = SnippetPanel()
+        qtbot.addWidget(panel)
+        panel.update_request(
+            method="GET",
+            url="https://api.example.com",
+            auth=resolved,
+        )
+        text = panel._code_edit.toPlainText()
+        assert "Bearer secret123" in text
+        assert "{{api_key}}" not in text
+
     def test_syntax_highlighting_language(self, qapp: QApplication, qtbot) -> None:
         """Snippet editor uses correct syntax language per combo selection."""
         panel = SnippetPanel()
