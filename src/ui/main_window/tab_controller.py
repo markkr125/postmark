@@ -9,6 +9,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, cast
 
+from PySide6.QtCore import QTimer
+
 from services.collection_service import CollectionService, RequestLoadDict
 from ui.request.navigation.tab_manager import TabContext
 from ui.request.request_editor import RequestEditorWidget
@@ -62,6 +64,7 @@ class _TabControllerMixin:
     _tab_activation_counter: int
     _restoring_session: bool
     _deferred_tabs: dict[int, dict]
+    _tab_change_debounce: QTimer
 
     def _on_send_request(self) -> None: ...
     def _on_save_request(self) -> None: ...
@@ -104,12 +107,14 @@ class _TabControllerMixin:
                 if not is_preview and ctx.is_preview:
                     ctx.is_preview = False
                     self._tab_bar.update_tab(idx, is_preview=False)
+                self._flush_tab_change()
                 return
 
         # 1b. Check if already open in a deferred (lazy) tab — no DB needed
         for idx, info in self._deferred_tabs.items():
             if info.get("request_id") == request_id:
                 self._tab_bar.setCurrentIndex(idx)
+                self._flush_tab_change()
                 return
 
         # 2. Fetch from database only when we actually need to create a tab
@@ -218,6 +223,8 @@ class _TabControllerMixin:
         self._tab_bar.setCurrentIndex(idx)
         # Ensure stacks are synced even if setCurrentIndex didn't emit
         self._on_tab_changed(idx)
+        # Flush the debounced heavy work immediately for programmatic opens
+        self._flush_tab_change()
         self._persist_open_tabs()
         return idx
 
@@ -297,7 +304,13 @@ class _TabControllerMixin:
                 break
 
     def _on_tab_changed(self, index: int) -> None:
-        """Switch the stacked widgets when the active tab changes."""
+        """Switch the stacked widgets when the active tab changes.
+
+        Only the lightweight visual switch runs synchronously.  Heavy
+        work (breadcrumb fetch, variable map, sidebar refresh, tree
+        sync) is debounced via ``_tab_change_debounce`` so that rapid
+        scrolling through tabs does not pile up expensive DB calls.
+        """
         if getattr(self, "_restoring_session", False):
             return
 
@@ -310,18 +323,12 @@ class _TabControllerMixin:
             self._tab_activation_counter += 1
             ctx.last_activated_order = self._tab_activation_counter
 
+        # -- Fast visual switch (no DB calls) --------------------------
         if ctx is not None and ctx.tab_type == "folder":
-            # Folder tab -- show folder editor, hide response pane
             if ctx.folder_editor is not None:
                 self._editor_stack.setCurrentWidget(ctx.folder_editor)
             self._response_area.hide()
             self._save_btn.setVisible(False)
-            # Update breadcrumb for folder
-            if ctx.collection_id is not None:
-                crumbs = CollectionService.get_collection_breadcrumb(ctx.collection_id)
-                self._breadcrumb_bar.set_path(crumbs)
-            else:
-                self._breadcrumb_bar.clear()
         elif ctx is not None:
             self._editor_stack.setCurrentWidget(ctx.editor)
             self._response_stack.setCurrentWidget(ctx.response_viewer)
@@ -330,7 +337,40 @@ class _TabControllerMixin:
             self._response_area.show()
             self._save_btn.setVisible(True)
             self._sync_save_btn(ctx.editor.is_dirty)
-            # Update breadcrumb (reuse cached crumbs from materialisation)
+        else:
+            self._editor_stack.setCurrentWidget(self._default_editor)
+            self._response_stack.setCurrentWidget(self._default_response_viewer)
+            self.request_widget = self._default_editor
+            self.response_widget = self._default_response_viewer
+            self._breadcrumb_bar.clear()
+            self._save_btn.setVisible(False)
+
+        # -- Debounce the heavy work -----------------------------------
+        self._tab_change_debounce.start()
+
+    def _on_tab_change_settled(self, *, sync_tree: bool = False) -> None:
+        """Run expensive refresh work after tab changes settle.
+
+        Invoked by the ``_tab_change_debounce`` single-shot timer so
+        that rapid scrolling coalesces into one heavy update.
+
+        When *sync_tree* is ``False`` (the default for timer-fired
+        calls) the collection tree selection is **not** updated.  This
+        avoids hijacking the tree scroll position while the user is
+        actively browsing the sidebar.  Programmatic flushes pass
+        ``sync_tree=True`` to keep the tree in sync.
+        """
+        index = self._tab_bar.currentIndex()
+        ctx = self._tabs.get(index)
+
+        # -- Breadcrumb ------------------------------------------------
+        if ctx is not None and ctx.tab_type == "folder":
+            if ctx.collection_id is not None:
+                crumbs = CollectionService.get_collection_breadcrumb(ctx.collection_id)
+                self._breadcrumb_bar.set_path(crumbs)
+            else:
+                self._breadcrumb_bar.clear()
+        elif ctx is not None:
             if ctx.request_id is not None:
                 cached = getattr(ctx, "_cached_crumbs", None)
                 if cached is not None:
@@ -340,7 +380,6 @@ class _TabControllerMixin:
                     crumbs = CollectionService.get_request_breadcrumb(ctx.request_id)
                 self._breadcrumb_bar.set_path(crumbs)
             elif ctx.draft_name is not None:
-                # Draft tab — show editable single-segment breadcrumb
                 self._breadcrumb_bar.set_path(
                     [{"name": ctx.draft_name, "type": "request", "id": 0}]
                 )
@@ -348,21 +387,26 @@ class _TabControllerMixin:
                 self._breadcrumb_bar.clear()
             # Refresh variable map for highlighting and tooltips
             self._refresh_variable_map(ctx.editor, ctx.request_id, ctx.local_overrides)
-        else:
-            # No active tab -- fall back to the default widgets.
-            self._editor_stack.setCurrentWidget(self._default_editor)
-            self._response_stack.setCurrentWidget(self._default_response_viewer)
-            self.request_widget = self._default_editor
-            self.response_widget = self._default_response_viewer
-            self._breadcrumb_bar.clear()
-            self._save_btn.setVisible(False)
 
-        # Refresh right sidebar for the active tab using the same context
-        # that drove the stacked-widget switch.
+        # Refresh right sidebar for the active tab.
         self._refresh_sidebar(ctx)
 
-        # Sync collection tree selection to the active tab.
-        self._sync_tree_selection(ctx)
+        # Sync collection tree selection only on programmatic opens —
+        # not on timer-fired calls from tab-bar scrolling, to avoid
+        # hijacking the tree scroll while the user browses the sidebar.
+        if sync_tree:
+            self._sync_tree_selection(ctx)
+
+    def _flush_tab_change(self) -> None:
+        """Immediately run pending debounced tab-change work.
+
+        Called after programmatic tab opens and closes so the heavy
+        refresh happens synchronously instead of after the timer delay.
+        Tree selection sync is included since this is user-initiated.
+        """
+        if self._tab_change_debounce.isActive():
+            self._tab_change_debounce.stop()
+            self._on_tab_change_settled(sync_tree=True)
 
     def _sync_tree_selection(self, ctx: TabContext | None) -> None:
         """Highlight the active tab's item in the collection tree."""
@@ -467,6 +511,7 @@ class _TabControllerMixin:
         if isinstance(active, int) and 0 <= active < self._tab_bar.count():
             self._tab_bar.setCurrentIndex(active)
             self._on_tab_changed(active)
+            self._flush_tab_change()
 
     def _restore_request_deferred(self, entry: dict, request_id: int) -> None:
         """Create a lightweight tab chip for a persisted request tab.
@@ -613,6 +658,7 @@ class _TabControllerMixin:
                 self._on_tab_changed(target_new_index)
             else:
                 self._on_tab_changed(self._tab_bar.currentIndex())
+            self._flush_tab_change()
             self._persist_open_tabs()
             return
 
@@ -679,6 +725,7 @@ class _TabControllerMixin:
             self._on_tab_changed(target_new_index)
         else:
             self._on_tab_changed(self._tab_bar.currentIndex())
+        self._flush_tab_change()
         self._persist_open_tabs()
 
     def _reindex_tabs_after_close(self, closed_index: int) -> None:
@@ -855,6 +902,7 @@ class _TabControllerMixin:
         for idx, ctx in self._tabs.items():
             if ctx.tab_type == "folder" and ctx.collection_id == collection_id:
                 self._tab_bar.setCurrentIndex(idx)
+                self._flush_tab_change()
                 return
 
         # 2. Open a new folder tab
@@ -922,6 +970,8 @@ class _TabControllerMixin:
         # editor is visible even if load_collection raises.
         self._tab_bar.setCurrentIndex(idx)
         self._on_tab_changed(idx)
+        # Flush the debounced heavy work immediately for programmatic opens
+        self._flush_tab_change()
 
         folder_editor.load_collection(
             data,

@@ -96,6 +96,13 @@ class MainWindow(
         self._sidebar_debounce.setSingleShot(True)
         self._sidebar_debounce.timeout.connect(self._refresh_sidebar_snippet)
 
+        # Debounce timer for heavy tab-change work (breadcrumb, sidebar,
+        # variable map, tree sync) so rapid scrolling stays smooth.
+        self._tab_change_debounce = QTimer(self)
+        self._tab_change_debounce.setSingleShot(True)
+        self._tab_change_debounce.setInterval(60)
+        self._tab_change_debounce.timeout.connect(self._on_tab_change_settled)
+
         self._setup_ui()
 
         # Wire sidebar -> editor
@@ -543,6 +550,7 @@ class MainWindow(
 
         self._tab_bar.setCurrentIndex(target_index)
         self._on_tab_changed(target_index)
+        self._flush_tab_change()
 
     # ------------------------------------------------------------------
     # Dialogs

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QPoint, QRect, QSize, Qt, Signal
+from PySide6.QtCore import QPoint, QRect, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (QContextMenuEvent, QKeyEvent, QMouseEvent,
                            QResizeEvent, QWheelEvent)
 from PySide6.QtWidgets import QMenu, QSizePolicy, QTabBar, QWidget
@@ -22,6 +22,9 @@ _TAB_GAP = 2
 _PADDING_X = 4
 _PADDING_Y = 4
 _MIN_SINGLE_ROW_WIDTH = 1
+
+# How long (ms) to keep the mouse grab after the last wheel tick.
+_SCROLL_GRAB_TIMEOUT = 200
 
 
 @dataclass
@@ -60,7 +63,13 @@ class RequestTabBar(QWidget):
         self._current_index = -1
         self._tabs_closable = True
         self._hover_suppressed = False
+        self._scroll_grabbed = False
         self._layout_height = layout_config(False).tab_height + (_PADDING_Y * 2)
+
+        self._scroll_release_timer = QTimer(self)
+        self._scroll_release_timer.setSingleShot(True)
+        self._scroll_release_timer.setInterval(_SCROLL_GRAB_TIMEOUT)
+        self._scroll_release_timer.timeout.connect(self._release_scroll_grab)
 
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -368,6 +377,12 @@ class RequestTabBar(QWidget):
         """Cycle through tabs on mouse wheel scroll."""
         if self.count() < 2:
             return
+        # Grab the mouse so the cursor can drift outside the narrow
+        # tab-bar strip without losing subsequent wheel events.
+        if not self._scroll_grabbed:
+            self._scroll_grabbed = True
+            self.grabMouse()
+        self._scroll_release_timer.start()
         for entry in self._entries:
             entry.button.suppress_hover()
         self._hover_suppressed = True
@@ -378,9 +393,15 @@ class RequestTabBar(QWidget):
             self._cycle_current(1)
         event.accept()
 
+    def _release_scroll_grab(self) -> None:
+        """Release the mouse grab after the scroll idle timeout."""
+        if self._scroll_grabbed:
+            self._scroll_grabbed = False
+            self.releaseMouse()
+
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         """Restore hover visuals after a wheel-scroll suppression."""
-        if self._hover_suppressed:
+        if self._hover_suppressed and not self._scroll_grabbed:
             self._hover_suppressed = False
             for entry in self._entries:
                 entry.button.restore_hover()
@@ -621,6 +642,8 @@ class RequestTabBar(QWidget):
         elif chosen == close_all_act:
             self.close_all_requested.emit()
         elif chosen == force_close_all_act:
+            self.force_close_all_requested.emit()
+            self.force_close_all_requested.emit()
             self.force_close_all_requested.emit()
             self.force_close_all_requested.emit()
             self.force_close_all_requested.emit()
