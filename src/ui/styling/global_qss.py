@@ -631,6 +631,11 @@ def build_global_qss(p: ThemePalette) -> str:
         background: {p["bg"]};
         border-right: 1px solid {p["border"]};
     }}
+    /* Scroll area inside expanded sidebar must not override parent's right border */
+    QWidget[objectName="sidebarPanelArea"] QScrollArea {{
+        border: none;
+        border-right: 1px solid {p["border"]};
+    }}
     QWidget[objectName="sidebarRail"] {{
         background: {p["bg"]};
         border-left: 1px solid {p["border"]};
