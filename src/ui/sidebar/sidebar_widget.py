@@ -117,7 +117,7 @@ class RightSidebar(QWidget):
         # Derive sizes from the application font.
         em = self.fontMetrics().height()
         self._rail_width: int = round(2.0 * em)
-        self._icon_size: int = em
+        self._icon_size: int = round(1.25 * em)
         self._btn_size: int = self._rail_width - round(0.35 * em)
         self._panel_hint_width: int = round(15.0 * em)
 
@@ -135,7 +135,7 @@ class RightSidebar(QWidget):
         # --- Rail layout ----------------------------------------------
         rail_layout = QVBoxLayout(self)
         rail_layout.setContentsMargins(0, 6, 0, 6)
-        rail_layout.setSpacing(2)
+        rail_layout.setSpacing(12)
 
         self._var_btn = self._make_rail_button(
             "brackets-curly",
@@ -238,6 +238,13 @@ class RightSidebar(QWidget):
     def panel_open(self) -> bool:
         """Return whether any panel is currently visible."""
         return self._active_panel is not None
+
+    @property
+    def flyout_width(self) -> int:
+        """Return the current flyout width in pixels (0 when collapsed)."""
+        if not self._splitter or self._flyout_idx < 0:
+            return 0
+        return self._splitter.sizes()[self._flyout_idx]
 
     def show_request_panels(
         self,
@@ -351,6 +358,7 @@ class RightSidebar(QWidget):
         btn = QToolButton()
         btn.setObjectName("sidebarRailButton")
         btn.setIcon(phi(icon_name, size=self._icon_size))
+        btn.setIconSize(QSize(self._icon_size, self._icon_size))
         btn.setToolTip(tooltip)
         btn.setCheckable(True)
         btn.setFixedSize(self._btn_size, self._btn_size)
@@ -396,15 +404,16 @@ class RightSidebar(QWidget):
         self._saved_btn.setChecked(False)
         self._collapse_flyout()
 
-    def _expand_flyout(self) -> None:
+    def _expand_flyout(self, target_width: int | None = None) -> None:
         """Expand the flyout in the parent splitter via setSizes."""
         if not self._splitter or self._flyout_idx < 0:
             return
+        want = target_width if target_width is not None else self._panel_hint_width
         sizes = self._splitter.sizes()
-        if sizes[self._flyout_idx] >= self._panel_hint_width:
+        if sizes[self._flyout_idx] >= want:
             return
         # Steal space from the content area (index 0).
-        need = self._panel_hint_width - sizes[self._flyout_idx]
+        need = want - sizes[self._flyout_idx]
         give = min(need, sizes[0])
         sizes[0] -= give
         sizes[self._flyout_idx] += give

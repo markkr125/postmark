@@ -294,6 +294,16 @@ def build_global_qss(p: ThemePalette) -> str:
         color: {p["accent"]};
         border-bottom: 2px solid {p["accent"]};
     }}
+    /* Tab overflow scroll buttons — input_bg box, 1px border,
+       sharp corners, accent border on hover.  Keep for all QTabBars. */
+    QTabBar QToolButton {{
+        background: {p["input_bg"]};
+        border: 1px solid {p["border"]};
+        border-radius: 0px;
+    }}
+    QTabBar QToolButton:hover {{
+        border-color: {p["accent"]};
+    }}
 
     /* ---- Progress bars ------------------------------------------ */
     QProgressBar {{
@@ -644,7 +654,7 @@ def build_global_qss(p: ThemePalette) -> str:
         background: transparent;
         border: none;
         border-radius: 4px;
-        margin: 2px 3px;
+        margin: 2px 1px;
         color: {p["text_muted"]};
     }}
     QToolButton[objectName="sidebarRailButton"]:hover {{

@@ -2,9 +2,23 @@
 
 from __future__ import annotations
 
-from PySide6.QtGui import QColor, QTextCharFormat, QTextCursor
-from PySide6.QtWidgets import QLabel, QLineEdit, QPushButton, QTextEdit, QWidget
+from typing import cast
 
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QKeySequence, QShortcut, QTextCharFormat, QTextCursor
+from PySide6.QtWidgets import (
+    QComboBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QTabWidget,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
+
+from ui.styling.icons import phi
 from ui.styling.theme import COLOR_WARNING
 from ui.widgets.code_editor import CodeEditorWidget
 
@@ -40,8 +54,11 @@ class _PanelSearchFilterMixin:
     _body_language: str
     _body_raw_text: str
     _body_view_mode: str
+    _body_view_combo: QComboBox
+    _body_copy_btn: QPushButton
     _body_filter_btn: QPushButton
     _body_search_btn: QPushButton
+    _body_empty_label: QLabel
     _filter_bar: QWidget
     _filter_input: QLineEdit
     _filter_error_label: QLabel
@@ -54,8 +71,140 @@ class _PanelSearchFilterMixin:
     _search_index: int
     _is_filtered: bool
     _filter_expression: str
+    _detail_tabs: QTabWidget
 
     def _refresh_body_view(self, _mode: str | None = None) -> None: ...
+
+    @staticmethod
+    def _make_icon_btn(
+        icon_name: str,
+        tooltip: str,
+        obj_name: str,
+        slot: object = None,
+    ) -> QPushButton:
+        return QPushButton()  # overridden by host
+
+    @staticmethod
+    def _make_empty_label(text: str) -> QLabel:
+        return QLabel()  # overridden by host
+
+    def _copy_editor(self, editor: CodeEditorWidget) -> None: ...
+
+    # -- Body tab construction -----------------------------------------
+
+    def _build_body_tab(self) -> None:
+        """Construct the Body tab with format combo, filter, search, and editor."""
+        body_tab = QWidget()
+        body_layout = QVBoxLayout(body_tab)
+        body_layout.setContentsMargins(0, 4, 0, 0)
+        body_layout.setSpacing(6)
+        body_toolbar = QHBoxLayout()
+        body_toolbar.setContentsMargins(0, 0, 0, 0)
+        body_toolbar.setSpacing(6)
+        self._body_view_combo = QComboBox()
+        self._body_view_combo.addItems(["Pretty", "Raw"])
+        self._body_view_combo.setFixedWidth(90)
+        self._body_view_combo.currentTextChanged.connect(self._refresh_body_view)
+        body_toolbar.addWidget(self._body_view_combo)
+        body_toolbar.addStretch()
+        self._body_edit = CodeEditorWidget(read_only=True)
+        self._body_copy_btn = self._make_icon_btn(
+            "clipboard",
+            "Copy to clipboard",
+            "iconButton",
+            lambda: self._copy_editor(self._body_edit),
+        )
+
+        self._body_filter_btn = QPushButton()
+        self._body_filter_btn.setIcon(phi("funnel"))
+        self._body_filter_btn.setToolTip("Filter response (JSONPath / XPath)")
+        self._body_filter_btn.setObjectName("iconButton")
+        self._body_filter_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._body_filter_btn.setCheckable(True)
+        self._body_filter_btn.setFixedSize(28, 28)
+        self._body_filter_btn.clicked.connect(self._toggle_filter)
+        body_toolbar.addWidget(self._body_filter_btn)
+
+        self._body_search_btn = QPushButton()
+        self._body_search_btn.setIcon(phi("magnifying-glass"))
+        find_hint = QKeySequence(QKeySequence.StandardKey.Find).toString(
+            QKeySequence.SequenceFormat.NativeText,
+        )
+        self._body_search_btn.setToolTip(f"Search in response ({find_hint})")
+        self._body_search_btn.setObjectName("iconButton")
+        self._body_search_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._body_search_btn.setCheckable(True)
+        self._body_search_btn.setFixedSize(28, 28)
+        self._body_search_btn.clicked.connect(self._toggle_search)
+        body_toolbar.addWidget(self._body_search_btn)
+
+        body_toolbar.addWidget(self._body_copy_btn)
+        body_layout.addLayout(body_toolbar)
+
+        # Filter bar (hidden by default)
+        self._filter_bar = QWidget()
+        filter_layout = QHBoxLayout(self._filter_bar)
+        filter_layout.setContentsMargins(0, 4, 0, 0)
+        filter_layout.setSpacing(4)
+        self._filter_input = QLineEdit()
+        self._filter_input.setPlaceholderText("Filter using JSONPath: $.store.books")
+        self._filter_input.returnPressed.connect(self._apply_filter)
+        filter_layout.addWidget(self._filter_input, 1)
+        self._filter_error_label = QLabel()
+        self._filter_error_label.setObjectName("mutedLabel")
+        self._filter_error_label.hide()
+        filter_layout.addWidget(self._filter_error_label)
+        self._filter_apply_btn = self._make_icon_btn("play", "Apply filter", "iconButton")
+        self._filter_apply_btn.clicked.connect(self._apply_filter)
+        filter_layout.addWidget(self._filter_apply_btn)
+        self._filter_clear_btn = self._make_icon_btn("x", "Clear filter", "iconButton")
+        self._filter_clear_btn.clicked.connect(self._clear_filter)
+        self._filter_clear_btn.hide()
+        filter_layout.addWidget(self._filter_clear_btn)
+        self._filter_bar.hide()
+        body_layout.addWidget(self._filter_bar)
+        self._is_filtered = False
+        self._filter_expression = ""
+
+        # Search bar (hidden by default)
+        self._search_bar = QWidget()
+        search_layout = QHBoxLayout(self._search_bar)
+        search_layout.setContentsMargins(0, 4, 0, 0)
+        search_layout.setSpacing(4)
+        self._search_input = QLineEdit()
+        self._search_input.setPlaceholderText("Find in response\u2026")
+        self._search_input.textChanged.connect(self._on_search_text_changed)
+        search_layout.addWidget(self._search_input, 1)
+        self._search_count_label = QLabel("")
+        self._search_count_label.setObjectName("mutedLabel")
+        search_layout.addWidget(self._search_count_label)
+        prev_btn = self._make_icon_btn("caret-up", "Previous match", "iconButton")
+        prev_btn.setFixedSize(24, 24)
+        prev_btn.clicked.connect(self._search_prev)
+        search_layout.addWidget(prev_btn)
+        next_btn = self._make_icon_btn("caret-down", "Next match", "iconButton")
+        next_btn.setFixedSize(24, 24)
+        next_btn.clicked.connect(self._search_next)
+        search_layout.addWidget(next_btn)
+        close_btn = self._make_icon_btn("x", "Close search", "iconButton")
+        close_btn.setFixedSize(24, 24)
+        close_btn.clicked.connect(self._close_search)
+        search_layout.addWidget(close_btn)
+        self._search_bar.hide()
+        body_layout.addWidget(self._search_bar)
+        self._find_shortcut = QShortcut(
+            QKeySequence.StandardKey.Find,
+            cast(QWidget, self),
+        )
+        self._find_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self._find_shortcut.activated.connect(self._toggle_search)
+        self._search_matches: list[int] = []
+        self._search_index: int = -1
+
+        self._body_empty_label = self._make_empty_label("No response body")
+        body_layout.addWidget(self._body_empty_label, 1)
+        body_layout.addWidget(self._body_edit, 1)
+        self._detail_tabs.addTab(body_tab, "Body")
 
     # -- Search --------------------------------------------------------
 

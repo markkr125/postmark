@@ -6,8 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QPoint, QRect, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import (QContextMenuEvent, QKeyEvent, QMouseEvent,
-                           QResizeEvent, QWheelEvent)
+from PySide6.QtGui import QContextMenuEvent, QKeyEvent, QMouseEvent, QResizeEvent, QWheelEvent
 from PySide6.QtWidgets import QMenu, QSizePolicy, QTabBar, QWidget
 
 from .labels import FolderTabLabel, TabLabel, layout_config

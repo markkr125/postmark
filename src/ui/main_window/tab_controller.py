@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from ui.collections.collection_widget import CollectionWidget
     from ui.request.navigation.breadcrumb_bar import BreadcrumbBar
     from ui.request.navigation.request_tab_bar import RequestTabBar
+    from ui.sidebar.sidebar_widget import RightSidebar
     from ui.styling.tab_settings_manager import TabSettingsManager
 
 logger = logging.getLogger(__name__)
@@ -65,6 +66,7 @@ class _TabControllerMixin:
     _restoring_session: bool
     _deferred_tabs: dict[int, dict]
     _tab_change_debounce: QTimer
+    _right_sidebar: RightSidebar
 
     def _on_send_request(self) -> None: ...
     def _on_save_request(self) -> None: ...
@@ -462,9 +464,11 @@ class _TabControllerMixin:
                             "name": info.get("name", ""),
                         }
                     )
-        data = {
+        data: dict[str, object] = {
             "tabs": tabs_list,
             "active": self._tab_bar.currentIndex(),
+            "sidebar_panel": self._right_sidebar.active_panel,
+            "sidebar_width": self._right_sidebar.flyout_width,
         }
         self._tab_settings_manager.save_open_tabs(data)
 
@@ -512,6 +516,13 @@ class _TabControllerMixin:
             self._tab_bar.setCurrentIndex(active)
             self._on_tab_changed(active)
             self._flush_tab_change()
+
+        sidebar_panel = data.get("sidebar_panel")
+        if isinstance(sidebar_panel, str):
+            self._right_sidebar.open_panel(sidebar_panel)
+            sidebar_width = data.get("sidebar_width")
+            if isinstance(sidebar_width, int) and sidebar_width > 0:
+                self._right_sidebar._expand_flyout(sidebar_width)
 
     def _restore_request_deferred(self, entry: dict, request_id: int) -> None:
         """Create a lightweight tab chip for a persisted request tab.
