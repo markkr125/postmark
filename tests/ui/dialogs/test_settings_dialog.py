@@ -7,6 +7,12 @@ from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QApplication
 
 from ui.dialogs.settings_dialog import SettingsDialog
+from ui.styling.tab_settings_manager import (
+    ACTIVATE_MRU,
+    LIMIT_CLOSE_UNUSED,
+    WRAP_SINGLE_ROW,
+    TabSettingsManager,
+)
 from ui.styling.theme_manager import (
     _APP,
     _ORG,
@@ -24,6 +30,7 @@ def _clear_theme_settings() -> None:
     """Clear persisted theme QSettings before each test."""
     settings = QSettings(_ORG, _APP)
     settings.remove("theme")
+    settings.remove("tabs")
     settings.sync()
 
 
@@ -50,6 +57,13 @@ class TestSettingsDialogConstruction:
         dialog = SettingsDialog(tm)
         qtbot.addWidget(dialog)
         assert dialog._cat_list.item(0).text() == "Appearance"
+
+    def test_tabs_category_exists(self, qapp: QApplication, qtbot) -> None:
+        """The second category is 'Tabs'."""
+        tm = ThemeManager(qapp)
+        dialog = SettingsDialog(tm)
+        qtbot.addWidget(dialog)
+        assert dialog._cat_list.item(1).text() == "Tabs"
 
 
 class TestSettingsDialogCombos:
@@ -156,3 +170,45 @@ class TestSettingsDialogApply:
 
         assert dialog._style_combo.currentData() == STYLE_NATIVE
         assert dialog._scheme_combo.currentData() == SCHEME_DARK
+
+    def test_apply_updates_tab_settings(self, qapp: QApplication, qtbot) -> None:
+        """Applying the Tabs page persists the tab preferences."""
+        tm = ThemeManager(qapp)
+        tab_settings = TabSettingsManager(qapp)
+        dialog = SettingsDialog(tm, tab_settings)
+        qtbot.addWidget(dialog)
+
+        dialog._small_labels_check.setChecked(False)
+        dialog._preview_tab_check.setChecked(False)
+        dialog._wrap_mode_combo.setCurrentIndex(1)
+        dialog._tab_limit_spin.setValue(42)
+        dialog._tab_limit_policy_combo.setCurrentIndex(1)
+        dialog._activate_on_close_combo.setCurrentIndex(2)
+
+        dialog._on_apply()
+
+        assert not tab_settings.small_labels
+        assert not tab_settings.enable_preview_tab
+        assert tab_settings.wrap_mode == WRAP_SINGLE_ROW
+        assert tab_settings.tab_limit == 42
+        assert tab_settings.tab_limit_policy == LIMIT_CLOSE_UNUSED
+        assert tab_settings.activate_on_close == ACTIVATE_MRU
+
+    def test_tabs_page_reflects_existing_settings(self, qapp: QApplication, qtbot) -> None:
+        """Opening the dialog reflects persisted tab settings."""
+        tm = ThemeManager(qapp)
+        tab_settings = TabSettingsManager(qapp)
+        tab_settings.small_labels = False
+        tab_settings.show_path_for_duplicates = False
+        tab_settings.enable_preview_tab = False
+        tab_settings.wrap_mode = WRAP_SINGLE_ROW
+        tab_settings.tab_limit = 55
+
+        dialog = SettingsDialog(tm, tab_settings)
+        qtbot.addWidget(dialog)
+
+        assert not dialog._small_labels_check.isChecked()
+        assert not dialog._show_path_duplicates_check.isChecked()
+        assert not dialog._preview_tab_check.isChecked()
+        assert dialog._wrap_mode_combo.currentData() == WRAP_SINGLE_ROW
+        assert dialog._tab_limit_spin.value() == 55

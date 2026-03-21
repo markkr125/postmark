@@ -106,3 +106,54 @@ def format_headers(headers: Any) -> str:
         for header in headers
         if isinstance(header, dict)
     )
+
+
+def extract_snapshot_url(snapshot: Mapping[str, Any] | None) -> str:
+    """Extract the raw URL string from a Postman or legacy request snapshot."""
+    if not snapshot:
+        return ""
+    url = snapshot.get("url")
+    if isinstance(url, Mapping):
+        return str(url.get("raw", ""))
+    if isinstance(url, str):
+        return url
+    return ""
+
+
+def extract_snapshot_method(snapshot: Mapping[str, Any] | None) -> str:
+    """Extract the HTTP method from a request snapshot."""
+    if not snapshot:
+        return ""
+    return str(snapshot.get("method", ""))
+
+
+def extract_snapshot_body(snapshot: Mapping[str, Any] | None) -> tuple[str, str]:
+    """Extract the body text and language hint from a request snapshot.
+
+    Returns a ``(body_text, language)`` tuple.  For Postman-format
+    snapshots the body is inside ``body.raw`` (or the mode-specific key).
+    """
+    if not snapshot:
+        return "", "text"
+    body = snapshot.get("body")
+    if isinstance(body, Mapping):
+        mode = body.get("mode", "raw")
+        raw = body.get(mode) or body.get("raw") or ""
+        lang = "text"
+        options = body.get("options")
+        if isinstance(options, Mapping):
+            raw_opts = options.get("raw")
+            if isinstance(raw_opts, Mapping):
+                lang = str(raw_opts.get("language", "text"))
+        return str(raw), lang
+    if isinstance(body, str):
+        return body, "text"
+    return "", "text"
+
+
+def extract_snapshot_headers(snapshot: Mapping[str, Any] | None) -> str:
+    """Extract request headers text from a Postman or legacy snapshot."""
+    if not snapshot:
+        return ""
+    headers = snapshot.get("header") or snapshot.get("headers")
+    return format_headers(headers)

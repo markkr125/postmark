@@ -220,6 +220,20 @@ standard object names:
 | `sidebarSourceDot` | `QLabel` | Colour-coded variable source dot |
 | `sidebarSeparator` | `QFrame` | Separator line in sidebar panels |
 
+### QTabBar overflow scroll buttons
+
+When a `QTabWidget` has more tabs than fit, Qt shows left/right
+`QToolButton` scroll arrows inside the `QTabBar`.  These are styled
+globally in `global_qss.py` with:
+
+- `background: input_bg`
+- `border: 1px solid border` (sharp corners, `border-radius: 0`)
+- `border-color: accent` on hover
+
+Do **not** override or remove the default platform arrows.  Do **not**
+add `border-radius`, `bg_alt` hover fills, or `image: none` rules.
+The global rule is unscoped — it applies to every `QTabBar` in the app.
+
 ### When inline setStyleSheet() is still acceptable
 
 Only use `setStyleSheet()` for **dynamic per-instance** styling that

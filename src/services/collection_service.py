@@ -137,12 +137,56 @@ def _normalize_header_list(headers: Any) -> list[dict[str, Any]] | None:
     return normalized or None
 
 
+def _to_postman_request(editor_dict: dict[str, Any]) -> dict[str, Any]:
+    """Convert an editor-format request dict to a Postman-style request object.
+
+    The editor dict (from ``RequestEditorWidget.get_request_data()``) has keys
+    like ``body_mode``, ``headers``, ``request_parameters``.  This maps them to
+    the Postman shape: ``method``, ``header``, ``body``, ``url``.
+    """
+    result: dict[str, Any] = {}
+    result["method"] = editor_dict.get("method", "GET")
+
+    # -- header --------------------------------------------------------
+    raw_headers = editor_dict.get("headers")
+    result["header"] = _normalize_header_list(raw_headers) or []
+
+    # -- body ----------------------------------------------------------
+    body_mode = editor_dict.get("body_mode") or "none"
+    body_text = editor_dict.get("body")
+    if body_mode != "none" and body_text:
+        body_obj: dict[str, Any] = {"mode": body_mode}
+        if body_mode == "raw":
+            body_obj["raw"] = body_text
+        else:
+            body_obj[body_mode] = body_text
+        body_options = editor_dict.get("body_options")
+        if body_options:
+            body_obj["options"] = body_options
+        result["body"] = body_obj
+
+    # -- url -----------------------------------------------------------
+    url_str = editor_dict.get("url") or ""
+    result["url"] = {"raw": url_str}
+
+    return result
+
+
 def _normalize_request_snapshot(original_request: Any) -> dict[str, Any] | None:
-    """Normalize saved original-request snapshots for read-only UI rendering."""
+    """Normalize saved original-request snapshots for read-only UI rendering.
+
+    Editor-format dicts (containing ``body_mode``) are converted to the
+    Postman request shape so all snapshots share one consistent contract.
+    """
     if not isinstance(original_request, Mapping):
         return None
 
     normalized = dict(original_request)
+
+    # Auto-convert editor-format dicts to Postman shape on save.
+    if "body_mode" in normalized:
+        return _to_postman_request(normalized)
+
     if "headers" in normalized:
         normalized["headers"] = _normalize_header_list(normalized.get("headers"))
     return normalized

@@ -5,13 +5,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import Qt, Signal, SignalInstance
-from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QPushButton,
@@ -30,14 +28,17 @@ from ui.sidebar.saved_responses.delegate import (
 from ui.sidebar.saved_responses.helpers import (
     build_row_meta,
     detect_body_language,
+    extract_snapshot_body,
+    extract_snapshot_headers,
+    extract_snapshot_method,
+    extract_snapshot_url,
     format_body_size,
     format_code_text,
     format_headers,
-    format_json_text,
 )
 from ui.sidebar.saved_responses.search_filter import _PanelSearchFilterMixin
 from ui.styling.icons import phi
-from ui.styling.theme import status_color
+from ui.styling.theme import method_color, status_color
 from ui.widgets.code_editor import CodeEditorWidget
 
 if TYPE_CHECKING:
@@ -65,8 +66,11 @@ class SavedResponsesPanel(_PanelSearchFilterMixin, QWidget):
         self._body_raw_text: str = ""
         self._body_language: str = "text"
         self._snapshot_raw_data: Any = None
+        self._req_body_raw_text: str = ""
+        self._req_body_language: str = "text"
         self._body_view_mode: str = "Pretty"
         self._snapshot_view_mode: str = "Pretty"
+        self._req_body_view_mode: str = "Pretty"
 
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 4, 8, 8)
@@ -155,13 +159,40 @@ class SavedResponsesPanel(_PanelSearchFilterMixin, QWidget):
 
         detail_layout.addLayout(detail_header)
 
+        # -- Request info row (method badge + URL) -------------------------
+        request_info_row = QHBoxLayout()
+        request_info_row.setContentsMargins(0, 0, 0, 0)
+        request_info_row.setSpacing(6)
+
+        self._request_method_badge = QLabel()
+        self._request_method_badge.setObjectName("savedResponseMethodBadge")
+        self._request_method_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._request_method_badge.setFixedHeight(20)
+        self._request_method_badge.setFixedWidth(50)
+        request_info_row.addWidget(self._request_method_badge)
+
+        self._request_url_label = QLabel()
+        self._request_url_label.setObjectName("mutedLabel")
+        self._request_url_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        request_info_row.addWidget(self._request_url_label, 1)
+
+        self._request_info_widget = QWidget()
+        request_info_layout = QVBoxLayout(self._request_info_widget)
+        request_info_layout.setContentsMargins(0, 0, 0, 0)
+        request_info_layout.addLayout(request_info_row)
+        self._request_info_widget.hide()
+        detail_layout.addWidget(self._request_info_widget)
+
         self._detail_tabs = QTabWidget()
         self._detail_tabs.tabBar().setCursor(Qt.CursorShape.PointingHandCursor)
         detail_layout.addWidget(self._detail_tabs, 1)
 
         self._build_body_tab()
         self._build_headers_tab()
-        self._build_snapshot_tab()
+        self._build_request_headers_tab()
+        self._build_request_body_tab()
 
         self._content_splitter.addWidget(detail_host)
         self._content_splitter.setSizes([180, 280])
@@ -170,161 +201,69 @@ class SavedResponsesPanel(_PanelSearchFilterMixin, QWidget):
 
     # -- Tab construction helpers --------------------------------------
 
-    def _build_body_tab(self) -> None:
-        """Construct the Body tab with format combo, filter, search, and editor."""
-        body_tab = QWidget()
-        body_layout = QVBoxLayout(body_tab)
-        body_layout.setContentsMargins(0, 4, 0, 0)
-        body_layout.setSpacing(6)
-        body_toolbar = QHBoxLayout()
-        body_toolbar.setContentsMargins(0, 0, 0, 0)
-        body_toolbar.setSpacing(6)
-        self._body_view_combo = QComboBox()
-        self._body_view_combo.addItems(["Pretty", "Raw"])
-        self._body_view_combo.setFixedWidth(90)
-        self._body_view_combo.currentTextChanged.connect(self._refresh_body_view)
-        body_toolbar.addWidget(self._body_view_combo)
-        body_toolbar.addStretch()
-        self._body_edit = CodeEditorWidget(read_only=True)
-        self._body_copy_btn = self._make_copy_btn(lambda: self._copy_editor(self._body_edit))
-
-        self._body_filter_btn = QPushButton()
-        self._body_filter_btn.setIcon(phi("funnel"))
-        self._body_filter_btn.setToolTip("Filter response (JSONPath / XPath)")
-        self._body_filter_btn.setObjectName("iconButton")
-        self._body_filter_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._body_filter_btn.setCheckable(True)
-        self._body_filter_btn.setFixedSize(28, 28)
-        self._body_filter_btn.clicked.connect(self._toggle_filter)
-        body_toolbar.addWidget(self._body_filter_btn)
-
-        self._body_search_btn = QPushButton()
-        self._body_search_btn.setIcon(phi("magnifying-glass"))
-        find_hint = QKeySequence(QKeySequence.StandardKey.Find).toString(
-            QKeySequence.SequenceFormat.NativeText,
-        )
-        self._body_search_btn.setToolTip(f"Search in response ({find_hint})")
-        self._body_search_btn.setObjectName("iconButton")
-        self._body_search_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._body_search_btn.setCheckable(True)
-        self._body_search_btn.setFixedSize(28, 28)
-        self._body_search_btn.clicked.connect(self._toggle_search)
-        body_toolbar.addWidget(self._body_search_btn)
-
-        body_toolbar.addWidget(self._body_copy_btn)
-        body_layout.addLayout(body_toolbar)
-
-        # Filter bar (hidden by default)
-        self._filter_bar = QWidget()
-        filter_layout = QHBoxLayout(self._filter_bar)
-        filter_layout.setContentsMargins(0, 4, 0, 0)
-        filter_layout.setSpacing(4)
-        self._filter_input = QLineEdit()
-        self._filter_input.setPlaceholderText("Filter using JSONPath: $.store.books")
-        self._filter_input.returnPressed.connect(self._apply_filter)
-        filter_layout.addWidget(self._filter_input, 1)
-        self._filter_error_label = QLabel()
-        self._filter_error_label.setObjectName("mutedLabel")
-        self._filter_error_label.hide()
-        filter_layout.addWidget(self._filter_error_label)
-        self._filter_apply_btn = self._make_icon_btn("play", "Apply filter", "iconButton")
-        self._filter_apply_btn.clicked.connect(self._apply_filter)
-        filter_layout.addWidget(self._filter_apply_btn)
-        self._filter_clear_btn = self._make_icon_btn("x", "Clear filter", "iconButton")
-        self._filter_clear_btn.clicked.connect(self._clear_filter)
-        self._filter_clear_btn.hide()
-        filter_layout.addWidget(self._filter_clear_btn)
-        self._filter_bar.hide()
-        body_layout.addWidget(self._filter_bar)
-        self._is_filtered = False
-        self._filter_expression = ""
-
-        # Search bar (hidden by default)
-        self._search_bar = QWidget()
-        search_layout = QHBoxLayout(self._search_bar)
-        search_layout.setContentsMargins(0, 4, 0, 0)
-        search_layout.setSpacing(4)
-        self._search_input = QLineEdit()
-        self._search_input.setPlaceholderText("Find in response\u2026")
-        self._search_input.textChanged.connect(self._on_search_text_changed)
-        search_layout.addWidget(self._search_input, 1)
-        self._search_count_label = QLabel("")
-        self._search_count_label.setObjectName("mutedLabel")
-        search_layout.addWidget(self._search_count_label)
-        prev_btn = self._make_icon_btn("caret-up", "Previous match", "iconButton")
-        prev_btn.setFixedSize(24, 24)
-        prev_btn.clicked.connect(self._search_prev)
-        search_layout.addWidget(prev_btn)
-        next_btn = self._make_icon_btn("caret-down", "Next match", "iconButton")
-        next_btn.setFixedSize(24, 24)
-        next_btn.clicked.connect(self._search_next)
-        search_layout.addWidget(next_btn)
-        close_btn = self._make_icon_btn("x", "Close search", "iconButton")
-        close_btn.setFixedSize(24, 24)
-        close_btn.clicked.connect(self._close_search)
-        search_layout.addWidget(close_btn)
-        self._search_bar.hide()
-        body_layout.addWidget(self._search_bar)
-        self._find_shortcut = QShortcut(QKeySequence.StandardKey.Find, self)
-        self._find_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
-        self._find_shortcut.activated.connect(self._toggle_search)
-        self._search_matches: list[int] = []
-        self._search_index: int = -1
-
-        self._body_empty_label = self._make_empty_label("No response body")
-        body_layout.addWidget(self._body_empty_label, 1)
-        body_layout.addWidget(self._body_edit, 1)
-        self._detail_tabs.addTab(body_tab, "Body")
-
     def _build_headers_tab(self) -> None:
         """Construct the Headers tab."""
-        headers_tab = QWidget()
-        headers_layout = QVBoxLayout(headers_tab)
-        headers_layout.setContentsMargins(0, 0, 0, 0)
-        headers_layout.setSpacing(6)
-        headers_toolbar = QHBoxLayout()
-        headers_toolbar.setContentsMargins(0, 0, 0, 0)
-        headers_toolbar.setSpacing(6)
-        headers_toolbar.addStretch()
-        self._headers_edit = CodeEditorWidget(read_only=True)
-        self._headers_copy_btn = self._make_copy_btn(lambda: self._copy_editor(self._headers_edit))
-        headers_toolbar.addWidget(self._headers_copy_btn)
-        headers_layout.addLayout(headers_toolbar)
-        self._headers_empty_label = self._make_empty_label("No response headers")
-        headers_layout.addWidget(self._headers_empty_label, 1)
-        headers_layout.addWidget(self._headers_edit, 1)
-        self._detail_tabs.addTab(headers_tab, "Headers")
+        editor, empty, _ = self._build_readonly_tab("Headers", "No response headers")
+        self._headers_edit = editor
+        self._headers_empty_label = empty
 
-    def _build_snapshot_tab(self) -> None:
-        """Construct the Request Snapshot tab."""
-        snapshot_tab = QWidget()
-        snapshot_layout = QVBoxLayout(snapshot_tab)
-        snapshot_layout.setContentsMargins(0, 0, 0, 0)
-        snapshot_layout.setSpacing(6)
-        snapshot_toolbar = QHBoxLayout()
-        snapshot_toolbar.setContentsMargins(0, 0, 0, 0)
-        snapshot_toolbar.setSpacing(6)
-        self._snapshot_view_combo = QComboBox()
-        self._snapshot_view_combo.addItems(["Pretty", "Raw"])
-        self._snapshot_view_combo.setFixedWidth(90)
-        self._snapshot_view_combo.currentTextChanged.connect(self._refresh_snapshot_view)
-        snapshot_toolbar.addWidget(self._snapshot_view_combo)
-        snapshot_toolbar.addStretch()
-        self._snapshot_edit = CodeEditorWidget(read_only=True)
-        self._snapshot_copy_btn = self._make_copy_btn(
-            lambda: self._copy_editor(self._snapshot_edit)
+    def _build_request_headers_tab(self) -> None:
+        """Construct the Request Headers tab."""
+        editor, empty, _ = self._build_readonly_tab("Request Headers", "No request headers")
+        self._req_headers_edit = editor
+        self._req_headers_empty_label = empty
+
+    def _build_request_body_tab(self) -> None:
+        """Construct the Request Body tab with Pretty/Raw combo."""
+        editor, empty, combo = self._build_readonly_tab(
+            "Request Body",
+            "No request body",
+            view_combo=True,
         )
-        snapshot_toolbar.addWidget(self._snapshot_copy_btn)
-        snapshot_layout.addLayout(snapshot_toolbar)
-        self._snapshot_empty_label = self._make_empty_label("No request snapshot available")
-        snapshot_layout.addWidget(self._snapshot_empty_label, 1)
-        snapshot_layout.addWidget(self._snapshot_edit, 1)
-        self._detail_tabs.addTab(snapshot_tab, "Request Snapshot")
+        self._req_body_edit = editor
+        self._req_body_empty_label = empty
+        assert combo is not None
+        self._req_body_view_combo = combo
+        self._req_body_view_combo.currentTextChanged.connect(self._refresh_request_body_view)
+
+    def _build_readonly_tab(
+        self,
+        title: str,
+        empty_text: str,
+        *,
+        view_combo: bool = False,
+    ) -> tuple[CodeEditorWidget, QLabel, QComboBox | None]:
+        """Build a read-only tab with optional Pretty/Raw combo."""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        toolbar = QHBoxLayout()
+        toolbar.setContentsMargins(0, 0, 0, 0)
+        toolbar.setSpacing(6)
+        combo: QComboBox | None = None
+        if view_combo:
+            combo = QComboBox()
+            combo.addItems(["Pretty", "Raw"])
+            combo.setFixedWidth(90)
+            toolbar.addWidget(combo)
+        toolbar.addStretch()
+        editor = CodeEditorWidget(read_only=True)
+        copy_btn = self._make_copy_btn(lambda e=editor: self._copy_editor(e))
+        toolbar.addWidget(copy_btn)
+        layout.addLayout(toolbar)
+        empty_label = self._make_empty_label(empty_text)
+        layout.addWidget(empty_label, 1)
+        layout.addWidget(editor, 1)
+        self._detail_tabs.addTab(tab, title)
+        return editor, empty_label, combo
 
     # -- Public API ----------------------------------------------------
 
     def set_request_context(self, request_id: int | None, request_name: str | None) -> None:
         """Set the active request context shown in the panel header."""
+        if request_id != self._request_id:
+            self._current_response_id = None
         self._request_id = request_id
         self._request_name = request_name or ""
         self._subtitle_label.setText(self._request_name)
@@ -394,10 +333,12 @@ class SavedResponsesPanel(_PanelSearchFilterMixin, QWidget):
         self._body_raw_text = ""
         self._body_language = "text"
         self._snapshot_raw_data = None
+        self._req_body_raw_text = ""
+        self._req_body_language = "text"
         self._body_view_mode = "Pretty"
-        self._snapshot_view_mode = "Pretty"
+        self._req_body_view_mode = "Pretty"
         self._set_combo_text(self._body_view_combo, self._body_view_mode)
-        self._set_combo_text(self._snapshot_view_combo, self._snapshot_view_mode)
+        self._set_combo_text(self._req_body_view_combo, self._req_body_view_mode)
         self._body_edit.set_language("text")
         self._body_edit.set_text("")
         self._body_edit.hide()
@@ -406,10 +347,15 @@ class SavedResponsesPanel(_PanelSearchFilterMixin, QWidget):
         self._headers_edit.set_text("")
         self._headers_edit.hide()
         self._headers_empty_label.show()
-        self._snapshot_edit.set_language("text")
-        self._snapshot_edit.set_text("")
-        self._snapshot_edit.hide()
-        self._snapshot_empty_label.show()
+        self._req_headers_edit.set_language("text")
+        self._req_headers_edit.set_text("")
+        self._req_headers_edit.hide()
+        self._req_headers_empty_label.show()
+        self._req_body_edit.set_language("text")
+        self._req_body_edit.set_text("")
+        self._req_body_edit.hide()
+        self._req_body_empty_label.show()
+        self._request_info_widget.hide()
         self._status_badge.setText("")
         self._status_badge.setStyleSheet("")
         self._detail_name.setText("Select a saved response")
@@ -429,6 +375,14 @@ class SavedResponsesPanel(_PanelSearchFilterMixin, QWidget):
             if item.data(Qt.ItemDataRole.UserRole) == response_id:
                 self._list_widget.setCurrentRow(index)
                 self._populate_detail(self._items_by_id[response_id])
+                return
+        # Requested ID not in list — fall back to first item
+        if self._list_widget.count() > 0:
+            first = self._list_widget.item(0)
+            first_id = first.data(Qt.ItemDataRole.UserRole)
+            self._list_widget.setCurrentRow(0)
+            if isinstance(first_id, int) and first_id in self._items_by_id:
+                self._populate_detail(self._items_by_id[first_id])
                 return
         self._set_detail_enabled(False)
 
@@ -496,10 +450,42 @@ class SavedResponsesPanel(_PanelSearchFilterMixin, QWidget):
             self._headers_edit.hide()
             self._headers_empty_label.show()
 
-        # 5. Snapshot tab
-        self._snapshot_raw_data = item["original_request"]
-        self._set_combo_text(self._snapshot_view_combo, self._snapshot_view_mode)
-        self._refresh_snapshot_view()
+        # 5. Request info row (method + URL)
+        snapshot = item["original_request"]
+        self._snapshot_raw_data = snapshot
+        req_method = extract_snapshot_method(snapshot)
+        req_url = extract_snapshot_url(snapshot)
+        if req_method or req_url:
+            self._request_method_badge.setText(req_method)
+            colour = method_color(req_method)
+            self._request_method_badge.setStyleSheet(
+                f"background: {colour}; color: #ffffff; "
+                f"padding: 1px 6px; border-radius: 3px; "
+                f"font-weight: bold; font-size: 10px;"
+            )
+            self._request_url_label.setText(req_url)
+            self._request_url_label.setToolTip(req_url)
+            self._request_info_widget.show()
+        else:
+            self._request_info_widget.hide()
+
+        # 6. Request Headers tab
+        req_headers_text = extract_snapshot_headers(snapshot)
+        if req_headers_text:
+            self._req_headers_empty_label.hide()
+            self._req_headers_edit.show()
+            self._req_headers_edit.set_language("text")
+            self._req_headers_edit.set_text(req_headers_text)
+        else:
+            self._req_headers_edit.hide()
+            self._req_headers_empty_label.show()
+
+        # 7. Request Body tab
+        req_body, req_body_lang = extract_snapshot_body(snapshot)
+        self._req_body_raw_text = req_body
+        self._req_body_language = req_body_lang
+        self._set_combo_text(self._req_body_view_combo, self._req_body_view_mode)
+        self._refresh_request_body_view()
 
         self._set_detail_enabled(True)
 
@@ -574,31 +560,22 @@ class SavedResponsesPanel(_PanelSearchFilterMixin, QWidget):
 
         self._body_edit.set_text(body_text)
 
-    def _refresh_snapshot_view(self, _mode: str | None = None) -> None:
-        """Render the saved request snapshot using the selected view mode."""
-        self._snapshot_view_mode = self._snapshot_view_combo.currentText()
-        if self._snapshot_raw_data is None:
-            self._snapshot_edit.hide()
-            self._snapshot_empty_label.show()
+    def _refresh_request_body_view(self, _mode: str | None = None) -> None:
+        """Render the saved request body using the selected view mode."""
+        self._req_body_view_mode = self._req_body_view_combo.currentText()
+        if not self._req_body_raw_text:
+            self._req_body_edit.hide()
+            self._req_body_empty_label.show()
             return
 
-        self._snapshot_empty_label.hide()
-        self._snapshot_edit.show()
-        if isinstance(self._snapshot_raw_data, dict):
-            self._snapshot_edit.set_language("json")
-            self._snapshot_edit.set_text(
-                format_json_text(
-                    self._snapshot_raw_data,
-                    pretty=self._snapshot_view_mode == "Pretty",
-                )
-            )
-            return
-
-        snapshot_text = str(self._snapshot_raw_data)
-        if self._snapshot_view_mode == "Pretty":
-            snapshot_text = format_code_text(snapshot_text, "text", pretty=True)
-        self._snapshot_edit.set_language("text")
-        self._snapshot_edit.set_text(snapshot_text)
+        self._req_body_empty_label.hide()
+        self._req_body_edit.show()
+        language = self._req_body_language or "text"
+        body_text = self._req_body_raw_text
+        if self._req_body_view_mode == "Pretty":
+            body_text = format_code_text(body_text, language, pretty=True)
+        self._req_body_edit.set_language(language)
+        self._req_body_edit.set_text(body_text)
 
     @staticmethod
     def _set_combo_text(combo: QComboBox, text: str) -> None:

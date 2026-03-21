@@ -12,6 +12,7 @@ from ui.collections.collection_widget import CollectionWidget
 from ui.main_window import MainWindow
 from ui.request.request_editor import RequestEditorWidget
 from ui.request.response_viewer import ResponseViewerWidget
+from ui.styling.tab_settings_manager import TabSettingsManager
 
 
 class TestMainWindow:
@@ -156,6 +157,108 @@ class TestMainWindowNavigation:
         window.collection_widget.item_action_triggered.emit("request", req.id, "Open")
 
         assert window.request_widget._url_input.text() == "http://c.com"
+
+    def test_preview_setting_can_disable_preview_tabs(self, qapp: QApplication, qtbot) -> None:
+        """When preview tabs are disabled, Preview opens a permanent tab."""
+        svc = CollectionService()
+        coll = svc.create_collection("Coll")
+        req = svc.create_request(coll.id, "GET", "http://preview-off.com", "Preview Off")
+
+        tab_settings = TabSettingsManager(qapp)
+        tab_settings.enable_preview_tab = False
+
+        window = MainWindow(tab_settings_manager=tab_settings)
+        qtbot.addWidget(window)
+
+        window.collection_widget.item_action_triggered.emit("request", req.id, "Preview")
+
+        assert window._tab_bar.count() == 1
+        assert not window._tabs[0].is_preview
+
+    def test_tab_limit_closes_least_recently_used_safe_tab(
+        self,
+        qapp: QApplication,
+        qtbot,
+    ) -> None:
+        """Opening past the tab limit closes the least-recently-used safe tab."""
+        svc = CollectionService()
+        coll = svc.create_collection("Coll")
+        req1 = svc.create_request(coll.id, "GET", "http://one.com", "One")
+        req2 = svc.create_request(coll.id, "GET", "http://two.com", "Two")
+        req3 = svc.create_request(coll.id, "GET", "http://three.com", "Three")
+
+        tab_settings = TabSettingsManager(qapp)
+        tab_settings.tab_limit = 2
+        tab_settings.tab_limit_policy = "close_unused"
+
+        window = MainWindow(tab_settings_manager=tab_settings)
+        qtbot.addWidget(window)
+
+        window._open_request(req1.id, push_history=True)
+        window._open_request(req2.id, push_history=True)
+        window._open_request(req3.id, push_history=True)
+
+        open_request_ids = {ctx.request_id for ctx in window._tabs.values()}
+        assert window._tab_bar.count() == 2
+        assert req1.id not in open_request_ids
+        assert req2.id in open_request_ids
+        assert req3.id in open_request_ids
+
+    def test_close_unchanged_protects_dirty_tabs(self, qapp: QApplication, qtbot) -> None:
+        """The close-unchanged policy skips tabs with unsaved edits."""
+        svc = CollectionService()
+        coll = svc.create_collection("Coll")
+        req1 = svc.create_request(coll.id, "GET", "http://one.com", "One")
+        req2 = svc.create_request(coll.id, "GET", "http://two.com", "Two")
+        req3 = svc.create_request(coll.id, "GET", "http://three.com", "Three")
+
+        tab_settings = TabSettingsManager(qapp)
+        tab_settings.tab_limit = 2
+        tab_settings.tab_limit_policy = "close_unchanged"
+
+        window = MainWindow(tab_settings_manager=tab_settings)
+        qtbot.addWidget(window)
+
+        window._open_request(req1.id, push_history=True)
+        window._open_request(req2.id, push_history=True)
+        window._tab_bar.setCurrentIndex(0)
+        window._tabs[0].editor._set_dirty(True)
+
+        window._open_request(req3.id, push_history=True)
+
+        open_request_ids = {ctx.request_id for ctx in window._tabs.values()}
+        assert req1.id in open_request_ids
+        assert req2.id not in open_request_ids
+        assert req3.id in open_request_ids
+
+    def test_close_unchanged_respects_manual_reorder(self, qapp: QApplication, qtbot) -> None:
+        """Manual tab reordering changes which unchanged tab is evicted first."""
+        svc = CollectionService()
+        coll = svc.create_collection("Coll")
+        req1 = svc.create_request(coll.id, "GET", "http://one.com", "One")
+        req2 = svc.create_request(coll.id, "GET", "http://two.com", "Two")
+        req3 = svc.create_request(coll.id, "GET", "http://three.com", "Three")
+        req4 = svc.create_request(coll.id, "GET", "http://four.com", "Four")
+
+        tab_settings = TabSettingsManager(qapp)
+        tab_settings.tab_limit = 3
+        tab_settings.tab_limit_policy = "close_unchanged"
+
+        window = MainWindow(tab_settings_manager=tab_settings)
+        qtbot.addWidget(window)
+
+        window._open_request(req1.id, push_history=True)
+        window._open_request(req2.id, push_history=True)
+        window._open_request(req3.id, push_history=True)
+
+        window._tab_bar.move_tab(1, 0)
+        window._open_request(req4.id, push_history=True)
+
+        open_request_ids = {ctx.request_id for ctx in window._tabs.values()}
+        assert req2.id not in open_request_ids
+        assert req1.id in open_request_ids
+        assert req3.id in open_request_ids
+        assert req4.id in open_request_ids
 
 
 class TestMainWindowSendRequest:

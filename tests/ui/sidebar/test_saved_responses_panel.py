@@ -116,12 +116,10 @@ class TestSavedResponsesPanel:
             ]
         )
         assert "Content-Type: application/json" in panel._headers_edit.toPlainText()
-        assert '"Accept": "application/json"' in panel._snapshot_edit.toPlainText()
+        assert "Accept: application/json" in panel._req_headers_edit.toPlainText()
 
-    def test_snapshot_view_can_switch_between_pretty_and_raw(
-        self, qapp: QApplication, qtbot
-    ) -> None:
-        """Saved request snapshot can switch between pretty and compact JSON."""
+    def test_request_method_and_url_shown_in_detail(self, qapp: QApplication, qtbot) -> None:
+        """Method badge and URL label are populated from the request snapshot."""
         panel = SavedResponsesPanel()
         qtbot.addWidget(panel)
         panel.set_request_context(1, "Search")
@@ -136,21 +134,24 @@ class TestSavedResponsesPanel:
                     "headers": [],
                     "body": "ok",
                     "preview_language": "text",
-                    "original_request": {"method": "GET", "url": "https://example.com"},
+                    "original_request": {
+                        "method": "GET",
+                        "url": {"raw": "https://example.com/api"},
+                        "header": [],
+                    },
                     "created_at": "2026-03-12 10:00",
                     "body_size": 2,
                 }
             ]
         )
 
-        assert "\n" in panel._snapshot_edit.toPlainText()
-        panel._snapshot_view_combo.setCurrentText("Raw")
-        assert panel._snapshot_edit.toPlainText() == '{"method":"GET","url":"https://example.com"}'
+        assert panel._request_method_badge.text() == "GET"
+        assert "https://example.com/api" in panel._request_url_label.text()
 
     def test_view_modes_persist_across_saved_response_selection(
         self, qapp: QApplication, qtbot
     ) -> None:
-        """Body and snapshot view modes stay on the user's last chosen mode."""
+        """Body and request body view modes stay on the user's last chosen mode."""
         panel = SavedResponsesPanel()
         qtbot.addWidget(panel)
         panel.set_request_context(1, "Search")
@@ -165,7 +166,12 @@ class TestSavedResponsesPanel:
                     "headers": [],
                     "body": '{"first":true}',
                     "preview_language": "json",
-                    "original_request": {"method": "GET", "url": "https://example.com/a"},
+                    "original_request": {
+                        "method": "GET",
+                        "url": {"raw": "https://example.com/a"},
+                        "header": [],
+                        "body": {"mode": "raw", "raw": '{"a":1}'},
+                    },
                     "created_at": "2026-03-12 10:00",
                     "body_size": 14,
                 },
@@ -178,7 +184,12 @@ class TestSavedResponsesPanel:
                     "headers": [],
                     "body": '{"second":true}',
                     "preview_language": "json",
-                    "original_request": {"method": "GET", "url": "https://example.com/b"},
+                    "original_request": {
+                        "method": "POST",
+                        "url": {"raw": "https://example.com/b"},
+                        "header": [],
+                        "body": {"mode": "raw", "raw": '{"b":2}'},
+                    },
                     "created_at": "2026-03-12 10:01",
                     "body_size": 15,
                 },
@@ -186,16 +197,14 @@ class TestSavedResponsesPanel:
         )
 
         panel._body_view_combo.setCurrentText("Raw")
-        panel._snapshot_view_combo.setCurrentText("Raw")
+        panel._req_body_view_combo.setCurrentText("Raw")
 
         panel.select_response(13)
 
         assert panel._body_view_combo.currentText() == "Raw"
-        assert panel._snapshot_view_combo.currentText() == "Raw"
+        assert panel._req_body_view_combo.currentText() == "Raw"
         assert panel._body_edit.toPlainText() == '{"second":true}'
-        assert (
-            panel._snapshot_edit.toPlainText() == '{"method":"GET","url":"https://example.com/b"}'
-        )
+        assert panel._req_body_edit.toPlainText() == '{"b":2}'
 
     def test_save_current_signal(self, qapp: QApplication, qtbot) -> None:
         """Save Current button emits its signal when enabled."""
@@ -415,6 +424,64 @@ class TestSavedResponsesPanel:
             ]
         )
         assert panel._body_language == "json"
+
+    def test_request_body_tab_shows_pretty_json(self, qapp: QApplication, qtbot) -> None:
+        """Request body tab renders Postman body.raw with pretty formatting."""
+        panel = SavedResponsesPanel()
+        qtbot.addWidget(panel)
+        panel.set_request_context(1, "Search")
+        panel.set_saved_responses(
+            [
+                {
+                    "id": 10,
+                    "request_id": 1,
+                    "name": "Body",
+                    "status": "OK",
+                    "code": 200,
+                    "headers": [],
+                    "body": "ok",
+                    "preview_language": "text",
+                    "original_request": {
+                        "method": "POST",
+                        "url": {"raw": "https://example.com"},
+                        "header": [],
+                        "body": {
+                            "mode": "raw",
+                            "raw": '{"key":"value"}',
+                            "options": {"raw": {"language": "json"}},
+                        },
+                    },
+                    "created_at": "2026-03-12 10:00",
+                    "body_size": 2,
+                }
+            ]
+        )
+        assert '"key"' in panel._req_body_edit.toPlainText()
+        assert not panel._req_body_empty_label.isVisible()
+
+    def test_request_info_hidden_when_no_snapshot(self, qapp: QApplication, qtbot) -> None:
+        """Method badge and URL are hidden when no original_request exists."""
+        panel = SavedResponsesPanel()
+        qtbot.addWidget(panel)
+        panel.set_request_context(1, "Search")
+        panel.set_saved_responses(
+            [
+                {
+                    "id": 10,
+                    "request_id": 1,
+                    "name": "No snapshot",
+                    "status": "OK",
+                    "code": 200,
+                    "headers": [],
+                    "body": "ok",
+                    "preview_language": "text",
+                    "original_request": None,
+                    "created_at": "2026-03-12 10:00",
+                    "body_size": 2,
+                }
+            ]
+        )
+        assert panel._request_info_widget.isHidden()
 
 
 class TestDetectBodyLanguage:

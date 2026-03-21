@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from ui.request.http_worker import HttpSendWorker
 
 from PySide6.QtWidgets import (
+    QApplication,
     QHBoxLayout,
     QInputDialog,
     QMainWindow,
@@ -43,6 +44,7 @@ from ui.request.request_editor import RequestEditorWidget
 from ui.request.response_viewer import ResponseViewerWidget
 from ui.sidebar import RightSidebar
 from ui.styling.icons import phi
+from ui.styling.tab_settings_manager import TabSettingsManager
 from ui.styling.theme_manager import ThemeManager
 
 logger = logging.getLogger(__name__)
@@ -61,10 +63,16 @@ class MainWindow(
     (collection sidebar | request editor | response viewer | right sidebar rail).
     """
 
-    def __init__(self, theme_manager: ThemeManager | None = None) -> None:
+    def __init__(
+        self,
+        theme_manager: ThemeManager | None = None,
+        tab_settings_manager: TabSettingsManager | None = None,
+    ) -> None:
         """Initialise the main window, layout, and child widgets."""
         super().__init__()
         self._theme_manager = theme_manager
+        app = QApplication.instance()
+        self._tab_settings_manager = tab_settings_manager or TabSettingsManager(app)
         self.setWindowTitle("Postmark")
         self.resize(1200, 800)
 
@@ -75,9 +83,14 @@ class MainWindow(
         # Navigation history
         self._history: list[int] = []  # request IDs
         self._history_index: int = -1
+        self._tab_open_counter: int = 0
+        self._tab_activation_counter: int = 0
+        self._restoring_session: bool = False
 
         # Per-tab state: tab-bar index -> TabContext
         self._tabs: dict[int, TabContext] = {}
+        # Deferred (not-yet-materialised) request tabs restored from session
+        self._deferred_tabs: dict[int, dict] = {}
 
         # Legacy single-send state (used when no tab is found)
         self._send_thread: QThread | None = None
@@ -92,6 +105,13 @@ class MainWindow(
         self._sidebar_debounce = QTimer(self)
         self._sidebar_debounce.setSingleShot(True)
         self._sidebar_debounce.timeout.connect(self._refresh_sidebar_snippet)
+
+        # Debounce timer for heavy tab-change work (breadcrumb, sidebar,
+        # variable map, tree sync) so rapid scrolling stays smooth.
+        self._tab_change_debounce = QTimer(self)
+        self._tab_change_debounce.setSingleShot(True)
+        self._tab_change_debounce.setInterval(60)
+        self._tab_change_debounce.timeout.connect(self._on_tab_change_settled)
 
         self._setup_ui()
 
@@ -109,6 +129,7 @@ class MainWindow(
         self._tab_bar.close_others_requested.connect(self._close_others_tabs)
         self._tab_bar.close_all_requested.connect(self._close_all_tabs)
         self._tab_bar.force_close_all_requested.connect(self._close_all_tabs)
+        self._tab_bar.tab_reordered.connect(self._on_tab_reordered)
 
         # Wire collection runner
         self.run_action.triggered.connect(self._on_run_collection)
@@ -231,6 +252,25 @@ class MainWindow(
 
         # View menu
         view_menu = menubar.addMenu("&View")
+        self._search_tabs_action = QAction("Search &Tabs\u2026", self)
+        self._search_tabs_action.setShortcut(QKeySequence("Ctrl+P"))
+        self._search_tabs_action.triggered.connect(self._search_tabs)
+        view_menu.addAction(self._search_tabs_action)
+
+        self._next_tab_action = QAction("&Next Tab", self)
+        self._next_tab_action.setShortcuts([QKeySequence("Ctrl+Tab"), QKeySequence("Ctrl+PgDown")])
+        self._next_tab_action.triggered.connect(self._activate_next_tab)
+        view_menu.addAction(self._next_tab_action)
+
+        self._previous_tab_action = QAction("&Previous Tab", self)
+        self._previous_tab_action.setShortcuts(
+            [QKeySequence("Ctrl+Shift+Tab"), QKeySequence("Ctrl+PgUp")]
+        )
+        self._previous_tab_action.triggered.connect(self._activate_previous_tab)
+        view_menu.addAction(self._previous_tab_action)
+
+        view_menu.addSeparator()
+
         self._toggle_response_action = QAction("&Toggle Response Pane", self)
         self._toggle_response_action.setShortcut(QKeySequence("Ctrl+\\"))
         self._toggle_response_action.triggered.connect(self._toggle_response_pane)
@@ -265,10 +305,12 @@ class MainWindow(
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        self._tab_bar = RequestTabBar()
+        self._tab_bar = RequestTabBar(self._tab_settings_manager)
         self._tab_bar.currentChanged.connect(self._on_tab_changed)
         self._tab_bar.tab_close_requested.connect(self._on_tab_close)
         self._tab_bar.tab_double_clicked.connect(self._on_tab_double_click)
+        if self._theme_manager is not None:
+            self._theme_manager.theme_changed.connect(self._tab_bar.refresh_theme)
         layout.addWidget(self._tab_bar)
 
         breadcrumb_row = QHBoxLayout()
@@ -436,6 +478,9 @@ class MainWindow(
         for tb in self.findChildren(QToolBar):
             tb.show()
 
+        # Restore tabs from the previous session after collections are ready.
+        self._restore_tabs()
+
     # ------------------------------------------------------------------
     # Sidebar -> editor wiring
     # ------------------------------------------------------------------
@@ -471,6 +516,52 @@ class MainWindow(
         else:
             self._right_splitter.setOrientation(Qt.Orientation.Vertical)
 
+    def _activate_next_tab(self) -> None:
+        """Select the next open tab, wrapping at the end of the deck."""
+        self._tab_bar.select_next_tab()
+
+    def _activate_previous_tab(self) -> None:
+        """Select the previous open tab, wrapping at the start of the deck."""
+        self._tab_bar.select_previous_tab()
+
+    def _search_tabs(self) -> None:
+        """Prompt for an open tab and activate the best matching result."""
+        items = [self._tab_bar.tab_search_text(index) for index in range(self._tab_bar.count())]
+        if not items:
+            return
+
+        current_index = max(0, self._tab_bar.currentIndex())
+        choice, accepted = QInputDialog.getItem(
+            self,
+            "Search Tabs",
+            "Type to filter open tabs",
+            items,
+            current_index,
+            True,
+        )
+        if not accepted:
+            return
+
+        query = choice.strip().casefold()
+        if not query:
+            return
+
+        target_index = next(
+            (index for index, item in enumerate(items) if item.casefold() == query),
+            None,
+        )
+        if target_index is None:
+            target_index = next(
+                (index for index, item in enumerate(items) if query in item.casefold()),
+                None,
+            )
+        if target_index is None:
+            return
+
+        self._tab_bar.setCurrentIndex(target_index)
+        self._on_tab_changed(target_index)
+        self._flush_tab_change()
+
     # ------------------------------------------------------------------
     # Dialogs
     # ------------------------------------------------------------------
@@ -478,9 +569,12 @@ class MainWindow(
         """Open the settings dialog."""
         from ui.dialogs.settings_dialog import SettingsDialog
 
-        if self._theme_manager is not None:
-            dialog = SettingsDialog(self._theme_manager, parent=self)
-            dialog.exec()
+        dialog = SettingsDialog(
+            self._theme_manager,
+            self._tab_settings_manager,
+            parent=self,
+        )
+        dialog.exec()
 
     # ------------------------------------------------------------------
     # Current tab helper
@@ -565,7 +659,8 @@ class MainWindow(
     # Close event
     # ------------------------------------------------------------------
     def closeEvent(self, event: QCloseEvent) -> None:
-        """Clean up all tabs and the console panel before closing."""
+        """Persist session and clean up all tabs before closing."""
+        self._persist_open_tabs()
         for ctx in self._tabs.values():
             ctx.cancel_send()
             ctx.cleanup_thread()

@@ -232,11 +232,7 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, QWidget):
         self._loading = True
         try:
             self._url_input.set_variable_map(variables)
-            self._bearer_token_input.set_variable_map(variables)
-            self._basic_username_input.set_variable_map(variables)
-            self._basic_password_input.set_variable_map(variables)
-            self._apikey_key_input.set_variable_map(variables)
-            self._apikey_value_input.set_variable_map(variables)
+            self._set_auth_variable_map(variables)
             self._params_table.set_variable_map(variables)
             self._headers_table.set_variable_map(variables)
             self._body_form_table.set_variable_map(variables)

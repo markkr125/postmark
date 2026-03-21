@@ -100,6 +100,9 @@ class CollectionTree(_TreeActionsMixin, QWidget):
         self._tree.setDragDropMode(QTreeWidget.DragDropMode.InternalMove)
         self._tree.viewport().setAcceptDrops(True)
 
+        # Hand cursor over tree items
+        self._tree.setCursor(Qt.CursorShape.PointingHandCursor)
+
         # Column 1 holds metadata (name, type) via data roles — hide visually
         self._tree.hideColumn(1)
 
@@ -177,19 +180,17 @@ class CollectionTree(_TreeActionsMixin, QWidget):
             item.setIcon(0, phi("folder"))
 
     def _on_item_clicked(self, item: QTreeWidgetItem, column: int) -> None:
-        """Emit a ``Preview`` action when a request item is clicked."""
+        """Open a request tab or toggle folder expand on single click."""
         item_type = item.data(1, ROLE_ITEM_TYPE)
         if item_type == "request":
             item_id = item.data(0, ROLE_ITEM_ID)
-            self.item_action_triggered.emit(item_type, item_id, "Preview")
+            self.item_action_triggered.emit(item_type, item_id, "Open")
+        elif item_type == "folder":
+            item.setExpanded(not item.isExpanded())
 
     def _on_item_double_clicked(self, item: QTreeWidgetItem, column: int) -> None:
-        """Emit an ``Open`` action when a request item is double-clicked."""
-        item_type = item.data(1, ROLE_ITEM_TYPE)
-        if item_type != "request":
-            return
-        item_id = item.data(0, ROLE_ITEM_ID)
-        self.item_action_triggered.emit(item_type, item_id, "Open")
+        """No-op — single click already opens items."""
+        return
 
     def _count_real_children(self, item: QTreeWidgetItem) -> int:
         """Count children excluding placeholder sentinel items."""

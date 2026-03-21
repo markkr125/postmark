@@ -249,6 +249,46 @@ class TestSavedResponses:
             {"key": "Accept", "value": "application/json"}
         ]
 
+    def test_save_response_converts_editor_format_to_postman(self) -> None:
+        """Editor-format original_request is saved in Postman shape."""
+        svc = CollectionService()
+        coll = svc.create_collection("C")
+        req = svc.create_request(coll.id, "POST", "http://x", "R")
+        editor_dict = {
+            "method": "POST",
+            "url": "http://x/create",
+            "body": '{"a":1}',
+            "body_mode": "raw",
+            "body_options": {"raw": {"language": "json"}},
+            "headers": [{"key": "Content-Type", "value": "application/json"}],
+            "request_parameters": None,
+            "description": "test",
+            "scripts": None,
+            "auth": None,
+        }
+        sr_id = svc.save_response(
+            req.id,
+            "Example",
+            "OK",
+            200,
+            [],
+            "body",
+            original_request=editor_dict,
+        )
+        response = svc.get_saved_response(sr_id)
+        assert response is not None
+        snap = response["original_request"]
+        assert snap is not None
+        assert snap["method"] == "POST"
+        assert snap["url"] == {"raw": "http://x/create"}
+        assert snap["header"] == [{"key": "Content-Type", "value": "application/json"}]
+        assert snap["body"]["mode"] == "raw"
+        assert snap["body"]["raw"] == '{"a":1}'
+        assert snap["body"]["options"] == {"raw": {"language": "json"}}
+        # Editor-specific keys should not be present
+        assert "body_mode" not in snap
+        assert "request_parameters" not in snap
+
 
 class TestCollectionUpdates:
     """Tests for updating collection fields via the service layer."""
@@ -334,5 +374,6 @@ class TestRecentRequestsService:
         """An empty collection returns an empty list."""
         svc = CollectionService()
         coll = svc.create_collection("Empty")
+        assert svc.get_recent_requests(coll.id) == []
         assert svc.get_recent_requests(coll.id) == []
         assert svc.get_recent_requests(coll.id) == []
