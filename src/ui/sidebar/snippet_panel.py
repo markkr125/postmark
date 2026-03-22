@@ -277,7 +277,21 @@ class SnippetSettingsPopup(QFrame):
 
     def show_below(self, anchor: QWidget) -> None:
         """Position the popup below *anchor* and show it."""
+        self.adjustSize()
         pos = anchor.mapToGlobal(anchor.rect().bottomLeft())
+        screen = anchor.screen()
+        if screen is not None:
+            sr = screen.availableGeometry()
+            hint = self.sizeHint()
+            # Clamp horizontally — keep popup within screen
+            if pos.x() + hint.width() > sr.right():
+                pos.setX(sr.right() - hint.width())
+            if pos.x() < sr.left():
+                pos.setX(sr.left())
+            # Clamp vertically — flip above anchor if needed
+            if pos.y() + hint.height() > sr.bottom():
+                top = anchor.mapToGlobal(anchor.rect().topLeft())
+                pos.setY(top.y() - hint.height())
         self.move(pos)
         self._show_time = time.monotonic()
         self.show()
