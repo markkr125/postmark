@@ -10,17 +10,13 @@ from PySide6.QtGui import QContextMenuEvent, QKeyEvent, QMouseEvent, QResizeEven
 from PySide6.QtWidgets import QMenu, QSizePolicy, QTabBar, QWidget
 
 from .labels import FolderTabLabel, TabLabel, layout_config
+from .layout import _PADDING_Y, _TabLayoutMixin
 from .tab_button import TabButton
 
 if TYPE_CHECKING:
     from ui.styling.tab_settings_manager import TabSettingsManager
 
 _MAX_TOOLTIP_LEN = 300
-_ROW_GAP = 2
-_TAB_GAP = 2
-_PADDING_X = 4
-_PADDING_Y = 4
-_MIN_SINGLE_ROW_WIDTH = 1
 
 # How long (ms) to keep the mouse grab after the last wheel tick.
 _SCROLL_GRAB_TIMEOUT = 200
@@ -36,7 +32,7 @@ class _TabEntry:
     path: str | None = None
 
 
-class RequestTabBar(QWidget):
+class RequestTabBar(_TabLayoutMixin, QWidget):
     """Wrapped multi-row top tab deck with a QTabBar-like compatibility API."""
 
     currentChanged = Signal(int)
@@ -63,6 +59,8 @@ class RequestTabBar(QWidget):
         self._tabs_closable = True
         self._hover_suppressed = False
         self._scroll_grabbed = False
+        self._scroll_y = 0
+        self._content_height = 0
         self._layout_height = layout_config(False).tab_height + (_PADDING_Y * 2)
 
         self._scroll_release_timer = QTimer(self)
@@ -93,6 +91,7 @@ class RequestTabBar(QWidget):
             return
         self._current_index = new_index
         self._sync_selection_styles()
+        self._ensure_current_visible()
         self.currentChanged.emit(new_index)
 
     def tabsClosable(self) -> bool:
@@ -373,7 +372,7 @@ class RequestTabBar(QWidget):
         super().keyPressEvent(event)
 
     def wheelEvent(self, event: QWheelEvent) -> None:
-        """Cycle through tabs on mouse wheel scroll."""
+        """Scroll rows or cycle tabs on mouse wheel."""
         if self.count() < 2:
             return
         # Grab the mouse so the cursor can drift outside the narrow
@@ -386,10 +385,20 @@ class RequestTabBar(QWidget):
             entry.button.suppress_hover()
         self._hover_suppressed = True
         delta = event.angleDelta().y()
-        if delta > 0:
-            self._cycle_current(-1)
-        elif delta < 0:
-            self._cycle_current(1)
+        if self._content_height > self._layout_height:
+            # Vertical scroll when content overflows the visible area.
+            step = 20
+            max_offset = self._content_height - self._layout_height
+            if delta > 0:
+                self._scroll_y = max(0, self._scroll_y - step)
+            elif delta < 0:
+                self._scroll_y = min(max_offset, self._scroll_y + step)
+            self._relayout_tabs()
+        else:
+            if delta > 0:
+                self._cycle_current(-1)
+            elif delta < 0:
+                self._cycle_current(1)
         event.accept()
 
     def _release_scroll_grab(self) -> None:
@@ -420,7 +429,8 @@ class RequestTabBar(QWidget):
 
     def minimumSizeHint(self) -> QSize:  # type: ignore[override]
         """Return the minimum size for the wrapped deck."""
-        return QSize(120, self._layout_height)
+        single = layout_config(getattr(self, "_small_labels", False)).tab_height + (_PADDING_Y * 2)
+        return QSize(120, single)
 
     def _insert_entry(
         self,
@@ -536,94 +546,6 @@ class RequestTabBar(QWidget):
         current = self._current_index if self._current_index >= 0 else 0
         self.setCurrentIndex((current + step) % count)
 
-    @staticmethod
-    def _fit_single_row_widths(base_widths: list[int], available_width: int) -> list[int]:
-        """Compress tab widths to fit a single visible row."""
-        if not base_widths:
-            return []
-        if sum(base_widths) <= available_width:
-            return base_widths
-
-        total = sum(base_widths)
-        scaled = [
-            max(_MIN_SINGLE_ROW_WIDTH, (width * available_width) // total) for width in base_widths
-        ]
-        assigned = sum(scaled)
-        remainder = available_width - assigned
-
-        index = 0
-        while remainder > 0:
-            scaled[index % len(scaled)] += 1
-            remainder -= 1
-            index += 1
-
-        index = 0
-        while remainder < 0:
-            target = index % len(scaled)
-            if scaled[target] > _MIN_SINGLE_ROW_WIDTH:
-                scaled[target] -= 1
-                remainder += 1
-            index += 1
-
-        return scaled
-
-    def _relayout_single_row(self) -> None:
-        """Lay out every tab on a single compressed row."""
-        content = self.contentsRect()
-        available_width = max(1, content.width() - (_PADDING_X * 2))
-        available_for_tabs = max(1, available_width - (_TAB_GAP * max(0, self.count() - 1)))
-        base_widths = [entry.button.sizeHint().width() for entry in self._entries]
-        widths = self._fit_single_row_widths(base_widths, available_for_tabs)
-        row_height = max(entry.button.sizeHint().height() for entry in self._entries)
-
-        x = content.x() + _PADDING_X
-        y = content.y() + _PADDING_Y
-        for entry, width in zip(self._entries, widths, strict=False):
-            entry.button.setGeometry(x, y, width, row_height)
-            x += width + _TAB_GAP
-
-        total_height = y + row_height + _PADDING_Y
-        if total_height != self._layout_height:
-            self._layout_height = total_height
-            self.setFixedHeight(total_height)
-        self.updateGeometry()
-
-    def _relayout_tabs(self) -> None:
-        """Wrap the tab chips across multiple rows based on the current width."""
-        if not self._entries:
-            self._layout_height = layout_config(self._small_labels).tab_height + (_PADDING_Y * 2)
-            self.setFixedHeight(self._layout_height)
-            return
-
-        if self._wrap_mode == "single_row":
-            self._relayout_single_row()
-            return
-
-        content = self.contentsRect()
-        available_width = max(1, content.width() - (_PADDING_X * 2))
-        x = content.x() + _PADDING_X
-        y = content.y() + _PADDING_Y
-        row_height = 0
-        row_start = x
-
-        for entry in self._entries:
-            hint = entry.button.sizeHint()
-            width = min(max(hint.width(), 92), available_width)
-            height = hint.height()
-            if x > row_start and x + width > row_start + available_width:
-                x = row_start
-                y += row_height + _ROW_GAP
-                row_height = 0
-            entry.button.setGeometry(x, y, width, height)
-            x += width + _TAB_GAP
-            row_height = max(row_height, height)
-
-        total_height = y + row_height + _PADDING_Y
-        if total_height != self._layout_height:
-            self._layout_height = total_height
-            self.setFixedHeight(total_height)
-        self.updateGeometry()
-
     def _show_context_menu(self, index: int, global_pos: QPoint) -> None:
         """Show the standard tab context menu for the given index."""
         menu = QMenu(self)
@@ -641,6 +563,7 @@ class RequestTabBar(QWidget):
         elif chosen == close_all_act:
             self.close_all_requested.emit()
         elif chosen == force_close_all_act:
+            self.force_close_all_requested.emit()
             self.force_close_all_requested.emit()
             self.force_close_all_requested.emit()
             self.force_close_all_requested.emit()

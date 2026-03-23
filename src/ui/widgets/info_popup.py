@@ -130,10 +130,16 @@ class InfoPopup(QFrame):
         screen = anchor.screen()
         if screen is not None:
             screen_rect = screen.availableGeometry()
-            if global_pos.y() + self.sizeHint().height() > screen_rect.bottom():
-                # Show above the anchor
+            hint = self.sizeHint()
+            # Clamp horizontally — keep popup within screen
+            if global_pos.x() + hint.width() > screen_rect.right():
+                global_pos.setX(screen_rect.right() - hint.width())
+            if global_pos.x() < screen_rect.left():
+                global_pos.setX(screen_rect.left())
+            # Clamp vertically — flip above anchor if needed
+            if global_pos.y() + hint.height() > screen_rect.bottom():
                 global_pos = anchor.mapToGlobal(anchor.rect().topLeft())
-                global_pos.setY(global_pos.y() - self.sizeHint().height())
+                global_pos.setY(global_pos.y() - hint.height())
         self.move(global_pos)
         self._show_time = time.monotonic()
         self.show()
