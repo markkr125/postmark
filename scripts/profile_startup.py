@@ -36,10 +36,13 @@ def _rss_mb() -> float:
 def _snapshot(label: str, start: float, mem_before: float) -> None:
     mem_after = _rss_mb()
     elapsed = time.perf_counter() - start
-    print(f"  {label}: {elapsed * 1000:>8.1f} ms   RSS: {mem_after:>6.1f} MB  (+{mem_after - mem_before:>5.1f} MB)")
+    print(
+        f"  {label}: {elapsed * 1000:>8.1f} ms   RSS: {mem_after:>6.1f} MB  (+{mem_after - mem_before:>5.1f} MB)"
+    )
 
 
 def main() -> None:
+    """Run startup profiling with optional tab count argument."""
     num_tabs = int(sys.argv[1]) if len(sys.argv) > 1 else 10
     print(f"=== Postmark Startup Diagnostic ({num_tabs} tabs) ===\n")
 
@@ -89,13 +92,15 @@ def main() -> None:
     _snapshot(f"Phase 2b — seed {num_tabs} requests", t2, mem2)
 
     # Persist a session with N tabs
-    tab_settings_manager.save_open_tabs({
-        "tabs": [
-            {"type": "request", "id": rid, "method": "GET", "name": f"Request {i}"}
-            for i, rid in enumerate(request_ids)
-        ],
-        "active": 0,
-    })
+    tab_settings_manager.save_open_tabs(
+        {
+            "tabs": [
+                {"type": "request", "id": rid, "method": "GET", "name": f"Request {i}"}
+                for i, rid in enumerate(request_ids)
+            ],
+            "active": 0,
+        }
+    )
 
     # -- Phase 3: MainWindow construction --------------------------------
     mem3 = _rss_mb()
