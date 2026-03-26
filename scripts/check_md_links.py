@@ -18,14 +18,20 @@ from pathlib import Path
 _LINK_RE = re.compile(r"\[(?P<text>[^\]]*)\]\((?P<target>[^)]+)\)")
 _SCHEME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+\-.]*://")
 
-# Files to check (relative to project root)
-_MD_FILES = [
+# Explicit files to check (relative to project root)
+_EXPLICIT_MD_FILES = [
     ".github/copilot-instructions.md",
     ".github/instructions/architecture.instructions.md",
+    ".github/instructions/documentation.instructions.md",
     ".github/instructions/pyside6.instructions.md",
     ".github/instructions/sqlalchemy.instructions.md",
     ".github/instructions/testing.instructions.md",
     "README.md",
+]
+
+# Directories to recursively scan for .md files
+_MD_DIRS = [
+    "docs",
 ]
 
 
@@ -60,7 +66,13 @@ def main() -> int:
     root = Path(__file__).resolve().parents[1]
     all_errors: list[str] = []
 
-    for rel in _MD_FILES:
+    md_files: list[str] = list(_EXPLICIT_MD_FILES)
+    for dir_rel in _MD_DIRS:
+        dir_path = root / dir_rel
+        if dir_path.is_dir():
+            md_files.extend(str(p.relative_to(root)) for p in dir_path.rglob("*.md"))
+
+    for rel in md_files:
         md_path = root / rel
         if not md_path.exists():
             all_errors.append(f"{rel}: file itself not found")
@@ -73,7 +85,7 @@ def main() -> int:
             print(f"  {err}", file=sys.stderr)
         return 1
 
-    print(f"All links OK ({len(_MD_FILES)} files checked).")
+    print(f"All links OK ({len(md_files)} files checked).")
     return 0
 
 
