@@ -25,6 +25,9 @@
 >    parsers.  See the Skills table below.
 > 7. **Search every instruction file and skill** for stale references to
 >    renamed, moved, or deleted code.  Remove or correct them.
+> 8. **Update `docs/` pages** when adding, changing, or removing public API,
+>    signals, TypedDicts, widgets, parsers, or architectural patterns.
+>    See `docs/contributing/updating-docs.md` for the full checklist.
 
 This file and the scoped instruction files below form a single source of
 truth.
@@ -44,6 +47,7 @@ Scoped instruction files (auto-applied by path):
 | [sqlalchemy.instructions.md](./instructions/sqlalchemy.instructions.md) | `src/database/**/*.py` |
 | [architecture.instructions.md](./instructions/architecture.instructions.md) | `src/**/*.py` |
 | [testing.instructions.md](./instructions/testing.instructions.md) | `tests/**/*.py` |
+| [documentation.instructions.md](./instructions/documentation.instructions.md) | `docs/**/*.md` |
 
 On-demand skills (loaded when the task matches the description):
 
@@ -136,6 +140,16 @@ Fastest paths to understand and navigate the codebase:
 ## Architecture
 
 ```
+docs/                              # Project documentation (see docs/README.md)
+├── README.md                      # Landing page + full table of contents
+├── getting-started/               # Installation, running, overview
+├── architecture/                  # Layered design, data flow, directory tree
+├── api-reference/                 # Function signatures, TypedDicts, signals
+│   ├── database/                  # ORM models, repository functions
+│   └── services/                  # Service methods, HTTP, auth, parsers
+├── ui-reference/                  # Widget classes, styling, navigation
+├── guides/                        # How-to guides (import parser, auth, widget, tests, signals)
+└── contributing/                  # Coding conventions, testing, updating docs
 src/
 ├── main.py                        # Entry point — QApplication + init_db()
 ├── database/                      # Engine, models, repository
