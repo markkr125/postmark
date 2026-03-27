@@ -279,12 +279,13 @@ class TestRequestSaveEndToEnd:
         qtbot.addWidget(window)
         rid = self._create_and_open(window)
 
-        window.request_widget._scripts_edit.setPlainText("console.log('test');")
+        window.request_widget._pre_request_edit.setPlainText("console.log('test');")
         window._on_save_request()
 
         saved = CollectionService.get_request(rid)
         assert saved is not None
-        assert saved.scripts == "console.log('test');"
+        assert isinstance(saved.scripts, dict)
+        assert saved.scripts["pre_request"] == "console.log('test');"
 
     # -- Auth: Bearer token --------------------------------------------
 

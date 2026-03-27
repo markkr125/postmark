@@ -68,3 +68,27 @@ Background `_RunnerWorker` on `QThread` with signals:
 | `progress` | `int, dict` | Single request completed (index, result) |
 | `finished` | `list` | All requests completed |
 | `error` | `str` | Fatal error |
+
+### Script Integration
+
+The runner executes inherited script chains for each request:
+
+1. `ScriptService.build_script_chain(request_id)` resolves
+   pre-request and test scripts from ancestors.
+2. `ScriptEngine.run_pre_request_scripts()` runs before sending.
+3. `ScriptEngine.run_test_scripts()` runs after receiving a response.
+4. Variable mutations from `pm.environment.set()` propagate across
+   subsequent requests within the run.
+
+### Results Table
+
+| Column | Content |
+|--------|---------|
+| # | Request index |
+| Name | Request name |
+| Status | HTTP status code (colour-coded) |
+| Time | Response time in ms |
+| Tests | `N/M passed` (green if all pass, red otherwise) |
+
+The summary row aggregates total test pass/fail counts across all
+requests in the run.

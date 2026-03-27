@@ -1,13 +1,12 @@
 """Settings dialog — user preferences for appearance and behaviour.
 
-Provides a category-list + detail-panel layout.  Currently only the
-**Appearance** category exists (style and colour scheme), but the
-layout is designed for future extensibility.
+Provides a category-list + detail-panel layout with Appearance, Tabs,
+and Scripting pages.
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSettings, Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -76,6 +75,7 @@ class SettingsDialog(QDialog):
         self._cat_list = QListWidget()
         self._cat_list.addItem("Appearance")
         self._cat_list.addItem("Tabs")
+        self._cat_list.addItem("Scripting")
         self._cat_list.setFixedWidth(140)
         self._cat_list.setCurrentRow(0)
         self._cat_list.currentRowChanged.connect(self._on_category_changed)
@@ -89,6 +89,7 @@ class SettingsDialog(QDialog):
         # -- Appearance page -------------------------------------------
         self._build_appearance_page()
         self._build_tabs_page()
+        self._build_scripting_page()
 
         # -- Button row ------------------------------------------------
         btn_row = QHBoxLayout()
@@ -254,6 +255,37 @@ class SettingsDialog(QDialog):
         layout.addStretch()
         self._stack.addWidget(page)
 
+    def _build_scripting_page(self) -> None:
+        """Build the Scripting settings page."""
+        from ui.styling.theme_manager import _APP, _ORG
+
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(12)
+
+        heading = QLabel("Scripting")
+        heading.setObjectName("titleLabel")
+        layout.addWidget(heading)
+
+        self._enable_scripts_check = QCheckBox("Enable script execution")
+        settings = QSettings(_ORG, _APP)
+        enabled = settings.value("scripting/enabled", True)
+        if isinstance(enabled, str):
+            enabled = enabled.lower() not in {"0", "false", "no", "off", ""}
+        self._enable_scripts_check.setChecked(bool(enabled))
+        layout.addWidget(self._enable_scripts_check)
+
+        note = QLabel(
+            "When disabled, pre-request and test scripts are skipped\n"
+            "for both single requests and collection runs."
+        )
+        note.setObjectName("mutedLabel")
+        layout.addWidget(note)
+
+        layout.addStretch()
+        self._stack.addWidget(page)
+
     # -- Slots ---------------------------------------------------------
 
     def _on_category_changed(self, row: int) -> None:
@@ -291,3 +323,9 @@ class SettingsDialog(QDialog):
         self._tab_settings.activate_on_close = (
             activate_on_close if isinstance(activate_on_close, str) else ACTIVATE_MRU
         )
+
+        # Scripting
+        from ui.styling.theme_manager import _APP, _ORG
+
+        settings = QSettings(_ORG, _APP)
+        settings.setValue("scripting/enabled", self._enable_scripts_check.isChecked())

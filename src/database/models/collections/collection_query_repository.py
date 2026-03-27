@@ -448,3 +448,51 @@ def _saved_response_to_dict(response: Any) -> dict[str, Any]:
         "original_request": response.original_request,
         "created_at": created_at,
     }
+
+
+def get_script_chain(request_id: int) -> list[dict[str, Any]]:
+    """Walk from *request_id* to root and collect scripts/events at each level.
+
+    Returns an ordered list from root (collection) to leaf (request).
+    Each entry has ``source`` (``"collection"`` or ``"request"``),
+    ``id``, ``name``, and ``scripts`` (raw events/scripts dict).
+
+    Folder levels use ``CollectionModel.events``.  The request level
+    uses ``RequestModel.scripts`` (falling back to ``RequestModel.events``
+    for Postman-imported data).
+    """
+    with get_session() as session:
+        req = session.get(RequestModel, request_id)
+        if req is None:
+            return []
+
+        # 1. Walk parent chain: nearest → root.
+        ancestor_layers: list[dict[str, Any]] = []
+        coll = session.get(CollectionModel, req.collection_id)
+        while coll is not None:
+            ancestor_layers.append(
+                {
+                    "source": "collection",
+                    "id": coll.id,
+                    "name": coll.name,
+                    "scripts": coll.events,
+                }
+            )
+            if coll.parent_id is None:
+                break
+            coll = session.get(CollectionModel, coll.parent_id)
+
+        # 2. Reverse so root comes first (collection → folder → … → leaf).
+        ancestor_layers.reverse()
+
+        # 3. Append the request itself.
+        ancestor_layers.append(
+            {
+                "source": "request",
+                "id": req.id,
+                "name": req.name,
+                "scripts": req.scripts or req.events,
+            }
+        )
+
+        return ancestor_layers

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Any
 
 from database.models.collections.import_repository import import_collection_tree
 from database.models.environments.environment_repository import create_environment
@@ -80,6 +81,7 @@ def _persist(result: ImportResult) -> ImportSummary:
         requests_imported=0,
         responses_imported=0,
         environments_imported=0,
+        scripts_detected=_count_scripts(result),
         errors=list(result.get("errors", [])),
     )
 
@@ -117,3 +119,28 @@ def _persist(result: ImportResult) -> ImportSummary:
         len(summary["errors"]),
     )
     return summary
+
+
+def _count_scripts(result: ImportResult) -> int:
+    """Count nodes with scripts in the parsed import data."""
+    count = 0
+
+    def _has_scripts(node: dict[str, Any]) -> bool:
+        events = node.get("events")
+        if isinstance(events, list) and events:
+            return True
+        scripts = node.get("scripts")
+        return isinstance(scripts, dict) and bool(scripts)
+
+    def _walk(node: dict[str, Any]) -> None:
+        nonlocal count
+        if _has_scripts(node):
+            count += 1
+        children = node.get("items") or node.get("children") or []
+        for child in children:
+            if isinstance(child, dict):
+                _walk(child)
+
+    for coll in result.get("collections", []):
+        _walk(dict(coll))
+    return count

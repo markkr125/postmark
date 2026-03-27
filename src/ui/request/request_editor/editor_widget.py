@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
 from ui.request.request_editor.auth import _AuthMixin
 from ui.request.request_editor.body_search import _BodySearchMixin
 from ui.request.request_editor.graphql import _GraphQLMixin
+from ui.request.request_editor.scripts import _ScriptsMixin
 from ui.styling.icons import phi
 from ui.styling.theme import method_color
 from ui.widgets.key_value_table import KeyValueTableWidget
@@ -74,7 +75,7 @@ class _MethodColorDelegate(QStyledItemDelegate):
             option.font.setBold(True)
 
 
-class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, QWidget):
+class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, _ScriptsMixin, QWidget):
     """Editable request editor with method, URL bar, and tabbed sections.
 
     Call :meth:`load_request` to populate the pane from a request dict.
@@ -170,10 +171,11 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, QWidget):
         self._description_edit.textChanged.connect(self._on_field_changed)
         self._tabs.addTab(self._description_edit, "Description")
 
-        self._scripts_edit = QTextEdit()
-        self._scripts_edit.setPlaceholderText("Scripts")
-        self._scripts_edit.textChanged.connect(self._on_field_changed)
-        self._tabs.addTab(self._scripts_edit, "Scripts")
+        self._scripts_tab = QWidget()
+        scripts_layout = QVBoxLayout(self._scripts_tab)
+        scripts_layout.setContentsMargins(0, 6, 0, 0)
+        self._build_scripts_tab(scripts_layout)
+        self._tabs.addTab(self._scripts_tab, "Scripts")
 
         tab_header_h = self._tabs.tabBar().sizeHint().height()
         self._tabs.setMinimumHeight(tab_header_h + 4)
@@ -278,13 +280,7 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, QWidget):
             lang_map = {"json": "JSON", "xml": "XML", "html": "HTML", "text": "Text"}
             self._raw_format_combo.setCurrentText(lang_map.get(raw_lang, "Text"))
 
-            scripts = data.get("scripts")
-            if isinstance(scripts, dict):
-                self._scripts_edit.setPlainText(json.dumps(scripts, indent=4))
-            elif scripts:
-                self._scripts_edit.setPlainText(str(scripts))
-            else:
-                self._scripts_edit.setPlainText("")
+            self._load_scripts(data.get("scripts"))
 
             self._load_auth(data.get("auth"))
             self._description_edit.setPlainText(data.get("description") or "")
@@ -356,7 +352,7 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, QWidget):
             "body_mode": body_mode,
             "body_options": body_options,
             "description": self._description_edit.toPlainText() or None,
-            "scripts": self._scripts_edit.toPlainText(),
+            "scripts": self._get_scripts_data(),
             "auth": self._get_auth_data(),
         }
 
@@ -401,7 +397,7 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, QWidget):
             self._gql_schema_label.setText("No schema")
             self._gql_schema_label.setToolTip("")
             self._description_edit.clear()
-            self._scripts_edit.clear()
+            self._clear_scripts()
             self._body_mode_buttons["none"].setChecked(True)
             self._raw_format_combo.setCurrentText("Text")
             self._auth_type_combo.setCurrentText("Inherit auth from parent")
@@ -435,7 +431,7 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, QWidget):
 
     def _sync_tab_indicators(self) -> None:
         """Append a dot indicator to section tabs that contain data."""
-        if not hasattr(self, "_scripts_edit"):
+        if not hasattr(self, "_pre_request_edit"):
             return
         has_content = [
             bool(self._params_table.get_data()),
@@ -443,7 +439,7 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, QWidget):
             not self._body_mode_buttons.get("none", QRadioButton()).isChecked(),
             self._auth_type_combo.currentText() not in ("No Auth", "Inherit auth from parent"),
             bool(self._description_edit.toPlainText().strip()),
-            bool(self._scripts_edit.toPlainText().strip()),
+            self._has_scripts_content(),
         ]
         for i, (name, active) in enumerate(zip(_TAB_NAMES, has_content, strict=True)):
             self._tabs.setTabText(i, name + _CONTENT_DOT if active else name)

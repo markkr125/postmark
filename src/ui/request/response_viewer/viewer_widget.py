@@ -11,6 +11,7 @@ popup panels with breakdown details (matching Postman's UX).
 from __future__ import annotations
 
 import contextlib
+from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QKeySequence
@@ -28,11 +29,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ui.request.popups.network_popup import NetworkPopup
-from ui.request.popups.size_popup import SizePopup
-from ui.request.popups.status_popup import StatusPopup
-from ui.request.popups.timing_popup import TimingPopup
+from ui.request.response_viewer.popup_mixin import _PopupMixin
 from ui.request.response_viewer.search_filter import _SearchFilterMixin
+from ui.request.response_viewer.test_results_mixin import _TestResultsMixin
 from ui.styling.icons import phi
 from ui.styling.theme import (
     COLOR_DANGER,
@@ -43,7 +42,13 @@ from ui.styling.theme import (
     COLOR_WHITE,
 )
 from ui.widgets.code_editor import CodeEditorWidget
-from ui.widgets.info_popup import ClickableLabel, InfoPopup
+from ui.widgets.info_popup import ClickableLabel
+
+if TYPE_CHECKING:
+    from ui.request.popups.network_popup import NetworkPopup
+    from ui.request.popups.size_popup import SizePopup
+    from ui.request.popups.status_popup import StatusPopup
+    from ui.request.popups.timing_popup import TimingPopup
 
 # -- Status code colour thresholds ------------------------------------
 _STATUS_2XX = COLOR_SUCCESS  # green
@@ -75,7 +80,7 @@ def _format_size(size_bytes: int) -> str:
     return f"{size_bytes / (1024 * 1024):.2f} MB"
 
 
-class ResponseViewerWidget(_SearchFilterMixin, QWidget):
+class ResponseViewerWidget(_TestResultsMixin, _PopupMixin, _SearchFilterMixin, QWidget):
     """Display HTTP response data with status bar and tabbed body/headers.
 
     Call :meth:`load_response` to populate from an ``HttpResponseDict``,
@@ -259,6 +264,9 @@ class ResponseViewerWidget(_SearchFilterMixin, QWidget):
         self._cookies_edit.setObjectName("monoEdit")
         self._tabs.addTab(self._cookies_edit, "Cookies")
 
+        # Test Results tab (hidden until results are available)
+        self._build_test_results_tab()
+
         root.addWidget(self._tabs, 1)
 
         # -- Empty state label ----------------------------------------
@@ -418,6 +426,8 @@ class ResponseViewerWidget(_SearchFilterMixin, QWidget):
         self._filter_error_label.hide()
         self._filter_clear_btn.hide()
         self._filter_apply_btn.show()
+        self._clear_test_results_rows()
+        self._tabs.setTabVisible(self._test_tab_index, False)
         self._wrap_btn.setChecked(True)
         self._body_edit.set_word_wrap(True)
 
@@ -541,56 +551,6 @@ class ResponseViewerWidget(_SearchFilterMixin, QWidget):
         if content_type:
             return "text"
         return None
-
-    # -- Popup handlers ------------------------------------------------
-
-    def _close_other_popups(self, keep: InfoPopup | None) -> None:
-        """Close every open popup except *keep*."""
-        for popup in (
-            self._status_popup,
-            self._timing_popup,
-            self._size_popup,
-            self._network_popup,
-        ):
-            if popup is not None and popup is not keep and popup.isVisible():
-                popup.close()
-
-    def _on_status_clicked(self) -> None:
-        """Open or refresh the status description popup."""
-        if self._status_popup is None:
-            self._status_popup = StatusPopup(self)
-        self._close_other_popups(self._status_popup)
-        self._status_popup.update_status(
-            self._last_status_code,
-            self._last_status_text,
-            self._last_status_color,
-        )
-        self._status_popup.show_below(self._status_label)
-
-    def _on_time_clicked(self) -> None:
-        """Open or refresh the timing breakdown popup."""
-        if self._timing_popup is None:
-            self._timing_popup = TimingPopup(self)
-        self._close_other_popups(self._timing_popup)
-        if self._timing_data is not None:
-            self._timing_popup.update_timing(self._timing_data, self._last_elapsed_ms)
-        self._timing_popup.show_below(self._time_label)
-
-    def _on_size_clicked(self) -> None:
-        """Open or refresh the size breakdown popup."""
-        if self._size_popup is None:
-            self._size_popup = SizePopup(self)
-        self._close_other_popups(self._size_popup)
-        self._size_popup.update_sizes(self._size_data)
-        self._size_popup.show_below(self._size_label)
-
-    def _on_network_clicked(self) -> None:
-        """Open or refresh the network info popup."""
-        if self._network_popup is None:
-            self._network_popup = NetworkPopup(self)
-        self._close_other_popups(self._network_popup)
-        self._network_popup.update_network(self._network_data)
-        self._network_popup.show_below(self._network_icon)
 
     # -- Toolbar handlers ----------------------------------------------
 

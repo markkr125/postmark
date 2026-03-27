@@ -14,6 +14,8 @@ httpx = "^0.28.1"
 pygments = "^2.19"
 jsonpath-ng = "^1.8.0"
 lxml = "^6.0.2"
+py-mini-racer = "^0.6.0"
+RestrictedPython = "^7.4"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0"

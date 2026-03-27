@@ -53,6 +53,8 @@
 | [Auth Handler](api-reference/services/auth-handler.md) | `apply_auth()` — 12 authentication types |
 | [OAuth2Service](api-reference/services/oauth2-service.md) | OAuth 2.0 token exchange — 4 grant types |
 | [Import Parsers](api-reference/services/import-parsers.md) | Postman, cURL, and URL parser modules |
+| [ScriptEngine](api-reference/services/script-engine.md) | Script execution engine, runtimes, context builders |
+| [ScriptService](api-reference/services/script-service.md) | Script chain resolution from database ancestry |
 
 ### API Reference — Cross-Cutting
 
@@ -85,6 +87,18 @@
 | [Adding a Widget](guides/adding-widget.md) | New widget checklist and patterns |
 | [Writing Tests](guides/writing-tests.md) | Test patterns for each layer |
 | [Wiring Signals](guides/wiring-signals.md) | Signal declaration and MainWindow wiring |
+| [Writing Scripts](guides/writing-scripts.md) | Pre-request and test scripts step-by-step |
+
+### Scripting
+
+| Page | Description |
+|------|-------------|
+| [Overview](scripting/overview.md) | Script types, execution order, language support, security summary |
+| [JavaScript API](scripting/javascript-api.md) | Complete JS `pm` object reference |
+| [Python API](scripting/python-api.md) | Complete Python `pm` object reference |
+| [Examples](scripting/examples.md) | Side-by-side JS/Python real-world patterns |
+| [Security](scripting/security.md) | Sandbox design, threat model, resource limits |
+| [Collection Runner](scripting/collection-runner.md) | Runner-specific scripting, test aggregation |
 
 ### Contributing
 

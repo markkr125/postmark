@@ -17,10 +17,12 @@ from __future__ import annotations
 
 import logging
 import threading
+from typing import Any
 
 from PySide6.QtCore import QObject, Signal, Slot
 
 from services.http.http_service import HttpResponseDict, HttpService
+from services.scripting import ScriptEntry
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +59,8 @@ class HttpSendWorker(QObject):
         self._auth_data: dict | None = None
         self._local_overrides: dict[str, str] = {}
         self._cancel_event = threading.Event()
+        self._pre_scripts: list[ScriptEntry] = []
+        self._test_scripts: list[ScriptEntry] = []
 
     # -- Configuration (call before moveToThread) ----------------------
 
@@ -72,6 +76,8 @@ class HttpSendWorker(QObject):
         request_id: int | None = None,
         auth_data: dict | None = None,
         local_overrides: dict[str, str] | None = None,
+        pre_scripts: list[ScriptEntry] | None = None,
+        test_scripts: list[ScriptEntry] | None = None,
     ) -> None:
         """Configure the HTTP request to send.
 
@@ -85,6 +91,10 @@ class HttpSendWorker(QObject):
         *local_overrides* are per-request overrides set by the user
         via the variable popup ("use for this request only").  They
         take highest precedence.
+
+        *pre_scripts* and *test_scripts* are the script inheritance
+        chains resolved by ``ScriptService``.  Pre-request scripts
+        run before the HTTP call; test scripts run after.
         """
         self._method = method
         self._url = url
@@ -95,6 +105,8 @@ class HttpSendWorker(QObject):
         self._request_id = request_id
         self._auth_data = auth_data
         self._local_overrides = local_overrides or {}
+        self._pre_scripts = pre_scripts or []
+        self._test_scripts = test_scripts or []
 
     def cancel(self) -> None:
         """Request cancellation of the in-flight HTTP request.
@@ -117,6 +129,9 @@ class HttpSendWorker(QObject):
         Checks the cancellation flag before and after the network call.
         When *env_id* or *auth_data* were provided, variable substitution
         and auth injection happen here on the worker thread.
+
+        Pre-request scripts run after variable substitution but before
+        the HTTP call.  Test scripts run after the response arrives.
         """
         # 1. Check cancellation before starting the request
         if self._cancel_event.is_set():
@@ -124,6 +139,7 @@ class HttpSendWorker(QObject):
             return
 
         try:
+            method = self._method
             url = self._url
             headers = self._headers
             body = self._body
@@ -154,24 +170,134 @@ class HttpSendWorker(QObject):
                     url,
                     headers,
                     variables,
-                    method=self._method,
+                    method=method,
                     body=body,
                 )
 
+            # 4. Run pre-request scripts (may mutate request + variables)
+            from services.http.header_utils import parse_header_dict
+            from services.scripting.context import (
+                apply_request_mutations,
+                apply_variable_changes,
+                build_pre_request_context,
+                load_globals,
+                save_globals,
+            )
+
+            global_vars = load_globals() if (self._pre_scripts or self._test_scripts) else {}
+
+            pre_output = None
+            if self._pre_scripts:
+                header_dict = parse_header_dict(headers) if headers else {}
+                pre_ctx = build_pre_request_context(
+                    method=method,
+                    url=url,
+                    headers=header_dict,
+                    body=body or "",
+                    variables=variables,
+                    environment_vars={},
+                    collection_vars={},
+                    global_vars=global_vars,
+                    info={},
+                )
+                from services.scripting.engine import ScriptEngine
+
+                pre_output = ScriptEngine.run_pre_request_scripts(self._pre_scripts, pre_ctx)
+                # Persist global variable changes.
+                if pre_output.get("global_variable_changes"):
+                    save_globals(pre_output["global_variable_changes"])
+                    global_vars.update(pre_output["global_variable_changes"])
+                # Apply request mutations from pre-request scripts
+                if pre_output.get("request_mutations"):
+                    method, url, header_dict, body_str = apply_request_mutations(
+                        pre_output["request_mutations"],
+                        method=method,
+                        url=url,
+                        headers=header_dict,
+                        body=body or "",
+                    )
+                    body = body_str
+                    # Rebuild headers string from dict
+                    headers = "\n".join(f"{k}: {v}" for k, v in header_dict.items())
+                # Apply variable changes
+                if pre_output.get("variable_changes"):
+                    variables = apply_variable_changes(pre_output["variable_changes"], variables)
+
+            if self._cancel_event.is_set():
+                self.error.emit("Request cancelled")
+                return
+
             result: HttpResponseDict = HttpService.send_request(
-                method=self._method,
+                method=method,
                 url=url,
                 headers=headers,
                 body=body,
                 timeout=self._timeout,
             )
 
-            # 4. Check cancellation after the request completes
+            # 5. Check cancellation after the request completes
             if self._cancel_event.is_set():
                 self.error.emit("Request cancelled")
                 return
 
-            self.finished.emit(dict(result))
+            # 6. Run test scripts
+            all_test_results: list[Any] = []
+            all_console_logs: list[Any] = []
+            all_var_changes: dict[str, str] = {}
+
+            # Collect pre-request script outputs
+            if pre_output:
+                all_test_results.extend(pre_output.get("test_results", []))
+                all_console_logs.extend(pre_output.get("console_logs", []))
+                all_var_changes.update(pre_output.get("variable_changes", {}))
+
+            if self._test_scripts:
+                from services.scripting.context import build_test_context
+                from services.scripting.engine import ScriptEngine
+
+                test_ctx = build_test_context(
+                    request_data={
+                        "url": url,
+                        "method": method,
+                        "headers": parse_header_dict(headers) if headers else {},
+                        "body": body or "",
+                    },
+                    response_data={
+                        "status_code": result.get("status_code", 0),
+                        "status": result.get("status_text", ""),
+                        "headers": {
+                            h["key"]: h["value"]
+                            for h in result.get("headers", [])
+                            if isinstance(h, dict)
+                        },
+                        "body": result.get("body", ""),
+                        "elapsed_ms": result.get("elapsed_ms", 0),
+                        "size_bytes": result.get("size_bytes", 0),
+                    },
+                    variables=variables,
+                    environment_vars={},
+                    collection_vars={},
+                    global_vars=global_vars,
+                    info={},
+                )
+                test_output = ScriptEngine.run_test_scripts(self._test_scripts, test_ctx)
+                all_test_results.extend(test_output.get("test_results", []))
+                all_console_logs.extend(test_output.get("console_logs", []))
+                all_var_changes.update(test_output.get("variable_changes", {}))
+                # Persist global variable changes from test scripts.
+                if test_output.get("global_variable_changes"):
+                    save_globals(test_output["global_variable_changes"])
+
+            # 7. Attach script results to the response dict
+            final = dict(result)
+            if all_test_results:
+                final["test_results"] = all_test_results
+            if all_console_logs:
+                final["console_logs"] = all_console_logs
+            if all_var_changes:
+                final["variable_changes"] = all_var_changes
+
+            self.finished.emit(final)
         except Exception as exc:
             logger.exception("HTTP send worker failed")
             self.error.emit(str(exc))

@@ -50,6 +50,7 @@ class ThemePalette(TypedDict):
     drop_zone_active_bg: str
     import_success: str
     import_error: str
+    import_warn: str
 
     # Console
     console_bg: str
@@ -117,6 +118,7 @@ LIGHT_PALETTE: ThemePalette = {
     "drop_zone_active_bg": "#e8f4fd",
     "import_success": "#27ae60",
     "import_error": "#e74c3c",
+    "import_warn": "#f39c12",
     "console_bg": "#1e1e1e",
     "console_text": "#d4d4d4",
     "timing_prepare": "#95a5a6",
@@ -176,6 +178,7 @@ DARK_PALETTE: ThemePalette = {
     "drop_zone_active_bg": "#1a3a4a",
     "import_success": "#4ec9b0",
     "import_error": "#f44747",
+    "import_warn": "#dcdcaa",
     "console_bg": "#1e1e1e",
     "console_text": "#d4d4d4",
     "timing_prepare": "#808080",
@@ -251,6 +254,7 @@ COLOR_DROP_ZONE_BG: str = _active["drop_zone_bg"]
 COLOR_DROP_ZONE_ACTIVE_BG: str = _active["drop_zone_active_bg"]
 COLOR_IMPORT_SUCCESS: str = _active["import_success"]
 COLOR_IMPORT_ERROR: str = _active["import_error"]
+COLOR_IMPORT_WARN: str = _active["import_warn"]
 
 COLOR_TIMING_PREPARE: str = _active["timing_prepare"]
 COLOR_TIMING_DNS: str = _active["timing_dns"]
@@ -301,7 +305,7 @@ def set_active_palette(palette: ThemePalette) -> None:
     global COLOR_BREADCRUMB_SEP
     global COLOR_DROP_ZONE_BORDER, COLOR_DROP_ZONE_BG
     global COLOR_DROP_ZONE_ACTIVE_BG
-    global COLOR_IMPORT_SUCCESS, COLOR_IMPORT_ERROR
+    global COLOR_IMPORT_SUCCESS, COLOR_IMPORT_ERROR, COLOR_IMPORT_WARN
     global COLOR_TIMING_PREPARE, COLOR_TIMING_DNS, COLOR_TIMING_TCP
     global COLOR_TIMING_TLS, COLOR_TIMING_TTFB, COLOR_TIMING_DOWNLOAD
     global COLOR_TIMING_PROCESS
@@ -350,6 +354,7 @@ def set_active_palette(palette: ThemePalette) -> None:
     COLOR_DROP_ZONE_ACTIVE_BG = palette["drop_zone_active_bg"]
     COLOR_IMPORT_SUCCESS = palette["import_success"]
     COLOR_IMPORT_ERROR = palette["import_error"]
+    COLOR_IMPORT_WARN = palette["import_warn"]
 
     COLOR_TIMING_PREPARE = palette["timing_prepare"]
     COLOR_TIMING_DNS = palette["timing_dns"]

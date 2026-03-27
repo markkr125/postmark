@@ -68,7 +68,7 @@ class TestRequestEditorWidget:
         assert editor._url_input.text() == ""
 
     def test_load_request_with_scripts_dict(self, qapp: QApplication, qtbot) -> None:
-        """Scripts dict is displayed as formatted JSON."""
+        """Scripts dict populates the pre-request editor."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
 
@@ -77,11 +77,11 @@ class TestRequestEditorWidget:
                 "name": "X",
                 "method": "GET",
                 "url": "http://x",
-                "scripts": {"pre": "console.log('hi')"},
+                "scripts": {"pre_request": "console.log('hi')"},
             }
         )
 
-        text = editor._scripts_edit.toPlainText()
+        text = editor._pre_request_edit.toPlainText()
         assert "console.log" in text
 
 
@@ -406,7 +406,7 @@ class TestRequestEditorTabIndicators:
                 "name": "X",
                 "method": "GET",
                 "url": "http://x",
-                "scripts": {"pre": "console.log('hi')"},
+                "scripts": {"pre_request": "console.log('hi')"},
             }
         )
         assert editor._tabs.tabText(5).endswith(" \u2022")

@@ -312,24 +312,35 @@ MainWindow settings_act.triggered
 ```
 MainWindow run_act.triggered
   → _on_run_collection
-    → CollectionRunnerWidget(collection_id)
-      → CollectionRunnerWidget.progress(index, result_dict)
-      → CollectionRunnerWidget.finished(results_list)
-      → CollectionRunnerWidget.error(message)
+    → CollectionRunnerDialog(collection_id)
+      → _RunnerWorker.progress(index, result_dict)
+      → _RunnerWorker.finished(results_list)
+      → _RunnerWorker.error(message)
 ```
+
+Runner supports `pm.execution.setNextRequest()` / `skipRequest()` flow
+control and data-driven iterations via CSV/JSON files.
 
 ### Send request flow
 
 ```
 RequestEditorWidget.send_requested
   → MainWindow._on_send_request()
+    → ScriptService.build_script_chain(request_id)
+      → (pre_chain, test_chain)
     → HttpSendWorker.set_request(method, url, headers, body, auth, settings)
     → QThread.started → HttpSendWorker.run()
       → EnvironmentService.substitute() (variable replacement)
+      → ScriptEngine.run_pre_request_scripts(pre_chain, context)
+        → apply request mutations (headers, body changes)
       → HttpService.send_request() (httpx + timing/network/size)
+      → ScriptEngine.run_test_scripts(test_chain, context)
+        → collect TestResult list + ConsoleLog list
       → HttpSendWorker.finished(HttpResponseDict)
         → MainWindow._on_response_ready(data)
           → ResponseViewerWidget.load_response(data)
+          → ResponseViewerWidget.load_test_results(results)
+          → ConsolePanelWidget.append_logs(console)
     → HttpSendWorker.error(str)
         → ResponseViewerWidget.show_error(message)
 ```
@@ -507,9 +518,9 @@ All other signals in the flow diagrams above are fully wired.
 | `ImportDialog._ImportWorker` | `error` | `Signal(str)` |
 | `ImportDialog._DropZone` | `files_dropped` | `Signal(list)` |
 | `ImportDialog` | `import_completed` | `Signal()` |
-| `CollectionRunnerWidget` | `progress` | `Signal(int, dict)` |
-| `CollectionRunnerWidget` | `finished` | `Signal(list)` |
-| `CollectionRunnerWidget` | `error` | `Signal(str)` |
+| `_RunnerWorker` | `progress` | `Signal(int, dict)` |
+| `_RunnerWorker` | `finished` | `Signal(list)` |
+| `_RunnerWorker` | `error` | `Signal(str)` |
 
 ### Other widgets
 

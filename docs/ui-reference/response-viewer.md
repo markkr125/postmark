@@ -131,3 +131,30 @@ Connection-level details from `NetworkDict`:
 | Certificate CN | example.com |
 | Issuer | Let's Encrypt |
 | Valid until | 2025-06-01 |
+
+## Test Results Tab
+
+**Mixin:** `_TestResultsMixin` in `response_viewer/test_results_mixin.py`
+
+Displays results from `pm.test()` assertions run in test scripts.
+The tab is hidden by default and shown only when test results are
+present.
+
+### Layout
+
+- **Summary header:** `N/M tests passed` with green/red styling.
+- **Scrollable list:** One row per test with:
+  - Green check (`✓`) or red cross (`✗`) icon.
+  - Test name.
+  - Error message (failed tests only).
+
+### API
+
+| Method | Description |
+|--------|-------------|
+| `load_test_results(results)` | Populate tab from `list[TestResult]` |
+| `_clear_test_results_rows()` | Remove all rows |
+| `_build_test_results_tab()` | Create tab widget (called once at init) |
+
+The tab is integrated via the `clear()` method — it resets to hidden
+state when a new request is sent.

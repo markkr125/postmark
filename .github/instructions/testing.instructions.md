@@ -122,6 +122,10 @@ tests/
 │       ├── test_environment_service.py
 │       ├── test_import_parser.py
 │       ├── test_import_service.py
+│       ├── test_script_bridge_globals.py
+│       ├── test_script_engine.py
+│       ├── test_script_sandbox.py
+│       ├── test_script_service.py
 │       └── http/                  # HTTP service tests
 │           ├── test_http_service.py
 │           ├── test_graphql_schema_service.py
@@ -164,6 +168,7 @@ tests/
     │   ├── test_collection_widget.py
     │   └── test_new_item_popup.py
     ├── dialogs/                   # Dialog tests
+    │   ├── test_collection_runner.py
     │   ├── test_import_dialog.py
     │   ├── test_save_request_dialog.py
     │   └── test_settings_dialog.py
@@ -183,6 +188,7 @@ tests/
         ├── test_request_editor_search.py
         ├── test_response_viewer.py
         ├── test_response_viewer_search.py
+        ├── test_response_viewer_tests.py
         ├── navigation/            # Tab and breadcrumb tests
         │   ├── test_breadcrumb_bar.py
         │   ├── test_request_tab_bar.py

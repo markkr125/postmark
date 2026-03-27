@@ -84,6 +84,19 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   Do not add instance state without updating every call site.
 - `EnvironmentService`, `HttpService`, `GraphQLSchemaService`, and
   `SnippetGenerator` follow the same `@staticmethod` pattern.
+- `ScriptService` and `ScriptEngine` also follow the `@staticmethod`
+  pattern.  `ScriptService.build_script_chain(request_id)` walks the
+  ancestor chain to collect inherited scripts.  `ScriptEngine` dispatches
+  to `JSRuntime` (V8 via PyMiniRacer) or `PyRuntime` (RestrictedPython
+  subprocess).  TypedDicts (`ScriptInput`, `ScriptOutput`, `TestResult`,
+  `ConsoleLog`, `ScriptEntry`) live in `services/scripting/__init__.py`.
+  `pm.sendRequest()` uses a host-side HTTP bridge (`execute_sub_request`
+  in `context.py`) with a trampoline loop (JS) or IPC protocol (Python).
+  The JS-side rate limit is 10 calls; the host enforces a hard cap of 50
+  total sub-requests per execution (`_MAX_TOTAL_SUBREQUESTS`).  Responses
+  larger than 10 MB are rejected (`_MAX_RESPONSE_BYTES`).
+  `pm.globals` are persisted to `data/globals.json` via `load_globals()`
+  / `save_globals()` in `context.py`.
 
 ## The dict interchange schema
 

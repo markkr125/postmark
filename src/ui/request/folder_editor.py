@@ -11,6 +11,7 @@ from typing import Any
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
+    QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -20,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from services.scripting.context import normalize_events as _normalize_events
 from ui.request.auth import _AuthMixin
 from ui.widgets.code_editor import CodeEditorWidget
 from ui.widgets.key_value_table import KeyValueTableWidget
@@ -28,35 +30,11 @@ from ui.widgets.key_value_table import KeyValueTableWidget
 _DEBOUNCE_MS = 800
 
 
-def _normalize_events(events: Any) -> dict[str, str]:
-    """Convert events from any format to our internal dict format.
-
-    Accepts:
-    - ``None`` or empty → ``{}``
-    - Our dict format: ``{"pre_request": "...", "test": "..."}``
-    - Postman list format: ``[{"listen": "prerequest", "script": {...}}]``
-    """
-    if not events:
-        return {}
-    if isinstance(events, dict):
-        return events
-    if isinstance(events, list):
-        result: dict[str, str] = {}
-        listen_map = {"prerequest": "pre_request", "test": "test"}
-        for entry in events:
-            if not isinstance(entry, dict):
-                continue
-            listen = entry.get("listen", "")
-            our_key = listen_map.get(listen)
-            if our_key is None:
-                continue
-            script = entry.get("script", {})
-            if isinstance(script, dict):
-                exec_lines = script.get("exec", [])
-                if isinstance(exec_lines, list):
-                    result[our_key] = "\n".join(exec_lines)
-        return result
-    return {}
+# Supported script languages (display label → CodeEditorWidget language)
+_SCRIPT_LANGUAGES: dict[str, str] = {
+    "JavaScript": "javascript",
+    "Python": "python",
+}
 
 
 class FolderEditorWidget(_AuthMixin, QWidget):
@@ -159,6 +137,21 @@ class FolderEditorWidget(_AuthMixin, QWidget):
         self._scripts_tab = QWidget()
         scripts_layout = QVBoxLayout(self._scripts_tab)
         scripts_layout.setContentsMargins(0, 6, 0, 0)
+
+        # Language selector row
+        lang_row = QHBoxLayout()
+        lang_row.setContentsMargins(0, 0, 0, 0)
+        lang_label = QLabel("Language")
+        lang_label.setObjectName("mutedLabel")
+        lang_row.addWidget(lang_label)
+        self._script_lang_combo = QComboBox()
+        self._script_lang_combo.addItems(list(_SCRIPT_LANGUAGES.keys()))
+        self._script_lang_combo.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._script_lang_combo.setFixedWidth(120)
+        self._script_lang_combo.currentTextChanged.connect(self._on_script_language_changed)
+        lang_row.addWidget(self._script_lang_combo)
+        lang_row.addStretch()
+        scripts_layout.addLayout(lang_row)
 
         pre_label = QLabel("Pre-request Script")
         pre_label.setObjectName("sectionLabel")
@@ -265,6 +258,17 @@ class FolderEditorWidget(_AuthMixin, QWidget):
             self._pre_request_edit.setPlainText(events.get("pre_request") or "")
             self._test_script_edit.setPlainText(events.get("test") or "")
 
+            # Script language
+            lang_display = "JavaScript"
+            raw_events = data.get("events")
+            if isinstance(raw_events, dict):
+                stored_lang = raw_events.get("language", "").lower()
+                for display, code in _SCRIPT_LANGUAGES.items():
+                    if code == stored_lang:
+                        lang_display = display
+                        break
+            self._script_lang_combo.setCurrentText(lang_display)
+
             # Variables
             variables = data.get("variables") or []
             rows = [
@@ -308,6 +312,7 @@ class FolderEditorWidget(_AuthMixin, QWidget):
             self._clear_auth()
             self._pre_request_edit.clear()
             self._test_script_edit.clear()
+            self._script_lang_combo.setCurrentText("JavaScript")
             self._variables_table.set_data([])
         finally:
             self._loading = False
@@ -340,9 +345,11 @@ class FolderEditorWidget(_AuthMixin, QWidget):
         test = self._test_script_edit.toPlainText()
         if not pre and not test:
             return None
+        lang = _SCRIPT_LANGUAGES.get(self._script_lang_combo.currentText(), "javascript")
         return {
             "pre_request": pre or None,
             "test": test or None,
+            "language": lang,
         }
 
     # -- Variables helper ----------------------------------------------
@@ -363,6 +370,14 @@ class FolderEditorWidget(_AuthMixin, QWidget):
         ]
 
     # -- Change tracking -----------------------------------------------
+
+    def _on_script_language_changed(self, display_name: str) -> None:
+        """Update both editors when the language selector changes."""
+        lang = _SCRIPT_LANGUAGES.get(display_name, "javascript")
+        self._pre_request_edit.set_language(lang)
+        self._test_script_edit.set_language(lang)
+        if not self._loading:
+            self._debounce_timer.start()
 
     def _on_field_changed(self) -> None:
         """Handle any field modification and start debounce."""

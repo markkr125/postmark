@@ -89,6 +89,11 @@ class HttpResponseDict(TypedDict):
     # Network metadata
     network: NotRequired[NetworkDict]
 
+    # Scripting results (populated by HttpSendWorker after script execution)
+    test_results: NotRequired[list[dict[str, Any]]]
+    console_logs: NotRequired[list[dict[str, Any]]]
+    variable_changes: NotRequired[dict[str, str]]
+
 
 def _phase_ms(trace_times: dict[str, float], *prefixes: str) -> float:
     """Compute the duration of a trace phase from start/complete timestamps.

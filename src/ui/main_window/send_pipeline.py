@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QThread
+from PySide6.QtCore import QSettings, QThread
 
 if TYPE_CHECKING:
     from ui.environments.environment_selector import EnvironmentSelector
@@ -21,6 +21,16 @@ if TYPE_CHECKING:
     from ui.request.response_viewer import ResponseViewerWidget
 
 logger = logging.getLogger(__name__)
+
+
+def _scripts_enabled() -> bool:
+    """Return ``True`` if the global scripting toggle is on."""
+    from ui.styling.theme_manager import _APP, _ORG
+
+    val = QSettings(_ORG, _APP).value("scripting/enabled", True)
+    if isinstance(val, str):
+        return val.lower() not in {"0", "false", "no", "off", ""}
+    return bool(val)
 
 
 class _SendPipelineMixin:
@@ -102,7 +112,22 @@ class _SendPipelineMixin:
             self._tab_bar.update_tab(idx, is_sending=True)
 
         # 5. Create worker — variable resolution + auth on worker thread
+        # 5a. Resolve script chain for this request
+        from services.script_service import ScriptService
         from ui.request.http_worker import HttpSendWorker
+
+        pre_scripts = None
+        test_scripts = None
+        if _scripts_enabled():
+            if request_id:
+                pre_scripts, test_scripts = ScriptService.build_script_chain(request_id)
+            else:
+                # Draft: use inline scripts from the editor
+                scripts_data = editor.get_request_data().get("scripts")
+                if scripts_data:
+                    pre_scripts, test_scripts = ScriptService.build_collection_script_chain(
+                        scripts_data, name="Draft"
+                    )
 
         worker = HttpSendWorker()
         worker.set_request(
@@ -116,6 +141,8 @@ class _SendPipelineMixin:
             local_overrides={k: v["value"] for k, v in ctx.local_overrides.items()}
             if ctx
             else None,
+            pre_scripts=pre_scripts,
+            test_scripts=test_scripts,
         )
 
         thread = QThread()
@@ -141,6 +168,33 @@ class _SendPipelineMixin:
         ctx = self._current_tab_context()
         viewer = ctx.response_viewer if ctx else self.response_widget
         viewer.load_response(data)
+
+        # Pass test results to response viewer (if present)
+        test_results = data.get("test_results", [])
+        console_logs = data.get("console_logs", [])
+        if test_results:
+            viewer.load_test_results(test_results)
+
+        # Route console logs to the console panel
+        if console_logs:
+            from ui.panels.console_panel import ConsolePanel
+
+            panel: ConsolePanel | None = getattr(self, "_console_panel", None)
+            if panel is not None:
+                for log_entry in console_logs:
+                    message = log_entry.get("message", "")
+                    panel.append_message(f"[Script] {message}")
+
+        # Apply variable changes to local overrides
+        var_changes = data.get("variable_changes", {})
+        if ctx and var_changes:
+            for key, value in var_changes.items():
+                ctx.local_overrides[key] = {
+                    "value": str(value),
+                    "original_source": "script",
+                    "original_source_id": 0,
+                }
+
         self._set_send_button_cancel(False)
         if ctx is not None:
             idx = self._tab_bar.currentIndex()

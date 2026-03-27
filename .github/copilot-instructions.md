@@ -172,6 +172,13 @@ src/
 │   ├── collection_service.py      # CollectionService (static methods)
 │   ├── environment_service.py     # EnvironmentService (variable substitution + TypedDicts)
 │   ├── import_service.py          # ImportService (parse + persist)
+│   ├── script_service.py          # ScriptService (script chain resolution)
+│   ├── scripting/                 # Script execution sub-package
+│   │   ├── __init__.py            # TypedDicts (ScriptInput/Output, TestResult, etc.)
+│   │   ├── engine.py              # ScriptEngine (run chains, merge outputs)
+│   │   ├── context.py             # Context builders + normalize_events() + execute_sub_request() + globals persistence
+│   │   ├── js_runtime.py          # JSRuntime (V8 via PyMiniRacer)
+│   │   └── py_runtime.py          # PyRuntime (RestrictedPython subprocess)
 │   ├── http/                      # HTTP request/response handling
 │   │   ├── http_service.py        # HttpService (httpx) + response TypedDicts
 │   │   ├── graphql_schema_service.py  # GraphQL introspection + schema parsing
@@ -256,10 +263,12 @@ src/
         │   ├── editor_widget.py     # RequestEditor — main request editing widget
         │   ├── auth.py              # Re-export of _AuthMixin from auth sub-package
         │   ├── body_search.py       # _BodySearchMixin — search/replace in body
-        │   └── graphql.py           # _GraphQLMixin — GraphQL mode + schema
+        │   ├── graphql.py           # _GraphQLMixin — GraphQL mode + schema
+        │   └── scripts.py           # _ScriptsMixin — dual pre-request/test script editors
         ├── response_viewer/         # ResponseViewer sub-package
         │   ├── viewer_widget.py     # ResponseViewer — response display widget
-        │   └── search_filter.py     # _SearchFilterMixin — response search/filter
+        │   ├── search_filter.py     # _SearchFilterMixin — response search/filter
+        │   └── test_results_mixin.py # _TestResultsMixin — test results tab
         ├── navigation/              # Tab switching and path navigation
         │   ├── breadcrumb_bar.py
         │   ├── request_tab_bar.py   # Compatibility wrapper re-exporting the wrapped deck
@@ -285,6 +294,10 @@ tests/
 │       ├── test_environment_service.py
 │       ├── test_import_parser.py
 │       ├── test_import_service.py
+│       ├── test_script_bridge_globals.py
+│       ├── test_script_engine.py
+│       ├── test_script_sandbox.py
+│       ├── test_script_service.py
 │       └── http/                  # HTTP service tests
 │           ├── test_http_service.py
 │           ├── test_graphql_schema_service.py
@@ -327,6 +340,7 @@ tests/
     │   ├── test_collection_widget.py
     │   └── test_new_item_popup.py
     ├── dialogs/                   # Dialog tests
+    │   ├── test_collection_runner.py
     │   ├── test_import_dialog.py
     │   ├── test_save_request_dialog.py
     │   └── test_settings_dialog.py
@@ -347,6 +361,7 @@ tests/
         ├── test_request_editor_search.py
         ├── test_response_viewer.py
         ├── test_response_viewer_search.py
+        ├── test_response_viewer_tests.py
         ├── navigation/            # Tab and breadcrumb tests
         │   ├── test_breadcrumb_bar.py
         │   ├── test_request_tab_bar.py

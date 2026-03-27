@@ -118,8 +118,13 @@ class ConsolePanel(QWidget):
         """Clear the console output."""
         self._output.clear()
 
+    def append_message(self, message: str) -> None:
+        """Append a message to the console (thread-safe via signal bridge)."""
+        self._bridge.log_message.emit(message)
+
     def cleanup(self) -> None:
         """Remove the log handler (call on shutdown)."""
+        logging.getLogger().removeHandler(self._handler)
         logging.getLogger().removeHandler(self._handler)
         logging.getLogger().removeHandler(self._handler)
         logging.getLogger().removeHandler(self._handler)

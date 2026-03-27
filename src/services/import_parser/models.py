@@ -92,4 +92,5 @@ class ImportSummary(TypedDict):
     requests_imported: int
     responses_imported: int
     environments_imported: int
+    scripts_detected: int
     errors: list[str]

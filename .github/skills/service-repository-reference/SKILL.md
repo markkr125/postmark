@@ -228,6 +228,37 @@ fragment capture), Password Credentials (direct POST), Client Credentials
 (direct POST).  Browser-based flows open the system browser and start a
 local HTTP server to capture the callback.
 
+### ScriptService
+
+All methods are `@staticmethod`.  Resolves inherited script chains
+by walking the collection ancestor tree.
+
+| Method | Returns | Purpose |
+|--------|---------|---------|
+| `build_script_chain(request_id)` | `tuple[list[ScriptEntry], list[ScriptEntry]]` | Collect pre-request and test scripts from ancestors + self |
+
+### ScriptEngine
+
+All methods are `@staticmethod`.  Orchestrates script execution across
+`JSRuntime` (V8/PyMiniRacer) and `PyRuntime` (RestrictedPython subprocess).
+
+| Method | Returns | Purpose |
+|--------|---------|---------|
+| `run_pre_request_scripts(chain, context)` | `ScriptOutput` | Run pre-request chain, merge outputs |
+| `run_test_scripts(chain, context)` | `ScriptOutput` | Run test chain, merge outputs |
+| `run_single(script, language, context)` | `ScriptOutput` | Run one script in specified runtime |
+
+Context builders and utilities in `services/scripting/context.py`:
+
+| Function | Purpose |
+|----------|---------|
+| `build_pre_request_context(...)` | Build `ScriptInput` for pre-request scripts |
+| `build_test_context(...)` | Build `ScriptInput` for test/post-response scripts |
+| `normalize_events(events)` | Convert Postman-style event list to `{pre_request, test}` dict |
+| `execute_sub_request(spec)` | HTTP bridge for `pm.sendRequest()` (scheme whitelist, rate-limited) |
+| `load_globals()` | Load persisted global variables from `data/globals.json` |
+| `save_globals(changes)` | Merge changes into persisted globals file |
+
 ## TypedDict schemas
 
 ### SnippetOptions (`services/http/snippet_generator/generator.py`)
@@ -359,6 +390,45 @@ class ImportSummary(TypedDict): ...
 ```
 
 See `services/import_parser/models.py` for full field definitions.
+
+### Scripting TypedDicts (`services/scripting/__init__.py`)
+
+```python
+class ScriptInput(TypedDict):
+    request: dict[str, Any]       # method, url, headers, body
+    response: dict[str, Any]      # status, headers, body, elapsed_ms (test only)
+    variables: dict[str, str]     # combined environment + collection vars
+    environment_vars: dict[str, str]  # environment-scoped variables
+    collection_vars: dict[str, str]   # collection-scoped variables
+    global_vars: NotRequired[dict[str, str]]  # persisted global variables
+    info: dict[str, Any]          # request name, iteration index
+    iteration_data: NotRequired[dict[str, Any]]  # data-driven row (runner only)
+
+class ScriptOutput(TypedDict):
+    test_results: list[TestResult]          # pm.test() assertion results
+    console_logs: list[ConsoleLog]          # console.log/warn/error output
+    variable_changes: dict[str, str]        # pm.variables/environment/collection changes
+    global_variable_changes: NotRequired[dict[str, str]]  # pm.globals changes
+    request_mutations: dict[str, Any] | None  # pm.request.* mutations
+    next_request: NotRequired[str | None]   # pm.execution.setNextRequest()
+    skip_request: NotRequired[bool]         # pm.execution.skipRequest()
+
+class ScriptEntry(TypedDict):
+    code: str                     # script source code
+    language: str                 # "javascript" or "python"
+    source_name: str              # display label (e.g. "Collection > Test")
+
+class TestResult(TypedDict):
+    name: str                     # test description
+    passed: bool                  # assertion outcome
+    error: str | None             # failure message
+    duration_ms: float            # execution time
+
+class ConsoleLog(TypedDict):
+    level: str                    # "log", "warn", "error", "info"
+    message: str                  # formatted message
+    timestamp: float              # time.time() value
+```
 
 ### Theme TypedDict (`ui/styling/theme.py`)
 

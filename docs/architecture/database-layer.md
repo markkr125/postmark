@@ -124,7 +124,7 @@ Several columns store structured data as JSON:
 | `RequestModel` | `headers` | `list[{"key": str, "value": str, "enabled": bool}]` |
 | `RequestModel` | `body_options` | `dict[str, Any]` (body encoding/format settings) |
 | `RequestModel` | `auth` | `{"type": str, ...type-specific fields}` |
-| `RequestModel` | `scripts` | `{"pre": str, "post": str}` |
+| `RequestModel` | `scripts` | `{"pre_request": str, "test": str, "language": str}` |
 | `RequestModel` | `settings` | `dict[str, Any]` |
 | `RequestModel` | `events` | `dict[str, Any]` |
 | `SavedResponseModel` | `headers` | `list[{"key": str, "value": str}]` |
