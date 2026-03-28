@@ -20,6 +20,7 @@ class TestResult(TypedDict):
     passed: bool
     error: str | None
     duration_ms: float
+    source_name: NotRequired[str]
 
 
 class ConsoleLog(TypedDict):

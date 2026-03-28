@@ -84,6 +84,9 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   Do not add instance state without updating every call site.
 - `EnvironmentService`, `HttpService`, `GraphQLSchemaService`, and
   `SnippetGenerator` follow the same `@staticmethod` pattern.
+- `RunHistoryService` follows the same `@staticmethod` pattern.  It wraps
+  `run_history_repository` for run history CRUD (create, finish, add result,
+  query runs/results, delete).
 - `ScriptService` and `ScriptEngine` also follow the `@staticmethod`
   pattern.  `ScriptService.build_script_chain(request_id)` walks the
   ancestor chain to collect inherited scripts.  `ScriptEngine` dispatches
@@ -97,6 +100,23 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   larger than 10 MB are rejected (`_MAX_RESPONSE_BYTES`).
   `pm.globals` are persisted to `data/globals.json` via `load_globals()`
   / `save_globals()` in `context.py`.
+  Vendor libraries (CryptoJS, lodash, moment, chai, tv4, ajv, xml2js,
+  csv-parse) live in `data/scripts/vendor/` and are **lazily loaded** —
+  only when the script contains a matching `require()` call or uses a
+  known global (e.g. `CryptoJS`).  Detection is in `_detect_required_modules()`
+  with `_REQUIRE_MAP` and `_GLOBAL_IMPLIES`.  `require('uuid')` is built
+  into the bootstrap.  The `postman` legacy API object delegates to
+  `pm.environment`/`pm.globals`.
+- **Debug sub-package** (`services/scripting/debug/`):
+  `DebugProtocol` is a thread-safe state machine that coordinates
+  pause/resume between the worker thread and the UI.
+  `js_debug.debug_execute` splits JS into top-level statement groups and
+  executes each with a separate `ctx.eval()`, calling
+  `protocol.checkpoint()` between groups.
+  `py_debug.debug_execute` launches a subprocess with `sys.settrace` and
+  uses IPC for pause/resume.
+  `engine.run_debug_chain` mirrors `_run_chain` but routes through debug
+  dispatch.  TypedDicts: `DebugPauseInfo`, enums: `DebugState`, `StepMode`.
 
 ## The dict interchange schema
 
@@ -160,6 +180,10 @@ Key signals to know (always-on summary):
   requests/folders in MainWindow.
 - `CollectionWidget.draft_request_requested()` → opens a new draft
   (unsaved) request tab in MainWindow.
+- `CollectionWidget.run_collection_requested(int)` → triggers the collection
+  runner dialog for the given collection ID.
+- `FolderEditorWidget.run_requested(int)` → triggers collection runner from
+  the folder editor's Run button.
 - `NewItemPopup.new_request_clicked()` / `new_collection_clicked()` →
   emitted by the icon grid popup when tiles are clicked.
 - `RequestEditorWidget.send_requested()` → triggers HTTP send flow.
@@ -182,9 +206,7 @@ Key signals to know (always-on summary):
 
 ## Unconnected signals
 
-| Signal / Feature | Location | Status |
-|---|---|---|
-| `MainWindow.run_action` | `main_window/window.py` | QAction created, not connected |
+No unconnected signals at this time.
 
 ## Implicit contracts
 

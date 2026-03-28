@@ -24,12 +24,15 @@ import xml.dom.minidom
 from typing import TYPE_CHECKING, cast
 
 from PySide6.QtCore import QEvent, QPoint, QRect, Qt, QTimer, Signal
-from PySide6.QtGui import QFont, QHelpEvent, QKeyEvent, QMouseEvent, QTextCursor
+from PySide6.QtGui import QFont, QHelpEvent, QKeyEvent, QTextCursor
 from PySide6.QtWidgets import QPlainTextEdit, QTextEdit, QToolTip, QWidget
 
 if TYPE_CHECKING:
     from services.environment_service import VariableDetail
 
+from ui.widgets.code_editor.completion.engine import CompletionEngine
+from ui.widgets.code_editor.completion.mixin import _CompletionMixin
+from ui.widgets.code_editor.completion.popup import CompletionPopup
 from ui.widgets.code_editor.folding import _FoldingMixin
 from ui.widgets.code_editor.gutter import (
     _AUTO_CLOSE_PAIRS,
@@ -40,6 +43,7 @@ from ui.widgets.code_editor.gutter import (
     _VALIDATE_DEBOUNCE_MS,
     _VAR_RE,
     SyntaxError_,
+    _BreakpointGutterArea,
     _FoldGutterArea,
     _LineNumberArea,
 )
@@ -47,7 +51,7 @@ from ui.widgets.code_editor.highlighter import PygmentsHighlighter
 from ui.widgets.code_editor.painting import _PaintingMixin
 
 
-class CodeEditorWidget(_PaintingMixin, _FoldingMixin, QPlainTextEdit):
+class CodeEditorWidget(_CompletionMixin, _PaintingMixin, _FoldingMixin, QPlainTextEdit):
     """Rich code editor with syntax highlighting, folding, and validation.
 
     Parameters:
@@ -61,6 +65,7 @@ class CodeEditorWidget(_PaintingMixin, _FoldingMixin, QPlainTextEdit):
     """
 
     validation_changed = Signal(list)
+    breakpoints_changed = Signal()
 
     def __init__(self, *, read_only: bool = False, parent: QWidget | None = None) -> None:
         """Initialise the code editor with gutter, highlighter, and timers."""
@@ -88,11 +93,23 @@ class CodeEditorWidget(_PaintingMixin, _FoldingMixin, QPlainTextEdit):
         # Detected indent width for this document.
         self._detected_indent: int = _DEFAULT_INDENT_WIDTH
 
+        # Completion popup and engine
+        self._completion_popup = CompletionPopup(self)
+        self._completion_engine = CompletionEngine("javascript")
+        self._completion_popup.item_selected.connect(self._accept_completion)
+        self._completion_popup.dismissed.connect(self._on_completion_dismissed)
+        self._completion_prefix: str = ""
+
         # Collapsed-fold badge rectangles for click hit-testing.
         self._fold_badge_rects: dict[int, QRect] = {}
 
         # Cache for the active (innermost) fold region at the cursor.
         self._active_fold_start: int = -1
+
+        # Breakpoint and debug state.
+        self._breakpoints: set[int] = set()
+        self._debug_line: int | None = None
+        self._show_breakpoint_gutter = False
 
         if read_only:
             self.setReadOnly(True)
@@ -103,6 +120,8 @@ class CodeEditorWidget(_PaintingMixin, _FoldingMixin, QPlainTextEdit):
         # Gutter widgets
         self._line_number_area = _LineNumberArea(self)
         self._fold_gutter_area = _FoldGutterArea(self)
+        self._bp_gutter_area = _BreakpointGutterArea(self)
+        self._bp_gutter_area.setVisible(False)
 
         # Pre-built Phosphor fold font (avoids per-line allocation).
         self._fold_font: QFont | None = None
@@ -150,6 +169,7 @@ class CodeEditorWidget(_PaintingMixin, _FoldingMixin, QPlainTextEdit):
             return
         self._language = lang
         self._highlighter.set_language(lang)
+        self._completion_engine.set_language(lang)
         self._errors = []
         self._fold_regions = {}
         self._collapsed_folds = set()
@@ -169,6 +189,38 @@ class CodeEditorWidget(_PaintingMixin, _FoldingMixin, QPlainTextEdit):
         self._variable_map = variables
         self._highlighter.set_variable_map(variables)
         self._highlighter.rehighlight()
+        self._completion_engine.set_variable_map(variables)
+
+    # -- Breakpoints & debug -------------------------------------------
+
+    def set_breakpoint_gutter_visible(self, visible: bool) -> None:
+        """Show or hide the breakpoint gutter column."""
+        self._show_breakpoint_gutter = visible
+        self._bp_gutter_area.setVisible(visible)
+        self._update_gutter_width()
+
+    def toggle_breakpoint(self, line: int) -> bool:
+        """Toggle a breakpoint on *line* (0-based). Return True if now set."""
+        if line in self._breakpoints:
+            self._breakpoints.discard(line)
+            result = False
+        else:
+            self._breakpoints.add(line)
+            result = True
+        self._bp_gutter_area.update()
+        self.breakpoints_changed.emit()
+        return result
+
+    @property
+    def breakpoints(self) -> set[int]:
+        """Return a copy of the current breakpoint set."""
+        return set(self._breakpoints)
+
+    def set_debug_line(self, line: int | None) -> None:
+        """Set the highlighted debug line (0-based), or None to clear."""
+        self._debug_line = line
+        self._bp_gutter_area.update()
+        self.viewport().update()
 
     def setPlainText(self, text: str) -> None:
         """Override to re-detect indent width whenever content is replaced."""
@@ -334,9 +386,33 @@ class CodeEditorWidget(_PaintingMixin, _FoldingMixin, QPlainTextEdit):
     # -- Auto-close brackets --------------------------------------------
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
-        """Handle Tab-to-spaces, auto-closing brackets and quotes."""
+        """Handle Tab-to-spaces, auto-closing brackets, and completions."""
         if self._read_only:
             super().keyPressEvent(event)
+            return
+
+        # -- Completion popup navigation (when active) --
+        if self._completion_popup.is_active():
+            key = event.key()
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Tab):
+                self._completion_popup.accept_current()
+                return
+            if key == Qt.Key.Key_Escape:
+                self._completion_popup.dismiss()
+                return
+            if key == Qt.Key.Key_Down:
+                self._completion_popup.select_next()
+                return
+            if key == Qt.Key.Key_Up:
+                self._completion_popup.select_previous()
+                return
+
+        # Ctrl+Space — manual trigger
+        if (
+            event.key() == Qt.Key.Key_Space
+            and event.modifiers() & Qt.KeyboardModifier.ControlModifier
+        ):
+            self._trigger_completion()
             return
 
         iw = self._detected_indent
@@ -409,6 +485,17 @@ class CodeEditorWidget(_PaintingMixin, _FoldingMixin, QPlainTextEdit):
 
         super().keyPressEvent(event)
 
+        # -- Post-insert completion triggers --
+        if text == ".":
+            self._trigger_completion()
+        elif text == "{":
+            line_text = self.textCursor().block().text()
+            col = self.textCursor().positionInBlock()
+            if col >= 2 and line_text[col - 2 : col] == "{{":
+                self._trigger_completion()
+        elif self._completion_popup.is_active():
+            self._filter_completion()
+
     # -- Tooltip for errors ---------------------------------------------
 
     def _var_at_cursor(self, pos: QPoint) -> str | None:
@@ -455,43 +542,4 @@ class CodeEditorWidget(_PaintingMixin, _FoldingMixin, QPlainTextEdit):
         detail = self._variable_map.get(self._var_hover_name)
         VariablePopup.show_variable(self._var_hover_name, detail, self._var_hover_global_pos, self)
 
-    # -- Fold badge interaction -----------------------------------------
-
-    def mousePressEvent(self, event: QMouseEvent) -> None:
-        """Expand a collapsed fold when its ``...`` badge is clicked."""
-        if event.button() == Qt.MouseButton.LeftButton and self._fold_badge_rects:
-            pos = event.position().toPoint()
-            for start_line, rect in self._fold_badge_rects.items():
-                if rect.contains(pos):
-                    self.toggle_fold(start_line)
-                    return
-        super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event: QMouseEvent) -> None:
-        """Track variable hover and fold-badge cursor changes."""
-        pos = event.position().toPoint()
-
-        # 1. Fold badge cursor
-        if self._fold_badge_rects:
-            for rect in self._fold_badge_rects.values():
-                if rect.contains(pos):
-                    self.viewport().setCursor(Qt.CursorShape.PointingHandCursor)
-                    super().mouseMoveEvent(event)
-                    return
-        self.viewport().setCursor(Qt.CursorShape.IBeamCursor)
-
-        # 2. Variable hover tracking
-        var_name = self._var_at_cursor(pos)
-        if var_name:
-            if var_name != self._var_hover_name:
-                self._var_hover_name = var_name
-                self._var_hover_global_pos = event.globalPosition().toPoint()
-                from ui.widgets.variable_popup import VariablePopup
-
-                self._var_hover_timer.start(VariablePopup.hover_delay_ms())
-        else:
-            if self._var_hover_name is not None:
-                self._var_hover_name = None
-                self._var_hover_timer.stop()
-
-        super().mouseMoveEvent(event)
+    # -- Fold badge / completion / mouse — see _CompletionMixin ---------

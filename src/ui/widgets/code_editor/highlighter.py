@@ -32,6 +32,14 @@ from ui.styling.theme import (
 )
 from ui.widgets.code_editor.gutter import _VAR_RE
 
+# Block-state flag for multi-line /* */ comment tracking.
+_STATE_IN_BLOCK_COMMENT = 1
+
+# Languages that use /* */ block comments.
+_BLOCK_COMMENT_LANGS = frozenset(
+    {"javascript", "css", "json", "c", "cpp", "java", "go", "rust", "swift", "kotlin"}
+)
+
 # Module-level lexer cache — avoids creating a new Pygments lexer (and
 # triggering module imports) on every language switch.
 _lexer_cache: dict[str, Lexer] = {}
@@ -172,7 +180,46 @@ class PygmentsHighlighter(QSyntaxHighlighter):
                 self.setFormat(index, length, fmt)
             index += length
 
+        # Fix multi-line block comments that Pygments misses per-line.
+        if self._language in _BLOCK_COMMENT_LANGS:
+            self._fix_block_comments(text)
+
         self._apply_variable_highlight(text)
+
+    def _fix_block_comments(self, text: str) -> None:
+        """Overlay correct formatting for multi-line ``/* */`` comments.
+
+        Pygments line-by-line mode cannot track state across lines, so
+        ``/* ... */`` spanning multiple lines is mis-tokenised.  This
+        method uses ``previousBlockState`` / ``setCurrentBlockState`` to
+        track whether the current line is inside a block comment and
+        applies the comment format to the correct ranges.
+        """
+        comment_fmt = self._get_format(T.Comment.Multiline)
+        if comment_fmt is None:
+            return
+
+        in_comment = self.previousBlockState() == _STATE_IN_BLOCK_COMMENT
+        i = 0
+
+        while i < len(text):
+            if in_comment:
+                end = text.find("*/", i)
+                if end >= 0:
+                    self.setFormat(i, end + 2 - i, comment_fmt)
+                    i = end + 2
+                    in_comment = False
+                else:
+                    self.setFormat(i, len(text) - i, comment_fmt)
+                    break
+            else:
+                start = text.find("/*", i)
+                if start < 0:
+                    break
+                in_comment = True
+                i = start + 2
+
+        self.setCurrentBlockState(_STATE_IN_BLOCK_COMMENT if in_comment else 0)
 
     def _apply_variable_highlight(self, text: str) -> None:
         """Overlay ``{{variable}}`` highlights on the current block."""

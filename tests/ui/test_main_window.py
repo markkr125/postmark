@@ -444,6 +444,88 @@ class TestMainWindowViewToggles:
         window._toggle_bottom_panel()
         assert window._bottom_panel.isHidden()
 
+    def test_script_error_logs_to_console(self, qapp: QApplication, qtbot) -> None:
+        """Script errors are logged to the Console panel (but not auto-shown)."""
+        window = MainWindow()
+        qtbot.addWidget(window)
+        assert window._bottom_panel.isHidden()
+
+        window._on_send_finished(
+            {
+                "status_code": 200,
+                "status_text": "OK",
+                "headers": [],
+                "body": "",
+                "elapsed_ms": 1.0,
+                "size_bytes": 0,
+                "console_logs": [
+                    {"level": "error", "message": "[Hyperguest] n is not defined", "timestamp": 0}
+                ],
+            }
+        )
+        qapp.processEvents()
+
+        # Error text is logged to console but panel is NOT auto-opened.
+        assert "n is not defined" in window._console_panel._output.toPlainText()
+
+    def test_pre_request_data_shows_tab(self, qapp: QApplication, qtbot) -> None:
+        """Pre-request data populates the Pre-request tab in the viewer."""
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._on_send_finished(
+            {
+                "status_code": 200,
+                "status_text": "OK",
+                "headers": [],
+                "body": "",
+                "elapsed_ms": 1.0,
+                "size_bytes": 0,
+                "has_pre_request_scripts": True,
+                "pre_request_console_logs": [
+                    {"level": "log", "message": "token set", "timestamp": 0}
+                ],
+                "pre_request_variable_changes": {"token": "abc"},
+                "pre_request_errors": [],
+            }
+        )
+        qapp.processEvents()
+
+        viewer = window.response_widget
+        assert viewer._tabs.isTabVisible(viewer._pre_tab_index)
+        assert "token" in viewer._pre_request_vars_label.text()
+
+    def test_pre_request_error_shows_red_tab(self, qapp: QApplication, qtbot) -> None:
+        """Pre-request errors turn the tab label red."""
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._on_send_finished(
+            {
+                "status_code": 200,
+                "status_text": "OK",
+                "headers": [],
+                "body": "",
+                "elapsed_ms": 1.0,
+                "size_bytes": 0,
+                "has_pre_request_scripts": True,
+                "pre_request_errors": [
+                    {
+                        "name": "(runtime error)",
+                        "passed": False,
+                        "error": "n is not defined",
+                        "source_name": "Hyperguest",
+                        "duration_ms": 0,
+                    }
+                ],
+            }
+        )
+        qapp.processEvents()
+
+        viewer = window.response_widget
+        assert viewer._pre_request_has_error
+        assert "Hyperguest" in viewer._pre_request_header.text()
+
     def test_toggle_layout_orientation(self, qapp: QApplication, qtbot) -> None:
         """Toggling layout switches the right splitter between vertical and horizontal."""
         window = MainWindow()

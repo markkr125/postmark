@@ -69,10 +69,12 @@ class _TabControllerMixin:
     _right_sidebar: RightSidebar
 
     def _on_send_request(self) -> None: ...
+    def _on_debug_request(self) -> None: ...
     def _on_save_request(self) -> None: ...
     def _on_save_response(self, data: dict) -> None: ...
     def _sync_save_btn(self, dirty: bool) -> None: ...
     def _current_tab_context(self) -> TabContext | None: ...
+    def _on_run_collection_by_id(self, collection_id: int) -> None: ...
     def _refresh_variable_map(
         self,
         editor: RequestEditorWidget,
@@ -214,6 +216,7 @@ class _TabControllerMixin:
 
         editor.load_request(data, request_id=request_id)
         editor.send_requested.connect(self._on_send_request)
+        editor.debug_requested.connect(self._on_debug_request)
         editor.save_requested.connect(self._on_save_request)
         editor.dirty_changed.connect(self._sync_save_btn)
         editor.dirty_changed.connect(self._on_editor_dirty_changed)
@@ -608,6 +611,7 @@ class _TabControllerMixin:
 
         editor.load_request(req_data, request_id=request_id)
         editor.send_requested.connect(self._on_send_request)
+        editor.debug_requested.connect(self._on_debug_request)
         editor.save_requested.connect(self._on_save_request)
         editor.dirty_changed.connect(self._sync_save_btn)
         editor.dirty_changed.connect(self._on_editor_dirty_changed)
@@ -976,6 +980,7 @@ class _TabControllerMixin:
 
         self._tabs[idx] = ctx
         folder_editor.collection_changed.connect(self._on_folder_auto_save)
+        folder_editor.run_requested.connect(self._on_run_collection_by_id)
 
         # Switch to the new tab BEFORE loading data so that the folder
         # editor is visible even if load_collection raises.
@@ -992,6 +997,13 @@ class _TabControllerMixin:
             updated_at=updated_at,
             recent_requests=recent_requests,
         )
+
+        # Load run history for the Runs tab
+        from services.run_history_service import RunHistoryService
+
+        runs = RunHistoryService.get_runs(collection_id)
+        folder_editor.load_runs(runs)
+
         self._persist_open_tabs()
         return idx
 

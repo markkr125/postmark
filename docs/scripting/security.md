@@ -29,7 +29,7 @@ The JavaScript runtime uses PyMiniRacer, which embeds a V8 isolate.
 | File system access | Blocked | V8 has no `fs` module |
 | Network access | Blocked | No `fetch`, `XMLHttpRequest`, `net` |
 | Process spawning | Blocked | No `child_process`, `exec` |
-| `require` / `import` | Blocked | No module system |
+| `require` / `import` | Controlled | Only pre-bundled vendor libraries |
 | `eval()` | Available | Runs inside same isolate |
 | Timers (`setTimeout`) | Not available | V8 isolate has no event loop |
 
@@ -117,15 +117,21 @@ Messages beyond the limit are silently dropped.
 - Set/get variables across scopes.
 - Register named test assertions.
 - Mutate the request in pre-request scripts.
-- Parse JSON, use regex, compute hashes, encode/decode base64.
+- Parse JSON, use regex, compute hashes (MD5, SHA-256, HMAC-SHA256),
+  encode/decode base64, generate UUIDs.
 - Write to the Console panel via `console.log()` / `print()`.
+- (JavaScript only) Use bundled libraries via `require()` — see
+  [Built-in Libraries](javascript-api.md#built-in-libraries) for the
+  full list.  These run inside the same V8 isolate and share its
+  resource limits.
 
 ## What Scripts CANNOT Do
 
 - Access the filesystem.
 - Make network requests (only via `pm.sendRequest()`, rate-limited,
   http/https only, 10 MB response cap).
-- Import arbitrary modules (Python) or require packages (JavaScript).
+- Import arbitrary modules (Python) or require arbitrary packages
+  (JavaScript — only pre-bundled libraries are available).
 - Access Postmark's internal state or database.
 - Spawn processes.
 - Access environment variables or OS information.

@@ -15,11 +15,16 @@ A native desktop API client for testing and managing HTTP requests, built with *
 - SQLite persistence via SQLAlchemy
 - **Theme support** — automatic OS dark/light mode detection, with manual override
 - **Settings dialog** — choose between Fusion (default) and native OS widget style
+- **Pre-request & test scripts** — write JavaScript or Python scripts that run before/after each request; test response status, body, headers with Chai-style assertions
+- **Script inheritance** — collection and folder-level scripts run automatically for every child request
+- **Step-through debugger** — pause, step, and inspect variables in scripts line by line
+- **Vendor libraries** — `require()` lodash, moment, CryptoJS, Chai, tv4, Ajv, xml2js, csv-parse in JavaScript scripts
+- **Collection runner** — execute all requests in sequence with per-request test results, script flow control, and data-driven iterations
 - Import from Postman collections, cURL commands, or raw URLs
 - Environment variables with key-value editor and `{{var}}` substitution
 - **GraphQL support** — schema introspection, syntax highlighting, and prettify
-- **Code editor** — syntax highlighting, code folding, line numbers, bracket matching
-- Code snippet generation (cURL, Python, JavaScript)
+- **Code editor** — syntax highlighting, code folding, line numbers, bracket matching, IntelliSense
+- Code snippet generation (cURL, Python, JavaScript, and 20 more languages)
 - Tabbed request editing with breadcrumb navigation
 - Response viewer with search, JSONPath/XPath filtering, and beautify
 - Response metadata popups (status, timing, size, network/TLS details)

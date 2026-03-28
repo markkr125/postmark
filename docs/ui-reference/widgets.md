@@ -23,6 +23,7 @@ Inherits `_PaintingMixin`, `_FoldingMixin`, `QPlainTextEdit`.
 | Bracket matching | Highlight matching parens/braces |
 | Inline validation | JSON/XML/GraphQL error markers |
 | Variable highlighting | `{{variable}}` patterns with coloured background |
+| Autocomplete | Dot-path + variable completions (Ctrl+Space, `.`, `{{`) |
 | Word wrap | Togglable |
 | Prettify | Auto-format JSON/XML |
 
@@ -34,6 +35,8 @@ Inherits `_PaintingMixin`, `_FoldingMixin`, `QPlainTextEdit`.
 | `_errors` | `list[SyntaxError_]` | Validation results |
 | `_fold_regions` | `dict[int, int]` | Start line to end line fold map |
 | `_variable_map` | `dict[str, VariableDetail]` | Resolved variables |
+| `_completion_engine` | `CompletionEngine` | Dot-path/variable resolver |
+| `_completion_popup` | `CompletionPopup` | Floating autocomplete popup |
 | `_read_only` | `bool` | Immutable mode (for responses) |
 
 ### Key Methods

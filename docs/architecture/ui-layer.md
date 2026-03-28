@@ -81,7 +81,7 @@ Workers in the codebase:
 | `SchemaFetchWorker` | `request/http_worker.py` | Fetch GraphQL schema in background |
 | `CollectionLoader` | `collections/collection_widget.py` | Load collection tree from DB |
 | `ImportWorker` | `dialogs/import_dialog.py` | Run import pipeline in background |
-| `CollectionRunnerWorker` | `dialogs/collection_runner.py` | Run collection requests sequentially |
+| `CollectionRunnerWorker` | `dialogs/collection_runner/worker.py` | Run collection requests sequentially |
 
 ## Theming System
 

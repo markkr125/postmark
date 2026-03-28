@@ -701,4 +701,32 @@ def build_global_qss(p: ThemePalette) -> str:
         margin-top: 4px;
         margin-bottom: 4px;
     }}
+
+    /* ---- Completion popup (code editor autocomplete) ------------ */
+    QFrame[objectName="completionPopup"] {{
+        background: {p["bg"]};
+        border: 1px solid {p["border"]};
+        border-radius: 4px;
+    }}
+    QListWidget[objectName="completionPopupList"] {{
+        background: transparent;
+        border: none;
+        outline: none;
+        font-size: 12px;
+    }}
+    QListWidget[objectName="completionPopupList"]::item {{
+        padding: 1px 4px;
+    }}
+    QListWidget[objectName="completionPopupList"]::item:selected {{
+        background: {p["selected_bg"]};
+    }}
+    QListWidget[objectName="completionPopupList"]::item:hover {{
+        background: {p["hover_bg"]};
+    }}
+    QLabel[objectName="completionPopupDoc"] {{
+        color: {p["text_muted"]};
+        font-size: 11px;
+        padding: 2px 8px;
+        border-bottom: 1px solid {p["border"]};
+    }}
     """

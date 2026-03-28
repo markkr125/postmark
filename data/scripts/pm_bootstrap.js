@@ -26,7 +26,8 @@ var __pm_state = {
 
 var __pm_callbacks = [];
 
-var __pm_context = {
+// Preserve host-injected context (set before bootstrap is evaluated).
+var __pm_context = __pm_context || {
     request: {},
     response: null,
     variables: {},
@@ -675,6 +676,85 @@ function __pm_fulfill_send(index, resp) {
             });
         }
     }
+}
+
+// -- Legacy Postman compatibility shim ---------------------------------
+
+var postman = {
+    setEnvironmentVariable: function (key, value) {
+        pm.environment.set(key, String(value));
+    },
+    getEnvironmentVariable: function (key) {
+        return pm.environment.get(key);
+    },
+    clearEnvironmentVariable: function (key) {
+        pm.environment.unset(key);
+    },
+    setGlobalVariable: function (key, value) {
+        pm.globals.set(key, String(value));
+    },
+    getGlobalVariable: function (key) {
+        return pm.globals.get(key);
+    },
+    clearGlobalVariable: function (key) {
+        pm.globals.unset(key);
+    },
+};
+
+// -- Postman require() shim -------------------------------------------
+// Supports the most-used sandbox built-in libraries.
+
+var __pm_builtins = {
+    "crypto-js": typeof CryptoJS !== "undefined" ? CryptoJS : undefined,
+    lodash: typeof __pm_lodash !== "undefined" ? __pm_lodash : undefined,
+    moment: typeof __pm_moment !== "undefined" ? __pm_moment : undefined,
+    chai: typeof __pm_chai !== "undefined" ? __pm_chai : undefined,
+    tv4: typeof __pm_tv4 !== "undefined" ? __pm_tv4 : undefined,
+    ajv:
+        typeof __pm_ajv !== "undefined"
+            ? __pm_ajv.default || __pm_ajv
+            : undefined,
+    xml2js: typeof __pm_xml2js !== "undefined" ? __pm_xml2js : undefined,
+    "csv-parse/sync":
+        typeof __pm_csv_parse !== "undefined" ? __pm_csv_parse : undefined,
+    uuid: (function () {
+        // Minimal UUIDv4 implementation.
+        function v4() {
+            var bytes = new Uint8Array(16);
+            globalThis.crypto.getRandomValues(bytes);
+            bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
+            bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant 1
+            var hex = [];
+            for (var i = 0; i < 16; i++) {
+                hex.push(("0" + bytes[i].toString(16)).slice(-2));
+            }
+            return (
+                hex.slice(0, 4).join("") +
+                "-" +
+                hex.slice(4, 6).join("") +
+                "-" +
+                hex.slice(6, 8).join("") +
+                "-" +
+                hex.slice(8, 10).join("") +
+                "-" +
+                hex.slice(10, 16).join("")
+            );
+        }
+        return { v4: v4 };
+    })(),
+};
+
+function require(name) {
+    if (name in __pm_builtins) {
+        var mod = __pm_builtins[name];
+        if (mod === undefined) {
+            throw new Error("Module '" + name + "' failed to load");
+        }
+        return mod;
+    }
+    throw new Error(
+        "Module '" + name + "' is not available in the Postmark sandbox"
+    );
 }
 
 // -- Freeze read-only objects -----------------------------------------

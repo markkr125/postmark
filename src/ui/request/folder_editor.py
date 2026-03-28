@@ -14,20 +14,29 @@ from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
     QTabWidget,
     QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
+from services.script_version_service import ScriptVersionService
 from services.scripting.context import normalize_events as _normalize_events
 from ui.request.auth import _AuthMixin
+from ui.styling.icons import phi
 from ui.widgets.code_editor import CodeEditorWidget
 from ui.widgets.key_value_table import KeyValueTableWidget
 
 # Debounce delay (ms) for the collection_changed signal
 _DEBOUNCE_MS = 800
+
+# Debounce delay (ms) for version capture after script edits.
+_VERSION_CAPTURE_MS = 2000
 
 
 # Supported script languages (display label → CodeEditorWidget language)
@@ -35,6 +44,33 @@ _SCRIPT_LANGUAGES: dict[str, str] = {
     "JavaScript": "javascript",
     "Python": "python",
 }
+
+
+_RUNS_HEADERS = [
+    "Start time",
+    "Source",
+    "Duration",
+    "All tests",
+    "Passed",
+    "Failed",
+    "Skipped",
+    "Avg. Resp. Time",
+    "Status",
+]
+
+
+def _build_runs_table() -> QTableWidget:
+    """Create a read-only table widget for displaying run history."""
+    table = QTableWidget(0, len(_RUNS_HEADERS))
+    table.setHorizontalHeaderLabels(_RUNS_HEADERS)
+    table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+    table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+    header = table.horizontalHeader()
+    if header:
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        for col in range(1, len(_RUNS_HEADERS)):
+            header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
+    return table
 
 
 class FolderEditorWidget(_AuthMixin, QWidget):
@@ -46,6 +82,7 @@ class FolderEditorWidget(_AuthMixin, QWidget):
     """
 
     collection_changed = Signal(dict)
+    run_requested = Signal(int)  # collection_id
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Initialise the folder editor layout."""
@@ -64,10 +101,19 @@ class FolderEditorWidget(_AuthMixin, QWidget):
         root.setContentsMargins(12, 12, 12, 12)
         root.setSpacing(10)
 
-        # -- Title label (folder name) --
+        # -- Title row (folder name + Run button) --
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
         self._title_label = QLabel()
         self._title_label.setObjectName("titleLabel")
-        root.addWidget(self._title_label)
+        title_row.addWidget(self._title_label, 1)
+        self._run_btn = QPushButton("Run")
+        self._run_btn.setIcon(phi("play"))
+        self._run_btn.setObjectName("primaryButton")
+        self._run_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._run_btn.clicked.connect(self._on_run_clicked)
+        title_row.addWidget(self._run_btn)
+        root.addLayout(title_row)
 
         # -- Tabbed area --
         self._tabs = QTabWidget()
@@ -151,6 +197,14 @@ class FolderEditorWidget(_AuthMixin, QWidget):
         self._script_lang_combo.currentTextChanged.connect(self._on_script_language_changed)
         lang_row.addWidget(self._script_lang_combo)
         lang_row.addStretch()
+
+        self._history_btn = QPushButton("History")
+        self._history_btn.setIcon(phi("clock-counter-clockwise", size=14))
+        self._history_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._history_btn.setToolTip("View script version history")
+        self._history_btn.clicked.connect(self._open_version_history)
+        lang_row.addWidget(self._history_btn)
+
         scripts_layout.addLayout(lang_row)
 
         pre_label = QLabel("Pre-request Script")
@@ -160,6 +214,7 @@ class FolderEditorWidget(_AuthMixin, QWidget):
         self._pre_request_edit.set_language("javascript")
         self._pre_request_edit.setPlaceholderText("Script to run before the request is sent\u2026")
         self._pre_request_edit.textChanged.connect(self._on_field_changed)
+        self._pre_request_edit.textChanged.connect(self._schedule_version_capture)
         scripts_layout.addWidget(self._pre_request_edit, 1)
 
         post_label = QLabel("Tests / Post-response Script")
@@ -171,7 +226,14 @@ class FolderEditorWidget(_AuthMixin, QWidget):
             "Script to run after the response is received\u2026"
         )
         self._test_script_edit.textChanged.connect(self._on_field_changed)
+        self._test_script_edit.textChanged.connect(self._schedule_version_capture)
         scripts_layout.addWidget(self._test_script_edit, 1)
+
+        # Version capture debounce timer
+        self._version_capture_timer = QTimer(self)
+        self._version_capture_timer.setSingleShot(True)
+        self._version_capture_timer.setInterval(_VERSION_CAPTURE_MS)
+        self._version_capture_timer.timeout.connect(self._capture_script_versions)
 
         self._tabs.addTab(self._scripts_tab, "Scripts")
 
@@ -182,6 +244,16 @@ class FolderEditorWidget(_AuthMixin, QWidget):
         )
         self._variables_table.data_changed.connect(self._on_field_changed)
         self._tabs.addTab(self._variables_table, "Variables")
+
+        # ---- Runs tab ----
+        self._runs_tab = QWidget()
+        runs_layout = QVBoxLayout(self._runs_tab)
+        runs_layout.setContentsMargins(0, 6, 0, 0)
+
+        self._runs_table = _build_runs_table()
+        runs_layout.addWidget(self._runs_table, 1)
+
+        self._tabs.addTab(self._runs_tab, "Runs")
 
         root.addWidget(self._tabs, 1)
 
@@ -388,3 +460,101 @@ class FolderEditorWidget(_AuthMixin, QWidget):
     def _emit_collection_changed(self) -> None:
         """Emit the debounced collection_changed signal with current data."""
         self.collection_changed.emit(self.get_collection_data())
+
+    # -- Script version capture ----------------------------------------
+
+    def _schedule_version_capture(self) -> None:
+        """Restart the debounce timer on any script text change."""
+        if self._loading:
+            return
+        self._version_capture_timer.start()
+
+    def _capture_script_versions(self) -> None:
+        """Capture current script content as version snapshots."""
+        if self._collection_id is None:
+            return
+        lang = _SCRIPT_LANGUAGES.get(self._script_lang_combo.currentText(), "javascript")
+
+        pre = self._pre_request_edit.toPlainText()
+        if pre.strip():
+            ScriptVersionService.capture(
+                request_id=None,
+                collection_id=self._collection_id,
+                script_type="pre_request",
+                content=pre,
+                language=lang,
+            )
+
+        test = self._test_script_edit.toPlainText()
+        if test.strip():
+            ScriptVersionService.capture(
+                request_id=None,
+                collection_id=self._collection_id,
+                script_type="test",
+                content=test,
+                language=lang,
+            )
+
+    def _open_version_history(self) -> None:
+        """Open the version history dialog for this collection."""
+        from ui.request.request_editor.scripts.version_history import VersionHistoryDialog
+
+        if self._collection_id is None:
+            return
+
+        dlg = VersionHistoryDialog(
+            request_id=None,
+            collection_id=self._collection_id,
+            current_pre=self._pre_request_edit.toPlainText(),
+            current_test=self._test_script_edit.toPlainText(),
+            parent=self._pre_request_edit,
+        )
+        if dlg.exec():
+            restored = dlg.restored_content()
+            if restored:
+                script_type, content = restored
+                editor = (
+                    self._pre_request_edit
+                    if script_type == "pre_request"
+                    else self._test_script_edit
+                )
+                editor.selectAll()
+                editor.insertPlainText(content)
+
+    # -- Run actions ---------------------------------------------------
+
+    def _on_run_clicked(self) -> None:
+        """Emit run_requested when the Run button is clicked."""
+        if self._collection_id is not None:
+            self.run_requested.emit(self._collection_id)
+
+    def load_runs(self, runs: list[dict]) -> None:
+        """Populate the Runs tab table with run history data.
+
+        Each dict should contain ``started_at``, ``source``, ``duration_ms``,
+        ``total_tests``, ``passed``, ``failed``, ``avg_response_ms``, and
+        ``status``.
+        """
+        self._runs_table.setRowCount(0)
+        for run in runs:
+            row = self._runs_table.rowCount()
+            self._runs_table.insertRow(row)
+
+            started = run.get("started_at", "")
+            if hasattr(started, "strftime"):
+                started = started.strftime("%Y-%m-%d %H:%M:%S")
+            self._runs_table.setItem(row, 0, QTableWidgetItem(str(started)))
+            self._runs_table.setItem(row, 1, QTableWidgetItem(run.get("source", "")))
+
+            dur = run.get("duration_ms", 0)
+            dur_str = f"{dur / 1000:.1f}s" if dur >= 1000 else f"{dur}ms"
+            self._runs_table.setItem(row, 2, QTableWidgetItem(dur_str))
+
+            self._runs_table.setItem(row, 3, QTableWidgetItem(str(run.get("total_tests", 0))))
+            self._runs_table.setItem(row, 4, QTableWidgetItem(str(run.get("passed", 0))))
+            self._runs_table.setItem(row, 5, QTableWidgetItem(str(run.get("failed", 0))))
+            self._runs_table.setItem(row, 6, QTableWidgetItem(str(run.get("skipped", 0))))
+
+            avg = run.get("avg_response_ms", 0.0)
+            self._runs_table.setItem(row, 7, QTableWidgetItem(f"{avg:.0f}ms"))
+            self._runs_table.setItem(row, 8, QTableWidgetItem(run.get("status", "")))

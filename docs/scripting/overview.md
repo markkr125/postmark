@@ -102,6 +102,61 @@ Scripts run in sandboxed environments with no filesystem, network, or
 OS access.  See [Security](security.md) for the full threat model,
 resource limits, and sandbox architecture.
 
+## Feature Parity: JavaScript vs Python
+
+Both languages provide the same `pm.*` API surface.  However,
+JavaScript has access to bundled third-party libraries via `require()`,
+while Python provides built-in stdlib functions.
+
+### Shared capabilities (both languages)
+
+- Full `pm.*` API: variables, test/expect assertions, cookies,
+  sendRequest, execution flow control, iteration data.
+- JSON parsing, regex, base64 encoding/decoding.
+- MD5, SHA-256 hashing and UUID v4 generation.
+- HMAC-SHA256 signing.
+- URL encoding.
+- Console / print output.
+
+### JavaScript-only (via `require()`)
+
+These bundled libraries are available only in JavaScript scripts:
+
+| Library | Use case |
+|---------|----------|
+| `lodash` | Array/object/string utilities |
+| `moment` | Date parsing, formatting, manipulation |
+| `chai` | Full BDD/TDD assertion library (beyond `pm.expect`) |
+| `tv4` | JSON Schema validation (Draft 4) |
+| `ajv` | JSON Schema validation (Drafts 4–2020-12) |
+| `xml2js` | XML-to-object parsing |
+| `csv-parse/sync` | CSV parsing |
+| `crypto-js` | AES encryption, HMAC, advanced hashing |
+
+See the [JavaScript API Reference](javascript-api.md#built-in-libraries)
+for usage examples.
+
+### Python-only (built-in stdlib)
+
+| Function | Use case |
+|----------|----------|
+| `re_match` / `re_search` / `re_findall` / `re_sub` | Regular expressions |
+| `math_ceil` / `math_floor` / `math_sqrt` / `math_pow` / `math_log` | Math operations |
+| `datetime_now()` / `datetime_utcnow()` | UTC timestamps |
+| `url_quote()` / `url_urlencode()` | URL encoding |
+
+See the [Python API Reference](python-api.md#available-standard-library)
+for the full list.
+
+### Choosing a language
+
+- Use **JavaScript** for Postman-compatible collections, JSON Schema
+  validation, XML/CSV parsing, or advanced date manipulation.
+- Use **Python** when you prefer Pythonic syntax and only need the
+  `pm.*` API with basic stdlib utilities.
+- See [Achieving JavaScript Parity in Python](examples.md#achieving-javascript-parity-in-python)
+  for side-by-side translations of every vendor library pattern.
+
 ## Where Scripts Live
 
 - **Request-level:** Stored in `RequestModel.scripts` JSON column as

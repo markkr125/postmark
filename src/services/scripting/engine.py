@@ -15,6 +15,7 @@ from services.scripting.py_runtime import PyRuntime
 
 if TYPE_CHECKING:
     from services.scripting import ScriptEntry, ScriptInput, ScriptOutput
+    from services.scripting.debug import DebugProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +89,12 @@ def _run_chain(chain: list[ScriptEntry], context: ScriptInput) -> ScriptOutput:
 
         result = _dispatch(code, language, context)
 
+        # Tag runtime errors with the source name so the UI can
+        # show which inherited script caused the failure.
+        for tr in result.get("test_results", []):
+            if tr.get("name") == "(runtime error)" and source:
+                tr["source_name"] = source
+
         # Merge results.
         merged["test_results"].extend(result.get("test_results", []))
         merged["console_logs"].extend(result.get("console_logs", []))
@@ -133,3 +140,94 @@ def _dispatch(script: str, language: str, context: ScriptInput) -> ScriptOutput:
     if language == "python":
         return PyRuntime.execute(script, context)
     return JSRuntime.execute(script, context)
+
+
+def _debug_dispatch(
+    script: str,
+    language: str,
+    context: ScriptInput,
+    protocol: DebugProtocol,
+    *,
+    script_type: str = "pre_request",
+    source_name: str = "",
+) -> ScriptOutput:
+    """Route a script to the correct debug runtime."""
+    from services.scripting.debug import js_debug_execute, py_debug_execute
+
+    if language == "python":
+        return py_debug_execute(
+            script,
+            context,
+            protocol,
+            script_type=script_type,
+            source_name=source_name,
+        )
+    return js_debug_execute(
+        script,
+        context,
+        protocol,
+        script_type=script_type,
+        source_name=source_name,
+    )
+
+
+def run_debug_chain(
+    chain: list[ScriptEntry],
+    context: ScriptInput,
+    protocol: DebugProtocol,
+    *,
+    script_type: str = "pre_request",
+) -> ScriptOutput:
+    """Execute each script in *chain* with debug support."""
+    merged = _empty_output()
+
+    for entry in chain:
+        code = entry.get("code", "")
+        if not code or not code.strip():
+            continue
+
+        language = entry.get("language", "javascript")
+        source = entry.get("source_name", "")
+
+        logger.info("Debug-running %s script from %s", language, source)
+
+        result = _debug_dispatch(
+            code,
+            language,
+            context,
+            protocol,
+            script_type=script_type,
+            source_name=source,
+        )
+
+        merged["test_results"].extend(result.get("test_results", []))
+        merged["console_logs"].extend(result.get("console_logs", []))
+
+        changes = result.get("variable_changes", {})
+        merged["variable_changes"].update(changes)
+
+        global_changes = result.get("global_variable_changes", {})
+        if global_changes:
+            if "global_variable_changes" not in merged:
+                merged["global_variable_changes"] = {}
+            merged["global_variable_changes"].update(global_changes)
+
+        if changes:
+            updated_vars = dict(context.get("variables", {}))
+            updated_vars.update(changes)
+            context = {**context, "variables": updated_vars}
+
+        if global_changes:
+            updated_globals = dict(context.get("global_vars", {}))
+            updated_globals.update(global_changes)
+            context = {**context, "global_vars": updated_globals}
+
+        if result.get("request_mutations"):
+            merged["request_mutations"] = result["request_mutations"]
+
+        if "next_request" in result:
+            merged["next_request"] = result["next_request"]
+        if result.get("skip_request"):
+            merged["skip_request"] = True
+
+    return merged

@@ -482,6 +482,20 @@ class TestScriptEngine:
         result = ScriptEngine.run_test_scripts(chain, _make_context())
         assert len(result["test_results"]) == 1
 
+    def test_chain_tags_runtime_errors_with_source(self):
+        """Runtime errors should include the source_name of the failing script."""
+        chain: list[ScriptEntry] = [
+            {
+                "code": "const x =n",  # intentionally broken
+                "language": "javascript",
+                "source_name": "Hyperguest",
+            },
+        ]
+        result = ScriptEngine.run_pre_request_scripts(chain, _make_context())
+        errs = [r for r in result["test_results"] if r.get("name") == "(runtime error)"]
+        assert len(errs) == 1
+        assert errs[0]["source_name"] == "Hyperguest"
+
 
 # ===================================================================
 # JS runtime tests (require py_mini_racer)

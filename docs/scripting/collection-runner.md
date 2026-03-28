@@ -34,17 +34,51 @@ counts per request:
 | Result | `OK` or error message |
 
 A summary line shows aggregate totals:
-`Done: N/M requests OK | Tests: P/T passed | E error(s)`
+`Done: N/M requests OK | Tests: P/T passed | E error(s) | S skipped`
+
+### Per-Request Detail
+
+Clicking a result row shows a detail panel with:
+
+- Response status code and timing
+- Response headers
+- Response body (first 2000 characters)
+- Test assertions with pass/fail icons
+- Error message (if any)
+
+### Export
+
+The **Export…** button saves the results to CSV or JSON.
+The export includes name, method, status, timing, test counts,
+and result/error for each request.
 
 ## Implementation
 
-The runner worker (`_RunnerWorker` in `collection_runner.py`) fetches
+The runner worker (`RunnerWorker` in `collection_runner/worker.py`) fetches
 script chains via `ScriptService.build_script_chain(request_id)` and
 executes them via `ScriptEngine.run_pre_request_scripts()` and
 `ScriptEngine.run_test_scripts()`.
 
 Pre-request script mutations (URL, method, headers, body) are applied
 before the HTTP request is sent.
+
+## Environment Variables
+
+The runner's **Environment** dropdown lets you select an environment
+before starting a run.  Selected environment variables are:
+
+- Substituted into URLs, headers, and body text (`{{variable}}`)
+- Passed to pre-request and test script contexts via
+  `pm.environment.get(key)`
+
+Variable substitution uses the same `{{key}}` pattern as the main
+send pipeline.
+
+## Request Selection
+
+The runner shows a checklist of all requests in the collection.
+Uncheck individual requests to exclude them from the run.
+Use **Select All** / **Deselect All** buttons for bulk control.
 
 ## Variable Propagation
 

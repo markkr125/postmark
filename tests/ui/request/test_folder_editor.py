@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 from PySide6.QtWidgets import QApplication
 
 from ui.request.folder_editor import FolderEditorWidget, _normalize_events
@@ -464,3 +466,162 @@ class TestFolderEditorPostmanEvents:
         editor.load_collection({"name": "Coll", "events": None}, collection_id=1)
         assert editor._pre_request_edit.toPlainText() == ""
         assert editor._test_script_edit.toPlainText() == ""
+
+
+class TestFolderEditorRunsTab:
+    """Tests for the Runs tab and Run button."""
+
+    def test_runs_tab_exists(self, qapp: QApplication, qtbot) -> None:
+        """The editor has a Runs tab."""
+        editor = FolderEditorWidget()
+        qtbot.addWidget(editor)
+        tab_labels = [editor._tabs.tabText(i) for i in range(editor._tabs.count())]
+        assert "Runs" in tab_labels
+
+    def test_run_button_exists(self, qapp: QApplication, qtbot) -> None:
+        """The editor has a Run button."""
+        editor = FolderEditorWidget()
+        qtbot.addWidget(editor)
+        assert editor._run_btn is not None
+        assert editor._run_btn.text() == "Run"
+
+    def test_run_button_emits_signal(self, qapp: QApplication, qtbot) -> None:
+        """Clicking Run emits run_requested with the collection ID."""
+        editor = FolderEditorWidget()
+        qtbot.addWidget(editor)
+        editor.load_collection({"name": "Test"}, collection_id=42)
+
+        with qtbot.waitSignal(editor.run_requested) as blocker:
+            editor._run_btn.click()
+
+        assert blocker.args == [42]
+
+    def test_run_button_no_signal_without_collection(self, qapp: QApplication, qtbot) -> None:
+        """Run button does not emit when no collection is loaded."""
+        editor = FolderEditorWidget()
+        qtbot.addWidget(editor)
+
+        signals: list[int] = []
+        editor.run_requested.connect(signals.append)
+        editor._run_btn.click()
+        assert signals == []
+
+    def test_load_runs_populates_table(self, qapp: QApplication, qtbot) -> None:
+        """load_runs fills the runs table with history data."""
+        editor = FolderEditorWidget()
+        qtbot.addWidget(editor)
+
+        runs = [
+            {
+                "started_at": "2024-01-15 10:30:00",
+                "source": "manual",
+                "duration_ms": 2500,
+                "total_tests": 10,
+                "passed": 8,
+                "failed": 2,
+                "avg_response_ms": 120.5,
+                "status": "completed",
+            },
+        ]
+        editor.load_runs(runs)
+        assert editor._runs_table.rowCount() == 1
+
+    def test_load_runs_empty(self, qapp: QApplication, qtbot) -> None:
+        """load_runs with empty list clears the table."""
+        editor = FolderEditorWidget()
+        qtbot.addWidget(editor)
+        editor.load_runs([])
+        assert editor._runs_table.rowCount() == 0
+
+    def test_runs_table_has_skipped_column(self, qapp: QApplication, qtbot) -> None:
+        """Runs table headers include a Skipped column."""
+        editor = FolderEditorWidget()
+        qtbot.addWidget(editor)
+        headers = []
+        for i in range(editor._runs_table.columnCount()):
+            item = editor._runs_table.horizontalHeaderItem(i)
+            if item:
+                headers.append(item.text())
+        assert "Skipped" in headers
+
+    def test_load_runs_skipped_value(self, qapp: QApplication, qtbot) -> None:
+        """load_runs displays the skipped count."""
+        editor = FolderEditorWidget()
+        qtbot.addWidget(editor)
+        runs = [
+            {
+                "started_at": "2024-01-15 10:30:00",
+                "source": "manual",
+                "duration_ms": 1000,
+                "total_tests": 5,
+                "passed": 3,
+                "failed": 1,
+                "skipped": 1,
+                "avg_response_ms": 50.0,
+                "status": "completed",
+            },
+        ]
+        editor.load_runs(runs)
+        # Skipped is column index 6
+        skipped_item = editor._runs_table.item(0, 6)
+        assert skipped_item is not None
+        assert skipped_item.text() == "1"
+
+
+class TestFolderEditorScriptHistory:
+    """Tests for the script version history button and version capture."""
+
+    def test_history_button_exists(self, qapp: QApplication, qtbot) -> None:
+        """The Scripts tab has a History button."""
+        editor = FolderEditorWidget()
+        qtbot.addWidget(editor)
+        assert editor._history_btn is not None
+        assert editor._history_btn.text() == "History"
+
+    def test_version_capture_timer_created(self, qapp: QApplication, qtbot) -> None:
+        """A version capture timer is created during init."""
+        editor = FolderEditorWidget()
+        qtbot.addWidget(editor)
+        assert editor._version_capture_timer.isSingleShot()
+
+    @patch("ui.request.folder_editor.ScriptVersionService.capture")
+    def test_version_capture_fires_on_edit(self, mock_capture, qapp: QApplication, qtbot) -> None:
+        """Editing a script captures a version after the debounce."""
+        editor = FolderEditorWidget()
+        qtbot.addWidget(editor)
+        editor.load_collection({"name": "Coll"}, collection_id=7)
+
+        editor._pre_request_edit.setPlainText("console.log('hi');")
+        # Fire the timer immediately
+        editor._version_capture_timer.stop()
+        editor._capture_script_versions()
+
+        mock_capture.assert_called()
+        call_kwargs = mock_capture.call_args
+        assert call_kwargs[1]["collection_id"] == 7
+        assert call_kwargs[1]["request_id"] is None
+        assert call_kwargs[1]["script_type"] == "pre_request"
+
+    @patch("ui.request.folder_editor.ScriptVersionService.capture")
+    def test_no_capture_without_collection(self, mock_capture, qapp: QApplication, qtbot) -> None:
+        """Version capture does nothing without a loaded collection."""
+        editor = FolderEditorWidget()
+        qtbot.addWidget(editor)
+
+        editor._pre_request_edit.setPlainText("x")
+        editor._capture_script_versions()
+
+        mock_capture.assert_not_called()
+
+    @patch("ui.request.folder_editor.ScriptVersionService.capture")
+    def test_no_capture_during_load(self, mock_capture, qapp: QApplication, qtbot) -> None:
+        """Loading data does not trigger version capture."""
+        editor = FolderEditorWidget()
+        qtbot.addWidget(editor)
+
+        editor.load_collection(
+            {"name": "Coll", "events": {"pre_request": "x"}},
+            collection_id=5,
+        )
+        # Timer should NOT have started during load
+        assert not editor._version_capture_timer.isActive()

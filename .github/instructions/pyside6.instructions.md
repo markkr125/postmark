@@ -219,6 +219,9 @@ standard object names:
 | `variableValueLabel` | `QLabel` | Variable value in sidebar panel |
 | `sidebarSourceDot` | `QLabel` | Colour-coded variable source dot |
 | `sidebarSeparator` | `QFrame` | Separator line in sidebar panels |
+| `completionPopup` | `QFrame` | Code editor autocomplete popup container |
+| `completionPopupList` | `QListWidget` | Completion item list inside popup |
+| `completionPopupDoc` | `QLabel` | Selected-item doc/signature label |
 
 ### QTabBar overflow scroll buttons
 

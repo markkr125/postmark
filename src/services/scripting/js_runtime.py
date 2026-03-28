@@ -3,6 +3,9 @@
 Executes user scripts in an isolated V8 engine with zero ambient
 capabilities.  The ``pm`` API is injected via ``pm_bootstrap.js``.
 
+Vendor libraries (lodash, moment, CryptoJS, etc.) are loaded lazily —
+only when the script contains a matching ``require('name')`` call.
+
 Resource limits:
 - **Timeout:** 5 seconds per script execution.
 - **Memory:** 64 MB maximum heap.
@@ -14,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -28,10 +32,81 @@ _TIMEOUT_MS = 5_000
 _MAX_MEMORY_BYTES = 67_108_864  # 64 MB
 
 # Path to the bootstrap JS preamble.
-_BOOTSTRAP_PATH = Path(__file__).resolve().parents[2] / "data" / "scripts" / "pm_bootstrap.js"
+_SCRIPTS_DIR = Path(__file__).resolve().parents[3] / "data" / "scripts"
+_BOOTSTRAP_PATH = _SCRIPTS_DIR / "pm_bootstrap.js"
+_VENDOR_DIR = _SCRIPTS_DIR / "vendor"
 
-# Cached bootstrap source — loaded once on first use.
+# Polyfills always loaded (small, provides crypto/atob/btoa/window shims).
+_POLYFILLS_FILE = "polyfills.js"
+
+# Map from require('name') → vendor file(s) to load.
+# Order within each list matters — dependencies first.
+# ``None`` means the module is provided by pm_bootstrap.js (no extra file).
+_REQUIRE_MAP: dict[str, list[str] | None] = {
+    "crypto-js": ["crypto-js.js"],
+    "lodash": ["lodash.js"],
+    "moment": ["moment.js"],
+    "chai": ["chai.js"],
+    "tv4": ["tv4.js"],
+    "ajv": ["ajv.js"],
+    "xml2js": ["xml2js.js"],
+    "csv-parse/sync": ["buffer-polyfill.js", "csv-parse.js"],
+    "uuid": None,  # built into bootstrap
+}
+
+# Regex to detect require('module-name') in user scripts.
+_REQUIRE_RE = re.compile(r"""require\s*\(\s*['"]([^'"]+)['"]\s*\)""")
+
+# Global identifiers that imply a vendor module (used without require()).
+_GLOBAL_IMPLIES: dict[str, str] = {
+    "CryptoJS": "crypto-js",
+}
+
+# Cached sources — loaded once on first use.
 _bootstrap_source: str | None = None
+_polyfills_source: str | None = None
+_vendor_cache: dict[str, str] = {}
+
+
+def _get_polyfills() -> str:
+    """Return cached polyfills JS source, loading on first call."""
+    global _polyfills_source
+    if _polyfills_source is None:
+        path = _VENDOR_DIR / _POLYFILLS_FILE
+        _polyfills_source = path.read_text(encoding="utf-8")
+    return _polyfills_source
+
+
+def _get_vendor_file(name: str) -> str:
+    """Return cached vendor JS source for *name*, loading on first call."""
+    if name not in _vendor_cache:
+        path = _VENDOR_DIR / name
+        _vendor_cache[name] = path.read_text(encoding="utf-8")
+    return _vendor_cache[name]
+
+
+def _detect_required_modules(script: str) -> set[str]:
+    """Scan *script* for ``require('name')`` calls and global names."""
+    mods = set(_REQUIRE_RE.findall(script))
+    for global_name, mod_name in _GLOBAL_IMPLIES.items():
+        if global_name in script:
+            mods.add(mod_name)
+    return mods
+
+
+def _resolve_vendor_files(modules: set[str]) -> list[str]:
+    """Return de-duplicated, ordered list of vendor files to load."""
+    seen: set[str] = set()
+    result: list[str] = []
+    for mod in sorted(modules):
+        files = _REQUIRE_MAP.get(mod)
+        if files is None:
+            continue
+        for f in files:
+            if f not in seen:
+                seen.add(f)
+                result.append(f)
+    return result
 
 
 def _get_bootstrap() -> str:
@@ -96,19 +171,24 @@ def _run_in_isolate(
     try:
         ctx = mini_racer_cls()
 
-        # 1. Set context data before bootstrap reads it.
+        # 1. Load polyfills (always) + vendor libs required by the script.
+        ctx.eval(_get_polyfills())
+        for vf in _resolve_vendor_files(_detect_required_modules(script)):
+            ctx.eval(_get_vendor_file(vf))
+
+        # 2. Set context data before bootstrap reads it.
         ctx.eval("var __pm_context = " + json.dumps(_build_js_context(context)) + ";")
 
-        # 2. Run bootstrap to create pm/console objects.
+        # 3. Run bootstrap to create pm/console objects.
         ctx.eval(_get_bootstrap())
 
-        # 3. Execute user script with timeout and memory limits.
+        # 4. Execute user script with timeout and memory limits.
         ctx.eval(script, timeout=_TIMEOUT_MS, max_memory=_MAX_MEMORY_BYTES)
 
-        # 4. Process sendRequest queue (trampoline loop).
+        # 5. Process sendRequest queue (trampoline loop).
         _process_send_queue(ctx)
 
-        # 5. Extract accumulated state.
+        # 6. Extract accumulated state.
         state_json = ctx.eval("JSON.stringify(__pm_state)")
         state: dict[str, Any] = json.loads(state_json)
 
@@ -119,11 +199,11 @@ def _run_in_isolate(
         if global_changes:
             output["global_variable_changes"] = global_changes
 
-        # 6. Capture request mutations (pre-request only).
+        # 7. Capture request mutations (pre-request only).
         if context.get("response") is None and state.get("request_mutations"):
             output["request_mutations"] = state["request_mutations"]
 
-        # 7. Capture execution flow control.
+        # 8. Capture execution flow control.
         if state.get("next_request") is not None or "next_request" in state:
             output["next_request"] = state.get("next_request")
         if state.get("skip_request"):

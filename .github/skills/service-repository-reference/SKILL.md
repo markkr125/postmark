@@ -67,6 +67,18 @@ cross-layer data interchange.
 | `delete_environment(id)` | `None` | Delete environment |
 | `update_environment_values(id, values)` | `None` | Replace key-value pairs |
 
+### Run history repository (`run_history_repository.py`)
+
+| Function | Returns | Purpose |
+|----------|---------|---------|
+| `create_run(collection_id, source?)` | `RunHistoryModel` | Start a new run record |
+| `finish_run(run_id, **stats)` | `None` | Finalise a run with duration, test counts, status |
+| `add_result(run_id, **fields)` | `RunResultModel` | Add a per-request result |
+| `get_runs_for_collection(collection_id, limit?)` | `list[RunHistoryModel]` | Runs for a collection, newest first |
+| `get_run_results(run_id)` | `list[RunResultModel]` | Results for a run, ordered by ID |
+| `delete_run(run_id)` | `bool` | Delete a single run (True if found) |
+| `delete_runs_for_collection(collection_id)` | `int` | Delete all runs for a collection, return count |
+
 ## Service method catalogue
 
 ### CollectionService
@@ -163,6 +175,21 @@ variable substitution via `{{variable}}` syntax.
 | `update_variable_value(source, source_id, key, new_value)` | Update a single variable at its collection/environment source |
 | `add_variable(source, source_id, key, value)` | Add (or update) a variable to a collection or environment |
 | `substitute(text, variables)` | Replace `{{key}}` placeholders in text |
+
+### RunHistoryService
+
+All methods are `@staticmethod`.  Wraps `run_history_repository` for run
+history CRUD.
+
+| Method | Purpose |
+|--------|---------|
+| `create_run(collection_id, source?)` | Start a new run record |
+| `finish_run(run_id, **stats)` | Finalise a run with stats (incl. `skipped`) |
+| `add_result(run_id, **fields)` | Add a per-request result |
+| `get_runs(collection_id, limit?)` | Runs for a collection as list of dicts |
+| `get_results(run_id)` | Results for a run as list of dicts |
+| `delete_run(run_id)` | Delete a single run |
+| `delete_runs(collection_id)` | Delete all runs for a collection |
 
 ### GraphQLSchemaService
 
@@ -440,8 +467,8 @@ See `ui/styling/theme.py` for full field definitions.
 
 ## Response viewer and popup system
 
-`ResponseViewerWidget` displays the HTTP response with four tabs:
-Body, Headers, Cookies, and Saved.
+`ResponseViewerWidget` displays the HTTP response with five tabs:
+Body, Headers, Cookies, Test Results (hidden), and Pre-request (hidden).
 
 ### Body tab
 

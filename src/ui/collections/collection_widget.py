@@ -69,6 +69,7 @@ class CollectionWidget(QWidget):
     # Forwarded signals from the tree
     item_action_triggered = Signal(str, int, str)
     item_name_changed = Signal(str, int, str)
+    run_collection_requested = Signal(int)  # collection_id
 
     # Emitted when the initial background fetch completes
     load_finished = Signal()
@@ -102,6 +103,7 @@ class CollectionWidget(QWidget):
         self._tree_widget = CollectionTree(self)
         self._tree_widget.item_action_triggered.connect(self.item_action_triggered)
         self._tree_widget.item_name_changed.connect(self.item_name_changed)
+        self._tree_widget.run_collection_requested.connect(self.run_collection_requested)
 
         # Connect tree signals → service layer
         self._tree_widget.collection_rename_requested.connect(self._on_collection_rename)

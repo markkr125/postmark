@@ -58,11 +58,11 @@ class ScriptService:
         test: list[ScriptEntry] = []
         language = str(normalized.get("language", _DEFAULT_LANGUAGE))
 
-        pre_code = normalized.get("pre_request", "").strip()
+        pre_code = (normalized.get("pre_request") or "").strip()
         if pre_code:
             pre.append({"code": pre_code, "language": language, "source_name": name})
 
-        test_code = normalized.get("test", "").strip()
+        test_code = (normalized.get("test") or "").strip()
         if test_code:
             test.append({"code": test_code, "language": language, "source_name": name})
 
@@ -81,7 +81,7 @@ def _build_chains(
         source_name = layer.get("name", "")
         language = str(normalized.get("language", _DEFAULT_LANGUAGE))
 
-        pre_code = normalized.get("pre_request", "").strip()
+        pre_code = (normalized.get("pre_request") or "").strip()
         if pre_code:
             pre_entries.append(
                 {
@@ -91,7 +91,7 @@ def _build_chains(
                 }
             )
 
-        test_code = normalized.get("test", "").strip()
+        test_code = (normalized.get("test") or "").strip()
         if test_code:
             test_entries.append(
                 {
@@ -104,4 +104,5 @@ def _build_chains(
     # Test chain runs bottom-up: request → folder → collection.
     test_entries.reverse()
 
+    return pre_entries, test_entries
     return pre_entries, test_entries

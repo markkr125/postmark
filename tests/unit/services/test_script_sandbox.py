@@ -115,6 +115,42 @@ pm.test("b64", lambda: pm.expect(b64decode(b64encode(b"hello"))).to.equal(b"hell
         for r in result["test_results"]:
             assert r["passed"] is True, f"{r['name']} failed: {r['error']}"
 
+    def test_uuid_v4_available(self):
+        """``uuid_v4()`` returns a valid UUID v4 string."""
+        script = """
+uid = uuid_v4()
+pm.test("uuid format", lambda: pm.expect(len(uid)).to.equal(36))
+pm.test("uuid dashes", lambda: pm.expect(uid.count("-")).to.equal(4))
+pm.variables.set("uid", uid)
+"""
+        result = PyRuntime.execute(script, _make_context())
+        for r in result["test_results"]:
+            assert r["passed"] is True, f"{r['name']} failed: {r['error']}"
+        uid = result["variable_changes"]["uid"]
+        # Validate UUID v4 format.
+        import uuid
+
+        parsed = uuid.UUID(uid)
+        assert parsed.version == 4
+
+    def test_hashlib_hmac_sha256_available(self):
+        """``hashlib_hmac_sha256()`` returns correct HMAC-SHA256 hex digest."""
+        script = """
+sig = hashlib_hmac_sha256("message", "secret")
+pm.test("hmac type", lambda: pm.expect(sig).to.be.a("str"))
+pm.test("hmac length", lambda: pm.expect(len(sig)).to.equal(64))
+pm.variables.set("sig", sig)
+"""
+        result = PyRuntime.execute(script, _make_context())
+        for r in result["test_results"]:
+            assert r["passed"] is True, f"{r['name']} failed: {r['error']}"
+        # Verify against known value.
+        import hashlib
+        import hmac
+
+        expected = hmac.new(b"secret", b"message", hashlib.sha256).hexdigest()
+        assert result["variable_changes"]["sig"] == expected
+
     def test_console_rate_limit(self):
         script = """
 for i in range(250):

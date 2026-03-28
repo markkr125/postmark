@@ -125,8 +125,6 @@ def _run_in_subprocess(script: str, context: ScriptInput) -> ScriptOutput:
                     "duration_ms": (time.monotonic() - start) * 1000,
                 }
             )
-
-        proc.wait(timeout=2)
     except Exception as exc:
         output["test_results"].append(
             {
@@ -138,6 +136,8 @@ def _run_in_subprocess(script: str, context: ScriptInput) -> ScriptOutput:
         )
     finally:
         timer.cancel()
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            proc.wait(timeout=5)
         if proc.poll() is None:
             proc.kill()
 

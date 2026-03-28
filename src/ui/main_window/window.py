@@ -9,6 +9,7 @@ from PySide6.QtCore import QSize, Qt, QThread, QTimer
 from PySide6.QtGui import QAction, QCloseEvent, QCursor, QGuiApplication, QKeySequence
 
 if TYPE_CHECKING:
+    from services.scripting.debug import DebugProtocol
     from ui.request.http_worker import HttpSendWorker
 
 from PySide6.QtWidgets import (
@@ -95,6 +96,7 @@ class MainWindow(
         # Legacy single-send state (used when no tab is found)
         self._send_thread: QThread | None = None
         self._send_worker: HttpSendWorker | None = None
+        self._debug_protocol: DebugProtocol | None = None
 
         self.collection_widget = CollectionWidget(self)
 
@@ -133,6 +135,7 @@ class MainWindow(
 
         # Wire collection runner
         self.run_action.triggered.connect(self._on_run_collection)
+        self.collection_widget.run_collection_requested.connect(self._on_run_collection_by_id)
 
         # Wire environment editor
         self._env_selector.manage_requested.connect(self._on_manage_environments)
@@ -148,6 +151,9 @@ class MainWindow(
         self._right_sidebar.saved_responses_panel.delete_requested.connect(
             self._on_delete_saved_response
         )
+
+        # Wire debug panel step controls
+        self._right_sidebar.debug_panel.step_requested.connect(self._on_debug_step)
 
         # Refresh variable highlighting when the environment changes
         self._env_selector.environment_changed.connect(self._on_environment_changed)
@@ -346,6 +352,7 @@ class MainWindow(
 
         # Wire send for the default editor
         self.request_widget.send_requested.connect(self._on_send_request)
+        self.request_widget.debug_requested.connect(self._on_debug_request)
 
         return wrapper
 
@@ -660,6 +667,9 @@ class MainWindow(
     # ------------------------------------------------------------------
     def closeEvent(self, event: QCloseEvent) -> None:
         """Persist session and clean up all tabs before closing."""
+        if self._debug_protocol is not None:
+            self._debug_protocol.stop()
+            self._debug_protocol = None
         self._persist_open_tabs()
         for ctx in self._tabs.values():
             ctx.cancel_send()
@@ -677,9 +687,13 @@ class MainWindow(
         if coll_id is None:
             logger.warning("No collection selected for runner")
             return
+        self._on_run_collection_by_id(coll_id)
+
+    def _on_run_collection_by_id(self, collection_id: int) -> None:
+        """Open the collection runner dialog for a specific collection."""
         from ui.dialogs.collection_runner import CollectionRunnerDialog
 
-        dialog = CollectionRunnerDialog(coll_id, parent=self)
+        dialog = CollectionRunnerDialog(collection_id, parent=self)
         dialog.exec()
 
     # ------------------------------------------------------------------

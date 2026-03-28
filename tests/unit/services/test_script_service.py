@@ -183,9 +183,3 @@ class TestBuildCollectionScriptChain:
         events: dict[str, str] = {"pre_request": "  ", "test": ""}
         pre, test = ScriptService.build_collection_script_chain(events)
         assert pre == [] and test == []
-
-    def test_empty_scripts_omitted(self) -> None:
-        """Empty or whitespace-only scripts are not included in the chain."""
-        events: dict[str, str] = {"pre_request": "  ", "test": ""}
-        pre, test = ScriptService.build_collection_script_chain(events)
-        assert pre == [] and test == []

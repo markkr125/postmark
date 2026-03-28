@@ -48,6 +48,7 @@ _FOLD_BADGE_V_PAD = 1  # vertical padding inside the badge
 _FOLD_BADGE_RADIUS = 3  # corner radius of the badge pill
 _FOLD_BADGE_GAP = 6  # gap between end of line text and badge
 _WHITESPACE_DOT_RADIUS = 1.5  # px — small centered dot on selected spaces
+_BREAKPOINT_GUTTER_WIDTH = 14  # px — breakpoint indicator column
 
 # Regex for XML/HTML fold detection
 _XML_OPEN_TAG = re.compile(r"<(\w[\w.\-:]*)(?:\s[^>]*)?\s*>")
@@ -133,3 +134,30 @@ class _FoldGutterArea(QWidget):
             self.setCursor(Qt.CursorShape.PointingHandCursor)
         else:
             self.setCursor(Qt.CursorShape.ArrowCursor)
+
+
+class _BreakpointGutterArea(QWidget):
+    """Breakpoint indicator gutter for the code editor.
+
+    Displays red circles for set breakpoints and a yellow arrow for
+    the current debug line.  Click to toggle breakpoints.
+    """
+
+    def __init__(self, editor: CodeEditorWidget) -> None:
+        """Initialise the breakpoint gutter area."""
+        super().__init__(editor)
+        self._editor = editor
+        self.setMouseTracking(True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def sizeHint(self) -> QSize:
+        """Return the fixed breakpoint gutter width."""
+        return QSize(_BREAKPOINT_GUTTER_WIDTH, 0)
+
+    def paintEvent(self, event: QPaintEvent) -> None:
+        """Delegate painting to the editor."""
+        self._editor.paint_breakpoint_area(event)
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        """Toggle breakpoint on click."""
+        self._editor.breakpoint_gutter_clicked(event.position().toPoint().y())

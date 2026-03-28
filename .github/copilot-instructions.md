@@ -116,16 +116,17 @@ poetry run pytest
 Fastest paths to understand and navigate the codebase:
 
 - **All services at a glance:** Read `src/services/__init__.py` — re-exports
-  `CollectionService`, `EnvironmentService`, `ImportService`, and key
-  TypedDicts (`RequestLoadDict`, `VariableDetail`, `LocalOverride`).
+  `CollectionService`, `EnvironmentService`, `ImportService`,
+  `RunHistoryService`, and key TypedDicts (`RequestLoadDict`,
+  `VariableDetail`, `LocalOverride`).
 - **HTTP subsystem:** Read `src/services/http/__init__.py` — re-exports
   `HttpService`, `GraphQLSchemaService`, `SnippetGenerator`,
   `SnippetOptions`, `HttpResponseDict`, `parse_header_dict`.
   Auth header injection lives in `src/services/http/auth_handler.py`.
   OAuth 2.0 token exchange lives in `src/services/http/oauth2_service.py`.
-- **All DB models:** Read `src/database/database.py` — re-exports all four
+- **All DB models:** Read `src/database/database.py` — re-exports all six
   ORM models (`CollectionModel`, `RequestModel`, `SavedResponseModel`,
-  `EnvironmentModel`).
+  `EnvironmentModel`, `RunHistoryModel`, `RunResultModel`).
 - **Collection CRUD vs queries:** Mutations live in
   `collection_repository.py`; read-only tree/breadcrumb/ancestor queries
   live in `collection_query_repository.py`.
@@ -164,6 +165,11 @@ src/
 │       │       ├── collection_model.py    # CollectionModel (folders)
 │       │       ├── request_model.py       # RequestModel (HTTP requests)
 │       │       └── saved_response_model.py
+│       ├── runs/
+│       │   ├── run_history_repository.py  # CRUD for run history + results
+│       │   └── model/
+│       │       ├── run_history_model.py   # RunHistoryModel (collection runs)
+│       │       └── run_result_model.py    # RunResultModel (per-request results)
 │       └── environments/
 │           ├── environment_repository.py  # CRUD for environments
 │           └── model/
@@ -172,13 +178,18 @@ src/
 │   ├── collection_service.py      # CollectionService (static methods)
 │   ├── environment_service.py     # EnvironmentService (variable substitution + TypedDicts)
 │   ├── import_service.py          # ImportService (parse + persist)
+│   ├── run_history_service.py     # RunHistoryService (run history CRUD bridge)
 │   ├── script_service.py          # ScriptService (script chain resolution)
 │   ├── scripting/                 # Script execution sub-package
 │   │   ├── __init__.py            # TypedDicts (ScriptInput/Output, TestResult, etc.)
-│   │   ├── engine.py              # ScriptEngine (run chains, merge outputs)
+│   │   ├── engine.py              # ScriptEngine (run chains, merge outputs) + run_debug_chain
 │   │   ├── context.py             # Context builders + normalize_events() + execute_sub_request() + globals persistence
-│   │   ├── js_runtime.py          # JSRuntime (V8 via PyMiniRacer)
-│   │   └── py_runtime.py          # PyRuntime (RestrictedPython subprocess)
+│   │   ├── js_runtime.py          # JSRuntime (V8 via PyMiniRacer) + vendor script loader
+│   │   ├── py_runtime.py          # PyRuntime (RestrictedPython subprocess)
+│   │   └── debug/                 # Debug sub-package (step-through debugging)
+│   │       ├── protocol.py        # DebugProtocol state machine + DebugPauseInfo
+│   │       ├── js_debug.py        # JS statement-by-statement debug execution
+│   │       └── py_debug.py        # Python settrace subprocess debug execution
 │   ├── http/                      # HTTP request/response handling
 │   │   ├── http_service.py        # HttpService (httpx) + response TypedDicts
 │   │   ├── graphql_schema_service.py  # GraphQL introspection + schema parsing
@@ -198,7 +209,7 @@ src/
 └── ui/                            # PySide6 widgets
     ├── main_window/               # Top-level MainWindow sub-package
     │   ├── window.py              # MainWindow widget + signal wiring
-    │   ├── send_pipeline.py       # _SendPipelineMixin — HTTP send/response flow
+    │   ├── send_pipeline.py       # _SendPipelineMixin — HTTP send/response flow + debug pipeline
     │   ├── draft_controller.py    # _DraftControllerMixin — draft tab open/save
     │   ├── tab_controller.py      # _TabControllerMixin — tab open/close/switch
     │   └── variable_controller.py # _VariableControllerMixin — env variable + sidebar management
@@ -207,6 +218,7 @@ src/
     │   ├── sidebar_widget.py      # RightSidebar (icon rail) + _FlyoutPanel
     │   ├── variables_panel.py     # VariablesPanel — read-only variable display
     │   ├── snippet_panel.py       # SnippetPanel — inline code snippet generator
+    │   ├── debug_panel.py         # DebugPanel — step controls + variable inspector
     │   └── saved_responses/           # Saved responses sub-package
     │       ├── panel.py               # SavedResponsesPanel — saved example list/detail flyout
     │       ├── search_filter.py       # _PanelSearchFilterMixin — body search/filter
@@ -224,7 +236,14 @@ src/
     │   │   ├── highlighter.py     # Syntax highlighting engine
     │   │   ├── folding.py         # Code folding logic
     │   │   ├── gutter.py          # Line-number gutter
-    │   │   └── painting.py        # Custom painting helpers
+    │   │   ├── painting.py        # Custom painting helpers
+    │   │   └── completion/        # Autocomplete sub-package
+    │   │       ├── schema/        # Schema sub-package
+    │   │       │   ├── core.py    # SchemaNode TypedDict, expectation chain, shared helpers
+    │   │       │   ├── js.py      # JS_SCHEMA (pm, console, CryptoJS, postman) + JS_GLOBALS
+    │   │       │   └── py.py      # PY_SCHEMA + PY_GLOBALS (Python variant)
+    │   │       ├── engine.py      # CompletionEngine — dot-path/variable resolver
+    │   │       └── popup.py       # CompletionPopup — floating autocomplete widget
     │   ├── info_popup.py          # InfoPopup (QFrame) base + ClickableLabel
     │   ├── key_value_table.py     # Reusable key-value editor widget
     │   ├── variable_line_edit.py  # VariableLineEdit — QLineEdit with {{var}} highlighting + hover popup
@@ -240,7 +259,12 @@ src/
     │       ├── tree_actions.py    # _TreeActionsMixin — context menus, rename, delete
     │       └── collection_tree_delegate.py  # Custom delegate for method badges
     ├── dialogs/                   # Modal dialogs
-    │   ├── collection_runner.py
+    │   ├── collection_runner/
+    │   │   ├── __init__.py        # Re-exports CollectionRunnerDialog
+    │   │   ├── dialog.py          # CollectionRunnerDialog + run history persistence
+    │   │   ├── config.py          # RunnerConfigView (env selector, request checklist, data file, iterations, delay)
+    │   │   ├── results.py         # RunnerResultsView (summary + results table + detail panel + export)
+    │   │   └── worker.py          # RunnerWorker (QThread), parse_data_file, env var substitution, scripts_enabled
     │   ├── import_dialog.py
     │   ├── save_request_dialog.py  # Save draft request to collection
     │   └── settings_dialog.py     # Settings (theme + request-tab behaviour)
@@ -268,7 +292,8 @@ src/
         ├── response_viewer/         # ResponseViewer sub-package
         │   ├── viewer_widget.py     # ResponseViewer — response display widget
         │   ├── search_filter.py     # _SearchFilterMixin — response search/filter
-        │   └── test_results_mixin.py # _TestResultsMixin — test results tab
+        │   ├── test_results_mixin.py # _TestResultsMixin — test results tab
+        │   └── pre_request_mixin.py # _PreRequestMixin — pre-request script output tab
         ├── navigation/              # Tab switching and path navigation
         │   ├── breadcrumb_bar.py
         │   ├── request_tab_bar.py   # Compatibility wrapper re-exporting the wrapped deck
@@ -288,16 +313,21 @@ tests/
 ├── unit/                          # Repository & service layer tests
 │   ├── database/                  # Repository tests
 │   │   ├── test_repository.py
-│   │   └── test_environment_repository.py
+│   │   ├── test_environment_repository.py
+│   │   └── test_run_history_repository.py
 │   └── services/                  # Service layer tests
 │       ├── test_service.py
 │       ├── test_environment_service.py
 │       ├── test_import_parser.py
 │       ├── test_import_service.py
 │       ├── test_script_bridge_globals.py
+│       ├── test_script_debug.py
 │       ├── test_script_engine.py
 │       ├── test_script_sandbox.py
 │       ├── test_script_service.py
+│       ├── test_script_vendor.py
+│       ├── test_script_vendor_libs.py
+│       ├── test_script_version_service.py
 │       └── http/                  # HTTP service tests
 │           ├── test_http_service.py
 │           ├── test_graphql_schema_service.py
@@ -321,12 +351,15 @@ tests/
     │   ├── test_sidebar.py
     │   ├── test_variables_panel.py
     │   ├── test_snippet_panel.py
+    │   ├── test_debug_panel.py
     │   └── test_saved_responses_panel.py
     ├── widgets/                   # Shared component tests
     │   ├── test_code_editor.py
     │   ├── test_code_editor_folding.py
     │   ├── test_code_editor_painting.py
     │   ├── test_code_editor_memory.py
+    │   ├── test_completion_engine.py
+    │   ├── test_completion_popup.py
     │   ├── test_info_popup.py
     │   ├── test_key_value_table.py
     │   ├── test_variable_line_edit.py

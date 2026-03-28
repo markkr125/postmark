@@ -311,15 +311,32 @@ MainWindow settings_act.triggered
 
 ```
 MainWindow run_act.triggered
-  → _on_run_collection
-    → CollectionRunnerDialog(collection_id)
-      → _RunnerWorker.progress(index, result_dict)
-      → _RunnerWorker.finished(results_list)
-      → _RunnerWorker.error(message)
+  → _on_run_collection → _on_run_collection_by_id(collection_id)
+
+CollectionWidget.run_collection_requested(int)
+  → MainWindow._on_run_collection_by_id(collection_id)
+
+FolderEditorWidget.run_requested(int)
+  → MainWindow._on_run_collection_by_id(collection_id)
+
+_on_run_collection_by_id(collection_id)
+  → CollectionRunnerDialog(collection_id)
+    → RunnerConfigView: env combo, request checklist, iterations, delay
+    → RunnerWorker.set_environment_vars(env_vars)
+    → RunnerWorker.set_requests(selected_requests)
+    → RunnerWorker.progress(index, result_dict)
+      → RunnerResultsView.add_result(result_dict)
+      → RunHistoryService.add_result(run_id, result_dict)
+    → RunnerWorker.finished(results_list)
+      → RunnerResultsView.show_summary(results_list)
+      → RunHistoryService.finish_run(run_id, stats incl. skipped)
+    → RunnerWorker.error(message)
 ```
 
 Runner supports `pm.execution.setNextRequest()` / `skipRequest()` flow
-control and data-driven iterations via CSV/JSON files.
+control, data-driven iterations via CSV/JSON files, environment variable
+substitution in URLs/headers/body, request selection/deselection,
+per-request detail view, and CSV/JSON export.
 
 ### Send request flow
 
@@ -340,6 +357,7 @@ RequestEditorWidget.send_requested
         → MainWindow._on_response_ready(data)
           → ResponseViewerWidget.load_response(data)
           → ResponseViewerWidget.load_test_results(results)
+          → ResponseViewerWidget.load_pre_request_data(...)
           → ConsolePanelWidget.append_logs(console)
     → HttpSendWorker.error(str)
         → ResponseViewerWidget.show_error(message)
@@ -450,12 +468,14 @@ All other signals in the flow diagrams above are fully wired.
 | `CollectionTree` | `new_collection_requested` | `Signal(object)` |
 | `CollectionTree` | `new_request_requested` | `Signal(object)` |
 | `CollectionTree` | `selected_collection_changed` | `Signal(object)` |
+| `CollectionTree` | `run_collection_requested` | `Signal(int)` — collection ID |
 | `DraggableTreeWidget` | `request_moved` | `Signal(int, int)` |
 | `DraggableTreeWidget` | `collection_moved` | `Signal(int, object)` |
 | `CollectionWidget` | `item_action_triggered` | `Signal(str, int, str)` |
 | `CollectionWidget` | `item_name_changed` | `Signal(str, int, str)` |
 | `CollectionWidget` | `load_finished` | `Signal()` |
 | `CollectionWidget` | `draft_request_requested` | `Signal()` |
+| `CollectionWidget` | `run_collection_requested` | `Signal(int)` — forwarded from tree |
 | `NewItemPopup` | `new_request_clicked` | `Signal()` |
 | `NewItemPopup` | `new_collection_clicked` | `Signal()` |
 
@@ -467,6 +487,7 @@ All other signals in the flow diagrams above are fully wired.
 | `RequestEditorWidget` | `save_requested` | `Signal()` |
 | `RequestEditorWidget` | `dirty_changed` | `Signal(bool)` |
 | `RequestEditorWidget` | `request_changed` | `Signal(dict)` |
+| `FolderEditorWidget` | `run_requested` | `Signal(int)` — collection ID |
 | `ResponseViewerWidget` | `save_response_requested` | `Signal(dict)` |
 | `HttpSendWorker` | `finished` | `Signal(dict)` — `HttpResponseDict` |
 | `HttpSendWorker` | `error` | `Signal(str)` |

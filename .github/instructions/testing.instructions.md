@@ -116,16 +116,21 @@ tests/
 ├── unit/                          # Pure logic — no Qt widgets
 │   ├── database/                  # Repository layer tests
 │   │   ├── test_repository.py
-│   │   └── test_environment_repository.py
+│   │   ├── test_environment_repository.py
+│   │   └── test_run_history_repository.py
 │   └── services/                  # Service layer tests
 │       ├── test_service.py
 │       ├── test_environment_service.py
 │       ├── test_import_parser.py
 │       ├── test_import_service.py
 │       ├── test_script_bridge_globals.py
+│       ├── test_script_debug.py
 │       ├── test_script_engine.py
 │       ├── test_script_sandbox.py
 │       ├── test_script_service.py
+│       ├── test_script_vendor.py
+│       ├── test_script_vendor_libs.py
+│       ├── test_script_version_service.py
 │       └── http/                  # HTTP service tests
 │           ├── test_http_service.py
 │           ├── test_graphql_schema_service.py
@@ -150,6 +155,8 @@ tests/
     │   ├── test_code_editor_folding.py
     │   ├── test_code_editor_painting.py
     │   ├── test_code_editor_memory.py
+    │   ├── test_completion_engine.py
+    │   ├── test_completion_popup.py
     │   ├── test_info_popup.py
     │   ├── test_key_value_table.py
     │   ├── test_variable_line_edit.py
@@ -159,6 +166,7 @@ tests/
    │   ├── test_sidebar.py
    │   ├── test_variables_panel.py
    │   ├── test_snippet_panel.py
+   │   ├── test_debug_panel.py
    │   └── test_saved_responses_panel.py
     ├── collections/               # Collection sidebar tests
     │   ├── test_collection_header.py

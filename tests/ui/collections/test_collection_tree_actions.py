@@ -101,6 +101,40 @@ class TestCollectionTreeContextMenuOverview:
         assert blocker.args == ["folder", 7, "Open"]
 
 
+class TestCollectionTreeRunAction:
+    """Tests for the Run context-menu action on folders."""
+
+    def test_run_action_exists_in_folder_menu(self, qapp: QApplication, qtbot) -> None:
+        """The folder context menu includes a Run action."""
+        tree = CollectionTree()
+        qtbot.addWidget(tree)
+        data_names = [a.data() for a in tree._folder_menu.actions()]
+        assert "Run" in data_names
+
+    def test_run_action_emits_run_collection_requested(self, qapp: QApplication, qtbot) -> None:
+        """Triggering Run emits run_collection_requested with the folder ID."""
+        tree = CollectionTree()
+        qtbot.addWidget(tree)
+
+        data = make_collection_dict(
+            [{"id": 9, "name": "RunMe"}],
+        )
+        tree.set_collections(data)
+        tree._current_item = top_level_items(tree)[0]
+
+        run_action = None
+        for action in tree._folder_menu.actions():
+            if action.data() == "Run":
+                run_action = action
+                break
+        assert run_action is not None
+
+        with qtbot.waitSignal(tree.run_collection_requested, timeout=1000) as blocker:
+            tree._emit_menu_action(run_action)
+
+        assert blocker.args == [9]
+
+
 class TestCollectionTreeSingleClick:
     """Tests for single-click behaviour on tree items."""
 

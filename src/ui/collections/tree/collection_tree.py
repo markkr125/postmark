@@ -54,6 +54,7 @@ class CollectionTree(_TreeActionsMixin, QWidget):
     new_collection_requested = Signal(object)  # parent_id (int | None)
     new_request_requested = Signal(object)  # parent_collection_id
     selected_collection_changed = Signal(object)  # collection_id (int | None)
+    run_collection_requested = Signal(int)  # collection_id
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Initialise the collection tree widget and context menus."""

@@ -86,3 +86,154 @@ class TestTestResultsTab:
         )
         assert viewer._test_results_list.count() == 3  # 2 rows + stretch
         assert "2" in viewer._test_results_summary.text()
+
+    def test_runtime_error_shows_script_error_summary(self, qapp: QApplication, qtbot) -> None:
+        """Runtime errors alone show 'Script error' instead of pass/fail count."""
+        viewer = _make_viewer(qtbot)
+        viewer.load_test_results(
+            [
+                {
+                    "name": "(runtime error)",
+                    "passed": False,
+                    "error": "ReferenceError: n is not defined",
+                    "source_name": "Hyperguest",
+                }
+            ]
+        )
+        summary = viewer._test_results_summary.text()
+        assert "Script error" in summary
+        assert "Hyperguest" in summary
+        assert "/1" not in summary  # No misleading pass count
+
+    def test_runtime_error_mixed_with_tests(self, qapp: QApplication, qtbot) -> None:
+        """When runtime errors coexist with real tests, show pass/fail count."""
+        viewer = _make_viewer(qtbot)
+        viewer.load_test_results(
+            [
+                {"name": "(runtime error)", "passed": False, "error": "err"},
+                {"name": "real test", "passed": True},
+            ]
+        )
+        summary = viewer._test_results_summary.text()
+        assert "1/2" in summary
+
+
+class TestPreRequestTab:
+    """Tests for the Pre-request tab in ResponseViewerWidget."""
+
+    def test_tab_hidden_initially(self, qapp: QApplication, qtbot) -> None:
+        """Pre-request tab is hidden by default."""
+        viewer = _make_viewer(qtbot)
+        assert not viewer._tabs.isTabVisible(viewer._pre_tab_index)
+
+    def test_load_data_shows_tab(self, qapp: QApplication, qtbot) -> None:
+        """Loading pre-request data makes the tab visible."""
+        viewer = _make_viewer(qtbot)
+        viewer.load_pre_request_data(
+            console_logs=[{"level": "log", "message": "hello", "timestamp": 0}],
+            variable_changes={},
+            errors=[],
+        )
+        assert viewer._tabs.isTabVisible(viewer._pre_tab_index)
+
+    def test_console_output_displayed(self, qapp: QApplication, qtbot) -> None:
+        """Console log messages appear in the output area."""
+        viewer = _make_viewer(qtbot)
+        viewer.load_pre_request_data(
+            console_logs=[
+                {"level": "log", "message": "setup done", "timestamp": 0},
+                {"level": "warn", "message": "low balance", "timestamp": 0},
+            ],
+            variable_changes={},
+            errors=[],
+        )
+        text = viewer._pre_request_output.toHtml()
+        assert "setup done" in text
+        assert "low balance" in text
+
+    def test_variable_changes_displayed(self, qapp: QApplication, qtbot) -> None:
+        """Variable changes are shown in the variables label."""
+        viewer = _make_viewer(qtbot)
+        viewer.load_pre_request_data(
+            console_logs=[],
+            variable_changes={"token": "abc123", "host": "api.example.com"},
+            errors=[],
+        )
+        assert not viewer._pre_request_vars_label.isHidden()
+        text = viewer._pre_request_vars_label.text()
+        assert "token" in text
+        assert "abc123" in text
+        assert "host" in text
+
+    def test_no_variable_changes_hides_label(self, qapp: QApplication, qtbot) -> None:
+        """Empty variable changes hides the variables label."""
+        viewer = _make_viewer(qtbot)
+        viewer.load_pre_request_data(
+            console_logs=[{"level": "log", "message": "x", "timestamp": 0}],
+            variable_changes={},
+            errors=[],
+        )
+        assert viewer._pre_request_vars_label.isHidden()
+
+    def test_error_shows_red_tab_label(self, qapp: QApplication, qtbot) -> None:
+        """Pre-request errors turn the tab label red."""
+        viewer = _make_viewer(qtbot)
+        viewer.load_pre_request_data(
+            console_logs=[],
+            variable_changes={},
+            errors=[
+                {"source_name": "MyFolder", "error": "n is not defined"},
+            ],
+        )
+        bar = viewer._tabs.tabBar()
+        tab_color = bar.tabTextColor(viewer._pre_tab_index)
+        assert tab_color.isValid()
+        # Red channel should dominate (COLOR_DANGER is red-ish).
+        assert tab_color.red() > tab_color.green()
+
+    def test_success_header(self, qapp: QApplication, qtbot) -> None:
+        """Successful execution shows a green summary header."""
+        viewer = _make_viewer(qtbot)
+        viewer.load_pre_request_data(
+            console_logs=[],
+            variable_changes={},
+            errors=[],
+        )
+        assert "executed" in viewer._pre_request_header.text().lower()
+
+    def test_error_header(self, qapp: QApplication, qtbot) -> None:
+        """Errors show the source and message in the header."""
+        viewer = _make_viewer(qtbot)
+        viewer.load_pre_request_data(
+            console_logs=[],
+            variable_changes={},
+            errors=[
+                {"source_name": "Hyperguest", "error": "n is not defined"},
+            ],
+        )
+        text = viewer._pre_request_header.text()
+        assert "Hyperguest" in text
+        assert "n is not defined" in text
+
+    def test_clear_hides_tab(self, qapp: QApplication, qtbot) -> None:
+        """Clearing the viewer hides the Pre-request tab."""
+        viewer = _make_viewer(qtbot)
+        viewer.load_pre_request_data(
+            console_logs=[{"level": "log", "message": "hi", "timestamp": 0}],
+            variable_changes={},
+            errors=[],
+        )
+        assert viewer._tabs.isTabVisible(viewer._pre_tab_index)
+        viewer.clear()
+        assert not viewer._tabs.isTabVisible(viewer._pre_tab_index)
+
+    def test_clear_resets_tab_color(self, qapp: QApplication, qtbot) -> None:
+        """Clearing the viewer resets the tab label colour."""
+        viewer = _make_viewer(qtbot)
+        viewer.load_pre_request_data(
+            console_logs=[],
+            variable_changes={},
+            errors=[{"source_name": "X", "error": "err"}],
+        )
+        viewer.clear()
+        assert not viewer._pre_request_has_error

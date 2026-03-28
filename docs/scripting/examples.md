@@ -111,8 +111,9 @@ pm.variables.set("random_id", Math.random().toString(36).substring(2, 10));
 ```python
 pm.variables.set("timestamp", datetime_now())
 pm.variables.set("hash", hashlib_sha256("seed-" + datetime_now()))
+pm.variables.set("request_id", uuid_v4())
 
-# Use {{timestamp}} and {{hash}} in URL or body
+# Use {{timestamp}}, {{hash}}, and {{request_id}} in URL or body
 ```
 
 ## JSON Schema Validation
@@ -266,3 +267,217 @@ pm.test("No server errors", function() {
 
 These scripts run automatically for every request in the collection,
 thanks to script inheritance.
+
+## Using Vendor Libraries (JavaScript only)
+
+### JSON Schema Validation with tv4
+
+```javascript
+var tv4 = require("tv4");
+
+var schema = {
+    type: "object",
+    properties: {
+        id: { type: "number" },
+        email: { type: "string" }
+    },
+    required: ["id", "email"]
+};
+
+pm.test("Matches schema", function() {
+    pm.expect(tv4.validate(pm.response.json(), schema)).to.be.true;
+});
+```
+
+### HMAC Request Signing with CryptoJS
+
+```javascript
+var CryptoJS = require("crypto-js");
+
+var timestamp = Date.now().toString();
+var signature = CryptoJS.HmacSHA256(timestamp + pm.request.body, pm.variables.get("secret_key")).toString();
+
+pm.request.headers.upsert({ key: "X-Timestamp", value: timestamp });
+pm.request.headers.upsert({ key: "X-Signature", value: signature });
+```
+
+### HMAC Request Signing (Python)
+
+```python
+timestamp = datetime_now()
+signature = hashlib_hmac_sha256(
+    timestamp + pm.request.body,
+    pm.variables.get("secret_key")
+)
+
+pm.request.headers["X-Timestamp"] = timestamp
+pm.request.headers["X-Signature"] = signature
+```
+
+### Data Manipulation with Lodash
+
+```javascript
+var _ = require("lodash");
+
+pm.test("Group and count", function() {
+    var data = pm.response.json();
+    var grouped = _.groupBy(data, "status");
+    pm.expect(_.size(grouped.active)).to.be.above(0);
+});
+```
+
+## Achieving JavaScript Parity in Python
+
+JavaScript scripts can `require()` bundled vendor libraries (lodash,
+moment, crypto-js, etc.).  Python scripts cannot import external
+packages, but every common task has a built-in equivalent using the
+[stdlib functions](python-api.md#available-standard-library) and plain
+Python syntax.
+
+### Hashing and Signing (replaces crypto-js)
+
+JavaScript uses `crypto-js` for HMAC, AES, and hashing.  Python
+covers HMAC and hashing natively — AES encryption is not available.
+
+```python
+# SHA-256 hash
+digest = hashlib_sha256("my data")
+
+# HMAC-SHA256 signing (equivalent to CryptoJS.HmacSHA256)
+sig = hashlib_hmac_sha256("message", "secret-key")
+
+# MD5 hash (equivalent to CryptoJS.MD5)
+md5 = hashlib_md5("my data")
+```
+
+### UUID Generation (replaces uuid)
+
+```python
+request_id = uuid_v4()  # "a1b2c3d4-e5f6-..."
+pm.variables.set("request_id", request_id)
+```
+
+### Data Grouping and Filtering (replaces lodash)
+
+Python's built-in comprehensions and `sorted()` cover the most common
+lodash operations without any external library.
+
+```python
+def check_grouped():
+    data = pm.response.json()
+
+    # _.groupBy(data, "status")
+    grouped = {}
+    for item in data:
+        grouped.setdefault(item["status"], []).append(item)
+    pm.expect(len(grouped.get("active", []))).to.be.above(0)
+
+    # _.filter / _.find
+    active = [x for x in data if x["status"] == "active"]
+    first = next((x for x in data if x["id"] == 42), None)
+
+    # _.map / _.pick
+    names = [x["name"] for x in data]
+    picked = [{k: x[k] for k in ("id", "name")} for x in data]
+
+    # _.uniq / _.sortBy
+    unique = list(dict.fromkeys(names))
+    by_name = sorted(data, key=lambda x: x["name"])
+
+pm.test("Group and count", check_grouped)
+```
+
+### Date Formatting (replaces moment)
+
+Python provides `datetime_now()` for UTC timestamps.  String slicing
+handles common formatting needs.
+
+```python
+# Full ISO timestamp: "2025-01-15T12:30:45.123456"
+ts = datetime_now()
+pm.variables.set("timestamp", ts)
+
+# Date only: "2025-01-15"
+date_only = ts[:10]
+
+# Seconds since epoch (string math on the timestamp)
+pm.variables.set("date", date_only)
+```
+
+### JSON Schema Validation (replaces tv4 / ajv)
+
+Use `pm.expect` assertion chains to validate structure.  This covers
+the most common schema-check patterns without a formal validator.
+
+```python
+def validate_user(user):
+    """Check a single user object shape."""
+    pm.expect(user).to.have.property("id")
+    pm.expect(user).to.have.property("email")
+    pm.expect(user["id"]).to.be.a("int")
+    pm.expect(user["email"]).to.be.a("str")
+    pm.expect(user["email"]).to.include("@")
+
+def check_response():
+    data = pm.response.json()
+    pm.expect(data).to.be.a("list")
+    pm.expect(data).to.have.length_of(10)
+    for user in data:
+        validate_user(user)
+
+pm.test("User list matches schema", check_response)
+```
+
+### XML Parsing (replaces xml2js)
+
+XML parsing is not available in the Python sandbox.  If your API
+returns XML, parse it with `pm.expect` string assertions or use
+regex extraction:
+
+```python
+def check_xml():
+    body = pm.response.text()
+    pm.expect(body).to.include("<status>ok</status>")
+    match = re_search(r"<id>(\d+)</id>", body)
+    pm.expect(match).to.exist
+
+pm.test("XML contains status", check_xml)
+```
+
+### CSV Parsing (replaces csv-parse)
+
+CSV parsing is not available in the Python sandbox.  For simple CSV
+responses, split on delimiters:
+
+```python
+def check_csv():
+    lines = pm.response.text().strip().split("\n")
+    headers = lines[0].split(",")
+    pm.expect(headers).to.include("email")
+    pm.expect(len(lines)).to.be.above(1)
+
+    # Parse a row
+    row = dict(zip(headers, lines[1].split(",")))
+    pm.expect(row).to.have.property("email")
+
+pm.test("CSV has expected columns", check_csv)
+```
+
+### Quick Reference
+
+| JS library | Python equivalent |
+|------------|-------------------|
+| `CryptoJS.HmacSHA256(msg, key)` | `hashlib_hmac_sha256(msg, key)` |
+| `CryptoJS.SHA256(msg)` | `hashlib_sha256(msg)` |
+| `CryptoJS.MD5(msg)` | `hashlib_md5(msg)` |
+| `CryptoJS.AES.encrypt(...)` | *Not available* |
+| `require("uuid").v4()` | `uuid_v4()` |
+| `_.groupBy(arr, key)` | `setdefault` loop (see above) |
+| `_.filter(arr, pred)` | List comprehension |
+| `_.map(arr, fn)` | List comprehension |
+| `_.uniq(arr)` | `list(dict.fromkeys(arr))` |
+| `_.sortBy(arr, key)` | `sorted(arr, key=...)` |
+| `moment().format(...)` | `datetime_now()` + string slicing |
+| `tv4.validate(obj, schema)` | `pm.expect` assertion chains |
+| `xml2js.parseString(...)` | `re_search()` on raw text |
+| `csvParse(text)` | `str.split()` on lines/commas |

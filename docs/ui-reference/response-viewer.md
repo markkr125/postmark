@@ -7,7 +7,8 @@ Source: `src/ui/request/response_viewer/`
 
 ## ResponseViewerWidget
 
-Inherits `_SearchFilterMixin`.
+Inherits `_PreRequestMixin`, `_TestResultsMixin`, `_PopupMixin`,
+and `_SearchFilterMixin`.
 
 ### Visible States
 
@@ -46,6 +47,9 @@ Status badge colour follows HTTP status ranges:
 |-----|---------|
 | Body | `CodeEditorWidget` with format selector (Pretty/Raw/JSON/XML/HTML) |
 | Headers | Read-only key-value display |
+| Cookies | Response cookie list (hidden when empty) |
+| Test Results | `pm.test()` assertion results (hidden when no tests) |
+| Pre-request | Pre-request script activity log (hidden when no scripts) |
 
 ### Signals
 
@@ -62,6 +66,8 @@ Status badge colour follows HTTP status ranges:
 | `show_loading()` | Show progress bar |
 | `show_error(msg)` | Display error state |
 | `set_variable_map(variables)` | Propagate to body editor |
+| `load_test_results(results)` | Populate Test Results tab from `list[TestResult]` |
+| `load_pre_request_data(...)` | Populate Pre-request tab (console, vars, errors) |
 
 ## Search and Filter (_SearchFilterMixin)
 
@@ -155,6 +161,36 @@ present.
 | `load_test_results(results)` | Populate tab from `list[TestResult]` |
 | `_clear_test_results_rows()` | Remove all rows |
 | `_build_test_results_tab()` | Create tab widget (called once at init) |
+
+The tab is integrated via the `clear()` method — it resets to hidden
+state when a new request is sent.
+
+## Pre-request Tab
+
+**Mixin:** `_PreRequestMixin` in `response_viewer/pre_request_mixin.py`
+
+Displays console output, variable changes, and runtime errors from
+pre-request script execution.  The tab is hidden by default and shown
+only when pre-request scripts ran.  The tab label turns **red** when
+the script produced errors.
+
+### Layout
+
+- **Header:** Green "Pre-request script executed" or red
+  "Pre-request script error" with error details.
+- **Variable changes:** HTML table of key/value pairs set by the
+  script (hidden when none).
+- **Console output:** Monospaced read-only area showing `console.log`,
+  `console.warn` (amber), and `console.error` (red) entries.
+
+### API
+
+| Method | Description |
+|--------|-------------|
+| `load_pre_request_data(...)` | Populate tab from console logs, variable changes, errors |
+| `_clear_pre_request_tab()` | Remove all content, hide tab |
+| `_build_pre_request_tab()` | Create tab widget (called once at init) |
+| `_apply_pre_request_tab_color()` | Set tab label red/normal based on error state |
 
 The tab is integrated via the `clear()` method — it resets to hidden
 state when a new request is sent.

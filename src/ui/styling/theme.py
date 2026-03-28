@@ -90,6 +90,9 @@ class ThemePalette(TypedDict):
     editor_fold_badge_bg: str
     editor_fold_badge_text: str
     editor_whitespace_dot: str
+    editor_breakpoint: str
+    editor_debug_line: str
+    editor_debug_gutter_arrow: str
 
 
 # -- Light palette -----------------------------------------------------
@@ -150,6 +153,9 @@ LIGHT_PALETTE: ThemePalette = {
     "editor_fold_badge_bg": "#e0e6ed",
     "editor_fold_badge_text": "#6a737d",
     "editor_whitespace_dot": "#b0b0b0",
+    "editor_breakpoint": "#e74c3c",
+    "editor_debug_line": "#fff8dc",
+    "editor_debug_gutter_arrow": "#f39c12",
 }
 
 # -- Dark palette ------------------------------------------------------
@@ -210,6 +216,9 @@ DARK_PALETTE: ThemePalette = {
     "editor_fold_badge_bg": "#3a3d4a",
     "editor_fold_badge_text": "#a0a0a0",
     "editor_whitespace_dot": "#606060",
+    "editor_breakpoint": "#f44747",
+    "editor_debug_line": "#3a3520",
+    "editor_debug_gutter_arrow": "#f39c12",
 }
 
 
@@ -287,6 +296,9 @@ COLOR_EDITOR_ERROR_GUTTER_BG: str = _active["editor_error_gutter_bg"]
 COLOR_EDITOR_FOLD_BADGE_BG: str = _active["editor_fold_badge_bg"]
 COLOR_EDITOR_FOLD_BADGE_TEXT: str = _active["editor_fold_badge_text"]
 COLOR_EDITOR_WHITESPACE_DOT: str = _active["editor_whitespace_dot"]
+COLOR_EDITOR_BREAKPOINT: str = _active["editor_breakpoint"]
+COLOR_EDITOR_DEBUG_LINE: str = _active["editor_debug_line"]
+COLOR_EDITOR_DEBUG_GUTTER_ARROW: str = _active["editor_debug_gutter_arrow"]
 
 
 def set_active_palette(palette: ThemePalette) -> None:
@@ -322,6 +334,8 @@ def set_active_palette(palette: ThemePalette) -> None:
     global COLOR_EDITOR_ERROR_GUTTER_BG
     global COLOR_EDITOR_FOLD_BADGE_BG, COLOR_EDITOR_FOLD_BADGE_TEXT
     global COLOR_EDITOR_WHITESPACE_DOT
+    global COLOR_EDITOR_BREAKPOINT, COLOR_EDITOR_DEBUG_LINE
+    global COLOR_EDITOR_DEBUG_GUTTER_ARROW
 
     _active = palette
 
@@ -387,6 +401,9 @@ def set_active_palette(palette: ThemePalette) -> None:
     COLOR_EDITOR_FOLD_BADGE_BG = palette["editor_fold_badge_bg"]
     COLOR_EDITOR_FOLD_BADGE_TEXT = palette["editor_fold_badge_text"]
     COLOR_EDITOR_WHITESPACE_DOT = palette["editor_whitespace_dot"]
+    COLOR_EDITOR_BREAKPOINT = palette["editor_breakpoint"]
+    COLOR_EDITOR_DEBUG_LINE = palette["editor_debug_line"]
+    COLOR_EDITOR_DEBUG_GUTTER_ARROW = palette["editor_debug_gutter_arrow"]
 
 
 def current_palette() -> ThemePalette:

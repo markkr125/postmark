@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 )
 
 from ui.request.response_viewer.popup_mixin import _PopupMixin
+from ui.request.response_viewer.pre_request_mixin import _PreRequestMixin
 from ui.request.response_viewer.search_filter import _SearchFilterMixin
 from ui.request.response_viewer.test_results_mixin import _TestResultsMixin
 from ui.styling.icons import phi
@@ -80,7 +81,9 @@ def _format_size(size_bytes: int) -> str:
     return f"{size_bytes / (1024 * 1024):.2f} MB"
 
 
-class ResponseViewerWidget(_TestResultsMixin, _PopupMixin, _SearchFilterMixin, QWidget):
+class ResponseViewerWidget(
+    _PreRequestMixin, _TestResultsMixin, _PopupMixin, _SearchFilterMixin, QWidget
+):
     """Display HTTP response data with status bar and tabbed body/headers.
 
     Call :meth:`load_response` to populate from an ``HttpResponseDict``,
@@ -267,6 +270,9 @@ class ResponseViewerWidget(_TestResultsMixin, _PopupMixin, _SearchFilterMixin, Q
         # Test Results tab (hidden until results are available)
         self._build_test_results_tab()
 
+        # Pre-request tab (hidden until pre-request scripts run)
+        self._build_pre_request_tab()
+
         root.addWidget(self._tabs, 1)
 
         # -- Empty state label ----------------------------------------
@@ -428,6 +434,7 @@ class ResponseViewerWidget(_TestResultsMixin, _PopupMixin, _SearchFilterMixin, Q
         self._filter_apply_btn.show()
         self._clear_test_results_rows()
         self._tabs.setTabVisible(self._test_tab_index, False)
+        self._clear_pre_request_tab()
         self._wrap_btn.setChecked(True)
         self._body_edit.set_word_wrap(True)
 

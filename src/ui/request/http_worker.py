@@ -17,12 +17,16 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QObject, Signal, Slot
 
 from services.http.http_service import HttpResponseDict, HttpService
 from services.scripting import ScriptEntry
+
+if TYPE_CHECKING:
+    from services.scripting import ScriptOutput
+    from services.scripting.debug import DebugProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +49,7 @@ class HttpSendWorker(QObject):
 
     finished = Signal(dict)  # HttpResponseDict
     error = Signal(str)
+    debug_paused = Signal(dict)  # DebugPauseInfo
 
     def __init__(self) -> None:
         """Initialise with empty request parameters."""
@@ -61,6 +66,7 @@ class HttpSendWorker(QObject):
         self._cancel_event = threading.Event()
         self._pre_scripts: list[ScriptEntry] = []
         self._test_scripts: list[ScriptEntry] = []
+        self._debug_protocol: DebugProtocol | None = None
 
     # -- Configuration (call before moveToThread) ----------------------
 
@@ -107,6 +113,15 @@ class HttpSendWorker(QObject):
         self._local_overrides = local_overrides or {}
         self._pre_scripts = pre_scripts or []
         self._test_scripts = test_scripts or []
+
+    def set_debug_mode(self, protocol: DebugProtocol) -> None:
+        """Enable debug execution mode with the given protocol.
+
+        Must be called **before** the worker is moved to its thread.
+        The protocol's ``on_pause`` callback will emit
+        :attr:`debug_paused` on the main thread.
+        """
+        self._debug_protocol = protocol
 
     def cancel(self) -> None:
         """Request cancellation of the in-flight HTTP request.
@@ -202,7 +217,23 @@ class HttpSendWorker(QObject):
                 )
                 from services.scripting.engine import ScriptEngine
 
-                pre_output = ScriptEngine.run_pre_request_scripts(self._pre_scripts, pre_ctx)
+                if self._debug_protocol:
+                    from services.scripting.engine import run_debug_chain
+
+                    self._debug_protocol.start(
+                        on_pause=lambda info: self.debug_paused.emit(info),
+                    )
+                    pre_output = run_debug_chain(
+                        self._pre_scripts,
+                        pre_ctx,
+                        self._debug_protocol,
+                        script_type="pre_request",
+                    )
+                else:
+                    pre_output = ScriptEngine.run_pre_request_scripts(
+                        self._pre_scripts,
+                        pre_ctx,
+                    )
                 # Persist global variable changes.
                 if pre_output.get("global_variable_changes"):
                     save_globals(pre_output["global_variable_changes"])
@@ -244,12 +275,32 @@ class HttpSendWorker(QObject):
             all_test_results: list[Any] = []
             all_console_logs: list[Any] = []
             all_var_changes: dict[str, str] = {}
+            pre_request_errors: list[Any] = []
+            pre_console_logs: list[Any] = []
+            pre_var_changes: dict[str, str] = {}
 
-            # Collect pre-request script outputs
+            # Collect pre-request script outputs — only console logs and
+            # variable changes.  Pre-request results (including runtime
+            # errors) must NOT appear in the Test Results tab; runtime
+            # errors are surfaced as console error entries and also
+            # collected separately for the response viewer.
             if pre_output:
-                all_test_results.extend(pre_output.get("test_results", []))
-                all_console_logs.extend(pre_output.get("console_logs", []))
-                all_var_changes.update(pre_output.get("variable_changes", {}))
+                for tr in pre_output.get("test_results", []):
+                    if tr.get("name") == "(runtime error)":
+                        source = tr.get("source_name", "pre-request")
+                        error = tr.get("error", "unknown error")
+                        pre_request_errors.append(tr)
+                        all_console_logs.append(
+                            {
+                                "level": "error",
+                                "message": f"[{source}] {error}",
+                                "timestamp": 0,
+                            }
+                        )
+                pre_console_logs = list(pre_output.get("console_logs", []))
+                all_console_logs.extend(pre_console_logs)
+                pre_var_changes = dict(pre_output.get("variable_changes", {}))
+                all_var_changes.update(pre_var_changes)
 
             if self._test_scripts:
                 from services.scripting.context import build_test_context
@@ -280,7 +331,25 @@ class HttpSendWorker(QObject):
                     global_vars=global_vars,
                     info={},
                 )
-                test_output = ScriptEngine.run_test_scripts(self._test_scripts, test_ctx)
+                test_output: dict[str, Any] | ScriptOutput
+                if self._debug_protocol:
+                    from services.scripting.engine import run_debug_chain
+
+                    if not self._debug_protocol._stop_requested:
+                        self._debug_protocol.start(
+                            on_pause=lambda info: self.debug_paused.emit(info),
+                        )
+                    test_output = run_debug_chain(
+                        self._test_scripts,
+                        test_ctx,
+                        self._debug_protocol,
+                        script_type="test",
+                    )
+                else:
+                    test_output = ScriptEngine.run_test_scripts(
+                        self._test_scripts,
+                        test_ctx,
+                    )
                 all_test_results.extend(test_output.get("test_results", []))
                 all_console_logs.extend(test_output.get("console_logs", []))
                 all_var_changes.update(test_output.get("variable_changes", {}))
@@ -296,6 +365,15 @@ class HttpSendWorker(QObject):
                 final["console_logs"] = all_console_logs
             if all_var_changes:
                 final["variable_changes"] = all_var_changes
+            if pre_request_errors:
+                final["pre_request_errors"] = pre_request_errors
+            if pre_console_logs:
+                final["pre_request_console_logs"] = pre_console_logs
+            if pre_var_changes:
+                final["pre_request_variable_changes"] = pre_var_changes
+            # Flag indicating pre-request scripts were present.
+            if self._pre_scripts:
+                final["has_pre_request_scripts"] = True
 
             self.finished.emit(final)
         except Exception as exc:

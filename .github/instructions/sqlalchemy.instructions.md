@@ -200,7 +200,7 @@ description: Mapped[str | None] = mapped_column(Text, default=None)
 
 ## Database model catalogue
 
-Four ORM models, all inheriting from `Base`:
+Six ORM models, all inheriting from `Base`:
 
 | Model | Table | File |
 |-------|-------|------|
@@ -208,10 +208,12 @@ Four ORM models, all inheriting from `Base`:
 | `RequestModel` | `requests` | `database/models/collections/model/request_model.py` |
 | `SavedResponseModel` | `saved_responses` | `database/models/collections/model/saved_response_model.py` |
 | `EnvironmentModel` | `environments` | `database/models/environments/model/environment_model.py` |
+| `RunHistoryModel` | `run_history` | `database/models/runs/model/run_history_model.py` |
+| `RunResultModel` | `run_results` | `database/models/runs/model/run_result_model.py` |
 
 ### Re-exports in database.py
 
-`database.py` re-exports all four models using the `import X as X` pattern
+`database.py` re-exports all six models using the `import X as X` pattern
 (PEP 484 explicit re-export) so that `Base.metadata.create_all()` discovers
 every table.  These imports must remain even though `database.py` itself
 does not use the models directly.

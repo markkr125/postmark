@@ -17,12 +17,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QRect, QRectF, Qt
+from PySide6.QtCore import QPoint, QRect, QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPaintEvent, QPen, QTextBlock, QTextCursor
 
 from ui.styling.icons import font_family, glyph_char
 from ui.styling.theme import (
     COLOR_EDITOR_ACTIVE_INDENT_GUIDE,
+    COLOR_EDITOR_BREAKPOINT,
+    COLOR_EDITOR_DEBUG_GUTTER_ARROW,
+    COLOR_EDITOR_DEBUG_LINE,
     COLOR_EDITOR_ERROR_GUTTER_BG,
     COLOR_EDITOR_ERROR_UNDERLINE,
     COLOR_EDITOR_FOLD_BADGE_BG,
@@ -34,6 +37,7 @@ from ui.styling.theme import (
     COLOR_EDITOR_WHITESPACE_DOT,
 )
 from ui.widgets.code_editor.gutter import (
+    _BREAKPOINT_GUTTER_WIDTH,
     _FOLD_BADGE_GAP,
     _FOLD_BADGE_H_PAD,
     _FOLD_BADGE_LABEL,
@@ -43,6 +47,7 @@ from ui.widgets.code_editor.gutter import (
     _GUTTER_PADDING,
     _WHITESPACE_DOT_RADIUS,
     SyntaxError_,
+    _BreakpointGutterArea,
     _FoldGutterArea,
     _LineNumberArea,
 )
@@ -62,6 +67,7 @@ class _PaintingMixin(_PaintingBase):
     _language: str
     _line_number_area: _LineNumberArea
     _fold_gutter_area: _FoldGutterArea
+    _bp_gutter_area: _BreakpointGutterArea
     _detected_indent: int
     _sorted_folds: list[tuple[int, int, int]]
     _collapsed_folds: set[int]
@@ -69,10 +75,15 @@ class _PaintingMixin(_PaintingBase):
     _errors: list[SyntaxError_]
     _fold_regions: dict[int, int]
     _fold_font: QFont | None
+    _breakpoints: set[int]
+    _debug_line: int | None
+    _show_breakpoint_gutter: bool
 
     if TYPE_CHECKING:
 
         def toggle_fold(self, line: int) -> None: ...
+
+        def toggle_breakpoint(self, line: int) -> bool: ...
 
     # -- Selection whitespace dots --------------------------------------
 
@@ -148,9 +159,10 @@ class _PaintingMixin(_PaintingBase):
         return _GUTTER_PADDING + self.fontMetrics().horizontalAdvance("9") * digits + 4
 
     def _total_gutter_width(self) -> int:
-        """Return total width of line-number + fold gutters."""
+        """Return total width of breakpoint + line-number + fold gutters."""
+        bp_w = _BREAKPOINT_GUTTER_WIDTH if self._show_breakpoint_gutter else 0
         fold_w = _FOLD_GUTTER_WIDTH if self._language in _FOLDABLE_LANGUAGES else 0
-        return self.line_number_area_width() + fold_w
+        return bp_w + self.line_number_area_width() + fold_w
 
     def _update_gutter_width(self) -> None:
         """Update the left margin to accommodate gutters."""
@@ -161,6 +173,7 @@ class _PaintingMixin(_PaintingBase):
         if dy:
             self._line_number_area.scroll(0, dy)
             self._fold_gutter_area.scroll(0, dy)
+            self._bp_gutter_area.scroll(0, dy)
         else:
             self._line_number_area.update(
                 0, rect.y(), self._line_number_area.width(), rect.height()
@@ -168,6 +181,7 @@ class _PaintingMixin(_PaintingBase):
             self._fold_gutter_area.update(
                 0, rect.y(), self._fold_gutter_area.width(), rect.height()
             )
+            self._bp_gutter_area.update(0, rect.y(), self._bp_gutter_area.width(), rect.height())
         if rect.contains(self.viewport().rect()):
             self._update_gutter_width()
 
@@ -175,10 +189,18 @@ class _PaintingMixin(_PaintingBase):
         """Reposition gutter widgets on resize."""
         super().resizeEvent(event)
         cr = self.contentsRect()
+        x_offset = cr.left()
+
+        bp_w = _BREAKPOINT_GUTTER_WIDTH if self._show_breakpoint_gutter else 0
+        self._bp_gutter_area.setGeometry(QRect(x_offset, cr.top(), bp_w, cr.height()))
+        x_offset += bp_w
+
         ln_w = self.line_number_area_width()
-        self._line_number_area.setGeometry(QRect(cr.left(), cr.top(), ln_w, cr.height()))
+        self._line_number_area.setGeometry(QRect(x_offset, cr.top(), ln_w, cr.height()))
+        x_offset += ln_w
+
         fold_w = _FOLD_GUTTER_WIDTH if self._language in _FOLDABLE_LANGUAGES else 0
-        self._fold_gutter_area.setGeometry(QRect(cr.left() + ln_w, cr.top(), fold_w, cr.height()))
+        self._fold_gutter_area.setGeometry(QRect(x_offset, cr.top(), fold_w, cr.height()))
 
     # -- Indent guides & badges (main paintEvent) -----------------------
 
@@ -464,6 +486,70 @@ class _PaintingMixin(_PaintingBase):
                 line = block.blockNumber()
                 if line in self._fold_regions:
                     self.toggle_fold(line)
+                return
+            block = block.next()
+            top = bottom
+            bottom = top + round(self.blockBoundingRect(block).height())
+
+    # -- Breakpoint gutter painting -------------------------------------
+
+    def paint_breakpoint_area(self, event: QPaintEvent) -> None:
+        """Paint breakpoint circles and debug line arrow in the gutter."""
+        painter = QPainter(self._bp_gutter_area)
+        painter.fillRect(event.rect(), QColor(COLOR_EDITOR_GUTTER_BG))
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
+        bp_color = QColor(COLOR_EDITOR_BREAKPOINT)
+        arrow_color = QColor(COLOR_EDITOR_DEBUG_GUTTER_ARROW)
+        debug_bg = QColor(COLOR_EDITOR_DEBUG_LINE)
+        radius = 4.0
+
+        block = self.firstVisibleBlock()
+        top = round(self.blockBoundingGeometry(block).translated(self.contentOffset()).top())
+        bottom = top + round(self.blockBoundingRect(block).height())
+
+        while block.isValid() and top <= event.rect().bottom():
+            if block.isVisible() and bottom >= event.rect().top():
+                line = block.blockNumber()
+
+                # Debug line background + arrow.
+                if self._debug_line is not None and line == self._debug_line:
+                    painter.fillRect(0, top, _BREAKPOINT_GUTTER_WIDTH, bottom - top, debug_bg)
+                    painter.setPen(Qt.PenStyle.NoPen)
+                    painter.setBrush(arrow_color)
+                    cx = _BREAKPOINT_GUTTER_WIDTH / 2.0
+                    cy = (top + bottom) / 2.0
+                    painter.drawPolygon(
+                        [
+                            QPoint(round(cx - 3), round(cy - 4)),
+                            QPoint(round(cx + 4), round(cy)),
+                            QPoint(round(cx - 3), round(cy + 4)),
+                        ]
+                    )
+
+                # Breakpoint circle.
+                if line in self._breakpoints:
+                    painter.setPen(Qt.PenStyle.NoPen)
+                    painter.setBrush(bp_color)
+                    cx = _BREAKPOINT_GUTTER_WIDTH / 2.0
+                    cy = (top + bottom) / 2.0
+                    painter.drawEllipse(QRectF(cx - radius, cy - radius, radius * 2, radius * 2))
+
+            block = block.next()
+            top = bottom
+            bottom = top + round(self.blockBoundingRect(block).height())
+
+        painter.end()
+
+    def breakpoint_gutter_clicked(self, y: int) -> None:
+        """Toggle breakpoint for the block at viewport y-coordinate *y*."""
+        block = self.firstVisibleBlock()
+        top = round(self.blockBoundingGeometry(block).translated(self.contentOffset()).top())
+        bottom = top + round(self.blockBoundingRect(block).height())
+
+        while block.isValid():
+            if top <= y <= bottom:
+                self.toggle_breakpoint(block.blockNumber())
                 return
             block = block.next()
             top = bottom

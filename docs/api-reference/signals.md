@@ -227,9 +227,9 @@ Source: `ui/dialogs/import_dialog.py`
 | `error` | `str` | Import failed |
 | `files_dropped` (`_DropZone`) | `list` | Files drag-dropped onto zone |
 
-### CollectionRunnerDialog (_RunnerWorker)
+### CollectionRunnerDialog (RunnerWorker)
 
-Source: `ui/dialogs/collection_runner.py`
+Source: `ui/dialogs/collection_runner/worker.py`
 
 | Signal | Parameters | Description |
 |--------|------------|-------------|

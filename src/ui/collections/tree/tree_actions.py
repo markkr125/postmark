@@ -51,6 +51,7 @@ class _TreeActionsMixin(_TreeActionsBase):
     request_delete_requested: Signal
     new_collection_requested: Signal
     new_request_requested: Signal
+    run_collection_requested: Signal
 
     if TYPE_CHECKING:
 
@@ -77,6 +78,7 @@ class _TreeActionsMixin(_TreeActionsBase):
         self._folder_menu = QMenu(self._tree)
         for label, _icon_name in [
             ("Overview", "eye"),
+            ("Run", "play"),
             ("Add request", "plus"),
             ("Add folder", "folder-plus"),
         ]:
@@ -160,6 +162,8 @@ class _TreeActionsMixin(_TreeActionsBase):
             self._handle_rename(item_id, item_type)
         elif action_name == "Delete":
             self._handle_delete(item_id, item_type)
+        elif action_name == "Run" and item_type == "folder":
+            self.run_collection_requested.emit(item_id)
         elif action_name == "Add folder" and item_type == "folder":
             self.new_collection_requested.emit(item_id)
         elif action_name == "Add request" and item_type == "folder":

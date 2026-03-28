@@ -14,11 +14,13 @@ Security layers:
 
 from __future__ import annotations
 
+import hmac
 import json
 import math
 import re
 import sys
 import time
+import uuid
 from base64 import b64decode, b64encode
 from datetime import UTC, datetime
 from hashlib import md5, sha256
@@ -475,10 +477,134 @@ def main() -> None:
 
     script = payload.get("script", "")
     context = payload.get("context", {})
+    debug_cfg = payload.get("debug")
 
     pm = _Pm(context)
-    output = _execute_restricted(script, pm)
+
+    output = _execute_debug(script, pm, debug_cfg) if debug_cfg else _execute_restricted(script, pm)
     _write_done(output)
+
+
+def _execute_debug(script: str, pm: _Pm, debug_cfg: dict[str, Any]) -> dict[str, Any]:
+    """Execute *script* with ``sys.settrace`` for line-level debugging.
+
+    On each line event the trace function checks breakpoints, writes a
+    ``debugPause`` IPC message, and waits for a resume command.
+    """
+    breakpoints: set[int] = set(debug_cfg.get("breakpoints", []))
+    step_mode: list[str] = ["continue"]  # mutable container for closure
+
+    def _trace_fn(frame: Any, event: str, arg: Any) -> Any:
+        """Trace function installed via ``sys.settrace``."""
+        if frame.f_code.co_filename != "<script>":
+            return _trace_fn
+        if event != "line":
+            return _trace_fn
+
+        line = frame.f_lineno - 1  # 0-based
+
+        should_pause = line in breakpoints or step_mode[0] in (
+            "step_over",
+            "step_into",
+        )
+        if not should_pause:
+            return _trace_fn
+
+        # Snapshot safe locals (exclude builtins and internal names).
+        safe_locals: dict[str, str] = {}
+        for k, v in frame.f_locals.items():
+            if k.startswith("_") or k == "pm":
+                continue
+            try:
+                safe_locals[k] = repr(v)[:200]
+            except Exception:
+                safe_locals[k] = "<error>"
+
+        # Write pause message.
+        sys.stdout.write(
+            json.dumps({"__ipc__": "debugPause", "line": line, "locals": safe_locals}) + "\n"
+        )
+        sys.stdout.flush()
+
+        # Wait for resume command from parent.
+        cmd_line = sys.stdin.readline()
+        if not cmd_line:
+            sys.settrace(None)
+            return None
+        try:
+            cmd = json.loads(cmd_line)
+        except json.JSONDecodeError:
+            return _trace_fn
+
+        command = cmd.get("command", "continue")
+        if command == "stop":
+            sys.settrace(None)
+            msg = "Debug session stopped by user"
+            raise SystemExit(msg)
+
+        step_mode[0] = command
+        return _trace_fn
+
+    if not _HAS_RESTRICTED:
+        return _error_output("RestrictedPython is not installed")
+
+    try:
+        code = compile_restricted(script, filename="<script>", mode="exec")
+    except SyntaxError as e:
+        return _error_output(f"Syntax error: {e}")
+
+    if code is None:
+        return _error_output("Compilation failed — script contains restricted syntax")
+
+    restricted_globals: dict[str, Any] = {}
+    restricted_globals.update(safe_globals)  # type: ignore[arg-type]
+    restricted_globals["__builtins__"] = _SAFE_BUILTINS
+    restricted_globals["_getattr_"] = _getattr_guard
+    restricted_globals["_getiter_"] = iter
+    restricted_globals["_getitem_"] = lambda obj, key: obj[key]
+    restricted_globals["_write_"] = lambda obj: obj
+    restricted_globals["_inplacevar_"] = lambda op, x, y: op(x, y)
+    restricted_globals["pm"] = pm
+    restricted_globals.update(_SAFE_STDLIB)
+    restricted_globals["_print_"] = _ConsolePrintCollector
+
+    sys.settrace(_trace_fn)
+    try:
+        exec(code, restricted_globals)
+    except SystemExit:
+        _console_emit("info", "[Debug] Session stopped by user")
+    except Exception as e:
+        _console_emit("error", f"Runtime error: {e}")
+        pm._test_results.append(
+            {"name": "(runtime error)", "passed": False, "error": str(e), "duration_ms": 0.0}
+        )
+    finally:
+        sys.settrace(None)
+
+    all_changes: dict[str, str] = {}
+    for scope in (pm.variables, pm.environment, pm.collection_variables):
+        all_changes.update(scope._changes)
+
+    global_changes: dict[str, str] = dict(pm.globals._changes)
+
+    request_mutations: dict[str, Any] | None = None
+    if pm._is_pre_request:
+        request_mutations = {
+            "url": pm.request.url,
+            "method": pm.request.method,
+            "headers": pm.request.headers,
+            "body": pm.request.body,
+        }
+
+    return {
+        "test_results": pm._test_results,
+        "console_logs": _console_logs,
+        "variable_changes": all_changes,
+        **({"global_variable_changes": global_changes} if global_changes else {}),
+        "request_mutations": request_mutations,
+        **({"next_request": pm.execution._next} if pm.execution._next_set else {}),
+        **({"skip_request": True} if pm.execution._skip else {}),
+    }
 
 
 def _execute_restricted(script: str, pm: _Pm) -> dict[str, Any]:
@@ -600,6 +726,12 @@ _SAFE_STDLIB: dict[str, Any] = {
     "b64encode": b64encode, "b64decode": b64decode,
     "hashlib_md5": lambda d: md5(d.encode() if isinstance(d, str) else d).hexdigest(),
     "hashlib_sha256": lambda d: sha256(d.encode() if isinstance(d, str) else d).hexdigest(),
+    "hashlib_hmac_sha256": lambda d, k: hmac.new(
+        k.encode() if isinstance(k, str) else k,
+        d.encode() if isinstance(d, str) else d,
+        "sha256",
+    ).hexdigest(),
+    "uuid_v4": lambda: str(uuid.uuid4()),
     "datetime_now": lambda: datetime.now(tz=UTC).isoformat(),
     "datetime_utcnow": lambda: datetime.now(tz=UTC).isoformat(),
     "url_quote": quote, "url_urlencode": urlencode,
@@ -608,5 +740,7 @@ _SAFE_STDLIB: dict[str, Any] = {
 
 
 if __name__ == "__main__":
+    main()
+    main()
     main()
     main()

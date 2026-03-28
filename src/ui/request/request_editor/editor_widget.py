@@ -85,6 +85,7 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, _ScriptsM
     """
 
     send_requested = Signal()
+    debug_requested = Signal()
     save_requested = Signal()
     dirty_changed = Signal(bool)
     request_changed = Signal(dict)
@@ -134,6 +135,15 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, _ScriptsM
         self._send_btn.setFixedWidth(90)
         self._send_btn.clicked.connect(self.send_requested.emit)
         top_bar.addWidget(self._send_btn)
+
+        self._debug_btn = QPushButton()
+        self._debug_btn.setIcon(phi("bug", size=16))
+        self._debug_btn.setObjectName("iconButton")
+        self._debug_btn.setFixedSize(32, 32)
+        self._debug_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._debug_btn.setToolTip("Debug (send with breakpoints)")
+        self._debug_btn.clicked.connect(self.debug_requested.emit)
+        top_bar.addWidget(self._debug_btn)
 
         root.addLayout(top_bar)
 

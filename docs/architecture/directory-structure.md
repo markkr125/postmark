@@ -75,6 +75,13 @@ src/
     |   |   +-- folding.py           Code folding logic
     |   |   +-- gutter.py            Line-number gutter
     |   |   +-- painting.py          Custom painting helpers
+    |   |   +-- completion/          Autocomplete sub-package
+    |   |       +-- schema/          Schema sub-package
+    |   |       |   +-- core.py      SchemaNode TypedDict, expectation chain, shared helpers
+    |   |       |   +-- js.py        JS_SCHEMA (pm, console, CryptoJS, postman) + JS_GLOBALS
+    |   |       |   +-- py.py        PY_SCHEMA + PY_GLOBALS (Python variant)
+    |   |       +-- engine.py        CompletionEngine -- dot-path/variable resolver
+    |   |       +-- popup.py         CompletionPopup -- floating autocomplete widget
     |   +-- info_popup.py            InfoPopup (QFrame) base + ClickableLabel
     |   +-- key_value_table.py       Reusable key-value editor widget
     |   +-- variable_line_edit.py    VariableLineEdit -- QLineEdit with {{var}} highlighting + popup
@@ -90,7 +97,12 @@ src/
     |       +-- tree_actions.py      _TreeActionsMixin -- context menus, rename, delete
     |       +-- collection_tree_delegate.py  Custom delegate for method badges
     +-- dialogs/                     Modal dialogs
-    |   +-- collection_runner.py     CollectionRunnerWidget -- run all requests in a collection
+    |   +-- collection_runner/       Collection runner sub-package
+    |   |   +-- __init__.py          Re-exports CollectionRunnerDialog
+    |   |   +-- dialog.py            CollectionRunnerDialog + run history persistence
+    |   |   +-- config.py            RunnerConfigView (env selector, request checklist, data file, iterations, delay)
+    |   |   +-- results.py           RunnerResultsView (summary + results table + detail panel + export)
+    |   |   +-- worker.py            RunnerWorker (QThread), parse_data_file, env var substitution
     |   +-- import_dialog.py         ImportDialog -- select format + import
     |   +-- save_request_dialog.py   SaveRequestDialog -- save draft to collection
     |   +-- settings_dialog.py       SettingsDialog -- theme + request-tab behaviour
@@ -117,6 +129,8 @@ src/
         +-- response_viewer/         ResponseViewer sub-package
         |   +-- viewer_widget.py     ResponseViewer -- response display widget
         |   +-- search_filter.py     _SearchFilterMixin -- response search/filter
+        |   +-- test_results_mixin.py _TestResultsMixin -- test results tab
+        |   +-- pre_request_mixin.py _PreRequestMixin -- pre-request script output tab
         +-- navigation/              Tab switching and path navigation
         |   +-- breadcrumb_bar.py    BreadcrumbBar widget
         |   +-- request_tab_bar.py   Compatibility wrapper re-exporting wrapped deck
@@ -175,6 +189,8 @@ tests/
     |   +-- test_code_editor_folding.py  Folding tests
     |   +-- test_code_editor_painting.py Painting tests
     |   +-- test_code_editor_memory.py   Memory/performance tests
+    |   +-- test_completion_engine.py    CompletionEngine tests
+    |   +-- test_completion_popup.py     CompletionPopup tests
     |   +-- test_info_popup.py       InfoPopup tests
     |   +-- test_key_value_table.py  KeyValueTable tests
     |   +-- test_variable_line_edit.py  VariableLineEdit tests

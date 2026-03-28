@@ -269,6 +269,152 @@ var userId = pm.iterationData.get("user_id");
 pm.request.url = pm.variables.replaceIn("{{base_url}}/users/") + userId;
 ```
 
+## Built-in Libraries
+
+JavaScript scripts can load the following built-in libraries with
+`require()`.  These are bundled with Postmark and loaded lazily — only
+when your script references them.
+
+### CryptoJS
+
+Full `crypto-js` 4.2.0 library for hashing, encryption, and encoding.
+
+```javascript
+var CryptoJS = require("crypto-js");
+
+// Hashing
+var hash = CryptoJS.SHA256("hello world").toString();
+var hmac = CryptoJS.HmacSHA256("message", "secret").toString();
+
+// AES encryption / decryption
+var encrypted = CryptoJS.AES.encrypt("data", "password").toString();
+var decrypted = CryptoJS.AES.decrypt(encrypted, "password")
+    .toString(CryptoJS.enc.Utf8);
+
+// MD5, SHA1, SHA512, etc.
+var md5 = CryptoJS.MD5("text").toString();
+```
+
+> **Tip:** `CryptoJS` is also available as a global — you can use it
+> without `require()` if your script references the `CryptoJS` name.
+
+### Lodash
+
+`lodash` 4.17.23 — utility library for arrays, objects, strings.
+
+```javascript
+var _ = require("lodash");
+
+var unique = _.uniq([1, 2, 2, 3]);
+var grouped = _.groupBy(data, "category");
+var picked = _.pick(obj, ["id", "name"]);
+```
+
+### Moment
+
+`moment` 2.30.1 — date parsing, formatting, and manipulation.
+
+```javascript
+var moment = require("moment");
+
+var now = moment().format("YYYY-MM-DD");
+var iso = moment().toISOString();
+var diff = moment("2025-01-01").diff(moment(), "days");
+```
+
+### Chai
+
+`chai` 4.5.0 — BDD/TDD assertion library.  The built-in
+`pm.expect()` already provides Chai-style assertions, but you can use
+the full Chai API directly if needed.
+
+```javascript
+var chai = require("chai");
+var expect = chai.expect;
+
+expect([1, 2, 3]).to.have.lengthOf(3);
+expect({ a: 1 }).to.have.property("a", 1);
+```
+
+### tv4
+
+`tv4` 1.3.0 — JSON Schema validation (Draft 4).
+
+```javascript
+var tv4 = require("tv4");
+
+var schema = {
+    type: "object",
+    properties: { id: { type: "number" }, name: { type: "string" } },
+    required: ["id", "name"]
+};
+
+pm.test("Response matches schema", function() {
+    var result = tv4.validate(pm.response.json(), schema);
+    pm.expect(result).to.be.true;
+});
+```
+
+### Ajv
+
+`ajv` 8.18.0 — JSON Schema validator (Drafts 4/6/7/2019-09/2020-12).
+
+```javascript
+var Ajv = require("ajv");
+var ajv = new Ajv();
+
+var schema = {
+    type: "object",
+    properties: { email: { type: "string", format: "email" } },
+    required: ["email"]
+};
+
+pm.test("Valid schema", function() {
+    var validate = ajv.compile(schema);
+    pm.expect(validate(pm.response.json())).to.be.true;
+});
+```
+
+### xml2js
+
+`xml2js` 0.6.2 — XML to JavaScript object converter.
+
+```javascript
+var xml2js = require("xml2js");
+
+var xml = pm.response.text();
+xml2js.parseString(xml, function(err, result) {
+    if (!err) {
+        pm.variables.set("title", result.root.title[0]);
+    }
+});
+```
+
+### csv-parse/sync
+
+`csv-parse` 5.6.0 — synchronous CSV parser.
+
+```javascript
+var parse = require("csv-parse/sync").parse;
+
+var records = parse(pm.response.text(), {
+    columns: true,
+    skip_empty_lines: true
+});
+pm.variables.set("row_count", records.length.toString());
+```
+
+### uuid
+
+UUID v4 generation (built into the bootstrap — no vendor file needed).
+
+```javascript
+var uuid = require("uuid");
+
+var id = uuid.v4();
+pm.variables.set("request_id", id);
+```
+
 ## `console`
 
 Console output captured and routed to the Console panel.  Rate-limited

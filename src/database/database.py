@@ -14,7 +14,10 @@ from sqlalchemy.orm import Session, sessionmaker
 from .models import CollectionModel as CollectionModel
 from .models import EnvironmentModel as EnvironmentModel
 from .models import RequestModel as RequestModel
+from .models import RunHistoryModel as RunHistoryModel
+from .models import RunResultModel as RunResultModel
 from .models import SavedResponseModel as SavedResponseModel
+from .models import ScriptVersionModel as ScriptVersionModel
 from .models.base import Base
 
 logger = logging.getLogger(__name__)

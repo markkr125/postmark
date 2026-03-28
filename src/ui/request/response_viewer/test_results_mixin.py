@@ -73,12 +73,27 @@ class _TestResultsMixin:
             self._tabs.setTabVisible(self._test_tab_index, False)
             return
 
-        passed = sum(1 for r in results if r.get("passed"))
-        total = len(results)
-        color = COLOR_SUCCESS if passed == total else COLOR_DANGER
-        self._test_results_summary.setText(
-            f"<span style='color:{color};font-weight:bold;'>{passed}/{total} tests passed</span>"
-        )
+        # Separate runtime errors from real test assertions.
+        runtime_errors = [r for r in results if r.get("name") == "(runtime error)"]
+        real_tests = [r for r in results if r.get("name") != "(runtime error)"]
+
+        if runtime_errors and not real_tests:
+            # Only runtime errors, no actual tests — show a clear
+            # "Script Error" banner instead of misleading pass/fail count.
+            source = runtime_errors[0].get("source_name", "")
+            label = "Script error"
+            if source:
+                label += f" in \u2018{source}\u2019"
+            self._test_results_summary.setText(
+                f"<span style='color:{COLOR_DANGER};font-weight:bold;'>{label}</span>"
+            )
+        else:
+            passed = sum(1 for r in results if r.get("passed"))
+            total = len(results)
+            color = COLOR_SUCCESS if passed == total else COLOR_DANGER
+            self._test_results_summary.setText(
+                f"<span style='color:{color};font-weight:bold;'>{passed}/{total} tests passed</span>"
+            )
 
         for result in results:
             row = self._build_result_row(result)
@@ -106,15 +121,20 @@ class _TestResultsMixin:
         row_layout.setContentsMargins(4, 2, 4, 2)
         row_layout.setSpacing(8)
 
+        is_runtime_error = result.get("name") == "(runtime error)"
         passed = result.get("passed", False)
-        icon_name = "check-circle" if passed else "x-circle"
-        color = COLOR_SUCCESS if passed else COLOR_DANGER
+        icon_name = "warning" if is_runtime_error else ("check-circle" if passed else "x-circle")
+        color = COLOR_DANGER if is_runtime_error else (COLOR_SUCCESS if passed else COLOR_DANGER)
         icon_label = QLabel()
         icon_label.setPixmap(phi(icon_name, color=color).pixmap(16, 16))
         icon_label.setFixedSize(18, 18)
         row_layout.addWidget(icon_label)
 
-        name_label = QLabel(result.get("name", "unnamed"))
+        display_name = result.get("name", "unnamed")
+        if is_runtime_error:
+            source = result.get("source_name", "")
+            display_name = f"Script error in \u2018{source}\u2019" if source else "Script error"
+        name_label = QLabel(display_name)
         name_label.setStyleSheet("font-size: 12px;")
         row_layout.addWidget(name_label, 1)
 
@@ -141,4 +161,5 @@ class _TestResultsMixin:
             outer_layout.addWidget(err_label)
             return outer
 
+        return row_widget
         return row_widget
