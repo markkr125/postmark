@@ -546,3 +546,4 @@ class TestJSGlobals:
         labels = {item.label for item in items}
         assert "require" not in labels
         assert "CryptoJS" not in labels
+        assert "CryptoJS" not in labels

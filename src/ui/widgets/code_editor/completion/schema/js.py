@@ -7,8 +7,8 @@ and ``JS_GLOBALS`` (top-level globals shown on Ctrl+Space without a dot).
 from __future__ import annotations
 
 from ui.widgets.code_editor.completion.schema.core import (
-    SchemaNode,
     _EXPECTATION_CHAIN_JS,
+    SchemaNode,
     _header_list_children,
     _variable_scope_children,
 )
