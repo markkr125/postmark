@@ -196,7 +196,6 @@ class FolderEditorWidget(_AuthMixin, QWidget):
         self._script_lang_combo.setFixedWidth(120)
         self._script_lang_combo.currentTextChanged.connect(self._on_script_language_changed)
         lang_row.addWidget(self._script_lang_combo)
-        lang_row.addStretch()
 
         self._history_btn = QPushButton("History")
         self._history_btn.setIcon(phi("clock-counter-clockwise", size=14))
@@ -204,6 +203,7 @@ class FolderEditorWidget(_AuthMixin, QWidget):
         self._history_btn.setToolTip("View script version history")
         self._history_btn.clicked.connect(self._open_version_history)
         lang_row.addWidget(self._history_btn)
+        lang_row.addStretch()
 
         scripts_layout.addLayout(lang_row)
 

@@ -353,17 +353,14 @@ class _TabControllerMixin:
         # -- Debounce the heavy work -----------------------------------
         self._tab_change_debounce.start()
 
-    def _on_tab_change_settled(self, *, sync_tree: bool = False) -> None:
+    def _on_tab_change_settled(self, *, sync_tree: bool = True) -> None:
         """Run expensive refresh work after tab changes settle.
 
         Invoked by the ``_tab_change_debounce`` single-shot timer so
         that rapid scrolling coalesces into one heavy update.
 
-        When *sync_tree* is ``False`` (the default for timer-fired
-        calls) the collection tree selection is **not** updated.  This
-        avoids hijacking the tree scroll position while the user is
-        actively browsing the sidebar.  Programmatic flushes pass
-        ``sync_tree=True`` to keep the tree in sync.
+        Collection tree selection is synced by default so clicking a
+        tab highlights the corresponding item in the sidebar.
         """
         index = self._tab_bar.currentIndex()
         ctx = self._tabs.get(index)
