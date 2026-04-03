@@ -101,19 +101,17 @@ class FolderEditorWidget(_AuthMixin, QWidget):
         root.setContentsMargins(12, 12, 12, 12)
         root.setSpacing(10)
 
-        # -- Title row (folder name + Run button) --
-        title_row = QHBoxLayout()
-        title_row.setContentsMargins(0, 0, 0, 0)
-        self._title_label = QLabel()
-        self._title_label.setObjectName("titleLabel")
-        title_row.addWidget(self._title_label, 1)
+        # -- Run button row --
+        run_row = QHBoxLayout()
+        run_row.setContentsMargins(0, 0, 0, 0)
+        run_row.addStretch()
         self._run_btn = QPushButton("Run")
         self._run_btn.setIcon(phi("play"))
         self._run_btn.setObjectName("primaryButton")
         self._run_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._run_btn.clicked.connect(self._on_run_clicked)
-        title_row.addWidget(self._run_btn)
-        root.addLayout(title_row)
+        run_row.addWidget(self._run_btn)
+        root.addLayout(run_row)
 
         # -- Tabbed area --
         self._tabs = QTabWidget()
@@ -179,47 +177,84 @@ class FolderEditorWidget(_AuthMixin, QWidget):
         self._build_auth_tab(auth_layout)
         self._tabs.addTab(self._auth_tab, "Authorization")
 
-        # ---- Scripts tab ----
+        # ---- Scripts tab (with Pre-request / Post-response sub-tabs) ----
         self._scripts_tab = QWidget()
-        scripts_layout = QVBoxLayout(self._scripts_tab)
-        scripts_layout.setContentsMargins(0, 6, 0, 0)
+        scripts_outer = QVBoxLayout(self._scripts_tab)
+        scripts_outer.setContentsMargins(0, 0, 0, 0)
+        scripts_outer.setSpacing(0)
+        self._scripts_sub_tabs = QTabWidget()
+        self._scripts_sub_tabs.tabBar().setCursor(Qt.CursorShape.PointingHandCursor)
 
-        # Language selector row
-        lang_row = QHBoxLayout()
-        lang_row.setContentsMargins(0, 0, 0, 0)
-        lang_label = QLabel("Language")
-        lang_label.setObjectName("mutedLabel")
-        lang_row.addWidget(lang_label)
-        self._script_lang_combo = QComboBox()
-        self._script_lang_combo.addItems(list(_SCRIPT_LANGUAGES.keys()))
-        self._script_lang_combo.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._script_lang_combo.setFixedWidth(120)
-        self._script_lang_combo.currentTextChanged.connect(self._on_script_language_changed)
-        lang_row.addWidget(self._script_lang_combo)
+        self._pre_scripts_tab = QWidget()
+        pre_scripts_layout = QVBoxLayout(self._pre_scripts_tab)
+        pre_scripts_layout.setContentsMargins(0, 6, 0, 0)
 
-        self._history_btn = QPushButton("History")
-        self._history_btn.setIcon(phi("clock-counter-clockwise", size=14))
-        self._history_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._history_btn.setToolTip("View script version history")
-        self._history_btn.clicked.connect(self._open_version_history)
-        lang_row.addWidget(self._history_btn)
-        lang_row.addStretch()
+        # Language selector row (pre-request)
+        pre_lang_row = QHBoxLayout()
+        pre_lang_row.setContentsMargins(0, 0, 0, 0)
+        pre_lang_label = QLabel("Language")
+        pre_lang_label.setObjectName("mutedLabel")
+        pre_lang_row.addWidget(pre_lang_label)
+        self._pre_lang_combo = QComboBox()
+        self._pre_lang_combo.addItems(list(_SCRIPT_LANGUAGES.keys()))
+        self._pre_lang_combo.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._pre_lang_combo.setFixedWidth(120)
+        self._pre_lang_combo.currentTextChanged.connect(
+            lambda name: self._on_script_language_changed(name, "pre_request"),
+        )
+        pre_lang_row.addWidget(self._pre_lang_combo)
 
-        scripts_layout.addLayout(lang_row)
+        self._pre_history_btn = QPushButton("History")
+        self._pre_history_btn.setIcon(phi("clock-counter-clockwise", size=14))
+        self._pre_history_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._pre_history_btn.setToolTip("View script version history")
+        self._pre_history_btn.clicked.connect(
+            lambda: self._open_version_history("pre_request"),
+        )
+        pre_lang_row.addWidget(self._pre_history_btn)
+        pre_lang_row.addStretch()
+        pre_scripts_layout.addLayout(pre_lang_row)
 
-        pre_label = QLabel("Pre-request Script")
-        pre_label.setObjectName("sectionLabel")
-        scripts_layout.addWidget(pre_label)
         self._pre_request_edit = CodeEditorWidget()
         self._pre_request_edit.set_language("javascript")
         self._pre_request_edit.setPlaceholderText("Script to run before the request is sent\u2026")
         self._pre_request_edit.textChanged.connect(self._on_field_changed)
         self._pre_request_edit.textChanged.connect(self._schedule_version_capture)
-        scripts_layout.addWidget(self._pre_request_edit, 1)
+        pre_scripts_layout.addWidget(self._pre_request_edit, 1)
 
-        post_label = QLabel("Tests / Post-response Script")
-        post_label.setObjectName("sectionLabel")
-        scripts_layout.addWidget(post_label)
+        self._scripts_sub_tabs.addTab(self._pre_scripts_tab, "Pre-request")
+
+        # ---- Post-response sub-tab ----
+        self._test_scripts_tab = QWidget()
+        test_scripts_layout = QVBoxLayout(self._test_scripts_tab)
+        test_scripts_layout.setContentsMargins(0, 6, 0, 0)
+
+        # Language selector row (post-response)
+        test_lang_row = QHBoxLayout()
+        test_lang_row.setContentsMargins(0, 0, 0, 0)
+        test_lang_label = QLabel("Language")
+        test_lang_label.setObjectName("mutedLabel")
+        test_lang_row.addWidget(test_lang_label)
+        self._test_lang_combo = QComboBox()
+        self._test_lang_combo.addItems(list(_SCRIPT_LANGUAGES.keys()))
+        self._test_lang_combo.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._test_lang_combo.setFixedWidth(120)
+        self._test_lang_combo.currentTextChanged.connect(
+            lambda name: self._on_script_language_changed(name, "test"),
+        )
+        test_lang_row.addWidget(self._test_lang_combo)
+
+        self._test_history_btn = QPushButton("History")
+        self._test_history_btn.setIcon(phi("clock-counter-clockwise", size=14))
+        self._test_history_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._test_history_btn.setToolTip("View script version history")
+        self._test_history_btn.clicked.connect(
+            lambda: self._open_version_history("test"),
+        )
+        test_lang_row.addWidget(self._test_history_btn)
+        test_lang_row.addStretch()
+        test_scripts_layout.addLayout(test_lang_row)
+
         self._test_script_edit = CodeEditorWidget()
         self._test_script_edit.set_language("javascript")
         self._test_script_edit.setPlaceholderText(
@@ -227,7 +262,7 @@ class FolderEditorWidget(_AuthMixin, QWidget):
         )
         self._test_script_edit.textChanged.connect(self._on_field_changed)
         self._test_script_edit.textChanged.connect(self._schedule_version_capture)
-        scripts_layout.addWidget(self._test_script_edit, 1)
+        test_scripts_layout.addWidget(self._test_script_edit, 1)
 
         # Version capture debounce timer
         self._version_capture_timer = QTimer(self)
@@ -235,6 +270,9 @@ class FolderEditorWidget(_AuthMixin, QWidget):
         self._version_capture_timer.setInterval(_VERSION_CAPTURE_MS)
         self._version_capture_timer.timeout.connect(self._capture_script_versions)
 
+        self._scripts_sub_tabs.addTab(self._test_scripts_tab, "Post-response")
+
+        scripts_outer.addWidget(self._scripts_sub_tabs, 1)
         self._tabs.addTab(self._scripts_tab, "Scripts")
 
         # ---- Variables tab ----
@@ -270,7 +308,7 @@ class FolderEditorWidget(_AuthMixin, QWidget):
 
     def _set_content_visible(self, visible: bool) -> None:
         """Toggle between the editor content and the empty-state label."""
-        self._title_label.setVisible(visible)
+        self._run_btn.setVisible(visible)
         self._tabs.setVisible(visible)
         self._empty_label.setVisible(not visible)
 
@@ -308,8 +346,6 @@ class FolderEditorWidget(_AuthMixin, QWidget):
             self._collection_id = collection_id
             self._set_content_visible(True)
 
-            self._title_label.setText(data.get("name", ""))
-
             # Request count
             self._request_count_label.setText(
                 f"\u21c5 {request_count} request{'s' if request_count != 1 else ''}"
@@ -330,16 +366,33 @@ class FolderEditorWidget(_AuthMixin, QWidget):
             self._pre_request_edit.setPlainText(events.get("pre_request") or "")
             self._test_script_edit.setPlainText(events.get("test") or "")
 
-            # Script language
-            lang_display = "JavaScript"
+            # Script languages (per-tab, with fallback to shared key)
+            fallback = "JavaScript"
             raw_events = data.get("events")
             if isinstance(raw_events, dict):
-                stored_lang = raw_events.get("language", "").lower()
+                shared = raw_events.get("language", "").lower()
                 for display, code in _SCRIPT_LANGUAGES.items():
-                    if code == stored_lang:
-                        lang_display = display
+                    if code == shared:
+                        fallback = display
                         break
-            self._script_lang_combo.setCurrentText(lang_display)
+            pre_display = fallback
+            test_display = fallback
+            if isinstance(raw_events, dict):
+                for attr, key in (
+                    ("pre_display", "pre_language"),
+                    ("test_display", "test_language"),
+                ):
+                    stored = raw_events.get(key, "").lower()
+                    if stored:
+                        for display, code in _SCRIPT_LANGUAGES.items():
+                            if code == stored:
+                                if attr == "pre_display":
+                                    pre_display = display
+                                else:
+                                    test_display = display
+                                break
+            self._pre_lang_combo.setCurrentText(pre_display)
+            self._test_lang_combo.setCurrentText(test_display)
 
             # Variables
             variables = data.get("variables") or []
@@ -375,7 +428,6 @@ class FolderEditorWidget(_AuthMixin, QWidget):
         try:
             self._collection_id = None
             self._set_content_visible(False)
-            self._title_label.setText("")
             self._request_count_label.setText("")
             self._created_label.setText("")
             self._updated_label.setText("")
@@ -384,7 +436,8 @@ class FolderEditorWidget(_AuthMixin, QWidget):
             self._clear_auth()
             self._pre_request_edit.clear()
             self._test_script_edit.clear()
-            self._script_lang_combo.setCurrentText("JavaScript")
+            self._pre_lang_combo.setCurrentText("JavaScript")
+            self._test_lang_combo.setCurrentText("JavaScript")
             self._variables_table.set_data([])
         finally:
             self._loading = False
@@ -417,11 +470,14 @@ class FolderEditorWidget(_AuthMixin, QWidget):
         test = self._test_script_edit.toPlainText()
         if not pre and not test:
             return None
-        lang = _SCRIPT_LANGUAGES.get(self._script_lang_combo.currentText(), "javascript")
+        pre_lang = _SCRIPT_LANGUAGES.get(self._pre_lang_combo.currentText(), "javascript")
+        test_lang = _SCRIPT_LANGUAGES.get(self._test_lang_combo.currentText(), "javascript")
         return {
             "pre_request": pre or None,
             "test": test or None,
-            "language": lang,
+            "pre_language": pre_lang,
+            "test_language": test_lang,
+            "language": pre_lang,
         }
 
     # -- Variables helper ----------------------------------------------
@@ -443,11 +499,11 @@ class FolderEditorWidget(_AuthMixin, QWidget):
 
     # -- Change tracking -----------------------------------------------
 
-    def _on_script_language_changed(self, display_name: str) -> None:
-        """Update both editors when the language selector changes."""
+    def _on_script_language_changed(self, display_name: str, script_type: str) -> None:
+        """Update the matching editor when a language selector changes."""
         lang = _SCRIPT_LANGUAGES.get(display_name, "javascript")
-        self._pre_request_edit.set_language(lang)
-        self._test_script_edit.set_language(lang)
+        editor = self._pre_request_edit if script_type == "pre_request" else self._test_script_edit
+        editor.set_language(lang)
         if not self._loading:
             self._debounce_timer.start()
 
@@ -473,7 +529,8 @@ class FolderEditorWidget(_AuthMixin, QWidget):
         """Capture current script content as version snapshots."""
         if self._collection_id is None:
             return
-        lang = _SCRIPT_LANGUAGES.get(self._script_lang_combo.currentText(), "javascript")
+        pre_lang = _SCRIPT_LANGUAGES.get(self._pre_lang_combo.currentText(), "javascript")
+        test_lang = _SCRIPT_LANGUAGES.get(self._test_lang_combo.currentText(), "javascript")
 
         pre = self._pre_request_edit.toPlainText()
         if pre.strip():
@@ -482,7 +539,7 @@ class FolderEditorWidget(_AuthMixin, QWidget):
                 collection_id=self._collection_id,
                 script_type="pre_request",
                 content=pre,
-                language=lang,
+                language=pre_lang,
             )
 
         test = self._test_script_edit.toPlainText()
@@ -492,21 +549,25 @@ class FolderEditorWidget(_AuthMixin, QWidget):
                 collection_id=self._collection_id,
                 script_type="test",
                 content=test,
-                language=lang,
+                language=test_lang,
             )
 
-    def _open_version_history(self) -> None:
+    def _open_version_history(self, script_type: str) -> None:
         """Open the version history dialog for this collection."""
         from ui.request.request_editor.scripts.version_history import VersionHistoryDialog
 
         if self._collection_id is None:
             return
 
+        initial_tab = 0 if script_type == "pre_request" else 1
+        lang_combo = self._pre_lang_combo if script_type == "pre_request" else self._test_lang_combo
         dlg = VersionHistoryDialog(
             request_id=None,
             collection_id=self._collection_id,
             current_pre=self._pre_request_edit.toPlainText(),
             current_test=self._test_script_edit.toPlainText(),
+            language=_SCRIPT_LANGUAGES.get(lang_combo.currentText(), "javascript"),
+            initial_tab=initial_tab,
             parent=self._pre_request_edit,
         )
         if dlg.exec():

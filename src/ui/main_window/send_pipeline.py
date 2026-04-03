@@ -439,10 +439,13 @@ class _SendPipelineMixin:
         )
         target.set_debug_line(line)
 
-        # Switch to the Scripts tab so the user sees the paused line
+        # Switch to the Scripts tab, then the correct sub-tab
         scripts_idx = editor._tabs.indexOf(editor._scripts_tab)
         if scripts_idx >= 0:
             editor._tabs.setCurrentIndex(scripts_idx)
+        editor._scripts_sub_tabs.setCurrentIndex(
+            0 if script_type == "pre_request" else 1,
+        )
 
         self._right_sidebar.debug_panel.update_pause(pause_info)
 

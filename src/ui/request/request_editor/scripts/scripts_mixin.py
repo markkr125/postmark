@@ -37,35 +37,22 @@ class _ScriptsMixin:
     # -- Tab builder ---------------------------------------------------
 
     def _build_scripts_tab(self, parent_layout: QVBoxLayout) -> None:
-        """Construct the dual-editor Scripts tab inside *parent_layout*."""
-        # Language selector + history button row
-        lang_row = QHBoxLayout()
-        lang_row.setContentsMargins(0, 0, 0, 0)
-        lang_label = QLabel("Language")
-        lang_label.setObjectName("mutedLabel")
-        lang_row.addWidget(lang_label)
+        """Build a single-editor script tab inside *parent_layout*.
 
-        self._script_lang_combo = QComboBox()
-        self._script_lang_combo.addItems(list(_SCRIPT_LANGUAGES.keys()))
-        self._script_lang_combo.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._script_lang_combo.setFixedWidth(120)
-        self._script_lang_combo.currentTextChanged.connect(self._on_script_language_changed)
-        lang_row.addWidget(self._script_lang_combo)
+        Called once for each script type.  The caller specifies which
+        editor attribute to create via ``_build_pre_request_tab`` and
+        ``_build_test_script_tab`` convenience wrappers.
+        """
+        raise NotImplementedError("Use _build_pre_request_tab / _build_test_script_tab")
 
-        self._history_btn = QPushButton("History")
-        self._history_btn.setIcon(phi("clock-counter-clockwise", size=14))
-        self._history_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._history_btn.setToolTip("View script version history")
-        self._history_btn.clicked.connect(self._open_version_history)
-        lang_row.addWidget(self._history_btn)
-        lang_row.addStretch()
+    # -- Individual tab builders ---------------------------------------
 
-        parent_layout.addLayout(lang_row)
-
-        # Pre-request script editor
-        pre_label = QLabel("Pre-request Script")
-        pre_label.setObjectName("sectionLabel")
-        parent_layout.addWidget(pre_label)
+    def _build_pre_request_tab(self, parent_layout: QVBoxLayout) -> None:
+        """Build the Pre-request Script tab contents."""
+        self._pre_lang_combo, self._pre_history_btn = self._build_script_header(
+            parent_layout,
+            history_type="pre_request",
+        )
 
         self._pre_request_edit = CodeEditorWidget()
         self._pre_request_edit.set_language("javascript")
@@ -75,10 +62,12 @@ class _ScriptsMixin:
         self._pre_request_edit.textChanged.connect(self._schedule_version_capture)
         parent_layout.addWidget(self._pre_request_edit, 1)
 
-        # Test / post-response script editor
-        post_label = QLabel("Tests / Post-response Script")
-        post_label.setObjectName("sectionLabel")
-        parent_layout.addWidget(post_label)
+    def _build_test_script_tab(self, parent_layout: QVBoxLayout) -> None:
+        """Build the Post-response Script tab contents."""
+        self._test_lang_combo, self._test_history_btn = self._build_script_header(
+            parent_layout,
+            history_type="test",
+        )
 
         self._test_script_edit = CodeEditorWidget()
         self._test_script_edit.set_language("javascript")
@@ -90,19 +79,70 @@ class _ScriptsMixin:
         self._test_script_edit.textChanged.connect(self._schedule_version_capture)
         parent_layout.addWidget(self._test_script_edit, 1)
 
-        # Version capture debounce timer
-        self._version_capture_timer = QTimer()
-        self._version_capture_timer.setSingleShot(True)
-        self._version_capture_timer.setInterval(_VERSION_CAPTURE_MS)
-        self._version_capture_timer.timeout.connect(self._capture_script_versions)
+    def _build_script_header(
+        self,
+        parent_layout: QVBoxLayout,
+        *,
+        history_type: str,
+    ) -> tuple[QComboBox, QPushButton]:
+        """Build a language-selector + history-button row."""
+        lang_row = QHBoxLayout()
+        lang_row.setContentsMargins(0, 0, 0, 0)
+        lang_label = QLabel("Language")
+        lang_label.setObjectName("mutedLabel")
+        lang_row.addWidget(lang_label)
+
+        lang_combo = QComboBox()
+        lang_combo.addItems(list(_SCRIPT_LANGUAGES.keys()))
+        lang_combo.setCursor(Qt.CursorShape.PointingHandCursor)
+        lang_combo.setFixedWidth(120)
+        lang_combo.currentTextChanged.connect(
+            lambda name, ht=history_type: self._on_script_language_changed(name, ht),
+        )
+        lang_row.addWidget(lang_combo)
+
+        history_btn = QPushButton("History")
+        history_btn.setIcon(phi("clock-counter-clockwise", size=14))
+        history_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        history_btn.setToolTip("View script version history")
+        history_btn.clicked.connect(
+            lambda _checked=False, ht=history_type: self._open_version_history(ht),
+        )
+        lang_row.addWidget(history_btn)
+        lang_row.addStretch()
+
+        parent_layout.addLayout(lang_row)
+
+        # Shared debounce timer (created once)
+        if not hasattr(self, "_version_capture_timer"):
+            self._version_capture_timer = QTimer()
+            self._version_capture_timer.setSingleShot(True)
+            self._version_capture_timer.setInterval(_VERSION_CAPTURE_MS)
+            self._version_capture_timer.timeout.connect(self._capture_script_versions)
+
+        return lang_combo, history_btn
+
+    # -- Backward-compatible aliases -----------------------------------
+
+    @property
+    def _script_lang_combo(self) -> QComboBox:  # type: ignore[override]
+        """Return the pre-request language combo for legacy callers."""
+        return self._pre_lang_combo
+
+    @property
+    def _history_btn(self) -> QPushButton:  # type: ignore[override]
+        """Return the pre-request history button for legacy callers."""
+        return self._pre_history_btn
 
     # -- Language switching --------------------------------------------
 
-    def _on_script_language_changed(self, display_name: str) -> None:
-        """Update both editors when the language selector changes."""
+    def _on_script_language_changed(self, display_name: str, script_type: str) -> None:
+        """Update the matching editor when its language selector changes."""
         lang = _SCRIPT_LANGUAGES.get(display_name, "javascript")
-        self._pre_request_edit.set_language(lang)
-        self._test_script_edit.set_language(lang)
+        if script_type == "pre_request":
+            self._pre_request_edit.set_language(lang)
+        else:
+            self._test_script_edit.set_language(lang)
         if not self._loading:  # type: ignore[attr-defined]
             self._on_field_changed()  # type: ignore[attr-defined]
 
@@ -112,8 +152,8 @@ class _ScriptsMixin:
         """Populate script editors from stored data.
 
         Accepts our internal dict ``{"pre_request": ..., "test": ...,
-        "language": ...}``, a Postman events list, a raw JSON string,
-        or ``None``.
+        "pre_language": ..., "test_language": ...}``, a Postman events
+        list, a raw JSON string, or ``None``.
         """
         if isinstance(scripts, str) and scripts.strip():
             # Legacy raw string — try to parse as JSON dict
@@ -132,15 +172,30 @@ class _ScriptsMixin:
         self._pre_request_edit.setPlainText(events.get("pre_request") or "")
         self._test_script_edit.setPlainText(events.get("test") or "")
 
-        # Language
-        lang_display = "JavaScript"
+        # Languages (per-tab, with fallback to shared 'language' key)
+        fallback = "JavaScript"
         if isinstance(scripts, dict):
-            stored_lang = scripts.get("language", "").lower()
+            shared = scripts.get("language", "").lower()
             for display, code in _SCRIPT_LANGUAGES.items():
-                if code == stored_lang:
-                    lang_display = display
+                if code == shared:
+                    fallback = display
                     break
-        self._script_lang_combo.setCurrentText(lang_display)
+
+        pre_display = fallback
+        test_display = fallback
+        if isinstance(scripts, dict):
+            for attr, key in (("pre_display", "pre_language"), ("test_display", "test_language")):
+                stored = scripts.get(key, "").lower()
+                if stored:
+                    for display, code in _SCRIPT_LANGUAGES.items():
+                        if code == stored:
+                            if attr == "pre_display":
+                                pre_display = display
+                            else:
+                                test_display = display
+                            break
+        self._pre_lang_combo.setCurrentText(pre_display)
+        self._test_lang_combo.setCurrentText(test_display)
 
     def _get_scripts_data(self) -> dict[str, str | None] | None:
         """Build the scripts dict from the editor contents."""
@@ -149,18 +204,22 @@ class _ScriptsMixin:
         if not pre and not test:
             return None
 
-        lang = _SCRIPT_LANGUAGES.get(self._script_lang_combo.currentText(), "javascript")
+        pre_lang = _SCRIPT_LANGUAGES.get(self._pre_lang_combo.currentText(), "javascript")
+        test_lang = _SCRIPT_LANGUAGES.get(self._test_lang_combo.currentText(), "javascript")
         return {
             "pre_request": pre or None,
             "test": test or None,
-            "language": lang,
+            "pre_language": pre_lang,
+            "test_language": test_lang,
+            "language": pre_lang,  # backward compat
         }
 
     def _clear_scripts(self) -> None:
-        """Reset both script editors and the language selector."""
+        """Reset both script editors and language selectors."""
         self._pre_request_edit.clear()
         self._test_script_edit.clear()
-        self._script_lang_combo.setCurrentText("JavaScript")
+        self._pre_lang_combo.setCurrentText("JavaScript")
+        self._test_lang_combo.setCurrentText("JavaScript")
 
     def _has_scripts_content(self) -> bool:
         """Return whether either script editor has content."""
@@ -184,26 +243,32 @@ class _ScriptsMixin:
         if request_id is None and collection_id is None:
             return
 
-        lang = _SCRIPT_LANGUAGES.get(self._script_lang_combo.currentText(), "javascript")
-
         pre = self._pre_request_edit.toPlainText()
         if pre.strip():
+            pre_lang = _SCRIPT_LANGUAGES.get(
+                self._pre_lang_combo.currentText(),
+                "javascript",
+            )
             ScriptVersionService.capture(
                 request_id=request_id,
                 collection_id=collection_id,
                 script_type="pre_request",
                 content=pre,
-                language=lang,
+                language=pre_lang,
             )
 
         test = self._test_script_edit.toPlainText()
         if test.strip():
+            test_lang = _SCRIPT_LANGUAGES.get(
+                self._test_lang_combo.currentText(),
+                "javascript",
+            )
             ScriptVersionService.capture(
                 request_id=request_id,
                 collection_id=collection_id,
                 script_type="test",
                 content=test,
-                language=lang,
+                language=test_lang,
             )
 
     def capture_scripts_now(self) -> None:
@@ -241,7 +306,7 @@ class _ScriptsMixin:
 
     # -- Version history dialog ----------------------------------------
 
-    def _open_version_history(self) -> None:
+    def _open_version_history(self, script_type: str = "pre_request") -> None:
         """Open the version history dialog for the current request."""
         from ui.request.request_editor.scripts.version_history import VersionHistoryDialog
 
@@ -250,12 +315,19 @@ class _ScriptsMixin:
         if request_id is None and collection_id is None:
             return
 
+        lang_combo = self._pre_lang_combo if script_type == "pre_request" else self._test_lang_combo
+
         dlg = VersionHistoryDialog(
             request_id=request_id,
             collection_id=collection_id,
             current_pre=self._pre_request_edit.toPlainText(),
             current_test=self._test_script_edit.toPlainText(),
-            parent=self._pre_request_edit,  # type: ignore[arg-type]
+            language=_SCRIPT_LANGUAGES.get(
+                lang_combo.currentText(),
+                "javascript",
+            ),
+            initial_tab=0 if script_type == "pre_request" else 1,
+            parent=self._pre_request_edit,
         )
         if dlg.exec():
             restored = dlg.restored_content()
@@ -266,5 +338,7 @@ class _ScriptsMixin:
                     if script_type == "pre_request"
                     else self._test_script_edit
                 )
+                editor.selectAll()
+                editor.insertPlainText(content)
                 editor.selectAll()
                 editor.insertPlainText(content)

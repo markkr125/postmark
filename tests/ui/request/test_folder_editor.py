@@ -59,7 +59,6 @@ class TestFolderEditorLoad:
 
         assert editor._empty_label.isHidden()
         assert not editor._tabs.isHidden()
-        assert editor._title_label.text() == "My Folder"
         assert editor.collection_id == 42
 
     def test_load_description(self, qapp: QApplication, qtbot) -> None:
@@ -572,11 +571,13 @@ class TestFolderEditorScriptHistory:
     """Tests for the script version history button and version capture."""
 
     def test_history_button_exists(self, qapp: QApplication, qtbot) -> None:
-        """The Scripts tab has a History button."""
+        """Each script tab has a History button."""
         editor = FolderEditorWidget()
         qtbot.addWidget(editor)
-        assert editor._history_btn is not None
-        assert editor._history_btn.text() == "History"
+        assert editor._pre_history_btn is not None
+        assert editor._pre_history_btn.text() == "History"
+        assert editor._test_history_btn is not None
+        assert editor._test_history_btn.text() == "History"
 
     def test_version_capture_timer_created(self, qapp: QApplication, qtbot) -> None:
         """A version capture timer is created during init."""

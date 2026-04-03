@@ -288,7 +288,15 @@ src/
         │   ├── auth.py              # Re-export of _AuthMixin from auth sub-package
         │   ├── body_search.py       # _BodySearchMixin — search/replace in body
         │   ├── graphql.py           # _GraphQLMixin — GraphQL mode + schema
-        │   └── scripts.py           # _ScriptsMixin — dual pre-request/test script editors
+        │   └── scripts/             # Scripts sub-package
+        │       ├── scripts_mixin.py # _ScriptsMixin — dual pre-request/test script editors
+        │       ├── version_history.py # _show_version_history entry point
+        │       └── version_history/ # Version history dialog sub-package
+        │           ├── delegate.py  # _VersionItemDelegate — two-line list item rendering
+        │           ├── dialog.py    # VersionHistoryDialog — timeline + side-by-side diff
+        │           ├── diff_viewer.py # _DiffViewer — dual-editor diff with folding
+        │           ├── helpers.py   # Diff formatting, fold ranges, timestamp helpers
+        │           └── toolbar.py   # _DiffToolbar — search, nav, whitespace, copy
         ├── response_viewer/         # ResponseViewer sub-package
         │   ├── viewer_widget.py     # ResponseViewer — response display widget
         │   ├── search_filter.py     # _SearchFilterMixin — response search/filter
@@ -395,6 +403,7 @@ tests/
         ├── test_response_viewer.py
         ├── test_response_viewer_search.py
         ├── test_response_viewer_tests.py
+        ├── test_version_history.py
         ├── navigation/            # Tab and breadcrumb tests
         │   ├── test_breadcrumb_bar.py
         │   ├── test_request_tab_bar.py

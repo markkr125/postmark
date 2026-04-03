@@ -748,7 +748,7 @@ class TestMainWindowFolderTabs:
 
         ctx = window._tabs[0]
         assert ctx.folder_editor is not None
-        assert ctx.folder_editor._title_label.text() == "Folder"
+        assert ctx.folder_editor.collection_id == coll.id
 
     def test_open_same_folder_twice_switches_tab(self, qapp: QApplication, qtbot) -> None:
         """Opening the same folder twice switches to the existing tab."""

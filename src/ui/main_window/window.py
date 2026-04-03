@@ -75,7 +75,7 @@ class MainWindow(
         app = QApplication.instance()
         self._tab_settings_manager = tab_settings_manager or TabSettingsManager(app)
         self.setWindowTitle("Postmark")
-        self.resize(1200, 800)
+        self.showMaximized()
 
         # Placeholders for future persistence logic
         self.collections: dict[str, Any] = {}

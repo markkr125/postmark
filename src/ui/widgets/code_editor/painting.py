@@ -78,6 +78,7 @@ class _PaintingMixin(_PaintingBase):
     _breakpoints: set[int]
     _debug_line: int | None
     _show_breakpoint_gutter: bool
+    _diff_line_colors: dict[int, QColor]
 
     if TYPE_CHECKING:
 
@@ -355,11 +356,12 @@ class _PaintingMixin(_PaintingBase):
     # -- Line number painting -------------------------------------------
 
     def paint_line_number_area(self, event: QPaintEvent) -> None:
-        """Paint line numbers and error markers in the gutter."""
+        """Paint line numbers, error markers, and diff stripes in the gutter."""
         painter = QPainter(self._line_number_area)
         painter.fillRect(event.rect(), QColor(COLOR_EDITOR_GUTTER_BG))
 
         error_lines = {e.line for e in self._errors}
+        diff_colors = self._diff_line_colors
 
         block = self.firstVisibleBlock()
         block_number = block.blockNumber()
@@ -372,6 +374,10 @@ class _PaintingMixin(_PaintingBase):
             if block.isVisible() and bottom >= event.rect().top():
                 number = str(block_number + 1)
                 is_error = block_number + 1 in error_lines
+
+                # Diff gutter stripe (3px on the left edge)
+                if block_number in diff_colors:
+                    painter.fillRect(0, top, 3, bottom - top, diff_colors[block_number])
 
                 if is_error:
                     painter.fillRect(

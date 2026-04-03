@@ -65,6 +65,7 @@ class _FoldingMixin(_FoldingBase):
     _line_number_area: _LineNumberArea
     _fold_gutter_area: _FoldGutterArea
     _search_selections: list[QTextEdit.ExtraSelection]
+    _diff_selections: list[QTextEdit.ExtraSelection]
 
     if TYPE_CHECKING:
 
@@ -361,6 +362,9 @@ class _FoldingMixin(_FoldingBase):
 
         # 4. External search selections
         selections.extend(self._search_selections)
+
+        # 5. Diff highlight selections
+        selections.extend(self._diff_selections)
 
         self.setExtraSelections(selections)
 

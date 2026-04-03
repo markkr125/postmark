@@ -1,15 +1,17 @@
 """Version history dialog with timeline and diff viewer.
 
 Opens from the Scripts tab History button.  Shows a timeline of script
-snapshots and a side-by-side diff viewer for comparing versions.
+snapshots and a side-by-side diff viewer for comparing versions with
+syntax highlighting, character-level inline diffs, and gutter markers.
 """
 
 from __future__ import annotations
 
+import difflib
 from datetime import datetime
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QTextCharFormat
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QColor, QGuiApplication, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
@@ -19,17 +21,32 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSplitter,
     QTabWidget,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
 from services.script_version_service import ScriptVersionService
-from ui.styling import theme
 from ui.styling.icons import phi
+from ui.styling.theme import (
+    COLOR_BORDER,
+    COLOR_DIFF_ADDED_BG,
+    COLOR_DIFF_ADDED_GUTTER,
+    COLOR_DIFF_ADDED_INLINE,
+    COLOR_DIFF_REMOVED_BG,
+    COLOR_DIFF_REMOVED_GUTTER,
+    COLOR_DIFF_REMOVED_INLINE,
+)
 from ui.widgets.code_editor import CodeEditorWidget
 
 # Custom data role for version ID.
 _ROLE_VERSION_ID = Qt.ItemDataRole.UserRole + 1
+
+# Fraction of the primary screen dimensions used for the dialog.
+_SCREEN_FRACTION = 0.8
+
+# Height (in pixels) for version list items.
+_LIST_ITEM_HEIGHT = 44
 
 
 class VersionHistoryDialog(QDialog):
@@ -42,17 +59,28 @@ class VersionHistoryDialog(QDialog):
         collection_id: int | None,
         current_pre: str,
         current_test: str,
+        language: str = "javascript",
         parent: QWidget | None = None,
     ) -> None:
         """Build the version history dialog."""
         super().__init__(parent)
         self.setWindowTitle("Script Version History")
-        self.resize(900, 600)
+
+        # Size to 80 % of the primary screen.
+        screen = QGuiApplication.primaryScreen()
+        if screen is not None:
+            geo = screen.availableGeometry()
+            w = int(geo.width() * _SCREEN_FRACTION)
+            h = int(geo.height() * _SCREEN_FRACTION)
+        else:
+            w, h = 1200, 800
+        self.resize(w, h)
 
         self._request_id = request_id
         self._collection_id = collection_id
         self._current_pre = current_pre
         self._current_test = current_test
+        self._language = language
         self._restored: tuple[str, str] | None = None
 
         root = QVBoxLayout(self)
@@ -110,16 +138,18 @@ class VersionHistoryDialog(QDialog):
 
         # Version list
         version_list = QListWidget()
+        version_list.setObjectName("versionList")
         version_list.setMaximumWidth(220)
         version_list.currentItemChanged.connect(self._on_version_selected)
         splitter.addWidget(version_list)
 
         # Diff viewer
-        viewer = _DiffViewer()
+        viewer = _DiffViewer(language=self._language)
         splitter.addWidget(viewer)
 
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
+        splitter.setHandleWidth(1)
         layout.addWidget(splitter)
         return version_list, viewer
 
@@ -143,6 +173,7 @@ class VersionHistoryDialog(QDialog):
         current_item = QListWidgetItem("Current (unsaved)")
         current_item.setData(_ROLE_VERSION_ID, -1)
         current_item.setData(Qt.ItemDataRole.UserRole, current_content)
+        current_item.setSizeHint(QSize(0, _LIST_ITEM_HEIGHT))
         list_widget.addItem(current_item)
 
         versions = ScriptVersionService.list_versions(
@@ -153,10 +184,12 @@ class VersionHistoryDialog(QDialog):
         for v in versions:
             ts = v["created_at"]
             label = _format_timestamp(ts)
+            date_str = ts.strftime("%Y-%m-%d %H:%M")
             preview = (v["content"] or "")[:60].replace("\n", " ")
-            item = QListWidgetItem(f"{label}\n{preview}")
+            item = QListWidgetItem(f"{label}  \u00b7  {date_str}\n{preview}")
             item.setData(_ROLE_VERSION_ID, v["id"])
             item.setData(Qt.ItemDataRole.UserRole, v["content"])
+            item.setSizeHint(QSize(0, _LIST_ITEM_HEIGHT))
             list_widget.addItem(item)
 
     # -- Selection handling --------------------------------------------
@@ -216,36 +249,71 @@ class VersionHistoryDialog(QDialog):
 
 # -- Diff viewer -------------------------------------------------------
 
+# Width (in pixels) of the coloured gutter stripe for changed lines.
+_GUTTER_STRIPE_PX = 3
+
 
 class _DiffViewer(QWidget):
-    """Side-by-side diff viewer with two read-only code editors."""
+    """Side-by-side diff viewer with syntax highlighting and inline diffs."""
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        language: str = "javascript",
+        parent: QWidget | None = None,
+    ) -> None:
         """Build the diff viewer layout."""
         super().__init__(parent)
+        self._language = language
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(4)
 
-        # Labels
+        # Labels (left-padded so text is not flush against the gutter edge)
+        _label_margin = 4
         label_row = QHBoxLayout()
         self._left_label = QLabel("Selected Version")
         self._left_label.setObjectName("mutedLabel")
+        self._left_label.setContentsMargins(_label_margin, 0, 0, 0)
+        self._left_label.setStyleSheet(
+            f"border-right: 1px solid {COLOR_BORDER}; border-top: 1px solid {COLOR_BORDER};"
+        )
         label_row.addWidget(self._left_label, 1)
         self._right_label = QLabel("Current")
         self._right_label.setObjectName("mutedLabel")
+        self._right_label.setContentsMargins(_label_margin, 0, 0, 0)
+        self._right_label.setStyleSheet(
+            f"border-right: 1px solid {COLOR_BORDER}; border-top: 1px solid {COLOR_BORDER};"
+        )
         label_row.addWidget(self._right_label, 1)
         root.addLayout(label_row)
 
-        # Editors
+        # Editors — remove outer border; keep bottom border only
+        border = COLOR_BORDER
+        editor_css = (
+            f"QPlainTextEdit {{ border: none;"
+            f" border-bottom: 1px solid {border};"
+            f" border-right: 1px solid {border};"
+            f" border-top: 1px solid {border}; }}"
+        )
+        right_editor_css = (
+            f"QPlainTextEdit {{ border: none;"
+            f" border-bottom: 1px solid {border};"
+            f" border-right: 1px solid {border};"
+            f" border-top: 1px solid {border}; }}"
+        )
         splitter = QSplitter(Qt.Orientation.Horizontal)
         self._left_editor = CodeEditorWidget()
         self._left_editor.setReadOnly(True)
+        self._left_editor.set_language(language)
+        self._left_editor.setStyleSheet(editor_css)
         splitter.addWidget(self._left_editor)
 
         self._right_editor = CodeEditorWidget()
         self._right_editor.setReadOnly(True)
+        self._right_editor.set_language(language)
+        self._right_editor.setStyleSheet(right_editor_css)
         splitter.addWidget(self._right_editor)
 
         # Synchronize scrolling
@@ -258,80 +326,166 @@ class _DiffViewer(QWidget):
 
     def show_single(self, content: str) -> None:
         """Show a single version (no diff highlighting)."""
+        self._left_editor.set_diff_selections([])
+        self._left_editor.set_diff_line_colors({})
+        self._right_editor.set_diff_selections([])
+        self._right_editor.set_diff_line_colors({})
         self._left_editor.setPlainText(content)
         self._right_editor.setPlainText("")
         self._left_label.setText("Current")
         self._right_label.setText("")
 
     def show_diff(self, old_text: str, new_text: str) -> None:
-        """Show two versions side-by-side with changed-line highlighting."""
+        """Show two versions side-by-side with full diff highlighting."""
         self._left_editor.setPlainText(old_text)
         self._right_editor.setPlainText(new_text)
         self._left_label.setText("Selected Version")
         self._right_label.setText("Current")
 
-        # Highlight changed lines
         old_lines = old_text.splitlines()
         new_lines = new_text.splitlines()
-
-        import difflib
 
         sm = difflib.SequenceMatcher(None, old_lines, new_lines)
         removed_lines: set[int] = set()
         added_lines: set[int] = set()
+        replace_pairs: list[tuple[range, range]] = []
 
         for tag, i1, i2, j1, j2 in sm.get_opcodes():
             if tag == "replace":
                 removed_lines.update(range(i1, i2))
                 added_lines.update(range(j1, j2))
+                replace_pairs.append((range(i1, i2), range(j1, j2)))
             elif tag == "delete":
                 removed_lines.update(range(i1, i2))
             elif tag == "insert":
                 added_lines.update(range(j1, j2))
 
-        _highlight_lines(self._left_editor, removed_lines, _removed_format())
-        _highlight_lines(self._right_editor, added_lines, _added_format())
+        # 1. Full-line background highlights
+        removed_fmt = _line_format(COLOR_DIFF_REMOVED_BG)
+        added_fmt = _line_format(COLOR_DIFF_ADDED_BG)
+        left_sels = _build_line_selections(self._left_editor, removed_lines, removed_fmt)
+        right_sels = _build_line_selections(self._right_editor, added_lines, added_fmt)
+
+        # 2. Character-level inline diffs for replaced lines
+        _add_inline_selections(
+            self._left_editor,
+            self._right_editor,
+            old_lines,
+            new_lines,
+            replace_pairs,
+            left_sels,
+            right_sels,
+        )
+
+        self._left_editor.set_diff_selections(left_sels)
+        self._right_editor.set_diff_selections(right_sels)
+
+        # 3. Gutter stripes
+        removed_color = QColor(COLOR_DIFF_REMOVED_GUTTER)
+        added_color = QColor(COLOR_DIFF_ADDED_GUTTER)
+        self._left_editor.set_diff_line_colors(
+            {ln: removed_color for ln in removed_lines},
+        )
+        self._right_editor.set_diff_line_colors(
+            {ln: added_color for ln in added_lines},
+        )
 
 
-def _removed_format() -> QTextCharFormat:
-    """Return a char format for removed (old) lines."""
+# -- Diff formatting helpers -------------------------------------------
+
+
+def _line_format(color_hex: str) -> QTextCharFormat:
+    """Return a full-width-selection char format with the given background."""
     fmt = QTextCharFormat()
-    fmt.setBackground(QColor(theme.COLOR_DANGER).lighter(170))
+    fmt.setBackground(QColor(color_hex))
+    fmt.setProperty(QTextCharFormat.Property.FullWidthSelection, True)
     return fmt
 
 
-def _added_format() -> QTextCharFormat:
-    """Return a char format for added (new) lines."""
-    fmt = QTextCharFormat()
-    fmt.setBackground(QColor(theme.COLOR_SUCCESS).lighter(170))
-    return fmt
-
-
-def _highlight_lines(
+def _build_line_selections(
     editor: CodeEditorWidget,
     line_numbers: set[int],
     fmt: QTextCharFormat,
-) -> None:
-    """Apply *fmt* as extra selection to the given 0-based line numbers."""
-    from PySide6.QtWidgets import QTextEdit
-
-    selections: list[QTextEdit.ExtraSelection] = list(editor.extraSelections())
+) -> list[QTextEdit.ExtraSelection]:
+    """Create extra selections for full-line background highlighting."""
+    selections: list[QTextEdit.ExtraSelection] = []
     doc = editor.document()
     for line_no in sorted(line_numbers):
         block = doc.findBlockByNumber(line_no)
         if not block.isValid():
             continue
         sel = QTextEdit.ExtraSelection()
-        sel.format = fmt
-        sel.format.setProperty(QTextCharFormat.Property.FullWidthSelection, True)
-        sel.cursor = editor.textCursor()
-        sel.cursor.setPosition(block.position())
-        sel.cursor.movePosition(
-            sel.cursor.MoveOperation.EndOfBlock,
-            sel.cursor.MoveMode.KeepAnchor,
+        sel.format = QTextCharFormat(fmt)
+        cur = QTextCursor(doc)
+        cur.setPosition(block.position())
+        cur.movePosition(
+            QTextCursor.MoveOperation.EndOfBlock,
+            QTextCursor.MoveMode.KeepAnchor,
         )
+        sel.cursor = cur
         selections.append(sel)
-    editor.setExtraSelections(selections)
+    return selections
+
+
+def _add_inline_selections(
+    left_editor: CodeEditorWidget,
+    right_editor: CodeEditorWidget,
+    old_lines: list[str],
+    new_lines: list[str],
+    replace_pairs: list[tuple[range, range]],
+    left_sels: list[QTextEdit.ExtraSelection],
+    right_sels: list[QTextEdit.ExtraSelection],
+) -> None:
+    """Add character-level inline diff selections for replaced line pairs."""
+    removed_inline_fmt = QTextCharFormat()
+    removed_inline_fmt.setBackground(QColor(COLOR_DIFF_REMOVED_INLINE))
+    added_inline_fmt = QTextCharFormat()
+    added_inline_fmt.setBackground(QColor(COLOR_DIFF_ADDED_INLINE))
+
+    left_doc = left_editor.document()
+    right_doc = right_editor.document()
+
+    for old_range, new_range in replace_pairs:
+        # Pair up lines 1:1 where both ranges overlap
+        pairs = min(len(old_range), len(new_range))
+        for i in range(pairs):
+            old_ln = old_range[i]
+            new_ln = new_range[i]
+            old_line = old_lines[old_ln]
+            new_line = new_lines[new_ln]
+
+            char_sm = difflib.SequenceMatcher(None, old_line, new_line)
+            for tag, ci1, ci2, cj1, cj2 in char_sm.get_opcodes():
+                if tag == "equal":
+                    continue
+                # Highlight changed chars in the old (left) editor
+                if tag in ("replace", "delete") and ci2 > ci1:
+                    left_block = left_doc.findBlockByNumber(old_ln)
+                    if left_block.isValid():
+                        sel = QTextEdit.ExtraSelection()
+                        sel.format = QTextCharFormat(removed_inline_fmt)
+                        cur = QTextCursor(left_doc)
+                        cur.setPosition(left_block.position() + ci1)
+                        cur.setPosition(
+                            left_block.position() + ci2,
+                            QTextCursor.MoveMode.KeepAnchor,
+                        )
+                        sel.cursor = cur
+                        left_sels.append(sel)
+                # Highlight changed chars in the new (right) editor
+                if tag in ("replace", "insert") and cj2 > cj1:
+                    right_block = right_doc.findBlockByNumber(new_ln)
+                    if right_block.isValid():
+                        sel = QTextEdit.ExtraSelection()
+                        sel.format = QTextCharFormat(added_inline_fmt)
+                        cur = QTextCursor(right_doc)
+                        cur.setPosition(right_block.position() + cj1)
+                        cur.setPosition(
+                            right_block.position() + cj2,
+                            QTextCursor.MoveMode.KeepAnchor,
+                        )
+                        sel.cursor = cur
+                        right_sels.append(sel)
 
 
 def _format_timestamp(ts: datetime) -> str:

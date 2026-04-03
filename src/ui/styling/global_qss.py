@@ -338,6 +338,42 @@ def build_global_qss(p: ThemePalette) -> str:
         border: 1px solid {p["border"]};
         background: {p["input_bg"]};
     }}
+    QListWidget[objectName="versionList"] {{
+        border: none;
+        border-top: 1px solid {p["border"]};
+        outline: none;
+    }}
+    QListWidget[objectName="versionList"]::item {{
+        padding: 4px 8px;
+    }}
+    QListWidget[objectName="versionList"]::item:selected {{
+        background: {p["selected_bg"]};
+    }}
+    QListWidget[objectName="versionList"]::item:hover:!selected {{
+        background: {p["hover_tree_bg"]};
+    }}
+
+    /* ---- Version history dialog --------------------------------- */
+    QTabWidget#versionTabs::pane {{
+        border-bottom: 1px solid {p["border"]};
+    }}
+    QWidget[objectName="diffToolbar"] {{
+        background: {p["bg_alt"]};
+        border-bottom: 1px solid {p["border"]};
+    }}
+    QLabel[objectName="diffColumnHeader"] {{
+        background: {p["diff_header_bg"]};
+        color: {p["text_muted"]};
+        font-size: 11px;
+        padding: 2px 8px;
+        border-top: 1px solid {p["border"]};
+        border-bottom: 1px solid {p["border"]};
+    }}
+    QLineEdit[objectName="versionSearch"] {{
+        border: 1px solid {p["border"]};
+        border-radius: 3px;
+        padding: 3px 6px;
+    }}
 
     /* ---- Scroll areas ------------------------------------------- */
     QScrollArea {{

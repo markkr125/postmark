@@ -24,7 +24,7 @@ import xml.dom.minidom
 from typing import TYPE_CHECKING, cast
 
 from PySide6.QtCore import QEvent, QPoint, QRect, Qt, QTimer, Signal
-from PySide6.QtGui import QFont, QHelpEvent, QKeyEvent, QTextCursor
+from PySide6.QtGui import QColor, QFont, QHelpEvent, QKeyEvent, QTextCursor
 from PySide6.QtWidgets import QPlainTextEdit, QTextEdit, QToolTip, QWidget
 
 if TYPE_CHECKING:
@@ -66,6 +66,7 @@ class CodeEditorWidget(_CompletionMixin, _PaintingMixin, _FoldingMixin, QPlainTe
 
     validation_changed = Signal(list)
     breakpoints_changed = Signal()
+    diff_fold_toggled = Signal(int)
 
     def __init__(self, *, read_only: bool = False, parent: QWidget | None = None) -> None:
         """Initialise the code editor with gutter, highlighter, and timers."""
@@ -81,6 +82,10 @@ class CodeEditorWidget(_CompletionMixin, _PaintingMixin, _FoldingMixin, QPlainTe
         self._sorted_folds: list[tuple[int, int, int]] = []
         self._collapsed_folds: set[int] = set()
         self._search_selections: list[QTextEdit.ExtraSelection] = []
+        self._diff_selections: list[QTextEdit.ExtraSelection] = []
+        self._diff_line_colors: dict[int, QColor] = {}
+        self._diff_fold_ranges: list[tuple[int, int]] = []
+        self._collapsed_diff_folds: set[int] = set()
         self._variable_map: dict[str, VariableDetail] = {}
 
         # Hover tracking for fast variable popup display
@@ -284,6 +289,32 @@ class CodeEditorWidget(_CompletionMixin, _PaintingMixin, _FoldingMixin, QPlainTe
         """Store search highlight selections and refresh extra selections."""
         self._search_selections = selections
         self._refresh_extra_selections()
+
+    def set_diff_selections(self, selections: list[QTextEdit.ExtraSelection]) -> None:
+        """Store diff highlight selections and refresh extra selections."""
+        self._diff_selections = selections
+        self._refresh_extra_selections()
+
+    def set_diff_line_colors(self, line_colors: dict[int, QColor]) -> None:
+        """Set per-line gutter stripe colours for diff highlighting."""
+        self._diff_line_colors = line_colors
+        self._line_number_area.update()
+
+    def set_diff_fold_ranges(self, ranges: list[tuple[int, int]]) -> None:
+        """Set foldable unchanged-region ranges for diff mode."""
+        self._diff_fold_ranges = ranges
+        self._collapsed_diff_folds = set(range(len(ranges)))
+
+    def toggle_diff_fold(self, idx: int, *, emit: bool = True) -> None:
+        """Toggle a diff fold region open/closed."""
+        if idx < 0 or idx >= len(self._diff_fold_ranges):
+            return
+        if idx in self._collapsed_diff_folds:
+            self._collapsed_diff_folds.discard(idx)
+        else:
+            self._collapsed_diff_folds.add(idx)
+        if emit:
+            self.diff_fold_toggled.emit(idx)
 
     # -- Rebuild on theme change ----------------------------------------
 

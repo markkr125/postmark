@@ -182,9 +182,25 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, _ScriptsM
         self._tabs.addTab(self._description_edit, "Description")
 
         self._scripts_tab = QWidget()
-        scripts_layout = QVBoxLayout(self._scripts_tab)
-        scripts_layout.setContentsMargins(0, 6, 0, 0)
-        self._build_scripts_tab(scripts_layout)
+        scripts_outer = QVBoxLayout(self._scripts_tab)
+        scripts_outer.setContentsMargins(0, 0, 0, 0)
+        scripts_outer.setSpacing(0)
+        self._scripts_sub_tabs = QTabWidget()
+        self._scripts_sub_tabs.tabBar().setCursor(Qt.CursorShape.PointingHandCursor)
+
+        self._pre_scripts_tab = QWidget()
+        pre_scripts_layout = QVBoxLayout(self._pre_scripts_tab)
+        pre_scripts_layout.setContentsMargins(0, 6, 0, 0)
+        self._build_pre_request_tab(pre_scripts_layout)
+        self._scripts_sub_tabs.addTab(self._pre_scripts_tab, "Pre-request")
+
+        self._test_scripts_tab = QWidget()
+        test_scripts_layout = QVBoxLayout(self._test_scripts_tab)
+        test_scripts_layout.setContentsMargins(0, 6, 0, 0)
+        self._build_test_script_tab(test_scripts_layout)
+        self._scripts_sub_tabs.addTab(self._test_scripts_tab, "Post-response")
+
+        scripts_outer.addWidget(self._scripts_sub_tabs, 1)
         self._tabs.addTab(self._scripts_tab, "Scripts")
 
         tab_header_h = self._tabs.tabBar().sizeHint().height()

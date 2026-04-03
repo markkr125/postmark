@@ -94,6 +94,15 @@ class ThemePalette(TypedDict):
     editor_debug_line: str
     editor_debug_gutter_arrow: str
 
+    # Diff viewer
+    diff_removed_bg: str
+    diff_added_bg: str
+    diff_removed_inline: str
+    diff_added_inline: str
+    diff_removed_gutter: str
+    diff_added_gutter: str
+    diff_header_bg: str
+
 
 # -- Light palette -----------------------------------------------------
 LIGHT_PALETTE: ThemePalette = {
@@ -156,6 +165,13 @@ LIGHT_PALETTE: ThemePalette = {
     "editor_breakpoint": "#e74c3c",
     "editor_debug_line": "#fff8dc",
     "editor_debug_gutter_arrow": "#f39c12",
+    "diff_removed_bg": "#fce4e4",
+    "diff_added_bg": "#d4edda",
+    "diff_removed_inline": "#f5c6c6",
+    "diff_added_inline": "#abdbbd",
+    "diff_removed_gutter": "#e74c3c",
+    "diff_added_gutter": "#2ecc71",
+    "diff_header_bg": "#efefef",
 }
 
 # -- Dark palette ------------------------------------------------------
@@ -219,6 +235,13 @@ DARK_PALETTE: ThemePalette = {
     "editor_breakpoint": "#f44747",
     "editor_debug_line": "#3a3520",
     "editor_debug_gutter_arrow": "#f39c12",
+    "diff_removed_bg": "#4a2020",
+    "diff_added_bg": "#1a3a2a",
+    "diff_removed_inline": "#6b3030",
+    "diff_added_inline": "#2a5a3a",
+    "diff_removed_gutter": "#f44747",
+    "diff_added_gutter": "#4ec9b0",
+    "diff_header_bg": "#2a2d2e",
 }
 
 
@@ -300,6 +323,13 @@ COLOR_EDITOR_BREAKPOINT: str = _active["editor_breakpoint"]
 COLOR_EDITOR_DEBUG_LINE: str = _active["editor_debug_line"]
 COLOR_EDITOR_DEBUG_GUTTER_ARROW: str = _active["editor_debug_gutter_arrow"]
 
+COLOR_DIFF_REMOVED_BG: str = _active["diff_removed_bg"]
+COLOR_DIFF_ADDED_BG: str = _active["diff_added_bg"]
+COLOR_DIFF_REMOVED_INLINE: str = _active["diff_removed_inline"]
+COLOR_DIFF_ADDED_INLINE: str = _active["diff_added_inline"]
+COLOR_DIFF_REMOVED_GUTTER: str = _active["diff_removed_gutter"]
+COLOR_DIFF_ADDED_GUTTER: str = _active["diff_added_gutter"]
+
 
 def set_active_palette(palette: ThemePalette) -> None:
     """Replace the module-level colour aliases with values from *palette*.
@@ -336,6 +366,9 @@ def set_active_palette(palette: ThemePalette) -> None:
     global COLOR_EDITOR_WHITESPACE_DOT
     global COLOR_EDITOR_BREAKPOINT, COLOR_EDITOR_DEBUG_LINE
     global COLOR_EDITOR_DEBUG_GUTTER_ARROW
+    global COLOR_DIFF_REMOVED_BG, COLOR_DIFF_ADDED_BG
+    global COLOR_DIFF_REMOVED_INLINE, COLOR_DIFF_ADDED_INLINE
+    global COLOR_DIFF_REMOVED_GUTTER, COLOR_DIFF_ADDED_GUTTER
 
     _active = palette
 
@@ -404,6 +437,13 @@ def set_active_palette(palette: ThemePalette) -> None:
     COLOR_EDITOR_BREAKPOINT = palette["editor_breakpoint"]
     COLOR_EDITOR_DEBUG_LINE = palette["editor_debug_line"]
     COLOR_EDITOR_DEBUG_GUTTER_ARROW = palette["editor_debug_gutter_arrow"]
+
+    COLOR_DIFF_REMOVED_BG = palette["diff_removed_bg"]
+    COLOR_DIFF_ADDED_BG = palette["diff_added_bg"]
+    COLOR_DIFF_REMOVED_INLINE = palette["diff_removed_inline"]
+    COLOR_DIFF_ADDED_INLINE = palette["diff_added_inline"]
+    COLOR_DIFF_REMOVED_GUTTER = palette["diff_removed_gutter"]
+    COLOR_DIFF_ADDED_GUTTER = palette["diff_added_gutter"]
 
 
 def current_palette() -> ThemePalette:
