@@ -3,12 +3,18 @@
 Dispatches scripts to the appropriate runtime based on the ``language``
 field, and merges outputs from multiple scripts in an inheritance chain.
 All methods are ``@staticmethod`` to match the project service pattern.
+
+Also provides :class:`ScriptLinter` for lightweight syntax checking
+without executing scripts (used by the inline editor validation).
 """
 
 from __future__ import annotations
 
+import ast
+import json
 import logging
-from typing import TYPE_CHECKING
+import re
+from typing import TYPE_CHECKING, Any
 
 from services.scripting.js_runtime import JSRuntime
 from services.scripting.py_runtime import PyRuntime
@@ -231,3 +237,88 @@ def run_debug_chain(
             merged["skip_request"] = True
 
     return merged
+
+
+# -- Syntax linter (no execution) --------------------------------------
+
+# V8 line offset: ``new Function(code)`` wraps code in
+# ``function anonymous() {\n<code>\n}`` so user line 1 = V8 line 3.
+_V8_LINE_OFFSET = 2
+
+# Regex to extract line + message from V8 ``SyntaxError`` exceptions.
+_V8_ERROR_RE = re.compile(
+    r"^(?:undefined|\S+):(\d+):\s*SyntaxError:\s*(.+)",
+    re.MULTILINE,
+)
+
+
+class ScriptLinter:
+    """Lightweight syntax checker for JavaScript and Python scripts.
+
+    Performs compile-time validation without executing any code.
+    For JavaScript, a single ``MiniRacer`` context is lazily created
+    and reused across calls (~0.3 ms per check after first use).
+    """
+
+    _js_ctx: Any = None  # Cached MiniRacer instance.
+
+    @classmethod
+    def shutdown(cls) -> None:
+        """Release the cached V8 context so the process can exit.
+
+        ``MiniRacer`` runs an internal event-loop thread that prevents
+        clean shutdown.  Deleting the context stops the thread.
+        """
+        if cls._js_ctx is not None:
+            del cls._js_ctx
+            cls._js_ctx = None
+
+    @classmethod
+    def check(
+        cls,
+        script: str,
+        language: str,
+    ) -> tuple[str, int, int] | None:
+        """Return ``(message, line, column)`` or ``None`` if valid.
+
+        *line* and *column* are 1-based.
+        """
+        if not script or not script.strip():
+            return None
+
+        if language == "python":
+            return cls._check_python(script)
+        return cls._check_javascript(script)
+
+    @staticmethod
+    def _check_python(script: str) -> tuple[str, int, int] | None:
+        """Validate Python syntax via ``ast.parse()``."""
+        try:
+            ast.parse(script)
+        except SyntaxError as e:
+            line = e.lineno or 1
+            col = e.offset or 1
+            return (e.msg, line, col)
+        return None
+
+    @classmethod
+    def _check_javascript(cls, script: str) -> tuple[str, int, int] | None:
+        """Validate JavaScript syntax via V8 ``new Function()``."""
+        try:
+            from py_mini_racer import MiniRacer  # type: ignore[import-untyped]
+        except ImportError:
+            return None
+
+        if cls._js_ctx is None:
+            cls._js_ctx = MiniRacer()
+
+        safe = json.dumps(script)
+        try:
+            cls._js_ctx.eval(f"new Function({safe})")
+        except Exception as exc:
+            m = _V8_ERROR_RE.search(str(exc))
+            if m:
+                v8_line = int(m.group(1))
+                return (m.group(2), max(1, v8_line - _V8_LINE_OFFSET), 1)
+            return (str(exc).splitlines()[0], 1, 1)
+        return None

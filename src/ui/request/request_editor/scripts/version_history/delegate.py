@@ -72,4 +72,3 @@ class _VersionItemDelegate(QStyledItemDelegate):
 
         painter.restore()
         painter.restore()
-        painter.restore()

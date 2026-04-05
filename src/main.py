@@ -33,5 +33,13 @@ if __name__ == "__main__":
         theme_manager=theme_manager,
         tab_settings_manager=tab_settings_manager,
     )
-    window.show()
-    sys.exit(app.exec())
+    window.showMaximized()
+    ret = app.exec()
+
+    # Release the cached V8 context so MiniRacer's event-loop
+    # thread stops and the process can exit cleanly.
+    from services.scripting.engine import ScriptLinter
+
+    ScriptLinter.shutdown()
+
+    sys.exit(ret)

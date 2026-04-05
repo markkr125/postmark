@@ -124,7 +124,7 @@ Source: `ui/request/response_viewer/viewer_widget.py`
 
 ### FolderEditorWidget
 
-Source: `ui/request/folder_editor.py`
+Source: `ui/request/folder_editor/editor_widget.py`
 
 | Signal | Parameters | Description |
 |--------|------------|-------------|
@@ -245,6 +245,7 @@ Source: `ui/widgets/code_editor/editor_widget.py`
 
 | Signal | Parameters | Description |
 |--------|------------|-------------|
+| `cursor_position_changed` | `int, int` | 1-based line and column of the cursor |
 | `validation_changed` | `list` | Validation errors changed |
 
 ### KeyValueTableWidget

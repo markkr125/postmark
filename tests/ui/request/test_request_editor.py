@@ -535,3 +535,55 @@ class TestRequestEditorVariableMap:
         assert isinstance(editor._basic_password_input, VariableLineEdit)
         assert isinstance(editor._apikey_key_input, VariableLineEdit)
         assert isinstance(editor._apikey_value_input, VariableLineEdit)
+
+
+class TestRequestEditorStatusBar:
+    """Tests for the script editor status bar in request editor."""
+
+    def test_status_bar_exists(self, qapp: QApplication, qtbot) -> None:
+        """Both script editors have a status label."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        assert hasattr(editor, "_pre_status_label")
+        assert hasattr(editor, "_test_status_label")
+
+    def test_status_bar_initial_text(self, qapp: QApplication, qtbot) -> None:
+        """Status bar shows initial cursor position and language."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        text = editor._pre_status_label.text()
+        assert "Ln 1" in text
+        assert "Col 1" in text
+        assert "JavaScript" in text
+
+
+class TestRequestEditorScriptSearchBar:
+    """Tests for the search bars on script editor tabs."""
+
+    def test_search_bars_exist(self, qapp: QApplication, qtbot) -> None:
+        """Both script tabs have a search bar attached."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        assert hasattr(editor, "_pre_search_bar")
+        assert hasattr(editor, "_test_search_bar")
+
+    def test_search_bars_start_hidden(self, qapp: QApplication, qtbot) -> None:
+        """Search bars are hidden by default."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        assert editor._pre_search_bar.isHidden()
+        assert editor._test_search_bar.isHidden()
+
+    def test_search_bar_toggle(self, qapp: QApplication, qtbot) -> None:
+        """Toggling the search bar shows it."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor._pre_search_bar.toggle_search()
+        assert not editor._pre_search_bar.isHidden()
+
+    def test_editor_minimum_height(self, qapp: QApplication, qtbot) -> None:
+        """Script editors have a non-zero minimum height."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        assert editor._pre_request_edit.minimumHeight() >= 80
+        assert editor._test_script_edit.minimumHeight() >= 80

@@ -15,6 +15,7 @@ from PySide6.QtGui import QColor, QKeySequence, QPalette, QShortcut
 from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -185,7 +186,15 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, _ScriptsM
         scripts_outer = QVBoxLayout(self._scripts_tab)
         scripts_outer.setContentsMargins(0, 0, 0, 0)
         scripts_outer.setSpacing(0)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setObjectName("scriptSubTabsSep")
+        sep.setFixedHeight(1)
+        scripts_outer.addWidget(sep)
+
         self._scripts_sub_tabs = QTabWidget()
+        self._scripts_sub_tabs.setObjectName("scriptSubTabs")
         self._scripts_sub_tabs.tabBar().setCursor(Qt.CursorShape.PointingHandCursor)
 
         self._pre_scripts_tab = QWidget()

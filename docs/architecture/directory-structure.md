@@ -73,7 +73,7 @@ src/
     |   |   +-- editor_widget.py     CodeEditorWidget -- main editor class
     |   |   +-- highlighter.py       Syntax highlighting engine
     |   |   +-- folding.py           Code folding logic
-    |   |   +-- gutter.py            Line-number gutter
+    |   |   +-- gutter.py            Line-number gutter + minimap (_MinimapArea)
     |   |   +-- painting.py          Custom painting helpers
     |   |   +-- completion/          Autocomplete sub-package
     |   |       +-- schema/          Schema sub-package
@@ -84,6 +84,7 @@ src/
     |   |       +-- popup.py         CompletionPopup -- floating autocomplete widget
     |   +-- info_popup.py            InfoPopup (QFrame) base + ClickableLabel
     |   +-- key_value_table.py       Reusable key-value editor widget
+    |   +-- search_replace_bar.py    SearchReplaceBar -- find/replace + go-to-line for CodeEditorWidget
     |   +-- variable_line_edit.py    VariableLineEdit -- QLineEdit with {{var}} highlighting + popup
     |   +-- variable_popup.py        VariablePopup -- singleton hover popup for variable details
     +-- collections/                 Collection sidebar
@@ -113,7 +114,9 @@ src/
     |   +-- console_panel.py         Console output panel
     |   +-- history_panel.py         Request history panel
     +-- request/                     Request/response editing
-        +-- folder_editor.py         FolderEditorWidget -- folder/collection detail editor
+        +-- folder_editor/              Folder/collection detail editor sub-package
+        |   +-- editor_widget.py        FolderEditorWidget -- main editor class
+        |   +-- runs.py                 _RunsMixin + _build_runs_table (run history tab)
         +-- http_worker.py           HttpSendWorker + SchemaFetchWorker (QThread)
         +-- auth/                    Shared auth sub-package (12 auth types)
         |   +-- auth_field_specs.py  Per-type FieldSpec definitions (AUTH_FIELD_SPECS dict)
@@ -189,6 +192,7 @@ tests/
     |   +-- test_code_editor_folding.py  Folding tests
     |   +-- test_code_editor_painting.py Painting tests
     |   +-- test_code_editor_memory.py   Memory/performance tests
+    |   +-- test_code_editor_minimap.py   Minimap tests
     |   +-- test_completion_engine.py    CompletionEngine tests
     |   +-- test_completion_popup.py     CompletionPopup tests
     |   +-- test_info_popup.py       InfoPopup tests
@@ -196,6 +200,7 @@ tests/
     |   +-- test_variable_line_edit.py  VariableLineEdit tests
     |   +-- test_variable_popup.py   VariablePopup tests
     |   +-- test_variable_popup_local.py  VariablePopup local override tests
+    |   +-- test_search_replace_bar.py   SearchReplaceBar tests
     +-- collections/
     |   +-- test_collection_header.py    CollectionHeader tests
     |   +-- test_collection_tree.py      CollectionTree tests
@@ -216,6 +221,7 @@ tests/
     +-- request/
         +-- conftest.py                  make_request_dict fixture factory
         +-- test_folder_editor.py        FolderEditorWidget tests
+        +-- test_folder_editor_scripts.py Script editor, history, search tests
         +-- test_http_worker.py          HttpSendWorker tests
         +-- test_request_editor.py       RequestEditor tests
         +-- test_request_editor_auth.py  Auth tab tests
@@ -224,6 +230,8 @@ tests/
         +-- test_request_editor_search.py  Body search tests
         +-- test_response_viewer.py      ResponseViewer tests
         +-- test_response_viewer_search.py Response search tests
+        +-- test_response_viewer_tests.py Test results tab tests
+        +-- test_version_history.py       VersionHistoryDialog tests
         +-- navigation/
         |   +-- test_breadcrumb_bar.py   BreadcrumbBar tests
         |   +-- test_request_tab_bar.py  RequestTabBar tests

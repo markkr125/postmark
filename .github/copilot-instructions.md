@@ -235,7 +235,7 @@ src/
     │   │   ├── editor_widget.py   # CodeEditorWidget — main editor class
     │   │   ├── highlighter.py     # Syntax highlighting engine
     │   │   ├── folding.py         # Code folding logic
-    │   │   ├── gutter.py          # Line-number gutter
+    │   │   ├── gutter.py          # Line-number gutter + minimap (_MinimapArea)
     │   │   ├── painting.py        # Custom painting helpers
     │   │   └── completion/        # Autocomplete sub-package
     │   │       ├── schema/        # Schema sub-package
@@ -246,6 +246,7 @@ src/
     │   │       └── popup.py       # CompletionPopup — floating autocomplete widget
     │   ├── info_popup.py          # InfoPopup (QFrame) base + ClickableLabel
     │   ├── key_value_table.py     # Reusable key-value editor widget
+    │   ├── search_replace_bar.py  # SearchReplaceBar — find/replace + go-to-line for CodeEditorWidget
     │   ├── variable_line_edit.py  # VariableLineEdit — QLineEdit with {{var}} highlighting + hover popup
     │   └── variable_popup.py      # VariablePopup — singleton hover popup for variable details
     ├── collections/               # Collection sidebar
@@ -275,7 +276,9 @@ src/
     │   ├── console_panel.py
     │   └── history_panel.py
     └── request/                   # Request/response editing
-        ├── folder_editor.py         # Folder/collection detail editor
+        ├── folder_editor/           # Folder/collection detail editor sub-package
+        │   ├── editor_widget.py     # FolderEditorWidget — main editor class
+        │   └── runs.py              # _RunsMixin + _build_runs_table (run history tab)
         ├── http_worker.py           # HttpSendWorker + SchemaFetchWorker (QThread)
         ├── auth/                    # Shared auth sub-package (14 auth types)
         │   ├── auth_field_specs.py  # Per-type FieldSpec definitions (AUTH_FIELD_SPECS)
@@ -290,6 +293,8 @@ src/
         │   ├── graphql.py           # _GraphQLMixin — GraphQL mode + schema
         │   └── scripts/             # Scripts sub-package
         │       ├── scripts_mixin.py # _ScriptsMixin — dual pre-request/test script editors
+        │       ├── output_panel.py  # ScriptOutputPanel — inline script execution results
+        │       ├── script_run_worker.py # ScriptRunWorker — background thread for inline runs
         │       ├── version_history.py # _show_version_history entry point
         │       └── version_history/ # Version history dialog sub-package
         │           ├── delegate.py  # _VersionItemDelegate — two-line list item rendering
@@ -331,6 +336,7 @@ tests/
 │       ├── test_script_bridge_globals.py
 │       ├── test_script_debug.py
 │       ├── test_script_engine.py
+│       ├── test_script_linter.py
 │       ├── test_script_sandbox.py
 │       ├── test_script_service.py
 │       ├── test_script_vendor.py
@@ -366,13 +372,16 @@ tests/
     │   ├── test_code_editor_folding.py
     │   ├── test_code_editor_painting.py
     │   ├── test_code_editor_memory.py
+    │   ├── test_code_editor_minimap.py
+    │   ├── test_code_editor_variables.py
     │   ├── test_completion_engine.py
     │   ├── test_completion_popup.py
     │   ├── test_info_popup.py
     │   ├── test_key_value_table.py
     │   ├── test_variable_line_edit.py
     │   ├── test_variable_popup.py
-    │   └── test_variable_popup_local.py
+    │   ├── test_variable_popup_local.py
+    │   └── test_search_replace_bar.py
     ├── collections/               # Collection sidebar tests
     │   ├── test_collection_header.py
     │   ├── test_collection_tree.py
@@ -394,6 +403,7 @@ tests/
     └── request/                   # Request/response editing tests
         ├── conftest.py              # make_request_dict fixture factory
         ├── test_folder_editor.py
+        ├── test_folder_editor_scripts.py
         ├── test_http_worker.py
         ├── test_request_editor.py
         ├── test_request_editor_auth.py
@@ -404,6 +414,7 @@ tests/
         ├── test_response_viewer_search.py
         ├── test_response_viewer_tests.py
         ├── test_version_history.py
+        ├── test_script_output_panel.py
         ├── navigation/            # Tab and breadcrumb tests
         │   ├── test_breadcrumb_bar.py
         │   ├── test_request_tab_bar.py

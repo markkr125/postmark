@@ -17,6 +17,7 @@ from PySide6.QtWidgets import QTextEdit
 
 from ui.styling.theme import (
     COLOR_EDITOR_BRACKET_MATCH,
+    COLOR_EDITOR_CURRENT_LINE,
     COLOR_EDITOR_ERROR_UNDERLINE,
     COLOR_EDITOR_FOLD_HIGHLIGHT,
 )
@@ -54,6 +55,7 @@ class _FoldingMixin(_FoldingBase):
     # -- Attribute stubs (set by CodeEditorWidget.__init__) -------------
     _fold_timer: QTimer
     _language: str
+    _read_only: bool
     _validate_timer: QTimer
     _detected_indent: int
     _fold_regions: dict[int, int]
@@ -314,11 +316,23 @@ class _FoldingMixin(_FoldingBase):
         self._refresh_extra_selections()
 
     def _refresh_extra_selections(self) -> None:
-        """Combine bracket-match, error, search, and fold extra selections."""
+        """Combine current-line, bracket-match, error, search, and fold extra selections."""
         selections: list[QTextEdit.ExtraSelection] = []
 
-        # 1. Bracket matching
+        # 0. Current-line highlight (full-width, subtle background)
         cursor = self.textCursor()
+        if not self._read_only:
+            line_sel = QTextEdit.ExtraSelection()
+            line_fmt = QTextCharFormat()
+            line_fmt.setBackground(QColor(COLOR_EDITOR_CURRENT_LINE))
+            line_fmt.setProperty(QTextCharFormat.Property.FullWidthSelection, True)
+            line_sel.format = line_fmt
+            line_cur = QTextCursor(cursor)
+            line_cur.clearSelection()
+            line_sel.cursor = line_cur
+            selections.append(line_sel)
+
+        # 1. Bracket matching
         block = cursor.block()
         pos_in_block = cursor.positionInBlock()
         text = block.text()
@@ -493,6 +507,9 @@ class _FoldingMixin(_FoldingBase):
         elif self._language == "graphql" and text.strip():
             errors.extend(self._validate_graphql_braces(text))
 
+        elif self._language in ("javascript", "python") and text.strip():
+            errors.extend(self._validate_script(text))
+
         old_has_errors = bool(self._errors)
         new_has_errors = bool(errors)
         self._errors = errors
@@ -541,3 +558,13 @@ class _FoldingMixin(_FoldingBase):
             )
 
         return errors
+
+    def _validate_script(self, text: str) -> list[SyntaxError_]:
+        """Check syntax of a JavaScript or Python script."""
+        from services.scripting.engine import ScriptLinter
+
+        result = ScriptLinter.check(text, self._language)
+        if result:
+            msg, line, col = result
+            return [SyntaxError_(line=line, column=col, message=msg)]
+        return []

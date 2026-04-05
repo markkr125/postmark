@@ -46,6 +46,7 @@ from ui.widgets.code_editor.gutter import (
     _BreakpointGutterArea,
     _FoldGutterArea,
     _LineNumberArea,
+    _MinimapArea,
 )
 from ui.widgets.code_editor.highlighter import PygmentsHighlighter
 from ui.widgets.code_editor.painting import _PaintingMixin
@@ -67,6 +68,7 @@ class CodeEditorWidget(_CompletionMixin, _PaintingMixin, _FoldingMixin, QPlainTe
     validation_changed = Signal(list)
     breakpoints_changed = Signal()
     diff_fold_toggled = Signal(int)
+    cursor_position_changed = Signal(int, int)  # (1-based line, 1-based col)
 
     def __init__(self, *, read_only: bool = False, parent: QWidget | None = None) -> None:
         """Initialise the code editor with gutter, highlighter, and timers."""
@@ -128,6 +130,11 @@ class CodeEditorWidget(_CompletionMixin, _PaintingMixin, _FoldingMixin, QPlainTe
         self._bp_gutter_area = _BreakpointGutterArea(self)
         self._bp_gutter_area.setVisible(False)
 
+        # Minimap (right-side viewport overview)
+        self._minimap = _MinimapArea(self)
+        self._minimap.setVisible(False)
+        self._show_minimap = False
+
         # Pre-built Phosphor fold font (avoids per-line allocation).
         self._fold_font: QFont | None = None
 
@@ -151,6 +158,7 @@ class CodeEditorWidget(_CompletionMixin, _PaintingMixin, _FoldingMixin, QPlainTe
         self.blockCountChanged.connect(self._update_gutter_width)
         self.updateRequest.connect(self._update_gutters)
         self.cursorPositionChanged.connect(self._cursor_timer.start)
+        self.cursorPositionChanged.connect(self._emit_cursor_position)
 
         self.setMouseTracking(True)
         self.viewport().setMouseTracking(True)
@@ -202,6 +210,12 @@ class CodeEditorWidget(_CompletionMixin, _PaintingMixin, _FoldingMixin, QPlainTe
         """Show or hide the breakpoint gutter column."""
         self._show_breakpoint_gutter = visible
         self._bp_gutter_area.setVisible(visible)
+        self._update_gutter_width()
+
+    def set_minimap_visible(self, visible: bool) -> None:
+        """Show or hide the right-side minimap."""
+        self._show_minimap = visible
+        self._minimap.setVisible(visible)
         self._update_gutter_width()
 
     def toggle_breakpoint(self, line: int) -> bool:
@@ -328,6 +342,14 @@ class CodeEditorWidget(_CompletionMixin, _PaintingMixin, _FoldingMixin, QPlainTe
         """Handle bracket matching and active-guide update after cursor settles."""
         self._highlight_matching_bracket()
         self._update_active_fold()
+
+    def _emit_cursor_position(self) -> None:
+        """Emit the cursor_position_changed signal with 1-based line and column."""
+        cursor = self.textCursor()
+        self.cursor_position_changed.emit(
+            cursor.blockNumber() + 1,
+            cursor.positionInBlock() + 1,
+        )
 
     def _update_active_fold(self) -> None:
         """Recompute the innermost fold region at the cursor and repaint if changed."""

@@ -155,13 +155,15 @@ tests/
     │   ├── test_code_editor_folding.py
     │   ├── test_code_editor_painting.py
     │   ├── test_code_editor_memory.py
+    │   ├── test_code_editor_minimap.py
     │   ├── test_completion_engine.py
     │   ├── test_completion_popup.py
     │   ├── test_info_popup.py
     │   ├── test_key_value_table.py
     │   ├── test_variable_line_edit.py
     │   ├── test_variable_popup.py
-    │   └── test_variable_popup_local.py
+    │   ├── test_variable_popup_local.py
+    │   └── test_search_replace_bar.py
    ├── sidebar/                   # Sidebar widget tests
    │   ├── test_sidebar.py
    │   ├── test_variables_panel.py
@@ -188,6 +190,7 @@ tests/
     │   └── test_history_panel.py
     └── request/                   # Request/response editing tests
         ├── test_folder_editor.py
+        ├── test_folder_editor_scripts.py
         ├── test_http_worker.py
         ├── test_request_editor.py
         ├── test_request_editor_auth.py
@@ -197,6 +200,8 @@ tests/
         ├── test_response_viewer.py
         ├── test_response_viewer_search.py
         ├── test_response_viewer_tests.py
+        ├── test_version_history.py
+        ├── test_script_output_panel.py
         ├── navigation/            # Tab and breadcrumb tests
         │   ├── test_breadcrumb_bar.py
         │   ├── test_request_tab_bar.py

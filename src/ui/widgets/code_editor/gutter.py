@@ -16,7 +16,7 @@ import re
 from typing import TYPE_CHECKING, NamedTuple
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QMouseEvent, QPaintEvent, QTextBlockUserData
+from PySide6.QtGui import QColor, QMouseEvent, QPaintEvent, QTextBlockUserData
 from PySide6.QtWidgets import QWidget
 
 if TYPE_CHECKING:
@@ -56,7 +56,7 @@ _XML_CLOSE_TAG = re.compile(r"</(\w[\w.\-:]*)\s*>")
 _XML_SELF_CLOSE = re.compile(r"<\w[\w.\-:]*(?:\s[^>]*)?\s*/>")
 
 # Languages that support validation
-_VALIDATABLE_LANGUAGES = {"json", "xml", "graphql"}
+_VALIDATABLE_LANGUAGES = {"json", "xml", "graphql", "javascript", "python"}
 
 # Languages that support folding
 _FOLDABLE_LANGUAGES = {"json", "xml", "html", "graphql"}
@@ -161,3 +161,90 @@ class _BreakpointGutterArea(QWidget):
     def mousePressEvent(self, event: QMouseEvent) -> None:
         """Toggle breakpoint on click."""
         self._editor.breakpoint_gutter_clicked(event.position().toPoint().y())
+
+
+# -- Minimap -----------------------------------------------------------
+
+# Width and rendering constants for the minimap widget.
+_MINIMAP_WIDTH = 60
+_MINIMAP_LINE_ALPHA = 120
+_MINIMAP_VIEWPORT_ALPHA = 40
+
+
+class _MinimapArea(QWidget):
+    """Compact bird's-eye view of the parent editor's document.
+
+    Draws each line as a thin coloured bar.  A semi-transparent overlay
+    indicates the visible viewport.  Click or drag to scroll.
+    """
+
+    def __init__(self, editor: CodeEditorWidget) -> None:
+        """Initialise the minimap."""
+        super().__init__(editor)
+        self._editor = editor
+        self.setFixedWidth(_MINIMAP_WIDTH)
+        self._editor.verticalScrollBar().valueChanged.connect(self.update)
+        self._editor.document().contentsChanged.connect(self.update)
+        self.setMouseTracking(True)
+
+    def paintEvent(self, event: QPaintEvent) -> None:
+        """Render the minimap lines and viewport indicator."""
+        from PySide6.QtGui import QPainter
+
+        painter = QPainter(self)
+        doc = self._editor.document()
+        total_lines = doc.blockCount()
+        if total_lines == 0:
+            painter.end()
+            return
+
+        h = self.height()
+        w = self.width()
+        line_h = max(1.0, h / total_lines)
+
+        # Draw code lines as thin bars
+        line_color = QColor(180, 180, 180, _MINIMAP_LINE_ALPHA)
+        block = doc.begin()
+        y = 0.0
+        while block.isValid():
+            text = block.text()
+            if text.strip():
+                indent = len(text) - len(text.lstrip())
+                bar_w = min(w - 4, max(4, int((len(text.rstrip()) - indent) * 0.5)))
+                x = min(indent * 2, w - 4)
+                painter.fillRect(int(x), int(y), bar_w, max(1, int(line_h)), line_color)
+            y += line_h
+            block = block.next()
+
+        # Draw viewport indicator
+        sb = self._editor.verticalScrollBar()
+        max_scroll = sb.maximum() + sb.pageStep()
+        if max_scroll > 0:
+            visible_start = sb.value() / max_scroll * h
+            visible_h = sb.pageStep() / max_scroll * h
+            painter.fillRect(
+                0,
+                int(visible_start),
+                w,
+                max(4, int(visible_h)),
+                QColor(100, 100, 255, _MINIMAP_VIEWPORT_ALPHA),
+            )
+        painter.end()
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        """Scroll the editor to the clicked position."""
+        self._scroll_to(event.position().toPoint().y())
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        """Scroll while dragging."""
+        if event.buttons() & Qt.MouseButton.LeftButton:
+            self._scroll_to(event.position().toPoint().y())
+
+    def _scroll_to(self, y: int) -> None:
+        """Scroll the editor so the viewport is centred on *y*."""
+        h = self.height()
+        if h <= 0:
+            return
+        ratio = y / h
+        sb = self._editor.verticalScrollBar()
+        sb.setValue(int(ratio * sb.maximum()))

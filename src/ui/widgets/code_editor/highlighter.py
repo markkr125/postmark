@@ -217,7 +217,7 @@ class PygmentsHighlighter(QSyntaxHighlighter):
                 if start < 0:
                     break
                 in_comment = True
-                i = start + 2
+                i = start
 
         self.setCurrentBlockState(_STATE_IN_BLOCK_COMMENT if in_comment else 0)
 

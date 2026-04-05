@@ -75,7 +75,13 @@ class MainWindow(
         app = QApplication.instance()
         self._tab_settings_manager = tab_settings_manager or TabSettingsManager(app)
         self.setWindowTitle("Postmark")
-        self.showMaximized()
+
+        # Pre-size to the available screen geometry so the window fills
+        # the screen immediately, avoiding a brief flash of a small
+        # default-sized window before the window manager maximizes it.
+        screen = QGuiApplication.primaryScreen()
+        if screen is not None:
+            self.setGeometry(screen.availableGeometry())
 
         # Placeholders for future persistence logic
         self.collections: dict[str, Any] = {}
@@ -676,6 +682,11 @@ class MainWindow(
             ctx.cleanup_thread()
         self._cleanup_send_thread()
         self._console_panel.cleanup()
+
+        from services.scripting.engine import ScriptLinter
+
+        ScriptLinter.shutdown()
+
         super().closeEvent(event)
 
     # ------------------------------------------------------------------

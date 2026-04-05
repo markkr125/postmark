@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any, NotRequired, TypedDict
 
-from services.scripting.engine import ScriptEngine
+from services.scripting.engine import ScriptEngine, ScriptLinter
 
 
 class TestResult(TypedDict):
@@ -69,6 +69,7 @@ __all__ = [
     "ScriptEngine",
     "ScriptEntry",
     "ScriptInput",
+    "ScriptLinter",
     "ScriptOutput",
     "TestResult",
 ]

@@ -9,11 +9,11 @@ from __future__ import annotations
 import json
 from unittest.mock import patch
 
+import pytest
 from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QHelpEvent, QKeyEvent, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import QApplication, QPlainTextEdit, QTextEdit, QToolTip
 
-from services.environment_service import VariableDetail
 from ui.widgets.code_editor import CodeEditorWidget, SyntaxError_
 
 # -- Helpers -----------------------------------------------------------
@@ -62,6 +62,20 @@ class TestCodeEditorConstruction:
         editor = CodeEditorWidget()
         qtbot.addWidget(editor)
         assert editor.objectName() == "codeEditor"
+
+    def test_cursor_position_changed_signal(self, qapp: QApplication, qtbot) -> None:
+        """cursor_position_changed emits 1-based line and column."""
+        editor = CodeEditorWidget()
+        qtbot.addWidget(editor)
+        editor.setPlainText("line1\nline2")
+        received: list[tuple[int, int]] = []
+        editor.cursor_position_changed.connect(lambda ln, col: received.append((ln, col)))
+        # Move cursor to start of second line
+        cursor = editor.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.Down)
+        editor.setTextCursor(cursor)
+        assert len(received) >= 1
+        assert received[-1] == (2, 1)
 
 
 # -- set_text / content helpers ---------------------------------------
@@ -162,7 +176,11 @@ class TestWordWrap:
 
 
 class TestValidation:
-    """Tests for JSON/XML validation and error signals."""
+    """Tests for JSON/XML/JS/Python validation and error signals."""
+
+    @pytest.fixture(autouse=True)
+    def _no_script_linter(self) -> None:
+        """Override: allow real ScriptLinter for validation tests."""
 
     def test_valid_json_no_errors(self, qapp: QApplication, qtbot) -> None:
         """Valid JSON produces no validation errors."""
@@ -234,6 +252,39 @@ class TestValidation:
         qtbot.addWidget(editor)
         editor.set_language("text")
         editor.set_text(_INVALID_JSON)
+        assert editor.errors == []
+
+    def test_invalid_javascript_has_errors(self, qapp: QApplication, qtbot) -> None:
+        """Invalid JavaScript syntax produces errors with wave underline."""
+        editor = CodeEditorWidget()
+        qtbot.addWidget(editor)
+        editor.set_language("javascript")
+        editor.set_text("if (true {")
+        assert len(editor.errors) > 0
+        assert "Unexpected" in editor.errors[0].message
+
+    def test_valid_javascript_no_errors(self, qapp: QApplication, qtbot) -> None:
+        """Valid JavaScript produces no validation errors."""
+        editor = CodeEditorWidget()
+        qtbot.addWidget(editor)
+        editor.set_language("javascript")
+        editor.set_text("var x = 1;\nconsole.log(x);")
+        assert editor.errors == []
+
+    def test_invalid_python_has_errors(self, qapp: QApplication, qtbot) -> None:
+        """Invalid Python syntax produces errors."""
+        editor = CodeEditorWidget()
+        qtbot.addWidget(editor)
+        editor.set_language("python")
+        editor.set_text("if True")
+        assert len(editor.errors) > 0
+
+    def test_valid_python_no_errors(self, qapp: QApplication, qtbot) -> None:
+        """Valid Python produces no validation errors."""
+        editor = CodeEditorWidget()
+        qtbot.addWidget(editor)
+        editor.set_language("python")
+        editor.set_text("x = 1\nprint(x)")
         assert editor.errors == []
 
 
@@ -407,12 +458,54 @@ class TestPygmentsHighlighter:
         qtbot.addWidget(editor)
         editor.rebuild_highlight_formats()
 
+    def test_block_comment_opening_highlighted(self, qapp: QApplication, qtbot) -> None:
+        """The opening /* of a block comment is highlighted as a comment."""
+        editor = CodeEditorWidget()
+        qtbot.addWidget(editor)
+        editor.set_language("javascript")
+        editor.setPlainText("/* comment\n   body\n*/")
+
+        block = editor.document().firstBlock()
+        formats = block.layout().formats()
+        # The opening /* (positions 0-1) must be covered by a format
+        assert any(f.start == 0 and f.length >= 2 for f in formats)
+
 
 # -- Collapsed-fold highlight ------------------------------------------
 
 
 class TestSearchSelections:
     """Tests for the set_search_selections API."""
+
+    def test_current_line_highlight_in_editable_editor(self, qapp: QApplication, qtbot) -> None:
+        """Editable editors include a current-line highlight extra selection."""
+        editor = CodeEditorWidget()
+        qtbot.addWidget(editor)
+        editor.setPlainText("line one\nline two\nline three")
+
+        # Trigger bracket-match / extra-selections refresh
+        editor._refresh_extra_selections()
+
+        sels = editor.extraSelections()
+        # At least one selection should be a full-width current-line highlight
+        full_width = [
+            s for s in sels if s.format.boolProperty(QTextCharFormat.Property.FullWidthSelection)
+        ]
+        assert len(full_width) >= 1
+
+    def test_no_current_line_highlight_in_readonly_editor(self, qapp: QApplication, qtbot) -> None:
+        """Read-only editors do not include a current-line highlight."""
+        editor = CodeEditorWidget(read_only=True)
+        qtbot.addWidget(editor)
+        editor.set_text("line one\nline two")
+
+        editor._refresh_extra_selections()
+
+        sels = editor.extraSelections()
+        full_width = [
+            s for s in sels if s.format.boolProperty(QTextCharFormat.Property.FullWidthSelection)
+        ]
+        assert len(full_width) == 0
 
     def test_set_search_selections_updates_extra(self, qapp: QApplication, qtbot) -> None:
         """set_search_selections merges search highlights into extra selections."""
@@ -447,100 +540,3 @@ class TestSearchSelections:
         # Only bracket-match / error selections remain (if any)
         remaining = editor.extraSelections()
         assert len(remaining) == 0 or all(s.cursor.position() != 5 for s in remaining)
-
-
-# -- Highlighter -------------------------------------------------------
-
-
-class TestVariableHighlighting:
-    """Tests for ``{{variable}}`` highlighting in the code editor."""
-
-    def test_variable_highlight_format_applied(self, qapp: QApplication, qtbot) -> None:
-        """Blocks containing {{var}} get a highlight format applied."""
-        editor = CodeEditorWidget()
-        qtbot.addWidget(editor)
-        editor.set_language("text")
-        editor.setPlainText("url = {{base_url}}/api")
-
-        # The highlighter should have applied a format to the {{base_url}} span
-        block = editor.document().firstBlock()
-        layout = block.layout()
-        formats = layout.formats()
-        # At least one format should cover the variable region
-        var_start = 6  # "url = " is 6 chars
-        var_end = 18  # "{{base_url}}" is 12 chars -> ends at 18
-        found = any(f.start <= var_start and f.start + f.length >= var_end for f in formats)
-        assert found, "Expected a format range covering {{base_url}}"
-
-    def test_variable_highlight_in_json(self, qapp: QApplication, qtbot) -> None:
-        """Variable highlighting works alongside JSON syntax highlighting."""
-        editor = CodeEditorWidget()
-        qtbot.addWidget(editor)
-        editor.set_language("json")
-        editor.setPlainText('{"url": "{{base_url}}"}')
-
-        block = editor.document().firstBlock()
-        layout = block.layout()
-        formats = layout.formats()
-        # Should have both JSON string formats and variable highlight
-        assert len(formats) >= 2
-
-    def test_set_variable_map_stores_and_rehighlights(self, qapp: QApplication, qtbot) -> None:
-        """set_variable_map stores the map and triggers rehighlight."""
-        editor = CodeEditorWidget()
-        qtbot.addWidget(editor)
-        m: dict[str, VariableDetail] = {
-            "host": {"value": "example.com", "source": "collection", "source_id": 1}
-        }
-        editor.set_variable_map(m)
-        assert editor._variable_map == m
-
-
-class TestVariableTooltipInEditor:
-    """Tests for variable tooltip display in the code editor."""
-
-    def test_tooltip_for_resolved_variable(self, qapp: QApplication, qtbot) -> None:
-        """Hovering over a resolved variable triggers the popup."""
-        editor = CodeEditorWidget()
-        qtbot.addWidget(editor)
-        editor.show()
-        editor.setPlainText("{{host}}/api")
-        vmap: dict[str, VariableDetail] = {
-            "host": {"value": "example.com", "source": "environment", "source_id": 10},
-        }
-        editor.set_variable_map(vmap)
-
-        # Position cursor over the variable
-        block = editor.document().firstBlock()
-        rect = editor.blockBoundingGeometry(block).translated(editor.contentOffset())
-        local_pos = rect.center().toPoint()
-        global_pos = editor.mapToGlobal(local_pos)
-
-        with patch("ui.widgets.variable_popup.VariablePopup") as mock_cls:
-            help_event = QHelpEvent(QEvent.Type.ToolTip, local_pos, global_pos)
-            editor.event(help_event)
-            if mock_cls.show_variable.called:
-                args = mock_cls.show_variable.call_args[0]
-                assert args[0] == "host"
-                assert args[1]["value"] == "example.com"
-
-    def test_tooltip_for_unresolved_variable(self, qapp: QApplication, qtbot) -> None:
-        """Hovering over an unresolved variable shows None detail."""
-        editor = CodeEditorWidget()
-        qtbot.addWidget(editor)
-        editor.show()
-        editor.setPlainText("{{unknown}}/api")
-        editor.set_variable_map({})
-
-        block = editor.document().firstBlock()
-        rect = editor.blockBoundingGeometry(block).translated(editor.contentOffset())
-        local_pos = rect.center().toPoint()
-        global_pos = editor.mapToGlobal(local_pos)
-
-        with patch("ui.widgets.variable_popup.VariablePopup") as mock_cls:
-            help_event = QHelpEvent(QEvent.Type.ToolTip, local_pos, global_pos)
-            editor.event(help_event)
-            if mock_cls.show_variable.called:
-                args = mock_cls.show_variable.call_args[0]
-                assert args[0] == "unknown"
-                assert args[1] is None

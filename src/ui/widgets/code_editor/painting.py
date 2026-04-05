@@ -45,11 +45,13 @@ from ui.widgets.code_editor.gutter import (
     _FOLD_GUTTER_WIDTH,
     _FOLDABLE_LANGUAGES,
     _GUTTER_PADDING,
+    _MINIMAP_WIDTH,
     _WHITESPACE_DOT_RADIUS,
     SyntaxError_,
     _BreakpointGutterArea,
     _FoldGutterArea,
     _LineNumberArea,
+    _MinimapArea,
 )
 
 if TYPE_CHECKING:
@@ -78,6 +80,8 @@ class _PaintingMixin(_PaintingBase):
     _breakpoints: set[int]
     _debug_line: int | None
     _show_breakpoint_gutter: bool
+    _minimap: _MinimapArea
+    _show_minimap: bool
     _diff_line_colors: dict[int, QColor]
 
     if TYPE_CHECKING:
@@ -167,7 +171,8 @@ class _PaintingMixin(_PaintingBase):
 
     def _update_gutter_width(self) -> None:
         """Update the left margin to accommodate gutters."""
-        self.setViewportMargins(self._total_gutter_width(), 0, 0, 0)
+        right = _MINIMAP_WIDTH if self._show_minimap else 0
+        self.setViewportMargins(self._total_gutter_width(), 0, right, 0)
 
     def _update_gutters(self, rect: QRect, dy: int) -> None:
         """Scroll and repaint gutters when the viewport changes."""
@@ -183,6 +188,7 @@ class _PaintingMixin(_PaintingBase):
                 0, rect.y(), self._fold_gutter_area.width(), rect.height()
             )
             self._bp_gutter_area.update(0, rect.y(), self._bp_gutter_area.width(), rect.height())
+            self._minimap.update()
         if rect.contains(self.viewport().rect()):
             self._update_gutter_width()
 
@@ -202,6 +208,12 @@ class _PaintingMixin(_PaintingBase):
 
         fold_w = _FOLD_GUTTER_WIDTH if self._language in _FOLDABLE_LANGUAGES else 0
         self._fold_gutter_area.setGeometry(QRect(x_offset, cr.top(), fold_w, cr.height()))
+
+        # Minimap on the right edge
+        if self._show_minimap:
+            self._minimap.setGeometry(
+                QRect(cr.right() - _MINIMAP_WIDTH + 1, cr.top(), _MINIMAP_WIDTH, cr.height())
+            )
 
     # -- Indent guides & badges (main paintEvent) -----------------------
 

@@ -31,6 +31,7 @@ def _clear_theme_settings() -> None:
     settings = QSettings(_ORG, _APP)
     settings.remove("theme")
     settings.remove("tabs")
+    settings.remove("scripting")
     settings.sync()
 
 
@@ -212,3 +213,38 @@ class TestSettingsDialogApply:
         assert not dialog._preview_tab_check.isChecked()
         assert dialog._wrap_mode_combo.currentData() == WRAP_SINGLE_ROW
         assert dialog._tab_limit_spin.value() == 55
+
+
+class TestSettingsDialogScripting:
+    """Tests for the Scripting settings page."""
+
+    def test_auto_save_default_checkbox_exists(self, qapp: QApplication, qtbot) -> None:
+        """Scripting page has an auto-save default checkbox."""
+        tm = ThemeManager(qapp)
+        dialog = SettingsDialog(tm)
+        qtbot.addWidget(dialog)
+        assert hasattr(dialog, "_auto_save_default_check")
+        assert dialog._auto_save_default_check.isChecked()
+
+    def test_auto_save_default_persists(self, qapp: QApplication, qtbot) -> None:
+        """Applying with auto-save unchecked persists the setting."""
+        tm = ThemeManager(qapp)
+        dialog = SettingsDialog(tm)
+        qtbot.addWidget(dialog)
+
+        dialog._auto_save_default_check.setChecked(False)
+        dialog._on_apply()
+
+        settings = QSettings(_ORG, _APP)
+        raw = settings.value("scripting/auto_save_default")
+        assert not raw
+
+    def test_auto_save_default_reflects_existing(self, qapp: QApplication, qtbot) -> None:
+        """Opening the dialog reflects a previously persisted auto-save default."""
+        settings = QSettings(_ORG, _APP)
+        settings.setValue("scripting/auto_save_default", False)
+
+        tm = ThemeManager(qapp)
+        dialog = SettingsDialog(tm)
+        qtbot.addWidget(dialog)
+        assert not dialog._auto_save_default_check.isChecked()

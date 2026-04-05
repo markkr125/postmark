@@ -294,6 +294,16 @@ def build_global_qss(p: ThemePalette) -> str:
         color: {p["accent"]};
         border-bottom: 2px solid {p["accent"]};
     }}
+    QTabWidget#scriptSubTabs::pane {{
+        border-top: 1px solid {p["border"]};
+    }}
+    QTabWidget#scriptSubTabs > QTabBar {{
+        background: {p["bg_alt"]};
+    }}
+    QFrame#scriptSubTabsSep {{
+        background: {p["border"]};
+        border: none;
+    }}
     /* Tab overflow scroll buttons — input_bg box, 1px border,
        sharp corners, accent border on hover.  Keep for all QTabBars. */
     QTabBar QToolButton {{

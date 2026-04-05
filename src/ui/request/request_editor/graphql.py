@@ -264,3 +264,4 @@ class _GraphQLMixin:
         dlg_layout.addWidget(btn_box)
 
         dialog.exec()
+        dialog.exec()

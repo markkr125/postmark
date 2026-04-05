@@ -28,6 +28,26 @@ def _no_fetch(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _no_script_linter(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Prevent ScriptLinter from spawning MiniRacer V8 runtimes in UI tests.
+
+    Every ``CodeEditorWidget`` with language ``javascript`` or ``python``
+    triggers ``_validate_script()`` on a 300 ms debounce timer, which
+    lazily creates a ``MiniRacer`` V8 isolate.  In a full test run with
+    100+ editor instances (each ``RequestEditorWidget`` creates two JS
+    editors), the accumulated V8 processes cause window-manager storms
+    and multi-minute hangs.
+
+    Tests that specifically verify linting integration should override
+    this fixture with ``@pytest.mark.usefixtures()`` or call
+    ``monkeypatch.undo()`` to restore the real ``ScriptLinter``.
+    """
+    from services.scripting.engine import ScriptLinter
+
+    monkeypatch.setattr(ScriptLinter, "check", staticmethod(lambda *_a, **_kw: None))
+
+
+@pytest.fixture(autouse=True)
 def _reset_popup_and_flush_widgets(qapp: QApplication) -> Iterator[None]:
     """Reset ``VariablePopup`` class state and flush deferred widget deletions.
 

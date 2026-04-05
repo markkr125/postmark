@@ -24,6 +24,7 @@ Inherits `_PaintingMixin`, `_FoldingMixin`, `QPlainTextEdit`.
 | Inline validation | JSON/XML/GraphQL error markers |
 | Variable highlighting | `{{variable}}` patterns with coloured background |
 | Autocomplete | Dot-path + variable completions (Ctrl+Space, `.`, `{{`) |
+| Minimap | Optional bird's-eye view of the document (`set_minimap_visible()`) |
 | Word wrap | Togglable |
 | Prettify | Auto-format JSON/XML |
 
@@ -47,6 +48,7 @@ Inherits `_PaintingMixin`, `_FoldingMixin`, `QPlainTextEdit`.
 | `set_variable_map(variables)` | Enable `{{variable}}` highlighting |
 | `prettify()` | Auto-format (JSON/XML) |
 | `set_text(text)` | Populate (and cache if read-only) |
+| `set_minimap_visible(visible)` | Show/hide the right-side minimap |
 
 ### Signal
 
@@ -148,5 +150,30 @@ Base class for floating metadata popups.
 ### Auto-Close
 
 Click outside, Escape key, or parent window move/resize.
+
+## SearchReplaceBar
+
+Standalone find/replace bar that attaches to any `CodeEditorWidget`.
+
+Source: `src/ui/widgets/search_replace_bar.py`
+
+### Features
+
+| Feature | Description |
+|---------|-------------|
+| Find | Highlights all matches with `COLOR_WARNING` background |
+| Replace | Replace current match or all matches |
+| Go-to-line | `QInputDialog` prompt for line number |
+| Keyboard shortcuts | Ctrl+F (find), Ctrl+H (replace), Ctrl+G (go-to-line) |
+| Navigation | Prev/Next with wrap-around |
+
+### Key Methods
+
+| Method | Description |
+|--------|-------------|
+| `toggle_search()` | Show the search bar, or close if already visible |
+| `toggle_replace()` | Show the search bar with replace row visible |
+| `close_search()` | Hide bar, clear highlights, reset state |
+| `goto_line()` | Show go-to-line dialog and jump |
 
 Subclasses: `StatusPopup`, `TimingPopup`, `SizePopup`, `NetworkPopup`.

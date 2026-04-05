@@ -69,6 +69,7 @@ def _reset_tab_settings() -> None:
     """Clear persisted tab settings so tests do not leak UI preferences."""
     settings = QSettings("Postmark", "Postmark")
     settings.remove("tabs")
+    settings.remove("scripts")
     settings.sync()
 
 

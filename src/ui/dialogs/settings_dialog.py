@@ -283,6 +283,25 @@ class SettingsDialog(QDialog):
         note.setObjectName("mutedLabel")
         layout.addWidget(note)
 
+        # Auto-save default
+        auto_save_label = QLabel("Version Capture")
+        auto_save_label.setObjectName("sectionLabel")
+        layout.addWidget(auto_save_label)
+
+        self._auto_save_default_check = QCheckBox("Auto-save scripts by default")
+        auto_save_on = settings.value("scripting/auto_save_default", True)
+        if isinstance(auto_save_on, str):
+            auto_save_on = auto_save_on.lower() not in {"0", "false", "no", "off", ""}
+        self._auto_save_default_check.setChecked(bool(auto_save_on))
+        layout.addWidget(self._auto_save_default_check)
+
+        auto_save_note = QLabel(
+            "Automatically capture script versions while editing.\n"
+            "Can be overridden per request or collection."
+        )
+        auto_save_note.setObjectName("mutedLabel")
+        layout.addWidget(auto_save_note)
+
         layout.addStretch()
         self._stack.addWidget(page)
 
@@ -329,3 +348,7 @@ class SettingsDialog(QDialog):
 
         settings = QSettings(_ORG, _APP)
         settings.setValue("scripting/enabled", self._enable_scripts_check.isChecked())
+        settings.setValue(
+            "scripting/auto_save_default",
+            self._auto_save_default_check.isChecked(),
+        )
