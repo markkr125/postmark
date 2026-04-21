@@ -222,6 +222,9 @@ standard object names:
 | `completionPopup` | `QFrame` | Code editor autocomplete popup container |
 | `completionPopupList` | `QListWidget` | Completion item list inside popup |
 | `completionPopupDoc` | `QLabel` | Selected-item doc/signature label |
+| `RuntimeBanner` | `QFrame` | Deno download prompt banner container |
+| `bannerMessage` | `QLabel` | Banner message text |
+| `bannerDownloadBtn` | `QPushButton` | "Download Deno" action button |
 
 ### QTabBar overflow scroll buttons
 

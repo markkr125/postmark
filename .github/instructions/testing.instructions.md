@@ -131,6 +131,8 @@ tests/
 │       ├── test_script_vendor.py
 │       ├── test_script_vendor_libs.py
 │       ├── test_script_version_service.py
+│       ├── test_feature_detect.py
+│       ├── test_deno_manager.py
 │       └── http/                  # HTTP service tests
 │           ├── test_http_service.py
 │           ├── test_graphql_schema_service.py
@@ -163,7 +165,8 @@ tests/
     │   ├── test_variable_line_edit.py
     │   ├── test_variable_popup.py
     │   ├── test_variable_popup_local.py
-    │   └── test_search_replace_bar.py
+    │   ├── test_search_replace_bar.py
+    │   └── test_runtime_banner.py
    ├── sidebar/                   # Sidebar widget tests
    │   ├── test_sidebar.py
    │   ├── test_variables_panel.py

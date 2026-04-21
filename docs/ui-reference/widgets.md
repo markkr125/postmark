@@ -177,3 +177,32 @@ Source: `src/ui/widgets/search_replace_bar.py`
 | `goto_line()` | Show go-to-line dialog and jump |
 
 Subclasses: `StatusPopup`, `TimingPopup`, `SizePopup`, `NetworkPopup`.
+
+## RuntimeBanner
+
+Notification banner shown above script editors when advanced features
+(async/await, npm imports) are detected but Deno is not installed.
+
+Source: `src/ui/widgets/runtime_banner.py`
+
+### Features
+
+| Feature | Description |
+|---------|-------------|
+| Detection message | Warning icon + explanation of why Deno is needed |
+| Download button | "Download Deno" triggers background download |
+| Progress bar | 4px bar with MB counter during download |
+| Dismiss | X button hides the banner for the current session |
+
+### Signals
+
+| Signal | Description |
+|--------|-------------|
+| `download_completed` | Emitted when Deno download finishes successfully |
+| `dismissed` | Emitted when user dismisses the banner |
+
+### QSS objectNames
+
+- `RuntimeBanner` — banner container (`QFrame`)
+- `bannerMessage` — message label (`QLabel`)
+- `bannerDownloadBtn` — download button (`QPushButton`)

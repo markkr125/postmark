@@ -93,6 +93,10 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   to `JSRuntime` (V8 via PyMiniRacer) or `PyRuntime` (RestrictedPython
   subprocess).  TypedDicts (`ScriptInput`, `ScriptOutput`, `TestResult`,
   `ConsoleLog`, `ScriptEntry`) live in `services/scripting/__init__.py`.
+  `detect_advanced_features(script, language)` scans for `async/await` and
+  `npm:` patterns, returning `{"async"}` and/or `{"npm"}` feature flags.
+  `DenoManager` manages Deno binary download/cache/removal under
+  `~/.local/share/postmark/runtimes/deno-<version>/`.
   `pm.sendRequest()` uses a host-side HTTP bridge (`execute_sub_request`
   in `context.py`) with a trampoline loop (JS) or IPC protocol (Python).
   The JS-side rate limit is 10 calls; the host enforces a hard cap of 50

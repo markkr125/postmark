@@ -775,4 +775,29 @@ def build_global_qss(p: ThemePalette) -> str:
         padding: 2px 8px;
         border-bottom: 1px solid {p["border"]};
     }}
+
+    /* ---- Runtime download banner -------------------------------- */
+    QFrame[objectName="RuntimeBanner"] {{
+        background: {p["bg_alt"]};
+        border: 1px solid {p["border"]};
+        border-radius: 4px;
+    }}
+    QLabel[objectName="bannerMessage"] {{
+        color: {p["text"]};
+        font-size: 12px;
+    }}
+    QPushButton[objectName="bannerDownloadBtn"] {{
+        background: {p["accent"]};
+        color: #ffffff;
+        border: none;
+        border-radius: 3px;
+        padding: 4px 12px;
+        font-size: 12px;
+    }}
+    QPushButton[objectName="bannerDownloadBtn"]:hover {{
+        opacity: 0.9;
+    }}
+    QPushButton[objectName="bannerDownloadBtn"]:disabled {{
+        opacity: 0.5;
+    }}
     """

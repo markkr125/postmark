@@ -181,3 +181,86 @@ def save_globals(changes: dict[str, str]) -> None
 
 Load/save global variables from `data/globals.json`.  `save_globals`
 merges changes into the existing file.
+
+## Function: `detect_advanced_features`
+
+**Module:** `services/scripting/feature_detect.py`
+**Re-exported from:** `services/scripting/__init__.py`
+
+```python
+def detect_advanced_features(script: str, language: str) -> set[str]
+```
+
+Scan a script for advanced features that require the Deno runtime.
+Returns a set of feature flags: `"async"` for `async/await` patterns,
+`"npm"` for `require("npm:...")` or `import ... from "npm:..."`.
+Returns empty set for Python scripts or blank input.
+
+**Constants:** `FEATURE_ASYNC = "async"`, `FEATURE_NPM = "npm"`
+
+## Class: `DenoManager`
+
+**Module:** `services/scripting/deno_manager.py`
+**Re-exported from:** `services/scripting/__init__.py`
+
+All methods are `@staticmethod`.
+
+### `is_available`
+
+```python
+@staticmethod
+def is_available() -> bool
+```
+
+Return `True` if the Deno binary exists and is executable.
+
+### `deno_path`
+
+```python
+@staticmethod
+def deno_path() -> Path | None
+```
+
+Return the path to the cached Deno binary, or `None` if not installed.
+
+### `download`
+
+```python
+@staticmethod
+def download(
+    progress_callback: Callable[[int, int], None] | None = None,
+) -> Path
+```
+
+Download the pinned Deno release from GitHub.  Extracts the zip to
+`runtime_dir()` and makes the binary executable.  Calls
+`progress_callback(received_bytes, total_bytes)` during download.
+Returns the path to the Deno binary.
+
+### `remove`
+
+```python
+@staticmethod
+def remove() -> None
+```
+
+Delete the cached Deno binary directory.
+
+### `download_url`
+
+```python
+@staticmethod
+def download_url() -> str
+```
+
+Return the GitHub release URL for the pinned Deno version.
+
+### `runtime_dir`
+
+```python
+@staticmethod
+def runtime_dir() -> Path
+```
+
+Return the directory where the Deno binary is cached
+(`~/.local/share/postmark/runtimes/deno-<version>/`).

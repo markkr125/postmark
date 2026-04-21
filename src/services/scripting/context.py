@@ -203,7 +203,24 @@ def normalize_events(events: Any) -> dict[str, str]:
     if not events:
         return {}
     if isinstance(events, dict):
-        return events
+        # Validate that values are strings.  Imported data may store nested
+        # dicts (e.g. {"pre_request": {"script": "...", ...}}) — extract the
+        # script text when possible.
+        clean: dict[str, str] = {}
+        for key, val in events.items():
+            if isinstance(val, str):
+                clean[key] = val
+            elif isinstance(val, dict):
+                # Try common nested shapes: {"script": "..."} or
+                # {"script": {"exec": [...]}}
+                script = val.get("script", val)
+                if isinstance(script, str):
+                    clean[key] = script
+                elif isinstance(script, dict):
+                    exec_lines = script.get("exec", [])
+                    if isinstance(exec_lines, list):
+                        clean[key] = "\n".join(str(ln) for ln in exec_lines)
+        return clean
     if isinstance(events, list):
         result: dict[str, str] = {}
         listen_map = {"prerequest": "pre_request", "test": "test"}

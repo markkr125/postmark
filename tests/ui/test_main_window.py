@@ -109,6 +109,31 @@ class TestMainWindowNavigation:
         assert window.request_widget._url_input.text() == "https://example.com"
         assert window.request_widget._method_combo.currentText() == "POST"
 
+    def test_open_request_loads_scripts_from_events_fallback(
+        self, qapp: QApplication, qtbot
+    ) -> None:
+        """Scripts stored in events (Postman import) load into the editor."""
+        svc = CollectionService()
+        coll = svc.create_collection("Coll")
+        req = svc.create_request(coll.id, "GET", "http://example.com", "Req")
+
+        # Simulate Postman-imported data: scripts is None, events has content
+        postman_events = [
+            {"listen": "prerequest", "script": {"exec": ["var x = 1;"]}},
+            {"listen": "test", "script": {"exec": ["pm.test('ok', function(){});"]}},
+        ]
+        svc.update_request(req.id, events=postman_events)
+
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._open_request(req.id, push_history=True)
+
+        pre = window.request_widget._pre_request_edit.toPlainText()
+        test = window.request_widget._test_script_edit.toPlainText()
+        assert "var x = 1;" in pre
+        assert "pm.test" in test
+
     def test_navigation_history_back(self, qapp: QApplication, qtbot) -> None:
         """Navigating back goes to the previous request."""
         svc = CollectionService()

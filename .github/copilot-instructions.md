@@ -184,6 +184,8 @@ src/
 │   │   ├── __init__.py            # TypedDicts (ScriptInput/Output, TestResult, etc.)
 │   │   ├── engine.py              # ScriptEngine (run chains, merge outputs) + run_debug_chain
 │   │   ├── context.py             # Context builders + normalize_events() + execute_sub_request() + globals persistence
+│   │   ├── feature_detect.py      # detect_advanced_features() — async/npm pattern detection
+│   │   ├── deno_manager.py        # DenoManager — Deno binary download/cache/removal
 │   │   ├── js_runtime.py          # JSRuntime (V8 via PyMiniRacer) + vendor script loader
 │   │   ├── py_runtime.py          # PyRuntime (RestrictedPython subprocess)
 │   │   └── debug/                 # Debug sub-package (step-through debugging)
@@ -247,6 +249,7 @@ src/
     │   ├── info_popup.py          # InfoPopup (QFrame) base + ClickableLabel
     │   ├── key_value_table.py     # Reusable key-value editor widget
     │   ├── search_replace_bar.py  # SearchReplaceBar — find/replace + go-to-line for CodeEditorWidget
+    │   ├── runtime_banner.py      # RuntimeBanner — Deno download prompt banner
     │   ├── variable_line_edit.py  # VariableLineEdit — QLineEdit with {{var}} highlighting + hover popup
     │   └── variable_popup.py      # VariablePopup — singleton hover popup for variable details
     ├── collections/               # Collection sidebar
@@ -342,6 +345,8 @@ tests/
 │       ├── test_script_vendor.py
 │       ├── test_script_vendor_libs.py
 │       ├── test_script_version_service.py
+│       ├── test_feature_detect.py
+│       ├── test_deno_manager.py
 │       └── http/                  # HTTP service tests
 │           ├── test_http_service.py
 │           ├── test_graphql_schema_service.py
@@ -381,7 +386,8 @@ tests/
     │   ├── test_variable_line_edit.py
     │   ├── test_variable_popup.py
     │   ├── test_variable_popup_local.py
-    │   └── test_search_replace_bar.py
+    │   ├── test_search_replace_bar.py
+    │   └── test_runtime_banner.py
     ├── collections/               # Collection sidebar tests
     │   ├── test_collection_header.py
     │   ├── test_collection_tree.py

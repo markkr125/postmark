@@ -19,8 +19,11 @@ from PySide6.QtWidgets import (
 
 from services.script_version_service import ScriptVersionService
 from services.scripting.context import normalize_events as _normalize_events
+from services.scripting.deno_manager import DenoManager
+from services.scripting.feature_detect import detect_advanced_features
 from ui.styling.icons import phi
 from ui.widgets.code_editor import CodeEditorWidget
+from ui.widgets.runtime_banner import RuntimeBanner
 from ui.widgets.search_replace_bar import SearchReplaceBar
 
 # Display label → CodeEditorWidget language.
@@ -28,6 +31,7 @@ _SCRIPT_LANGUAGES: dict[str, str] = {"JavaScript": "javascript", "Python": "pyth
 
 _VERSION_CAPTURE_MS = 2000  # Debounce delay (ms) for version capture.
 _AUTO_SAVE_CAPTURE_MS = 500  # Aggressive capture interval when auto-save enabled.
+_BANNER_CHECK_MS = 800  # Debounce delay (ms) for runtime banner re-check.
 
 # QSettings keys.
 _SETTINGS_KEY_AUTO_SAVE_OVERRIDES = "scripts/auto_save_overrides"
@@ -57,11 +61,17 @@ class _ScriptsMixin:
             search_bar=self._pre_search_bar,
         )
 
-        # Editor pane (search bar + editor + status bar).
+        # Runtime banner (hidden by default).
+        self._pre_runtime_banner = RuntimeBanner()
+        self._pre_runtime_banner.setVisible(False)
+        self._pre_runtime_banner.download_completed.connect(self._on_deno_installed)
+
+        # Editor pane (banner + search bar + editor + status bar).
         editor_pane = QWidget()
         editor_layout = QVBoxLayout(editor_pane)
         editor_layout.setContentsMargins(0, 0, 0, 0)
         editor_layout.setSpacing(0)
+        editor_layout.addWidget(self._pre_runtime_banner)
         editor_layout.addWidget(self._pre_search_bar)
         editor_layout.addWidget(self._pre_request_edit, 1)
         self._pre_status_label = self._build_status_bar(
@@ -69,6 +79,9 @@ class _ScriptsMixin:
             self._pre_request_edit,
             self._pre_lang_combo,
         )
+
+        # Connect text changes to banner re-check.
+        self._pre_request_edit.textChanged.connect(self._schedule_banner_check)
 
         # Output panel for inline script execution results.
         from ui.request.request_editor.scripts.output_panel import ScriptOutputPanel
@@ -104,11 +117,17 @@ class _ScriptsMixin:
             search_bar=self._test_search_bar,
         )
 
-        # Editor pane (search bar + editor + status bar).
+        # Runtime banner (hidden by default).
+        self._test_runtime_banner = RuntimeBanner()
+        self._test_runtime_banner.setVisible(False)
+        self._test_runtime_banner.download_completed.connect(self._on_deno_installed)
+
+        # Editor pane (banner + search bar + editor + status bar).
         editor_pane = QWidget()
         editor_layout = QVBoxLayout(editor_pane)
         editor_layout.setContentsMargins(0, 0, 0, 0)
         editor_layout.setSpacing(0)
+        editor_layout.addWidget(self._test_runtime_banner)
         editor_layout.addWidget(self._test_search_bar)
         editor_layout.addWidget(self._test_script_edit, 1)
         self._test_status_label = self._build_status_bar(
@@ -116,6 +135,9 @@ class _ScriptsMixin:
             self._test_script_edit,
             self._test_lang_combo,
         )
+
+        # Connect text changes to banner re-check.
+        self._test_script_edit.textChanged.connect(self._schedule_banner_check)
 
         # Output panel for inline script execution results.
         from ui.request.request_editor.scripts.output_panel import ScriptOutputPanel
@@ -597,3 +619,32 @@ class _ScriptsMixin:
                 )
                 editor.selectAll()
                 editor.insertPlainText(content)
+
+    # -- Runtime banner ------------------------------------------------
+
+    def _schedule_banner_check(self) -> None:
+        """Restart the debounce timer for runtime banner re-check."""
+        if getattr(self, "_loading", False):
+            return
+        if not hasattr(self, "_banner_check_timer"):
+            self._banner_check_timer = QTimer()
+            self._banner_check_timer.setSingleShot(True)
+            self._banner_check_timer.setInterval(_BANNER_CHECK_MS)
+            self._banner_check_timer.timeout.connect(self._update_runtime_banners)
+        self._banner_check_timer.start()
+
+    def _update_runtime_banners(self) -> None:
+        """Show or hide the runtime banner for each script editor."""
+        deno_ok = DenoManager.is_available()
+        for editor, lang_combo, banner in (
+            (self._pre_request_edit, self._pre_lang_combo, self._pre_runtime_banner),
+            (self._test_script_edit, self._test_lang_combo, self._test_runtime_banner),
+        ):
+            lang = _SCRIPT_LANGUAGES.get(lang_combo.currentText(), "javascript")
+            features = detect_advanced_features(editor.toPlainText(), lang)
+            banner.setVisible(bool(features) and not deno_ok)
+
+    def _on_deno_installed(self) -> None:
+        """Hide all runtime banners after Deno is successfully installed."""
+        self._pre_runtime_banner.setVisible(False)
+        self._test_runtime_banner.setVisible(False)
