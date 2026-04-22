@@ -126,8 +126,8 @@ class TestYourParser:
 
 After adding a new parser:
 
-1. Add the file to the architecture tree in `copilot-instructions.md`.
-2. Add test file to the test tree in `testing.instructions.md`.
+1. Add the file to the architecture tree in root [`AGENTS.md`](../../../AGENTS.md).
+2. Add the test file to the test tree in [`tests/AGENTS.md`](../../../tests/AGENTS.md).
 3. Add the parser to the ImportService section in the
    `service-repository-reference` skill.
 

@@ -20,18 +20,20 @@ _SCHEME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+\-.]*://")
 
 # Explicit files to check (relative to project root)
 _EXPLICIT_MD_FILES = [
+    "AGENTS.md",
+    "src/AGENTS.md",
+    "src/ui/AGENTS.md",
+    "src/database/AGENTS.md",
+    "tests/AGENTS.md",
+    "docs/AGENTS.md",
     ".github/copilot-instructions.md",
-    ".github/instructions/architecture.instructions.md",
-    ".github/instructions/documentation.instructions.md",
-    ".github/instructions/pyside6.instructions.md",
-    ".github/instructions/sqlalchemy.instructions.md",
-    ".github/instructions/testing.instructions.md",
     "README.md",
 ]
 
 # Directories to recursively scan for .md files
 _MD_DIRS = [
     "docs",
+    ".agents",
 ]
 
 

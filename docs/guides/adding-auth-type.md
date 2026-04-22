@@ -119,7 +119,7 @@ class TestYourAuth:
 
 ### 5. Update instructions
 
-1. Update `AUTH_TYPES` count in copilot-instructions.md
+1. Update `AUTH_TYPES` count in root [`AGENTS.md`](../../AGENTS.md)
 2. Add the new type to the auth handler docs
 3. Update the `auth_field_specs.py` reference in skills
 

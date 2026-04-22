@@ -1,0 +1,486 @@
+# Postmark — Agent Instructions
+
+## CRITICAL — Keeping instructions in sync
+
+> **MANDATORY — EVERY code change MUST be followed by an instruction audit.**
+> After modifying, adding, or deleting ANY source file, test file, signal,
+> TypedDict, service method, QSS objectName, or architectural pattern, you
+> MUST review ALL relevant `AGENTS.md` files and skills listed below and update them to reflect
+> the change.  **Stale or incomplete instructions are treated as bugs.**
+>
+> Checklist — run through each step after every code change:
+>
+> 1. **Update the architecture tree** in this file to match `src/` and
+>    `tests/`.  Add new files, remove deleted files.
+> 2. **Update [`src/AGENTS.md`](src/AGENTS.md)** with any new or changed
+>    signals, data flows, TypedDicts, implicit contracts, or service methods.
+> 3. **Update [`src/ui/AGENTS.md`](src/ui/AGENTS.md)** with any new `objectName` values
+>    used in global QSS.
+> 4. **Update [`tests/AGENTS.md`](tests/AGENTS.md)** with any new test files or
+>    directories.
+> 5. **Update [`src/database/AGENTS.md`](src/database/AGENTS.md)** with any new models,
+>    relationships, or repository functions.
+> 6. **Update relevant skills** (under `.agents/skills/`) when adding or
+>    changing signals, service/repository methods, TypedDicts, widgets, or
+>    parsers.  See the Skills table below.
+> 7. **Search every `AGENTS.md` file and skill** for stale references to
+>    renamed, moved, or deleted code.  Remove or correct them.
+> 8. **Update `docs/` pages** when adding, changing, or removing public API,
+>    signals, TypedDicts, widgets, parsers, or architectural patterns.
+>    Update [`docs/AGENTS.md`](docs/AGENTS.md) when documentation authoring rules change.
+>    See `docs/contributing/updating-docs.md` for the full checklist.
+
+This file and the nested `AGENTS.md` files below form a single source of
+truth.
+
+- **Check all agent instruction files for overlap** before editing any of them.
+- **Never duplicate rules** across files — reference the canonical location.
+- **Place rules in the most specific file** that applies. Only add rules here
+  if they are truly project-wide.
+- **Prefer adding a nested `AGENTS.md`** in the appropriate directory
+  (`src/`, `src/ui/`, `src/database/`, `tests/`, `docs/`) over growing this file.
+
+Nested `AGENTS.md` files (merged with this file based on which paths you edit — see each file for layer-specific rules):
+
+| File | Scope |
+|------|-------|
+| [src/ui/AGENTS.md](src/ui/AGENTS.md) | PySide6 / UI code under `src/ui/` |
+| [src/database/AGENTS.md](src/database/AGENTS.md) | SQLAlchemy / DB under `src/database/` |
+| [src/AGENTS.md](src/AGENTS.md) | Architecture & data flow for all of `src/` |
+| [tests/AGENTS.md](tests/AGENTS.md) | Testing conventions under `tests/` |
+| [docs/AGENTS.md](docs/AGENTS.md) | Documentation authoring under `docs/` |
+
+On-demand skills — read the relevant `SKILL.md` when the task matches (see `description` in each file’s frontmatter):
+
+| Skill | Description |
+|-------|-------------|
+| [signal-flow](.agents/skills/signal-flow/SKILL.md) | Complete signal flow diagrams, signal declaration tables, MainWindow wiring summary |
+| [service-repository-reference](.agents/skills/service-repository-reference/SKILL.md) | Repository function catalogues, service method tables, TypedDict schemas |
+| [widget-patterns](.agents/skills/widget-patterns/SKILL.md) | Tree badge rendering, data roles, InfoPopup, VariablePopup, theme module, new widget checklist |
+| [test-writing](.agents/skills/test-writing/SKILL.md) | Test patterns for all layers — repository, service, UI widget, MainWindow |
+| [import-parser](.agents/skills/import-parser/SKILL.md) | How to add a new import format parser to the import system |
+| [customization-guide](.agents/skills/customization-guide/SKILL.md) | How to create, update, or debug agent instructions, nested `AGENTS.md`, skills, and project conventions |
+
+> **Nested AGENTS.md vs Skills:** Nested files apply when you work under their directories — keep them lean with core rules. Skills are optional deep reference — load when the task matches the skill description.
+
+### Quick-reference — creating new skills or nested instructions
+
+If you need to **add a new skill** or **nested `AGENTS.md`**, follow these
+minimal rules (full guide in the `customization-guide` skill):
+
+**Skill** — `.agents/skills/<name>/SKILL.md`:
+```yaml
+---
+name: "<name>"                    # kebab-case, matches folder name
+description: "One sentence ... when to load this skill"
+---
+# <Title>
+(content)
+```
+
+**Nested agent instructions** — add `AGENTS.md` in the directory that owns the rules (e.g. `src/ui/AGENTS.md`). No glob metadata required — location defines scope.
+
+After creating either, **update this file**: add the new entry to the
+nested-files or skills table above, and update the sync checklist
+if needed.
+
+## Project overview
+
+**Postmark** — native desktop API client built with **PySide6**, **SQLAlchemy 2.0**, **Python 3.12+**, managed by **Poetry**.
+
+```bash
+poetry install --with dev   # pytest, ruff, mypy
+poetry run python src/main.py
+poetry run ruff check src/ && poetry run ruff format src/
+poetry run mypy src/
+poetry run pytest
+```
+
+`src/` is the source root for all tools (`pythonpath`, `mypy_path`,
+`extraPaths` in `pyproject.toml`). Imports use bare module names:
+`from database.database import init_db`.
+
+## LLM Navigation Quick-Start
+
+Fastest paths to understand and navigate the codebase:
+
+- **All services at a glance:** Read `src/services/__init__.py` — re-exports
+  `CollectionService`, `EnvironmentService`, `ImportService`,
+  `RunHistoryService`, and key TypedDicts (`RequestLoadDict`,
+  `VariableDetail`, `LocalOverride`).
+- **HTTP subsystem:** Read `src/services/http/__init__.py` — re-exports
+  `HttpService`, `GraphQLSchemaService`, `SnippetGenerator`,
+  `SnippetOptions`, `HttpResponseDict`, `parse_header_dict`.
+  Auth header injection lives in `src/services/http/auth_handler.py`.
+  OAuth 2.0 token exchange lives in `src/services/http/oauth2_service.py`.
+- **All DB models:** Read `src/database/database.py` — re-exports all six
+  ORM models (`CollectionModel`, `RequestModel`, `SavedResponseModel`,
+  `EnvironmentModel`, `RunHistoryModel`, `RunResultModel`).
+- **Collection CRUD vs queries:** Mutations live in
+  `collection_repository.py`; read-only tree/breadcrumb/ancestor queries
+  live in `collection_query_repository.py`.
+- **Signal flow:** Load the `signal-flow` skill for complete wiring diagrams.
+- **TypedDicts:** Cross-module dict schemas live in the service that owns
+  them (e.g. `RequestLoadDict` in `collection_service.py`,
+  `HttpResponseDict` in `http_service.py`).
+- **Test fixtures:** `make_collection_with_request` (root `conftest.py`) and
+  `make_request_dict` (`tests/ui/request/conftest.py`) reduce setup
+  boilerplate.
+
+## Architecture
+
+```
+docs/                              # Project documentation (see docs/README.md)
+├── README.md                      # Landing page + full table of contents
+├── getting-started/               # Installation, running, overview
+├── architecture/                  # Layered design, data flow, directory tree
+├── api-reference/                 # Function signatures, TypedDicts, signals
+│   ├── database/                  # ORM models, repository functions
+│   └── services/                  # Service methods, HTTP, auth, parsers
+├── ui-reference/                  # Widget classes, styling, navigation
+├── guides/                        # How-to guides (import parser, auth, widget, tests, signals)
+└── contributing/                  # Coding conventions, testing, updating docs
+src/
+├── main.py                        # Entry point — QApplication + init_db()
+├── database/                      # Engine, models, repository
+│   ├── database.py                # init_db(), get_session(), migration
+│   └── models/
+│       ├── base.py                # DeclarativeBase
+│       ├── collections/
+│       │   ├── collection_repository.py   # CRUD for collections + requests
+│       │   ├── collection_query_repository.py   # Read-only tree/breadcrumb/ancestor queries
+│       │   ├── import_repository.py       # Atomic bulk-import of parsed data
+│       │   └── model/
+│       │       ├── collection_model.py    # CollectionModel (folders)
+│       │       ├── request_model.py       # RequestModel (HTTP requests)
+│       │       └── saved_response_model.py
+│       ├── runs/
+│       │   ├── run_history_repository.py  # CRUD for run history + results
+│       │   └── model/
+│       │       ├── run_history_model.py   # RunHistoryModel (collection runs)
+│       │       └── run_result_model.py    # RunResultModel (per-request results)
+│       └── environments/
+│           ├── environment_repository.py  # CRUD for environments
+│           └── model/
+│               └── environment_model.py   # EnvironmentModel (key-value sets)
+├── services/                      # Service layer (UI ↔ DB bridge)
+│   ├── collection_service.py      # CollectionService (static methods)
+│   ├── environment_service.py     # EnvironmentService (variable substitution + TypedDicts)
+│   ├── import_service.py          # ImportService (parse + persist)
+│   ├── run_history_service.py     # RunHistoryService (run history CRUD bridge)
+│   ├── script_service.py          # ScriptService (script chain resolution)
+│   ├── scripting/                 # Script execution sub-package
+│   │   ├── __init__.py            # TypedDicts (ScriptInput/Output, TestResult, etc.)
+│   │   ├── engine.py              # ScriptEngine (run chains, merge outputs) + run_debug_chain
+│   │   ├── context.py             # Context builders + normalize_events() + execute_sub_request() + globals persistence
+│   │   ├── feature_detect.py      # detect_advanced_features() — async/npm pattern detection
+│   │   ├── deno_manager.py        # DenoManager — Deno binary download/cache/removal
+│   │   ├── js_runtime.py          # JSRuntime (V8 via PyMiniRacer) + vendor script loader
+│   │   ├── py_runtime.py          # PyRuntime (RestrictedPython subprocess)
+│   │   └── debug/                 # Debug sub-package (step-through debugging)
+│   │       ├── protocol.py        # DebugProtocol state machine + DebugPauseInfo
+│   │       ├── js_debug.py        # JS statement-by-statement debug execution
+│   │       └── py_debug.py        # Python settrace subprocess debug execution
+│   ├── http/                      # HTTP request/response handling
+│   │   ├── http_service.py        # HttpService (httpx) + response TypedDicts
+│   │   ├── graphql_schema_service.py  # GraphQL introspection + schema parsing
+│   │   ├── auth_handler.py        # Shared auth header injection (all 12 auth types)
+│   │   ├── oauth2_service.py      # OAuth 2.0 token exchange (4 grant types)
+│   │   ├── snippet_generator/     # Code snippet generation sub-package (23 languages)
+│   │   │   ├── generator.py       # SnippetGenerator, SnippetOptions, LanguageEntry, registry
+│   │   │   ├── shell_snippets.py  # cURL, HTTP raw, wget, HTTPie, PowerShell
+│   │   │   ├── dynamic_snippets.py  # Python, JS, Node, Ruby, PHP, Dart
+│   │   │   └── compiled_snippets.py # Go, Rust, C, Swift, Java, Kotlin, C#
+│   │   └── header_utils.py        # Shared header parsing utility
+│   └── import_parser/             # Parser sub-package
+│       ├── models.py              # TypedDict schemas for parsed data
+│       ├── postman_parser.py      # Postman collection/environment parser
+│       ├── curl_parser.py         # cURL command parser
+│       └── url_parser.py          # URL/raw-text auto-detect parser
+└── ui/                            # PySide6 widgets
+    ├── main_window/               # Top-level MainWindow sub-package
+    │   ├── window.py              # MainWindow widget + signal wiring
+    │   ├── send_pipeline.py       # _SendPipelineMixin — HTTP send/response flow + debug pipeline
+    │   ├── draft_controller.py    # _DraftControllerMixin — draft tab open/save
+    │   ├── tab_controller.py      # _TabControllerMixin — tab open/close/switch
+    │   └── variable_controller.py # _VariableControllerMixin — env variable + sidebar management
+    ├── loading_screen.py          # Loading screen overlay widget
+    ├── sidebar/                   # Right sidebar sub-package
+    │   ├── sidebar_widget.py      # RightSidebar (icon rail) + _FlyoutPanel
+    │   ├── variables_panel.py     # VariablesPanel — read-only variable display
+    │   ├── snippet_panel.py       # SnippetPanel — inline code snippet generator
+    │   ├── debug_panel.py         # DebugPanel — step controls + variable inspector
+    │   └── saved_responses/           # Saved responses sub-package
+    │       ├── panel.py               # SavedResponsesPanel — saved example list/detail flyout
+    │       ├── search_filter.py       # _PanelSearchFilterMixin — body search/filter
+    │       ├── helpers.py             # Formatting helpers (body size, language detect, etc.)
+    │       └── delegate.py            # Custom delegate for saved response list items
+    ├── styling/                   # Visual theming and icons
+    │   ├── theme.py               # Palettes, colours, badge geometry, method_color(), status_color()
+    │   ├── theme_manager.py       # ThemeManager — QPalette + QSettings
+    │   ├── tab_settings_manager.py # TabSettingsManager — request-tab QSettings bridge (preview, limits, activate-on-close, wrap mode)
+    │   ├── global_qss.py          # build_global_qss() — global stylesheet builder
+    │   └── icons.py               # Phosphor font-glyph icon provider (phi())
+    ├── widgets/                   # Reusable shared components
+    │   ├── code_editor/           # CodeEditorWidget sub-package
+    │   │   ├── editor_widget.py   # CodeEditorWidget — main editor class
+    │   │   ├── highlighter.py     # Syntax highlighting engine
+    │   │   ├── folding.py         # Code folding logic
+    │   │   ├── gutter.py          # Line-number gutter + minimap (_MinimapArea)
+    │   │   ├── painting.py        # Custom painting helpers
+    │   │   └── completion/        # Autocomplete sub-package
+    │   │       ├── schema/        # Schema sub-package
+    │   │       │   ├── core.py    # SchemaNode TypedDict, expectation chain, shared helpers
+    │   │       │   ├── js.py      # JS_SCHEMA (pm, console, CryptoJS, postman) + JS_GLOBALS
+    │   │       │   └── py.py      # PY_SCHEMA + PY_GLOBALS (Python variant)
+    │   │       ├── engine.py      # CompletionEngine — dot-path/variable resolver
+    │   │       └── popup.py       # CompletionPopup — floating autocomplete widget
+    │   ├── info_popup.py          # InfoPopup (QFrame) base + ClickableLabel
+    │   ├── key_value_table.py     # Reusable key-value editor widget
+    │   ├── search_replace_bar.py  # SearchReplaceBar — find/replace + go-to-line for CodeEditorWidget
+    │   ├── runtime_banner.py      # RuntimeBanner — Deno download prompt banner
+    │   ├── variable_line_edit.py  # VariableLineEdit — QLineEdit with {{var}} highlighting + hover popup
+    │   └── variable_popup.py      # VariablePopup — singleton hover popup for variable details
+    ├── collections/               # Collection sidebar
+    │   ├── collection_header.py
+    │   ├── collection_widget.py
+    │   ├── new_item_popup.py      # NewItemPopup — Postman-style icon grid popup
+    │   └── tree/                  # Tree widget sub-package
+    │       ├── constants.py
+    │       ├── draggable_tree_widget.py
+    │       ├── collection_tree.py # CollectionTree widget
+    │       ├── tree_actions.py    # _TreeActionsMixin — context menus, rename, delete
+    │       └── collection_tree_delegate.py  # Custom delegate for method badges
+    ├── dialogs/                   # Modal dialogs
+    │   ├── collection_runner/
+    │   │   ├── __init__.py        # Re-exports CollectionRunnerDialog
+    │   │   ├── dialog.py          # CollectionRunnerDialog + run history persistence
+    │   │   ├── config.py          # RunnerConfigView (env selector, request checklist, data file, iterations, delay)
+    │   │   ├── results.py         # RunnerResultsView (summary + results table + detail panel + export)
+    │   │   └── worker.py          # RunnerWorker (QThread), parse_data_file, env var substitution, scripts_enabled
+    │   ├── import_dialog.py
+    │   ├── save_request_dialog.py  # Save draft request to collection
+    │   └── settings_dialog.py     # Settings (theme + request-tab behaviour)
+    ├── environments/              # Environment management widgets
+    │   ├── environment_editor.py
+    │   └── environment_selector.py
+    ├── panels/                    # Bottom / side panels
+    │   ├── console_panel.py
+    │   └── history_panel.py
+    └── request/                   # Request/response editing
+        ├── folder_editor/           # Folder/collection detail editor sub-package
+        │   ├── editor_widget.py     # FolderEditorWidget — main editor class
+        │   └── runs.py              # _RunsMixin + _build_runs_table (run history tab)
+        ├── http_worker.py           # HttpSendWorker + SchemaFetchWorker (QThread)
+        ├── auth/                    # Shared auth sub-package (14 auth types)
+        │   ├── auth_field_specs.py  # Per-type FieldSpec definitions (AUTH_FIELD_SPECS)
+        │   ├── auth_mixin.py        # _AuthMixin — shared by both editors
+        │   ├── auth_pages.py        # FieldSpec dataclass, page builders, auth constants
+        │   ├── auth_serializer.py   # Generic load/save for all auth types
+        │   └── oauth2_page.py       # OAuth 2.0 custom page (grant-type switching)
+        ├── request_editor/          # RequestEditor sub-package
+        │   ├── editor_widget.py     # RequestEditor — main request editing widget
+        │   ├── auth.py              # Re-export of _AuthMixin from auth sub-package
+        │   ├── body_search.py       # _BodySearchMixin — search/replace in body
+        │   ├── graphql.py           # _GraphQLMixin — GraphQL mode + schema
+        │   └── scripts/             # Scripts sub-package
+        │       ├── scripts_mixin.py # _ScriptsMixin — dual pre-request/test script editors
+        │       ├── output_panel.py  # ScriptOutputPanel — inline script execution results
+        │       ├── script_run_worker.py # ScriptRunWorker — background thread for inline runs
+        │       ├── version_history.py # _show_version_history entry point
+        │       └── version_history/ # Version history dialog sub-package
+        │           ├── delegate.py  # _VersionItemDelegate — two-line list item rendering
+        │           ├── dialog.py    # VersionHistoryDialog — timeline + side-by-side diff
+        │           ├── diff_viewer.py # _DiffViewer — dual-editor diff with folding
+        │           ├── helpers.py   # Diff formatting, fold ranges, timestamp helpers
+        │           └── toolbar.py   # _DiffToolbar — search, nav, whitespace, copy
+        ├── response_viewer/         # ResponseViewer sub-package
+        │   ├── viewer_widget.py     # ResponseViewer — response display widget
+        │   ├── search_filter.py     # _SearchFilterMixin — response search/filter
+        │   ├── test_results_mixin.py # _TestResultsMixin — test results tab
+        │   └── pre_request_mixin.py # _PreRequestMixin — pre-request script output tab
+        ├── navigation/              # Tab switching and path navigation
+        │   ├── breadcrumb_bar.py
+        │   ├── request_tab_bar.py   # Compatibility wrapper re-exporting the wrapped deck
+        │   ├── request_tabs/        # Wrapped multi-row request tab deck sub-package
+        │   │   ├── __init__.py
+        │   │   ├── bar.py           # RequestTabBar custom wrapped-row deck
+        │   │   ├── labels.py        # TabLabel / FolderTabLabel chip content widgets
+        │   │   └── tab_button.py    # TabButton chip with close + reorder interactions
+        │   └── tab_manager.py       # TabManager + TabContext (with local_overrides, draft_name)
+        └── popups/                  # Response metadata popups
+            ├── status_popup.py      # HTTP status code explanation
+            ├── timing_popup.py      # Request timing breakdown
+            ├── size_popup.py        # Response/request size breakdown
+            └── network_popup.py     # Network/TLS connection details
+tests/
+├── conftest.py                    # Autouse fresh-DB fixture + qapp fixture + tab-settings reset
+├── unit/                          # Repository & service layer tests
+│   ├── database/                  # Repository tests
+│   │   ├── test_repository.py
+│   │   ├── test_environment_repository.py
+│   │   └── test_run_history_repository.py
+│   └── services/                  # Service layer tests
+│       ├── test_service.py
+│       ├── test_environment_service.py
+│       ├── test_import_parser.py
+│       ├── test_import_service.py
+│       ├── test_script_bridge_globals.py
+│       ├── test_script_debug.py
+│       ├── test_script_engine.py
+│       ├── test_script_linter.py
+│       ├── test_script_sandbox.py
+│       ├── test_script_service.py
+│       ├── test_script_vendor.py
+│       ├── test_script_vendor_libs.py
+│       ├── test_script_version_service.py
+│       ├── test_feature_detect.py
+│       ├── test_deno_manager.py
+│       └── http/                  # HTTP service tests
+│           ├── test_http_service.py
+│           ├── test_graphql_schema_service.py
+│           ├── test_snippet_generator.py
+│           ├── test_snippet_shell.py
+│           ├── test_snippet_dynamic.py
+│           ├── test_snippet_compiled.py
+│           ├── test_auth_handler.py
+│           └── test_oauth2_service.py
+└── ui/                            # End-to-end PySide6 widget tests
+    ├── conftest.py                # _no_fetch (autouse) + helpers
+    ├── test_main_window.py
+    ├── test_main_window_tabs_navigation.py # Wrapped tab deck shortcuts + search tests
+    ├── test_main_window_save.py   # SaveButton + RequestSaveEndToEnd tests
+    ├── test_main_window_draft.py  # Draft tab open/save lifecycle tests
+    ├── test_main_window_session.py # Tab session persistence (save/restore) tests
+    ├── styling/                   # Theme and icon tests
+    │   ├── test_theme_manager.py
+    │   └── test_icons.py
+    ├── sidebar/                   # Sidebar widget tests
+    │   ├── test_sidebar.py
+    │   ├── test_variables_panel.py
+    │   ├── test_snippet_panel.py
+    │   ├── test_debug_panel.py
+    │   └── test_saved_responses_panel.py
+    ├── widgets/                   # Shared component tests
+    │   ├── test_code_editor.py
+    │   ├── test_code_editor_folding.py
+    │   ├── test_code_editor_painting.py
+    │   ├── test_code_editor_memory.py
+    │   ├── test_code_editor_minimap.py
+    │   ├── test_code_editor_variables.py
+    │   ├── test_completion_engine.py
+    │   ├── test_completion_popup.py
+    │   ├── test_info_popup.py
+    │   ├── test_key_value_table.py
+    │   ├── test_variable_line_edit.py
+    │   ├── test_variable_popup.py
+    │   ├── test_variable_popup_local.py
+    │   ├── test_search_replace_bar.py
+    │   └── test_runtime_banner.py
+    ├── collections/               # Collection sidebar tests
+    │   ├── test_collection_header.py
+    │   ├── test_collection_tree.py
+    │   ├── test_collection_tree_actions.py
+    │   ├── test_collection_tree_delegate.py
+    │   ├── test_collection_widget.py
+    │   └── test_new_item_popup.py
+    ├── dialogs/                   # Dialog tests
+    │   ├── test_collection_runner.py
+    │   ├── test_import_dialog.py
+    │   ├── test_save_request_dialog.py
+    │   └── test_settings_dialog.py
+    ├── environments/              # Environment widget tests
+    │   ├── test_environment_editor.py
+    │   └── test_environment_selector.py
+    ├── panels/                    # Panel tests
+    │   ├── test_console_panel.py
+    │   └── test_history_panel.py
+    └── request/                   # Request/response editing tests
+        ├── conftest.py              # make_request_dict fixture factory
+        ├── test_folder_editor.py
+        ├── test_folder_editor_scripts.py
+        ├── test_http_worker.py
+        ├── test_request_editor.py
+        ├── test_request_editor_auth.py
+        ├── test_request_editor_binary.py
+        ├── test_request_editor_graphql.py
+        ├── test_request_editor_search.py
+        ├── test_response_viewer.py
+        ├── test_response_viewer_search.py
+        ├── test_response_viewer_tests.py
+        ├── test_version_history.py
+        ├── test_script_output_panel.py
+        ├── navigation/            # Tab and breadcrumb tests
+        │   ├── test_breadcrumb_bar.py
+        │   ├── test_request_tab_bar.py
+        │   └── test_tab_manager.py
+        └── popups/                # Response popup tests
+            ├── test_status_popup.py
+            ├── test_timing_popup.py
+            ├── test_size_popup.py
+            └── test_network_popup.py
+```
+
+**Layering:** UI → signals → Service → Repository → `get_session()`.
+UI must never import from `database/`.
+
+## CRITICAL — Verify after every change
+
+After **any** code change, run the **full** validation suite and confirm
+**zero failures** before considering the task complete:
+
+```bash
+poetry run pytest                          # all tests must pass
+poetry run ruff check src/ tests/          # linter clean
+poetry run ruff format --check src/ tests/ # formatter clean
+poetry run mypy src/ tests/                # type checker clean
+```
+
+> **ZERO tolerance for errors — including pre-existing ones.**
+> Every command above must exit with **zero** errors, warnings, or
+> suggestions.  If you find a pre-existing error (lint, type, format,
+> test failure) while working on an unrelated task, **fix it immediately**
+> in the same change.  "It was already broken" is never an acceptable
+> excuse — fix it anyway.  All four commands passing clean is a hard gate
+> on every change.  No exceptions.
+
+**NEVER use `--fix` or auto-format as a substitute for the checks above.**
+Always run the check-only commands first. If they fail, fix the code
+manually (or with `--fix`), then **re-run the check-only commands** and
+confirm they pass. The goal is to surface every issue visibly — a silent
+auto-fix that is never re-verified can leave the working tree clean while
+the staged/committed version is still broken.
+
+After **any** documentation change (`.md` files, instruction files, README),
+run the markdown link checker and confirm **zero broken links**:
+
+```bash
+python scripts/check_md_links.py
+```
+
+Never skip a layer — repository, service, UI, and MainWindow tests all
+must stay green.  See [`tests/AGENTS.md`](tests/AGENTS.md) for detailed conventions.
+
+## Coding conventions
+
+- `from __future__ import annotations` in **every** module.
+- `X | None`, not `Optional[X]`.
+- Ruff is the linter **and** formatter (config in `pyproject.toml`).
+  First-party packages for isort: `database`, `ui`, `services`.
+- Named constants over magic numbers.
+- `init_db()` must be called before any DB access (app startup and test fixture).
+- Every module, class, and public function must have a docstring.
+- All hex colour values belong in `src/ui/styling/theme.py` -- never inline.
+- Use `TypedDict` for dict schemas that cross module boundaries.
+- No emoji in code comments -- use plain numbered steps (e.g. `# 1.`).
+- **Directory file limit:** No directory may contain more than 5 `.py` files
+  (excluding `__init__.py`).  When a directory reaches this limit, group
+  related files into a sub-package before adding more.  Test directories
+  mirror the source tree; test file count may exceed 5 when multiple test
+  files cover a single source module.
+- **File line limit:** No single `.py` file may exceed **600 lines**
+  (including docstrings and comments).  When a file approaches this limit,
+  extract cohesive groups of methods, helper classes, or setup logic into
+  a sub-package.  Re-export public symbols from the package's `__init__.py`
+  so external imports remain stable.  Test files follow the same limit —
+  split by test class into separate files mirroring the sub-package.

@@ -1,6 +1,3 @@
----
-applyTo: "docs/**/*.md"
----
 # Documentation Authoring Rules
 
 ## Quick rules
@@ -15,9 +12,9 @@ applyTo: "docs/**/*.md"
    language tag (` ```python `, ` ```bash `, ` ```text `).
 5. **Function signatures use Python style** — show full type annotations,
    default values, and return types.
-6. **No duplicated rules** — if a rule lives in a Copilot instruction file,
-   link to it instead of repeating it.  Docs are *descriptive*, instructions
-   are *prescriptive*.
+6. **No duplicated rules** — if a rule lives in a project `AGENTS.md` file,
+   link to it instead of repeating it.  Docs are *descriptive*, agent
+   instructions are *prescriptive*.
 7. **Keep files under 400 lines** — split large pages into sub-pages and
    link from a parent page.
 
@@ -69,7 +66,7 @@ User clicks Send
 ## Link conventions
 
 - Link to source files as relative paths from `docs/`:
-  `[collection_service.py](../../src/services/collection_service.py)`.
-- Link to other doc pages: `[Architecture Overview](../../docs/architecture/overview.md)`.
-- Link to Copilot instructions:
-  `[architecture.instructions.md](architecture.instructions.md)`.
+  `[collection_service.py](../src/services/collection_service.py)`.
+- Link to other doc pages: `[Architecture Overview](architecture/overview.md)`.
+- Link to architecture agent instructions:
+  `[src/AGENTS.md](../src/AGENTS.md)`.

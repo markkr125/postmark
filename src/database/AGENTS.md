@@ -1,9 +1,3 @@
----
-name: "SQLAlchemy Conventions"
-description: "SQLAlchemy 2.0 model and session rules — Mapped columns, session management, relationships"
-applyTo: "src/database/**/*.py"
----
-
 # SQLAlchemy coding conventions
 
 ## Quick rules — read these first

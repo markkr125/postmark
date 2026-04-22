@@ -6,7 +6,7 @@ description: Detailed PySide6 widget implementation patterns for the Postmark co
 # Widget implementation patterns
 
 Detailed patterns for building PySide6 widgets in the Postmark codebase.
-For core rules (enums, layouts, cursors), see `pyside6.instructions.md`.
+For core rules (enums, layouts, cursors), see [`src/ui/AGENTS.md`](../../../src/ui/AGENTS.md).
 
 ## Tree item badge rendering
 
@@ -189,8 +189,8 @@ When creating a new widget:
    `setStyleSheet()`.
 7. Import colours from `ui.styling.theme`, icons from
    `ui.styling.icons.phi()`.
-8. Add the widget to the architecture tree in `copilot-instructions.md`.
+8. Add the widget to the architecture tree in root [`AGENTS.md`](../../../AGENTS.md).
 9. Create a matching test file in `tests/ui/<subpackage>/`.
-10. Add the test file to the test tree in `testing.instructions.md`.
+10. Add the test file to the test tree in [`tests/AGENTS.md`](../../../tests/AGENTS.md).
 11. If the widget emits signals wired in MainWindow, update
     `signal-flow` skill.

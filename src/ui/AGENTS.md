@@ -1,9 +1,3 @@
----
-name: "PySide6 Conventions"
-description: "Qt/PySide6 widget coding rules — enum scoping, layout casts, signal patterns"
-applyTo: "src/ui/**/*.py"
----
-
 # PySide6 coding conventions
 
 ## Quick rules — read these first

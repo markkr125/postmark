@@ -6,7 +6,7 @@ description: Guide for writing tests for Postmark components. Use when creating 
 # Test writing guide
 
 Step-by-step guide for writing tests in the Postmark project.  For core
-test rules (fixtures, imports), see `testing.instructions.md`.
+test rules (fixtures, imports), see [`tests/AGENTS.md`](../../../tests/AGENTS.md).
 
 ## Choosing the right test layer
 

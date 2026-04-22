@@ -1,9 +1,3 @@
----
-name: "Testing Conventions"
-description: "Pytest rules — fixtures, test structure, layer boundaries"
-applyTo: "tests/**/*.py"
----
-
 # Testing conventions
 
 ## Quick rules — read these first
@@ -11,7 +5,7 @@ applyTo: "tests/**/*.py"
 1. **Run `poetry run pytest` after every change** — all tests must pass.
 2. **Also run `poetry run ruff check src/ tests/`,
    `poetry run ruff format --check src/ tests/`, and
-   `poetry run mypy src/ tests/`** — see `copilot-instructions.md` for the
+   `poetry run mypy src/ tests/`** — see [AGENTS.md](../AGENTS.md) for the
    full validation checklist.
 3. **Each test gets a fresh SQLite database** — the `_fresh_db` autouse
    fixture handles this.  Never share DB state between tests.

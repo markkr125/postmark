@@ -74,4 +74,4 @@ poetry run pytest
 
 ## Architecture
 
-`src/` is organized into three layers: `database/` (SQLAlchemy models and repositories), `services/` (business logic bridging UI and DB), and `ui/` (PySide6 widgets). Tests in `tests/` mirror the source tree. See [`.github/copilot-instructions.md`](.github/copilot-instructions.md) for the full architecture tree and coding conventions.
+`src/` is organized into three layers: `database/` (SQLAlchemy models and repositories), `services/` (business logic bridging UI and DB), and `ui/` (PySide6 widgets). Tests in `tests/` mirror the source tree. See [`AGENTS.md`](AGENTS.md) for the full architecture tree and coding conventions.

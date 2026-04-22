@@ -1,9 +1,3 @@
----
-name: "Architecture & Data Flow"
-description: "Signal wiring, data schemas, implicit contracts, and known limitations"
-applyTo: "src/**/*.py"
----
-
 # Architecture and data flow
 
 This file documents how data moves between layers, how signals are wired,
@@ -20,7 +14,7 @@ and what implicit contracts exist.
 4. **Every repository function is its own transaction.** You cannot batch
    multiple calls into one commit.
 5. **Always wrap programmatic tree-item edits in `blockSignals(True/False)`**
-   — see `pyside6.instructions.md`.
+   — see [ui/AGENTS.md](ui/AGENTS.md).
 6. **The data interchange format is a nested `dict[str, Any]`**, not ORM
    objects.  See the schema below.
 7. **`_safe_svc_call` swallows all exceptions.**  Errors are logged but never
@@ -28,7 +22,7 @@ and what implicit contracts exist.
 8. **`CollectionService` methods are all `@staticmethod`.**  Do not add
    instance state.
 9. **Never call `setStyleSheet()` for static widget styling** — use
-   `setObjectName()` and global QSS.  See `pyside6.instructions.md`.
+   `setObjectName()` and global QSS.  See [ui/AGENTS.md](ui/AGENTS.md).
 10. **Never use `# type: ignore` to assign `None` to a non-optional
     attribute.**  This silences mypy but Pylance still widens the inferred
     type to `X | None`, propagating false errors everywhere the attribute
@@ -70,7 +64,7 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
 - `ThemeManager` (`ui.styling.theme_manager`) is created once in `main.py`
   and passed to `MainWindow`.  It owns the app-wide stylesheet, QPalette,
   and QSettings persistence for theme preferences.  See
-  `pyside6.instructions.md` for widget styling rules.
+  [ui/AGENTS.md](ui/AGENTS.md) for widget styling rules.
 - `TabSettingsManager` (`ui.styling.tab_settings_manager`) is created once
   in `main.py` and passed to `MainWindow`.  It persists request-tab
   behaviour (preview enablement, compact labels, duplicate-name path
