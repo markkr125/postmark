@@ -71,6 +71,7 @@ class SyntaxError_(NamedTuple):
     line: int
     column: int
     message: str
+    severity: str = "error"  # "error" | "warning"
 
 
 class _FoldData(QTextBlockUserData):

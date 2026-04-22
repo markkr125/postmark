@@ -44,7 +44,7 @@ def _no_script_linter(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     from services.scripting.engine import ScriptLinter
 
-    monkeypatch.setattr(ScriptLinter, "check", staticmethod(lambda *_a, **_kw: None))
+    monkeypatch.setattr(ScriptLinter, "check", staticmethod(lambda *_a, **_kw: []))
 
 
 @pytest.fixture(autouse=True)

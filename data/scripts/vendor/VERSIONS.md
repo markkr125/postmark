@@ -15,6 +15,9 @@ All bundles are IIFE-wrapped via `esbuild --bundle --format=iife`.
 | Ajv | 8.18.0 | `ajv` | 255 KB | MIT |
 | xml2js | 0.6.2 | `xml2js` | 259 KB | MIT |
 | csv-parse | 5.6.0 | `csv-parse` | 61 KB | MIT |
+| Esprima | 4.0.1 | `esprima` | 284 KB | MIT |
+
+`esprima.js` is a stock webpack bundle (not esbuild IIFE) used by `ScriptLinter` for static JavaScript analysis only; it is not part of the sandbox `require()` surface.
 
 ## Support Files
 

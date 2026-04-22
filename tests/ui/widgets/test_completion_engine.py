@@ -291,6 +291,58 @@ class TestTopLevelCompletions:
         labels = {item.label for item in items}
         assert "json_loads" not in labels
 
+    def test_js_top_level_includes_keywords(self) -> None:
+        """JavaScript top-level includes language keywords."""
+        engine = CompletionEngine("javascript")
+        labels = {item.label for item in engine.top_level_completions()}
+        assert "const" in labels
+        assert "let" in labels
+
+    def test_python_top_level_includes_keywords(self) -> None:
+        """Python top-level includes language keywords."""
+        engine = CompletionEngine("python")
+        labels = {item.label for item in engine.top_level_completions()}
+        assert "def" in labels
+        assert "class" in labels
+
+
+class TestIdentifierPrefix:
+    """Tests for identifier_prefix (typed word before cursor)."""
+
+    def test_suffix_con(self) -> None:
+        engine = CompletionEngine("javascript")
+        assert engine.identifier_prefix("con") == "con"
+
+    def test_word_after_space(self) -> None:
+        engine = CompletionEngine("javascript")
+        assert engine.identifier_prefix("  con") == "con"
+
+    def test_no_match_for_member_access(self) -> None:
+        """``pm.con`` should not treat ``con`` as a free identifier prefix."""
+        engine = CompletionEngine("javascript")
+        assert engine.identifier_prefix("pm.con") == ""
+
+
+class TestTopLevelFiltered:
+    """Tests for top_level_filtered (Ctrl+Space on a partial word)."""
+
+    def test_js_con_includes_const(self) -> None:
+        engine = CompletionEngine("javascript")
+        labels = [i.label for i in engine.top_level_filtered("con")]
+        assert "const" in labels
+        assert "console" in labels
+        assert "continue" in labels
+
+    def test_python_de_includes_def(self) -> None:
+        engine = CompletionEngine("python")
+        labels = [i.label for i in engine.top_level_filtered("de")]
+        assert "def" in labels
+        assert "delete" not in labels  # not a Python keyword in our list
+
+    def test_empty_prefix_returns_full_top_level(self) -> None:
+        engine = CompletionEngine("javascript")
+        assert len(engine.top_level_filtered("")) == len(engine.top_level_completions())
+
 
 # -- Prefix filtering -------------------------------------------------
 

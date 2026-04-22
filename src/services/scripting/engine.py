@@ -4,8 +4,9 @@ Dispatches scripts to the appropriate runtime based on the ``language``
 field, and merges outputs from multiple scripts in an inheritance chain.
 All methods are ``@staticmethod`` to match the project service pattern.
 
-Also provides :class:`ScriptLinter` for lightweight syntax checking
-without executing scripts (used by the inline editor validation).
+Also provides :class:`ScriptLinter` for syntax checking and static
+``pm``/``postman`` API validation without executing scripts (used by the
+inline editor validation).
 """
 
 from __future__ import annotations
@@ -13,10 +14,11 @@ from __future__ import annotations
 import ast
 import json
 import logging
-import re
-from typing import TYPE_CHECKING, Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
 
 from services.scripting.js_runtime import JSRuntime
+from services.scripting.pm_api_schema import lookup as _pm_lookup
 from services.scripting.py_runtime import PyRuntime
 
 if TYPE_CHECKING:
@@ -241,26 +243,23 @@ def run_debug_chain(
 
 # -- Syntax linter (no execution) --------------------------------------
 
-# V8 line offset: ``new Function(code)`` wraps code in
-# ``function anonymous() {\n<code>\n}`` so user line 1 = V8 line 3.
-_V8_LINE_OFFSET = 2
+_ESPRIMA_JS_PATH = Path(__file__).resolve().parents[3] / "data" / "scripts" / "vendor" / "esprima.js"
 
-# Regex to extract line + message from V8 ``SyntaxError`` exceptions.
-_V8_ERROR_RE = re.compile(
-    r"^(?:undefined|\S+):(\d+):\s*SyntaxError:\s*(.+)",
-    re.MULTILINE,
-)
+
+class Diagnostic(TypedDict):
+    """A static issue in a script (syntax or API misuse)."""
+
+    message: str
+    line: int
+    column: int
+    severity: Literal["error", "warning"]
 
 
 class ScriptLinter:
-    """Lightweight syntax checker for JavaScript and Python scripts.
+    """Lightweight syntax + pm-API checker for JavaScript and Python scripts."""
 
-    Performs compile-time validation without executing any code.
-    For JavaScript, a single ``MiniRacer`` context is lazily created
-    and reused across calls (~0.3 ms per check after first use).
-    """
-
-    _js_ctx: Any = None  # Cached MiniRacer instance.
+    _js_ctx: Any = None
+    _esprima_loaded: bool = False
 
     @classmethod
     def shutdown(cls) -> None:
@@ -272,53 +271,238 @@ class ScriptLinter:
         if cls._js_ctx is not None:
             del cls._js_ctx
             cls._js_ctx = None
+        cls._esprima_loaded = False
 
     @classmethod
-    def check(
-        cls,
-        script: str,
-        language: str,
-    ) -> tuple[str, int, int] | None:
-        """Return ``(message, line, column)`` or ``None`` if valid.
+    def check(cls, script: str, language: str) -> list[Diagnostic]:
+        """Return diagnostics, or an empty list when there are no issues.
 
         *line* and *column* are 1-based.
         """
         if not script or not script.strip():
-            return None
-
+            return []
         if language == "python":
             return cls._check_python(script)
         return cls._check_javascript(script)
 
-    @staticmethod
-    def _check_python(script: str) -> tuple[str, int, int] | None:
-        """Validate Python syntax via ``ast.parse()``."""
-        try:
-            ast.parse(script)
-        except SyntaxError as e:
-            line = e.lineno or 1
-            col = e.offset or 1
-            return (e.msg, line, col)
-        return None
+    # ---- Python ------------------------------------------------------
 
     @classmethod
-    def _check_javascript(cls, script: str) -> tuple[str, int, int] | None:
-        """Validate JavaScript syntax via V8 ``new Function()``."""
+    def _check_python(cls, script: str) -> list[Diagnostic]:
+        try:
+            tree = ast.parse(script)
+        except SyntaxError as e:
+            return [
+                cast(
+                    Diagnostic,
+                    {
+                        "message": e.msg,
+                        "line": e.lineno or 1,
+                        "column": e.offset or 1,
+                        "severity": "error",
+                    },
+                )
+            ]
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                node.func._pm_parent_call = True  # type: ignore[attr-defined]
+        diags: list[Diagnostic] = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute):
+                root, path = _py_unwrap_attr(node)
+                if root in ("pm", "postman"):
+                    is_call = bool(getattr(node, "_pm_parent_call", False))
+                    _emit_pm_diag(
+                        diags,
+                        root,
+                        path,
+                        is_call,
+                        node.lineno or 1,
+                        (node.col_offset or 0) + 1,
+                    )
+        return diags
+
+    # ---- JavaScript --------------------------------------------------
+
+    @classmethod
+    def _check_javascript(cls, script: str) -> list[Diagnostic]:
         try:
             from py_mini_racer import MiniRacer  # type: ignore[import-untyped]
         except ImportError:
-            return None
-
+            return []
         if cls._js_ctx is None:
             cls._js_ctx = MiniRacer()
+        if not cls._esprima_loaded:
+            try:
+                esprima_src = _ESPRIMA_JS_PATH.read_text(encoding="utf-8")
+                cls._js_ctx.eval(esprima_src)
+                cls._esprima_loaded = True
+            except (OSError, FileNotFoundError, Exception):
+                return []
 
-        safe = json.dumps(script)
+        wrapper = (
+            "function(__src) {"
+            " try { return {ok: true, tree: esprima.parseScript(__src, {loc: true, tolerant: false}) };"
+            " } catch (e) {"
+            " return {"
+            " ok: false, line: e.lineNumber || 1,"
+            " column: (e.column != null && e.column !== undefined) ? (e.column + 1) : 1,"
+            " message: e.description || e.message || String(e)"
+            " };"
+            " }"
+            " }"
+        )
         try:
-            cls._js_ctx.eval(f"new Function({safe})")
+            cls._js_ctx.eval("var __pm_lint_parse = " + wrapper + ";")
+            safe = json.dumps(script)
+            # Round-trip through JSON so the AST is plain dicts (not JSMappedObject);
+            # the walker relies on :class:`dict` iteration and ``==`` on nested nodes.
+            raw = cls._js_ctx.eval("JSON.stringify(__pm_lint_parse(" + safe + "))")
+            if raw is None:
+                return []
+            result = cast(dict[str, Any], json.loads(str(raw)))
         except Exception as exc:
-            m = _V8_ERROR_RE.search(str(exc))
-            if m:
-                v8_line = int(m.group(1))
-                return (m.group(2), max(1, v8_line - _V8_LINE_OFFSET), 1)
-            return (str(exc).splitlines()[0], 1, 1)
-        return None
+            return [
+                cast(
+                    Diagnostic,
+                    {
+                        "message": str(exc).splitlines()[0],
+                        "line": 1,
+                        "column": 1,
+                        "severity": "error",
+                    },
+                )
+            ]
+        if not result.get("ok"):
+            return [
+                cast(
+                    Diagnostic,
+                    {
+                        "message": str(result["message"]),
+                        "line": int(result.get("line", 1)),
+                        "column": int(result.get("column", 1)),
+                        "severity": "error",
+                    },
+                )
+            ]
+        diags: list[Diagnostic] = []
+        _js_walk_for_pm(result.get("tree"), diags)
+        return diags
+
+
+# ---- pm API helpers ---------------------------------------------------
+
+
+def _py_unwrap_attr(node: ast.Attribute) -> tuple[str, list[str]]:
+    """For `pm.a.b.c` return ``("pm", ["a", "b", "c"])``.
+
+    If the root is not a :class:`ast.Name`, return ``("", [])``.
+    """
+    parts: list[str] = [node.attr]
+    cur: ast.AST = node.value
+    while isinstance(cur, ast.Attribute):
+        parts.append(cur.attr)
+        cur = cur.value
+    if isinstance(cur, ast.Name):
+        parts.reverse()
+        return cur.id, parts
+    return "", []
+
+
+def _emit_pm_diag(
+    diags: list[Diagnostic],
+    root: str,
+    path: list[str],
+    is_call: bool,
+    line: int,
+    col: int,
+) -> None:
+    if not path:
+        return
+    node = _pm_lookup(root, path)
+    if node is None:
+        diags.append(
+            cast(
+                Diagnostic,
+                {
+                    "message": f"Unknown property `{path[-1]}` on `{root}`",
+                    "line": line,
+                    "column": col,
+                    "severity": "warning",
+                },
+            )
+        )
+        return
+    kind = node.get("kind")
+    if is_call and kind in ("namespace", "scope"):
+        diags.append(
+            cast(
+                Diagnostic,
+                {
+                    "message": f"`{root}.{'.'.join(path)}` is a {kind}, not a function",
+                    "line": line,
+                    "column": col,
+                    "severity": "warning",
+                },
+            )
+        )
+
+
+def _js_walk_for_pm(tree: object, diags: list[Diagnostic]) -> None:
+    """Walk an Esprima JSON AST, flag bad pm.*/postman.* access."""
+
+    def visit(node: Any, parent: Any) -> None:
+        if not isinstance(node, dict):
+            return
+        ntype = node.get("type")
+        if ntype == "MemberExpression":
+            if not (
+                isinstance(parent, dict)
+                and parent.get("type") == "MemberExpression"
+                and parent.get("object") == node
+            ):
+                path: list[str] = []
+                cur: Any = node
+                while isinstance(cur, dict) and cur.get("type") == "MemberExpression":
+                    if cur.get("optional"):
+                        path = []
+                        break
+                    if cur.get("computed"):
+                        path = []
+                        break
+                    prop = cur.get("property") or {}
+                    if prop.get("type") != "Identifier":
+                        path = []
+                        break
+                    path.append(str(prop.get("name", "")))
+                    cur = cur.get("object") or {}
+                if path and isinstance(cur, dict) and cur.get("type") == "Identifier":
+                    root_name = str(cur.get("name", ""))
+                    if root_name in ("pm", "postman"):
+                        path.reverse()
+                        is_call = bool(
+                            isinstance(parent, dict)
+                            and parent.get("type") == "CallExpression"
+                            and parent.get("callee") == node
+                        )
+                        loc = (node.get("loc") or {}).get("start") or {}
+                        line = int(loc.get("line", 1))
+                        col0 = int(loc.get("column", 0))
+                        # Esprima columns are 0-based
+                        _emit_pm_diag(
+                            diags,
+                            root_name,
+                            path,
+                            is_call,
+                            line,
+                            col0 + 1,
+                        )
+        for v in node.values():
+            if isinstance(v, dict):
+                visit(v, node)
+            elif isinstance(v, list):
+                for item in v:
+                    if isinstance(item, dict):
+                        visit(item, node)
+
+    visit(tree, None)

@@ -50,13 +50,15 @@ class _CompletionMixin(_CompletionBase):
         text_before = block_text[:col]
 
         items = self._completion_engine.complete(text_before)
+        prefix = ""
         if not items:
-            items = self._completion_engine.top_level_completions()
+            prefix = self._completion_engine.identifier_prefix(text_before)
+            items = self._completion_engine.top_level_filtered(prefix)
         if not items:
             self._completion_popup.dismiss()
             return
 
-        self._completion_prefix = ""
+        self._completion_prefix = prefix
         self._completion_popup.set_items(items)
         self._position_completion_popup()
         self._completion_popup.show()
@@ -69,6 +71,9 @@ class _CompletionMixin(_CompletionBase):
         text_before = block_text[:col]
 
         items = self._completion_engine.complete(text_before)
+        if not items:
+            prefix = self._completion_engine.identifier_prefix(text_before)
+            items = self._completion_engine.top_level_filtered(prefix)
         if not items:
             self._completion_popup.dismiss()
             return

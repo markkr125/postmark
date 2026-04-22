@@ -28,6 +28,8 @@ from ui.styling.theme import (
     COLOR_EDITOR_DEBUG_LINE,
     COLOR_EDITOR_ERROR_GUTTER_BG,
     COLOR_EDITOR_ERROR_UNDERLINE,
+    COLOR_EDITOR_WARNING_GUTTER_BG,
+    COLOR_EDITOR_WARNING_UNDERLINE,
     COLOR_EDITOR_FOLD_BADGE_BG,
     COLOR_EDITOR_FOLD_BADGE_TEXT,
     COLOR_EDITOR_FOLD_INDICATOR,
@@ -372,7 +374,8 @@ class _PaintingMixin(_PaintingBase):
         painter = QPainter(self._line_number_area)
         painter.fillRect(event.rect(), QColor(COLOR_EDITOR_GUTTER_BG))
 
-        error_lines = {e.line for e in self._errors}
+        error_lines = {e.line for e in self._errors if e.severity == "error"}
+        warning_lines = {e.line for e in self._errors if e.severity == "warning"}
         diff_colors = self._diff_line_colors
 
         block = self.firstVisibleBlock()
@@ -385,7 +388,9 @@ class _PaintingMixin(_PaintingBase):
         while block.isValid() and top <= event.rect().bottom():
             if block.isVisible() and bottom >= event.rect().top():
                 number = str(block_number + 1)
-                is_error = block_number + 1 in error_lines
+                line_num = block_number + 1
+                is_error = line_num in error_lines
+                is_warning = line_num in warning_lines and not is_error
 
                 # Diff gutter stripe (3px on the left edge)
                 if block_number in diff_colors:
@@ -400,6 +405,15 @@ class _PaintingMixin(_PaintingBase):
                         QColor(COLOR_EDITOR_ERROR_GUTTER_BG),
                     )
                     painter.setPen(QColor(COLOR_EDITOR_ERROR_UNDERLINE))
+                elif is_warning:
+                    painter.fillRect(
+                        0,
+                        top,
+                        width,
+                        bottom - top,
+                        QColor(COLOR_EDITOR_WARNING_GUTTER_BG),
+                    )
+                    painter.setPen(QColor(COLOR_EDITOR_WARNING_UNDERLINE))
                 else:
                     painter.setPen(QColor(COLOR_EDITOR_GUTTER_TEXT))
 

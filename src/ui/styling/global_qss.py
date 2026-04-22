@@ -389,6 +389,14 @@ def build_global_qss(p: ThemePalette) -> str:
     QScrollArea {{
         border: none;
     }}
+    /* Script editor output — match codeEditor (input surface + border) */
+    QScrollArea[objectName="scriptOutputScroll"] {{
+        border: 1px solid {p["border"]};
+        background-color: {p["input_bg"]};
+    }}
+    QWidget[objectName="scriptOutputInner"] {{
+        background-color: {p["input_bg"]};
+    }}
 
     /* ---- Tree widgets ------------------------------------------- */
     QTreeWidget::item {{

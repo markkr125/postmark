@@ -490,3 +490,44 @@ PY_GLOBALS: dict[str, SchemaNode] = {
         "signature": "(params: dict)",
     },
 }
+
+# -- Language keywords (top-level completion) --------------------------
+
+PY_KEYWORDS: dict[str, SchemaNode] = {
+    kw: {"kind": "keyword", "type_str": "keyword", "doc": "", "signature": ""}
+    for kw in (
+        "def",
+        "class",
+        "return",
+        "yield",
+        "lambda",
+        "pass",
+        "if",
+        "elif",
+        "else",
+        "for",
+        "while",
+        "break",
+        "continue",
+        "try",
+        "except",
+        "finally",
+        "raise",
+        "with",
+        "as",
+        "import",
+        "from",
+        "global",
+        "nonlocal",
+        "and",
+        "or",
+        "not",
+        "is",
+        "in",
+        "async",
+        "await",
+        "True",
+        "False",
+        "None",
+    )
+}

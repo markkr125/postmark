@@ -467,3 +467,50 @@ JS_GLOBALS: dict[str, SchemaNode] = {
         "signature": "(data: string)",
     },
 }
+
+# -- Language keywords (top-level completion) --------------------------
+
+JS_KEYWORDS: dict[str, SchemaNode] = {
+    kw: {"kind": "keyword", "type_str": "keyword", "doc": "", "signature": ""}
+    for kw in (
+        "const",
+        "let",
+        "var",
+        "function",
+        "class",
+        "extends",
+        "new",
+        "if",
+        "else",
+        "switch",
+        "case",
+        "default",
+        "for",
+        "while",
+        "do",
+        "break",
+        "continue",
+        "return",
+        "try",
+        "catch",
+        "finally",
+        "throw",
+        "typeof",
+        "instanceof",
+        "in",
+        "of",
+        "delete",
+        "void",
+        "async",
+        "await",
+        "yield",
+        "import",
+        "export",
+        "from",
+        "this",
+        "true",
+        "false",
+        "null",
+        "undefined",
+    )
+}

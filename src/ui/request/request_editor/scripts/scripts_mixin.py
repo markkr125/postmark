@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import partial
 from typing import Any
 
 from PySide6.QtCore import QSettings, Qt, QTimer
@@ -87,14 +88,18 @@ class _ScriptsMixin:
         from ui.request.request_editor.scripts.output_panel import ScriptOutputPanel
 
         self._pre_output_panel = ScriptOutputPanel(script_type="pre_request")
-        self._pre_output_panel.setVisible(False)
 
         # Resizable splitter between editor and output.
         splitter = QSplitter(Qt.Orientation.Vertical)
         splitter.addWidget(editor_pane)
         splitter.addWidget(self._pre_output_panel)
-        splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 1)
+        # Extra space favours output; initial handle position is set by
+        # :meth:`_schedule_script_splitter_sizes` (stretch alone is not enough).
+        splitter.setStretchFactor(0, 4)
+        splitter.setStretchFactor(1, 5)
+        self._pre_script_splitter = splitter
+        self._connect_script_splitter_vis_hooks()
+        self._schedule_script_splitter_sizes(splitter)
         parent_layout.addWidget(splitter, 1)
 
     def _build_test_script_tab(self, parent_layout: QVBoxLayout) -> None:
@@ -143,15 +148,56 @@ class _ScriptsMixin:
         from ui.request.request_editor.scripts.output_panel import ScriptOutputPanel
 
         self._test_output_panel = ScriptOutputPanel(script_type="test")
-        self._test_output_panel.setVisible(False)
 
         # Resizable splitter between editor and output.
         splitter = QSplitter(Qt.Orientation.Vertical)
         splitter.addWidget(editor_pane)
         splitter.addWidget(self._test_output_panel)
-        splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 1)
+        splitter.setStretchFactor(0, 4)
+        splitter.setStretchFactor(1, 5)
+        self._test_script_splitter = splitter
+        self._connect_script_splitter_vis_hooks()
+        self._schedule_script_splitter_sizes(splitter)
         parent_layout.addWidget(splitter, 1)
+
+    def _connect_script_splitter_vis_hooks(self) -> None:
+        """Re-apply default split when the scripts UI becomes visible (tab has real height)."""
+        if getattr(self, "_script_splitter_vis_hooks", False):
+            return
+        self._script_splitter_vis_hooks = True
+        if hasattr(self, "_scripts_sub_tabs"):
+            self._scripts_sub_tabs.currentChanged.connect(self._on_script_splitter_context_shown)
+        if hasattr(self, "_tabs") and hasattr(self, "_scripts_tab"):
+            self._tabs.currentChanged.connect(self._on_script_splitter_context_shown)
+
+    def _on_script_splitter_context_shown(self, *_args: object) -> None:
+        """Sub-tab or top-level section changed; refresh split when Scripts is shown."""
+        for sp in (getattr(self, "_pre_script_splitter", None), getattr(self, "_test_script_splitter", None)):
+            if isinstance(sp, QSplitter):
+                self._schedule_script_splitter_sizes(sp)
+
+    def _schedule_script_splitter_sizes(self, splitter: QSplitter) -> None:
+        """Set initial editor/output heights — QSplitter needs explicit ``setSizes``."""
+        if splitter.count() != 2:
+            return
+
+        def try_apply(attempt: int = 0) -> None:
+            h = splitter.height()
+            if h < 30 and attempt < 30:
+                QTimer.singleShot(40, partial(try_apply, attempt + 1))
+                return
+            if h < 50:
+                return
+            handles = (splitter.count() - 1) * splitter.handleWidth()
+            avail = h - handles
+            if avail < 100:
+                return
+            # Slightly under half the pane to the output (index 1).
+            out_h = max(200, int(avail * 0.46))
+            ed_h = max(120, avail - out_h)
+            splitter.setSizes([ed_h, out_h])
+
+        QTimer.singleShot(0, partial(try_apply, 0))
 
     def _build_script_header(
         self,
@@ -185,9 +231,9 @@ class _ScriptsMixin:
         )
         lang_row.addWidget(history_btn)
 
-        lang_row.addStretch()
+        lang_row.addSpacing(8)
 
-        # -- Toolbar buttons (right-aligned, matching response viewer) --
+        # -- Toolbar buttons (left of stretch so they stay near Language / History) --
         find_hint = QKeySequence(QKeySequence.StandardKey.Find).toString(
             QKeySequence.SequenceFormat.NativeText,
         )
@@ -235,6 +281,8 @@ class _ScriptsMixin:
         auto_save_cb.toggled.connect(self._on_auto_save_toggled)
         self._auto_save_checkboxes.append(auto_save_cb)
         lang_row.addWidget(auto_save_cb)
+
+        lang_row.addStretch()
 
         parent_layout.addLayout(lang_row)
 

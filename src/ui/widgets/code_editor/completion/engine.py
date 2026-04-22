@@ -13,8 +13,10 @@ from typing import TYPE_CHECKING, NamedTuple
 
 from ui.widgets.code_editor.completion.schema import (
     JS_GLOBALS,
+    JS_KEYWORDS,
     JS_SCHEMA,
     PY_GLOBALS,
+    PY_KEYWORDS,
     PY_SCHEMA,
     SchemaNode,
 )
@@ -42,12 +44,16 @@ _JS_ASSIGN_RE = re.compile(r"(?:let|const|var)\s+(\w+)\s*=\s*([\w.]+(?:\(\))?)\s
 # Regex for Python variable assignments:  x = pm.something
 _PY_ASSIGN_RE = re.compile(r"^(\w+)\s*=\s*([\w.]+(?:\(\))?)\s*$", re.MULTILINE)
 
+# Identifier being typed before the cursor (e.g. ``con`` for ``const``),
+# but not after a dot (so ``pm.con`` still uses dot-path logic).
+_IDENT_PREFIX_RE = re.compile(r"(?:^|[^\w.])(\w+)$")
+
 
 class CompletionItem(NamedTuple):
     """A single completion suggestion."""
 
     label: str  # display text (e.g. "response")
-    kind: str  # "property" | "method" | "object" | "variable"
+    kind: str  # "property" | "method" | "object" | "variable" | "keyword"
     type_str: str  # short type/return label (e.g. "number")
     doc: str  # one-line description
     signature: str  # parameter signature for methods
@@ -142,13 +148,28 @@ class CompletionEngine:
         return [item for item in items if item.label.lower().startswith(lower)]
 
     def top_level_completions(self) -> list[CompletionItem]:
-        """Return top-level completions (pm, console, and language globals)."""
+        """Return top-level completions (pm, console, language globals, keywords)."""
         items = self._schema_to_items(self._schema)
         if self._language == "javascript":
             items.extend(self._schema_to_items(JS_GLOBALS))
+            items.extend(self._schema_to_items(JS_KEYWORDS))
         else:
             items.extend(self._schema_to_items(PY_GLOBALS))
+            items.extend(self._schema_to_items(PY_KEYWORDS))
         return items
+
+    def identifier_prefix(self, text_before_cursor: str) -> str:
+        """Return the word being typed before the cursor, or empty string."""
+        match = _IDENT_PREFIX_RE.search(text_before_cursor)
+        return match.group(1) if match else ""
+
+    def top_level_filtered(self, prefix: str) -> list[CompletionItem]:
+        """Return top-level items whose label starts with *prefix* (case-insensitive)."""
+        items = self.top_level_completions()
+        if not prefix:
+            return items
+        lower = prefix.lower()
+        return [i for i in items if i.label.lower().startswith(lower)]
 
     # -- Private helpers ------------------------------------------------
 

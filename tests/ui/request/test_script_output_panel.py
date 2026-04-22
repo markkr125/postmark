@@ -133,6 +133,8 @@ class TestScriptOutputPanelConstruction:
         qtbot.addWidget(panel)
         assert not hasattr(panel, "_response_body_edit")
         assert not hasattr(panel, "_status_spin")
+        # Idle hint + trailing stretch.
+        assert panel._results_layout.count() == 2
 
     def test_test_panel_has_response_input(self, qtbot) -> None:
         """Test panel includes response body and status code inputs."""
@@ -149,8 +151,9 @@ class TestScriptOutputPanelConstruction:
         panel.show_results(_make_output(), 42.0)
         assert panel.isVisible()
         panel.clear_results()
-        # Elapsed label cleared.
+        # Elapsed label cleared; idle hint restored.
         assert panel._elapsed_label.text() == ""
+        assert panel._results_layout.count() == 2
 
 
 # ===================================================================
@@ -223,7 +226,7 @@ class TestScriptOutputPanelResults:
         )
         assert panel._results_layout.count() > 1
         panel.clear_results()
-        assert panel._results_layout.count() == 1  # only stretch
+        assert panel._results_layout.count() == 2  # idle hint + stretch
 
     def test_show_variable_changes(self, qtbot) -> None:
         """Variable changes are rendered as key=value rows."""

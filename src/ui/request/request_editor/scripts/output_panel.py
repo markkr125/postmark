@@ -78,6 +78,17 @@ class ScriptOutputPanel(QWidget):
         # 3. Scrollable results area.
         self._build_results_area(root)
 
+        # Visible before any run so users discover Run / Ctrl+Enter.
+        self._show_idle_hint()
+
+        # Minimum height for the whole panel so the splitter allocates a
+        # meaningful output band (QSplitter::setStretchFactor does not set
+        # the initial handle position).
+        if self._script_type == "test":
+            self.setMinimumHeight(280)
+        else:
+            self.setMinimumHeight(240)
+
     def _build_response_input(self, parent_layout: QVBoxLayout) -> None:
         """Build the response body/status input for test scripts."""
         header = QHBoxLayout()
@@ -138,17 +149,34 @@ class ScriptOutputPanel(QWidget):
     def _build_results_area(self, parent_layout: QVBoxLayout) -> None:
         """Build the scrollable results container."""
         scroll = QScrollArea()
+        scroll.setObjectName("scriptOutputScroll")
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setMinimumHeight(180)
         self._results_scroll = scroll
 
         container = QWidget()
+        container.setObjectName("scriptOutputInner")
         self._results_layout = QVBoxLayout(container)
         self._results_layout.setContentsMargins(4, 2, 4, 2)
         self._results_layout.setSpacing(2)
         self._results_layout.addStretch()
         scroll.setWidget(container)
         parent_layout.addWidget(scroll, 1)
+
+    def _show_idle_hint(self) -> None:
+        """Show placeholder text when there is no output yet (or after clear)."""
+        msg = (
+            "Execute the script with the Run button or Ctrl+Enter to see output here."
+            if self._script_type == "pre_request"
+            else "Execute the script with the Run button or Ctrl+Enter — output and tests "
+            "appear here using the mock response above."
+        )
+        hint = QLabel(f"<span style='font-size:12px;'>{html.escape(msg)}</span>")
+        hint.setObjectName("mutedLabel")
+        hint.setTextFormat(Qt.TextFormat.RichText)
+        hint.setWordWrap(True)
+        self._insert_row(hint)
 
     # -- Public API ----------------------------------------------------
 
@@ -265,9 +293,10 @@ class ScriptOutputPanel(QWidget):
         self.setVisible(True)
 
     def clear_results(self) -> None:
-        """Clear all result rows and hide the results area."""
+        """Clear all result rows and restore the idle placeholder."""
         self._clear_result_rows()
         self._elapsed_label.setText("")
+        self._show_idle_hint()
 
     def get_response_data(self) -> dict[str, Any]:
         """Return mock response data from the input fields.

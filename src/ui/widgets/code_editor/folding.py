@@ -20,6 +20,7 @@ from ui.styling.theme import (
     COLOR_EDITOR_CURRENT_LINE,
     COLOR_EDITOR_ERROR_UNDERLINE,
     COLOR_EDITOR_FOLD_HIGHLIGHT,
+    COLOR_EDITOR_WARNING_UNDERLINE,
 )
 from ui.widgets.code_editor.gutter import (
     _ALL_BRACKETS,
@@ -459,7 +460,12 @@ class _FoldingMixin(_FoldingBase):
 
             fmt = QTextCharFormat()
             fmt.setUnderlineStyle(QTextCharFormat.UnderlineStyle.WaveUnderline)
-            fmt.setUnderlineColor(QColor(COLOR_EDITOR_ERROR_UNDERLINE))
+            uline = (
+                COLOR_EDITOR_WARNING_UNDERLINE
+                if error.severity == "warning"
+                else COLOR_EDITOR_ERROR_UNDERLINE
+            )
+            fmt.setUnderlineColor(QColor(uline))
 
             sel = QTextEdit.ExtraSelection()
             cur = QTextCursor(block)
@@ -560,11 +566,15 @@ class _FoldingMixin(_FoldingBase):
         return errors
 
     def _validate_script(self, text: str) -> list[SyntaxError_]:
-        """Check syntax of a JavaScript or Python script."""
+        """Check syntax + pm API usage for a JavaScript or Python script."""
         from services.scripting.engine import ScriptLinter
 
-        result = ScriptLinter.check(text, self._language)
-        if result:
-            msg, line, col = result
-            return [SyntaxError_(line=line, column=col, message=msg)]
-        return []
+        return [
+            SyntaxError_(
+                line=d["line"],
+                column=d["column"],
+                message=d["message"],
+                severity=d["severity"],
+            )
+            for d in ScriptLinter.check(text, self._language)
+        ]

@@ -43,6 +43,7 @@ _KIND_ICONS: dict[str, str] = {
     "property": "\u25c6",  # diamond
     "object": "\u25a0",  # filled square
     "variable": "\u03b1",  # alpha
+    "keyword": "K",
 }
 
 

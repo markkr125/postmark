@@ -75,6 +75,7 @@ class ThemePalette(TypedDict):
     editor_gutter_bg: str
     editor_gutter_text: str
     editor_error_underline: str
+    editor_warning_underline: str
     editor_fold_indicator: str
     editor_string: str
     editor_number: str
@@ -87,6 +88,7 @@ class ThemePalette(TypedDict):
     editor_indent_guide: str
     editor_active_indent_guide: str
     editor_error_gutter_bg: str
+    editor_warning_gutter_bg: str
     editor_fold_badge_bg: str
     editor_fold_badge_text: str
     editor_whitespace_dot: str
@@ -148,6 +150,7 @@ LIGHT_PALETTE: ThemePalette = {
     "editor_gutter_bg": "#fafafa",
     "editor_gutter_text": "#999999",
     "editor_error_underline": "#e74c3c",
+    "editor_warning_underline": "#d9a441",
     "editor_fold_indicator": "#555555",
     "editor_string": "#22863a",
     "editor_number": "#005cc5",
@@ -160,6 +163,7 @@ LIGHT_PALETTE: ThemePalette = {
     "editor_indent_guide": "#e0e0e0",
     "editor_active_indent_guide": "#b0b0b0",
     "editor_error_gutter_bg": "#fce4e4",
+    "editor_warning_gutter_bg": "#fff3cd",
     "editor_fold_badge_bg": "#e0e6ed",
     "editor_fold_badge_text": "#6a737d",
     "editor_whitespace_dot": "#b0b0b0",
@@ -219,6 +223,7 @@ DARK_PALETTE: ThemePalette = {
     "editor_gutter_bg": "#252526",
     "editor_gutter_text": "#858585",
     "editor_error_underline": "#f44747",
+    "editor_warning_underline": "#dcdcaa",
     "editor_fold_indicator": "#c0c0c0",
     "editor_string": "#ce9178",
     "editor_number": "#b5cea8",
@@ -231,6 +236,7 @@ DARK_PALETTE: ThemePalette = {
     "editor_indent_guide": "#333333",
     "editor_active_indent_guide": "#606060",
     "editor_error_gutter_bg": "#4a2020",
+    "editor_warning_gutter_bg": "#3a3520",
     "editor_fold_badge_bg": "#3a3d4a",
     "editor_fold_badge_text": "#a0a0a0",
     "editor_whitespace_dot": "#606060",
@@ -307,6 +313,7 @@ COLOR_EDITOR_BRACKET_MATCH: str = _active["editor_bracket_match"]
 COLOR_EDITOR_GUTTER_BG: str = _active["editor_gutter_bg"]
 COLOR_EDITOR_GUTTER_TEXT: str = _active["editor_gutter_text"]
 COLOR_EDITOR_ERROR_UNDERLINE: str = _active["editor_error_underline"]
+COLOR_EDITOR_WARNING_UNDERLINE: str = _active["editor_warning_underline"]
 COLOR_EDITOR_FOLD_INDICATOR: str = _active["editor_fold_indicator"]
 COLOR_EDITOR_STRING: str = _active["editor_string"]
 COLOR_EDITOR_NUMBER: str = _active["editor_number"]
@@ -319,6 +326,7 @@ COLOR_EDITOR_FOLD_HIGHLIGHT: str = _active["editor_fold_highlight"]
 COLOR_EDITOR_INDENT_GUIDE: str = _active["editor_indent_guide"]
 COLOR_EDITOR_ACTIVE_INDENT_GUIDE: str = _active["editor_active_indent_guide"]
 COLOR_EDITOR_ERROR_GUTTER_BG: str = _active["editor_error_gutter_bg"]
+COLOR_EDITOR_WARNING_GUTTER_BG: str = _active["editor_warning_gutter_bg"]
 COLOR_EDITOR_FOLD_BADGE_BG: str = _active["editor_fold_badge_bg"]
 COLOR_EDITOR_FOLD_BADGE_TEXT: str = _active["editor_fold_badge_text"]
 COLOR_EDITOR_WHITESPACE_DOT: str = _active["editor_whitespace_dot"]
@@ -359,6 +367,7 @@ def set_active_palette(palette: ThemePalette) -> None:
     global COLOR_VARIABLE_UNRESOLVED_HIGHLIGHT, COLOR_VARIABLE_UNRESOLVED_TEXT
     global COLOR_EDITOR_BRACKET_MATCH, COLOR_EDITOR_GUTTER_BG
     global COLOR_EDITOR_GUTTER_TEXT, COLOR_EDITOR_ERROR_UNDERLINE
+    global COLOR_EDITOR_WARNING_UNDERLINE
     global COLOR_EDITOR_FOLD_INDICATOR
     global COLOR_EDITOR_STRING, COLOR_EDITOR_NUMBER, COLOR_EDITOR_KEYWORD
     global COLOR_EDITOR_COMMENT, COLOR_EDITOR_TAG, COLOR_EDITOR_ATTRIBUTE
@@ -366,6 +375,7 @@ def set_active_palette(palette: ThemePalette) -> None:
     global COLOR_EDITOR_FOLD_HIGHLIGHT, COLOR_EDITOR_INDENT_GUIDE
     global COLOR_EDITOR_ACTIVE_INDENT_GUIDE
     global COLOR_EDITOR_ERROR_GUTTER_BG
+    global COLOR_EDITOR_WARNING_GUTTER_BG
     global COLOR_EDITOR_FOLD_BADGE_BG, COLOR_EDITOR_FOLD_BADGE_TEXT
     global COLOR_EDITOR_WHITESPACE_DOT
     global COLOR_EDITOR_BREAKPOINT, COLOR_EDITOR_DEBUG_LINE
@@ -424,6 +434,7 @@ def set_active_palette(palette: ThemePalette) -> None:
     COLOR_EDITOR_GUTTER_BG = palette["editor_gutter_bg"]
     COLOR_EDITOR_GUTTER_TEXT = palette["editor_gutter_text"]
     COLOR_EDITOR_ERROR_UNDERLINE = palette["editor_error_underline"]
+    COLOR_EDITOR_WARNING_UNDERLINE = palette["editor_warning_underline"]
     COLOR_EDITOR_FOLD_INDICATOR = palette["editor_fold_indicator"]
     COLOR_EDITOR_STRING = palette["editor_string"]
     COLOR_EDITOR_NUMBER = palette["editor_number"]
@@ -436,6 +447,7 @@ def set_active_palette(palette: ThemePalette) -> None:
     COLOR_EDITOR_INDENT_GUIDE = palette["editor_indent_guide"]
     COLOR_EDITOR_ACTIVE_INDENT_GUIDE = palette["editor_active_indent_guide"]
     COLOR_EDITOR_ERROR_GUTTER_BG = palette["editor_error_gutter_bg"]
+    COLOR_EDITOR_WARNING_GUTTER_BG = palette["editor_warning_gutter_bg"]
     COLOR_EDITOR_FOLD_BADGE_BG = palette["editor_fold_badge_bg"]
     COLOR_EDITOR_FOLD_BADGE_TEXT = palette["editor_fold_badge_text"]
     COLOR_EDITOR_WHITESPACE_DOT = palette["editor_whitespace_dot"]
