@@ -563,6 +563,18 @@ def build_global_qss(p: ThemePalette) -> str:
     QToolButton[objectName="scriptLanguageLinkButton"]:hover {{
         background: {"rgba(255,255,255,0.08)" if p is DARK_PALETTE else "rgba(0,0,0,0.06)"};
     }}
+    QToolButton[objectName="scriptHistoryLinkButton"] {{
+        background: transparent;
+        border: none;
+        color: {p["accent"]};
+        font-size: 12px;
+        font-weight: normal;
+        padding: 0px 6px;
+        text-decoration: underline;
+    }}
+    QToolButton[objectName="scriptHistoryLinkButton"]:hover {{
+        background: {"rgba(255,255,255,0.08)" if p is DARK_PALETTE else "rgba(0,0,0,0.06)"};
+    }}
 
     /* ---- Sidebar flat buttons ----------------------------------- */
     QToolButton[objectName="sidebarToolButton"] {{

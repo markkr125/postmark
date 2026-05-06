@@ -296,7 +296,7 @@ src/
         │   ├── body_search.py       # _BodySearchMixin — search/replace in body
         │   ├── graphql.py           # _GraphQLMixin — GraphQL mode + schema
         │   └── scripts/             # Scripts sub-package
-        │       ├── script_language.py # detect_script_language, code_to_display, normalise_script_code
+        │       ├── script_language.py # codes: javascript | typescript | python; detect/heuristics, display, normalise
         │       ├── scripts_mixin.py # _ScriptsMixin — dual pre-request/test script editors
         │       ├── output_panel.py  # ScriptOutputPanel — inline script execution results
         │       ├── script_run_worker.py # ScriptRunWorker — background thread for inline runs

@@ -80,10 +80,11 @@ src/
     |   |       |   +-- core.py      SchemaNode TypedDict, expectation chain, shared helpers
     |   |       |   +-- js.py        JS_SCHEMA (pm, console, CryptoJS, postman) + JS_GLOBALS
     |   |       |   +-- py.py        PY_SCHEMA + PY_GLOBALS (Python variant)
-    |   |       +-- engine.py        CompletionEngine -- dot-path/variable resolver + resolve_call_signature + resolve_nearest_call_signature
-    |   |       +-- mixin.py         _CompletionMixin -- completion + parameter hint triggers
+    |   |       +-- engine.py        CompletionEngine -- dot-path/variable resolver + resolve_call_signature + resolve_nearest_call_signature + resolve_symbol/find_definition_pos/is_linkable_symbol (Ctrl+hover/Ctrl+click)
+    |   |       +-- mixin.py         _CompletionMixin -- completion + parameter hint triggers + Ctrl+hover/click symbol-link handling
     |   |       +-- parameter_hint.py  ParameterHintPopup -- call signature tooltip
     |   |       +-- popup.py         CompletionPopup -- floating autocomplete widget
+    |   |       +-- symbol_doc_popup.py  SymbolDocPopup -- Ctrl+hover/Ctrl+Q quick-doc tooltip
     |   +-- info_popup.py            InfoPopup (QFrame) base + ClickableLabel
     |   +-- key_value_table.py       Reusable key-value editor widget
     |   +-- search_replace_bar.py    SearchReplaceBar -- find/replace + go-to-line for CodeEditorWidget

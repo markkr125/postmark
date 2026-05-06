@@ -48,6 +48,6 @@ Defined in `services/scripting/__init__.py`:
 ```python
 class ScriptEntry(TypedDict):
     code: str         # Script source code
-    language: str     # "javascript" or "python"
+    language: str     # "javascript", "typescript", or "python"
     source_name: str  # Display name of the source (collection/folder/request)
 ```

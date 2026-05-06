@@ -203,6 +203,7 @@ standard object names:
 | `variablePopupNoEnv` | `QLabel` | "No environment selected" warning |
 | `variablePopup` | `QFrame` | Variable popup container |
 | `saveButton` | `QPushButton` | Save action button |
+| `scriptHistoryLinkButton` | `QToolButton` | Script editor status strip: version history (accent underlined link) |
 | `scriptLanguageLinkButton` | `QToolButton` | Script editor status strip: language picker (accent underlined link) |
 | `sidebarSearch` | `QLineEdit` | Collection sidebar search input |
 | `sidebarSectionLabel` | `QLabel` | Sidebar section heading |

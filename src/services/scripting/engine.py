@@ -146,7 +146,7 @@ def _dispatch(script: str, language: str, context: ScriptInput) -> ScriptOutput:
     """Route a script to the correct runtime."""
     if language == "python":
         return PyRuntime.execute(script, context)
-    return DenoRuntime.execute(script, context)
+    return DenoRuntime.execute(script, context, language=language)
 
 
 def _debug_dispatch(
@@ -175,6 +175,7 @@ def _debug_dispatch(
         protocol,
         script_type=script_type,
         source_name=source_name,
+        language=language,
     )
 
 
@@ -270,6 +271,10 @@ class ScriptLinter:
             return []
         if language == "python":
             return cls._check_python(script)
+        if language == "typescript":
+            # TODO: replace with a TS-aware parser. Esprima rejects type
+            # annotations, so for now we accept anything syntactically.
+            return []
         return cls._check_javascript(script)
 
     # ---- Python ------------------------------------------------------
@@ -485,7 +490,7 @@ def find_pm_tests(source: str, language: str) -> list[dict[str, Any]]:
             ):
                 out.append({"name": node.args[0].value, "line": node.lineno})
         return out
-    if language == "javascript":
+    if language in ("javascript", "typescript"):
         result = ScriptLinter._esprima_parse_result(source)
         if result and result.get("ok") and result.get("tree") is not None:
             tree = result["tree"]
@@ -546,7 +551,7 @@ def find_top_level_statement_lines(source: str, language: str) -> set[int]:
         except SyntaxError:
             return set()
         return {n.lineno - 1 for n in tree.body if getattr(n, "lineno", 0) > 0}
-    if lang == "javascript":
+    if lang in ("javascript", "typescript"):
         result = ScriptLinter._esprima_parse_result(source)
         if not result or not result.get("ok") or result.get("tree") is None:
             return set()

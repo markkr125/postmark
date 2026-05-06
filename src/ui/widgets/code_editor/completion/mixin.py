@@ -145,9 +145,7 @@ class _CompletionMixin(_CompletionBase):
                 path, _start, _end = hit
                 if self._completion_engine.is_linkable_symbol(path, self.toPlainText()):
                     head = path.split(".", 1)[0]
-                    target = self._completion_engine.find_definition_pos(
-                        head, self.toPlainText()
-                    )
+                    target = self._completion_engine.find_definition_pos(head, self.toPlainText())
                     self.set_symbol_link_range(None, None)  # type: ignore[attr-defined]
                     if target is not None:
                         cur = self.textCursor()

@@ -1,6 +1,6 @@
 # ScriptEngine
 
-Script execution engine — orchestrates JS and Python runtimes.
+Script execution engine — orchestrates JavaScript and TypeScript (Deno), plus Python runtimes.
 
 **Module:** `services/scripting/engine.py`
 **Re-exported from:** `services/scripting/__init__.py`

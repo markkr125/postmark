@@ -90,19 +90,20 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
 - `ScriptService` and `ScriptEngine` also follow the `@staticmethod`
   pattern.  `ScriptService.build_script_chain(request_id)` walks the
   ancestor chain to collect inherited scripts.  `ScriptEngine` dispatches
-  to `DenoRuntime` (default JavaScript: ``deno run`` + `data/scripts/deno_drain.mjs`
-  for ``pm.sendRequest`` IPC) or `PyRuntime` (Pyodide under Deno when
+  to `DenoRuntime` for **JavaScript** and **TypeScript** (``deno run`` +
+  `data/scripts/deno_drain.mjs` for ``pm.sendRequest`` IPC; TypeScript uses a
+  ``bundle.ts`` temp file so Deno strips types) or `PyRuntime` (Pyodide under Deno when
   :file:`data/scripts/vendor_pyodide/` is present, otherwise RestrictedPython
   subprocess via :file:`_py_sandbox.py`).
   :class:`JSRuntime` delegates execution to :class:`DenoRuntime` and provides
   bootstrap and vendor file loaders.  JavaScript parse for the linter and
   gutter uses Esprima via :mod:`esprima_deno` (Deno subprocess;
-  :file:`data/scripts/esprima_parse.mjs`).
+  :file:`data/scripts/esprima_parse.mjs`); **TypeScript** skips Esprima lint until a TS parser exists.
   `RuntimeSettings` (``scripting/deno_path``, ``scripting/python_path`` in
   QSettings) resolves/validates executables.  TypedDicts (`ScriptInput`, `ScriptOutput`, `TestResult`,
   `ConsoleLog`, `ScriptEntry`) live in `services/scripting/__init__.py`.
   `find_pm_tests(source, language)` in `engine.py` locates `pm.test("name", …)`
-  call sites (Python AST or JavaScript esprima, with regex fallback) for the
+  call sites (Python AST or JavaScript/TypeScript esprima when parseable, with regex fallback) for the
   per-test script gutter.  `find_top_level_statement_lines(source, language)`
   returns 0-based top-level statement lines (where the step-debugger can pause);
   the post-response editor uses it to render unreachable breakpoints with a

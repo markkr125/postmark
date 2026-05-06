@@ -1068,22 +1068,55 @@ class CodeEditorWidget(_CompletionMixin, _PaintingMixin, _FoldingMixin, QPlainTe
         token = block_text[start:end]
         if not token or token[0].isdigit():
             return None
-        # Reject when inside a string literal: count unescaped quotes
-        # in the prefix; odd count means we are inside a string.
+        # Reject when inside a string literal. Track template-literal
+        # interpolation (`${ ... }`) so identifiers inside `${expr}` are
+        # treated as code, not string content.
         prefix = block_text[:start]
-        for quote in ("'", '"', "`"):
-            count = 0
-            i = 0
-            while i < len(prefix):
-                ch = prefix[i]
-                if ch == "\\":
+        state = "code"  # code | sq | dq | tpl | tpl_expr
+        expr_depth = 0
+        i = 0
+        while i < len(prefix):
+            ch = prefix[i]
+            if state in ("sq", "dq", "tpl") and ch == "\\":
+                i += 2
+                continue
+            if state == "code":
+                if ch == "'":
+                    state = "sq"
+                elif ch == '"':
+                    state = "dq"
+                elif ch == "`":
+                    state = "tpl"
+            elif state == "sq":
+                if ch == "'":
+                    state = "code"
+            elif state == "dq":
+                if ch == '"':
+                    state = "code"
+            elif state == "tpl":
+                if ch == "`":
+                    state = "code"
+                elif ch == "$" and i + 1 < len(prefix) and prefix[i + 1] == "{":
+                    state = "tpl_expr"
+                    expr_depth = 1
                     i += 2
                     continue
-                if ch == quote:
-                    count += 1
-                i += 1
-            if count % 2 == 1:
-                return None
+            else:  # tpl_expr — JS code inside `${...}`
+                if ch == "{":
+                    expr_depth += 1
+                elif ch == "}":
+                    expr_depth -= 1
+                    if expr_depth == 0:
+                        state = "tpl"
+                elif ch in ("'", '"'):
+                    end_q = prefix.find(ch, i + 1)
+                    if end_q == -1:
+                        return None
+                    i = end_q + 1
+                    continue
+            i += 1
+        if state in ("sq", "dq", "tpl"):
+            return None
         if not re.match(r"[A-Za-z_$][\w$.]*", token):
             return None
         # Segment range = only the identifier segment directly under the cursor,

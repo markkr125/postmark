@@ -23,16 +23,13 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
-from services.scripting.js_runtime import (
-    _build_js_context,
-    _detect_pm_require_specs,
-    _detect_required_modules,
-    _get_bootstrap,
-    _get_polyfills,
-    _get_vendor_file,
-    _pm_require_imports_block,
-    _resolve_vendor_files,
-)
+from services.scripting.js_runtime import (_build_js_context,
+                                           _detect_pm_require_specs,
+                                           _detect_required_modules,
+                                           _get_bootstrap, _get_polyfills,
+                                           _get_vendor_file,
+                                           _pm_require_imports_block,
+                                           _resolve_vendor_files)
 from services.scripting.runtime_settings import RuntimeSettings
 
 # ESM: must be the first line of the bundle (before polyfills) so
@@ -129,7 +126,12 @@ class DenoRuntime:
     """Run JavaScript scripts in a ``deno run`` subprocess (no in-process V8)."""
 
     @staticmethod
-    def execute(script: str, context: ScriptInput) -> ScriptOutput:
+    def execute(
+        script: str,
+        context: ScriptInput,
+        *,
+        language: str = "javascript",
+    ) -> ScriptOutput:
         """Build a bundle, run *script* in Deno, return :class:`ScriptOutput`."""
         start = time.monotonic()
         deno = RuntimeSettings.deno_path()
@@ -142,7 +144,7 @@ class DenoRuntime:
             )
 
         try:
-            return _run_bundle(Path(st["path"]), script, context, start)
+            return _run_bundle(Path(st["path"]), script, context, start, language=language)
         except RuntimeError as exc:
             return _error_output(str(exc), (time.monotonic() - start) * 1000)
         except (OSError, FileNotFoundError) as exc:
@@ -295,7 +297,8 @@ def _ipc_subprocess(
     total = 0
 
     try:
-        from services.scripting.js_runtime import _MAX_TOTAL_SUBREQUESTS as _tmax
+        from services.scripting.js_runtime import \
+            _MAX_TOTAL_SUBREQUESTS as _tmax
 
         while True:
             line = proc.stdout.readline()
@@ -335,12 +338,20 @@ def _kill_if_running(p: subprocess.Popen[bytes]) -> None:
         p.kill()
 
 
-def _run_bundle(deno: Path, script: str, context: ScriptInput, start: float) -> ScriptOutput:
+def _run_bundle(
+    deno: Path,
+    script: str,
+    context: ScriptInput,
+    start: float,
+    *,
+    language: str = "javascript",
+) -> ScriptOutput:
     out = _empty_output()
     text = _build_bundle_text(script, context)
+    ext = "ts" if language == "typescript" else "mjs"
     with tempfile.TemporaryDirectory(prefix="postmark-deno-") as tdir:
         tpath = Path(tdir)
-        bundle = tpath / "bundle.mjs"
+        bundle = tpath / f"bundle.{ext}"
         bundle.write_text(text, encoding="utf-8")
         dline, err_tail = _ipc_subprocess(deno, bundle, context, script)
         if dline is not None:

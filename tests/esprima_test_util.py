@@ -3,6 +3,13 @@
 from __future__ import annotations
 
 
+def deno_available() -> bool:
+    """True when ``RuntimeSettings`` reports a runnable Deno binary."""
+    from services.scripting.runtime_settings import RuntimeSettings
+
+    return bool(RuntimeSettings.validate_deno(RuntimeSettings.deno_path()).get("available"))
+
+
 def deno_and_esprima_available() -> bool:
     """True when ``deno`` runs and :func:`esprima_parse_to_dict` returns data.
 

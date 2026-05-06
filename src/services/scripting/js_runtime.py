@@ -195,7 +195,7 @@ class JSRuntime:
         """Run *script* with *context*; delegates to :class:`DenoRuntime`."""
         from services.scripting.deno_runtime import DenoRuntime
 
-        return DenoRuntime.execute(script, context)
+        return DenoRuntime.execute(script, context, language="javascript")
 
 
 def _build_js_context(context: ScriptInput) -> dict[str, Any]:

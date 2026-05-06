@@ -34,7 +34,19 @@ _STATE_IN_BLOCK_COMMENT = 1
 
 # Languages that use /* */ block comments.
 _BLOCK_COMMENT_LANGS = frozenset(
-    {"javascript", "css", "json", "c", "cpp", "java", "go", "rust", "swift", "kotlin"}
+    {
+        "javascript",
+        "typescript",
+        "css",
+        "json",
+        "c",
+        "cpp",
+        "java",
+        "go",
+        "rust",
+        "swift",
+        "kotlin",
+    }
 )
 
 # Module-level lexer cache — avoids creating a new Pygments lexer (and
@@ -46,7 +58,8 @@ def _get_cached_lexer(language: str) -> Lexer:
     """Return a cached Pygments lexer for *language*.
 
     Creates the lexer on first access and reuses it thereafter.  Falls
-    back to ``TextLexer`` for unknown language names.
+    back to ``TextLexer`` for unknown language names.  ``typescript`` uses
+    the TypeScript lexer when available, otherwise the JavaScript lexer.
     """
     if language not in _lexer_cache:
         try:
@@ -56,7 +69,17 @@ def _get_cached_lexer(language: str) -> Lexer:
                 ensurenl=False,
             )
         except Exception:
-            _lexer_cache[language] = TextLexer(stripnl=False, ensurenl=False)
+            if language == "typescript":
+                try:
+                    _lexer_cache[language] = get_lexer_by_name(
+                        "javascript",
+                        stripnl=False,
+                        ensurenl=False,
+                    )
+                except Exception:
+                    _lexer_cache[language] = TextLexer(stripnl=False, ensurenl=False)
+            else:
+                _lexer_cache[language] = TextLexer(stripnl=False, ensurenl=False)
     return _lexer_cache[language]
 
 

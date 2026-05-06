@@ -140,13 +140,13 @@ class CompletionEngine:
     """Resolve text context to a list of completion items.
 
     Parameters:
-        language: The script language (``"javascript"`` or ``"python"``).
+        language: The script language (``"javascript"``, ``"typescript"``, or ``"python"``).
     """
 
     def __init__(self, language: str = "javascript") -> None:
         """Initialise the engine with a language schema."""
         self._language = language.lower()
-        self._schema = JS_SCHEMA if self._language == "javascript" else PY_SCHEMA
+        self._schema = PY_SCHEMA if self._language == "python" else JS_SCHEMA
         self._variable_map: dict[str, VariableDetail] = {}
         self._inferred_types: dict[str, str] = {}  # var_name → dot-path
 
@@ -161,7 +161,7 @@ class CompletionEngine:
         if lang == self._language:
             return
         self._language = lang
-        self._schema = JS_SCHEMA if lang == "javascript" else PY_SCHEMA
+        self._schema = PY_SCHEMA if lang == "python" else JS_SCHEMA
 
     def set_variable_map(self, variables: dict[str, VariableDetail]) -> None:
         """Update the variable map for ``{{`` completions."""
@@ -174,7 +174,7 @@ class CompletionEngine:
         maps the variable name to the dot-path of the right-hand side.
         This enables dot completions on user-defined variables.
         """
-        pattern = _JS_ASSIGN_RE if self._language == "javascript" else _PY_ASSIGN_RE
+        pattern = _PY_ASSIGN_RE if self._language == "python" else _JS_ASSIGN_RE
         self._inferred_types.clear()
         for m in pattern.finditer(full_text):
             var_name = m.group(1)
@@ -337,7 +337,7 @@ class CompletionEngine:
         JavaScript: ``let|const|var var_name = ...``.  Python: ``var_name = ...``
         at the beginning of a line.  Returns ``None`` when not found.
         """
-        if self._language == "javascript":
+        if self._language != "python":
             pattern = re.compile(r"(?:let|const|var)\s+" + re.escape(var_name) + r"\b")
         else:
             pattern = re.compile(r"^" + re.escape(var_name) + r"\s*=", re.MULTILINE)
@@ -354,7 +354,7 @@ class CompletionEngine:
         if not dot_path:
             return False
         head = dot_path.split(".", 1)[0]
-        keywords = JS_KEYWORDS if self._language == "javascript" else PY_KEYWORDS
+        keywords = JS_KEYWORDS if self._language != "python" else PY_KEYWORDS
         if head in keywords:
             return False
         if self.find_definition_pos(head, full_source) is not None:
@@ -367,7 +367,7 @@ class CompletionEngine:
     def top_level_completions(self) -> list[CompletionItem]:
         """Return top-level completions (pm, console, language globals, keywords)."""
         items = self._schema_to_items(self._schema)
-        if self._language == "javascript":
+        if self._language != "python":
             items.extend(self._schema_to_items(JS_GLOBALS))
             items.extend(self._schema_to_items(JS_KEYWORDS))
         else:

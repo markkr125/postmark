@@ -474,7 +474,7 @@ class ScriptOutput(TypedDict):
 
 class ScriptEntry(TypedDict):
     code: str                     # script source code
-    language: str                 # "javascript" or "python"
+    language: str                 # "javascript", "typescript", or "python"
     source_name: str              # display label (e.g. "Collection > Test")
 
 class TestResult(TypedDict):

@@ -24,7 +24,7 @@ Inherits `_PaintingMixin`, `_FoldingMixin`, `QPlainTextEdit`.
 | Inline validation | JSON/XML/GraphQL error markers |
 | Variable highlighting | `{{variable}}` patterns with coloured background |
 | Autocomplete | Dot-path + variable completions (Ctrl+Space, `.`, `{{`); parameter info after `(` or **Ctrl+P** (works from the script find field too; cursor must be in or just after a known call on that line) |
-| Symbol navigation | **Ctrl+hover** (~400 ms) shows a quick-doc popup; **Ctrl+click** jumps to the user-defined definition (or shows the popup for `pm.*` schema entries); **Ctrl+Q** opens the same popup at the text cursor |
+| Symbol navigation | **Ctrl+hover** underlines the segment under the cursor and (after ~400 ms) shows a quick-doc popup; **Ctrl+click** jumps to the user-defined definition (or shows the popup for `pm.*` schema entries); **Ctrl+Q** opens the same popup at the text cursor. Keywords (`const`, `let`, `import`, ...) and unresolved locals are skipped — no underline, no popup |
 | Minimap | Optional bird's-eye view of the document (`set_minimap_visible()`) |
 | Word wrap | Togglable |
 | Prettify | Auto-format JSON/XML |
@@ -42,6 +42,7 @@ Inherits `_PaintingMixin`, `_FoldingMixin`, `QPlainTextEdit`.
 | `_symbol_doc_popup` | `SymbolDocPopup` | Quick-doc popup for Ctrl+hover and Ctrl+Q |
 | `_symbol_hover_path` | `str \| None` | Active hovered identifier dot-path |
 | `_symbol_hover_timer` | `QTimer` | 400 ms hover delay before showing the popup |
+| `_symbol_link_selections` | `list[QTextEdit.ExtraSelection]` | Underline drawn under the hovered identifier segment while Ctrl is held |
 | `_parameter_hint_popup` | `ParameterHintPopup` | Active call signature (JetBrains-style) |
 | `_read_only` | `bool` | Immutable mode (for responses) |
 
@@ -54,6 +55,7 @@ Inherits `_PaintingMixin`, `_FoldingMixin`, `QPlainTextEdit`.
 | `prettify()` | Auto-format (JSON/XML) |
 | `set_text(text)` | Populate (and cache if read-only) |
 | `set_minimap_visible(visible)` | Show/hide the right-side minimap |
+| `set_symbol_link_range(start, end)` | Underline the document range as a Ctrl+hover link; pass `None`/`None` to clear |
 
 ### Signal
 

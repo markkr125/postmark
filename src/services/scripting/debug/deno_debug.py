@@ -222,6 +222,7 @@ def debug_execute(
     *,
     script_type: str = "pre_request",
     source_name: str = "",
+    language: str = "javascript",
 ) -> ScriptOutput:
     """Run *script* under the Deno inspector with CDP breakpoints and pauses."""
     t0 = time.monotonic()
@@ -247,7 +248,8 @@ def debug_execute(
     deno = Path(st["path"])
     pport = _port()
     tdir = Path(tempfile.mkdtemp(prefix="postmark-dbg-"))
-    bundle = tdir / "bundle.mjs"
+    ext = "ts" if language == "typescript" else "mjs"
+    bundle = tdir / f"bundle.{ext}"
     wdir = bundle.parent
     with contextlib.suppress(OSError):
         (wdir / ".deno_dir").mkdir(exist_ok=True)

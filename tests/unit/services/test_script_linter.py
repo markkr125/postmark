@@ -152,3 +152,8 @@ def test_py_namespace_called() -> None:
 def test_py_valid_usage_no_diags() -> None:
     """Valid ``pm`` usage in Python produces no diagnostics."""
     assert ScriptLinter.check('pm.environment.set("k","v")', "python") == []
+
+
+def test_typescript_skips_esprima_until_ts_parser() -> None:
+    """Type annotations are accepted (no false Esprima syntax errors)."""
+    assert ScriptLinter.check("const x: number = 1;", "typescript") == []

@@ -11,7 +11,7 @@ requests and collections.
 2. Click the **Scripts** tab (next to Auth, Headers, Body).
 3. Two editors appear: **Pre-request** and **Test**.
 4. Set the script language from the **status bar** under each editor: click the
-   language name (e.g. **JavaScript**) to open JavaScript, Python, or **Auto**
+   language name (e.g. **JavaScript**) to open JavaScript, TypeScript, Python, or **Auto**
    (content-based detection). The top toolbar no longer has a separate language
    dropdown.
 
@@ -24,15 +24,27 @@ requests and collections.
 
 ## Choosing a Language
 
-| Factor | JavaScript | Python |
-|--------|-----------|--------|
-| Postman compatibility | Full | Partial (different naming) |
-| Sandbox | Deno subprocess | Pyodide (Deno + WASM) when the vendored runtime is installed; otherwise RestrictedPython subprocess |
-| Timeout | 5 seconds | 5 seconds CPU |
-| Default | Yes | No (opt-in) |
+| Factor | JavaScript | TypeScript | Python |
+|--------|-----------|------------|--------|
+| Postman compatibility | Full | Full (same `pm.*` as JS) | Partial (different naming) |
+| Sandbox | Deno subprocess | Deno subprocess (type-stripped) | Pyodide (Deno + WASM) when the vendored runtime is installed; otherwise RestrictedPython subprocess |
+| Timeout | 5 seconds | 5 seconds | 5 seconds CPU |
+| Default | Yes | No (opt-in) | No (opt-in) |
 
-Use JavaScript for Postman-imported collections.  Use Python if you
-prefer Python syntax.  Both languages provide the same `pm.*` API.
+Use JavaScript for Postman-imported collections.  **TypeScript** uses the same
+Deno run as JavaScript; the editor writes a `.ts` temp bundle so you can add
+types for readability.  Use Python if you prefer Python syntax.  All three
+provide the same `pm.*` API.
+
+### TypeScript
+
+You can write test scripts with optional type annotations; Deno strips types at
+run time (no separate transpiler). Example:
+
+```ts
+const data: { id: number } = pm.response.json();
+pm.test("has id", () => pm.expect(data.id).to.be.a("number"));
+```
 
 ## npm and JSR packages (JavaScript)
 
@@ -148,8 +160,9 @@ Python scripts that use `getattr()` on private attributes, `exec()`,
 - **Ctrl+Q** — show a quick-doc popup for the symbol at the text cursor.
 - **Ctrl+click** — jump to the definition of a user-declared variable;
   for `pm.*` API entries the quick-doc popup opens instead.
-- **Ctrl+hover** — same quick-doc popup, triggered by hovering an
-  identifier with Ctrl held for ~400 ms.
+- **Ctrl+hover** — underlines the identifier segment under the cursor and,
+  after ~400 ms, shows the same quick-doc popup. Language keywords
+  (`const`, `let`, `import`, ...) and unresolved local names are skipped.
 
 ## Related Pages
 

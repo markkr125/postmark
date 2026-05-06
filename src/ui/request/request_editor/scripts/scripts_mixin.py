@@ -102,7 +102,7 @@ class _ScriptsMixin:
         editor_layout.addWidget(self._pre_search_bar)
         editor_layout.addWidget(self._pre_request_edit, 1)
 
-        self._pre_history_btn = self._build_script_header(
+        self._build_script_header(
             parent_layout,
             history_type="pre_request",
             search_bar=self._pre_search_bar,
@@ -182,7 +182,7 @@ class _ScriptsMixin:
         editor_layout.addWidget(self._test_search_bar)
         editor_layout.addWidget(self._test_script_edit, 1)
 
-        self._test_history_btn = self._build_script_header(
+        self._build_script_header(
             parent_layout,
             history_type="test",
             search_bar=self._test_search_bar,
@@ -335,13 +335,17 @@ class _ScriptsMixin:
         menu = QMenu(btn)
         act_js = QAction("JavaScript", menu)
         act_js.setCheckable(True)
+        act_ts = QAction("TypeScript", menu)
+        act_ts.setCheckable(True)
         act_py = QAction("Python", menu)
         act_py.setCheckable(True)
         group = QActionGroup(menu)
         group.setExclusive(True)
         group.addAction(act_js)
+        group.addAction(act_ts)
         group.addAction(act_py)
         menu.addAction(act_js)
+        menu.addAction(act_ts)
         menu.addAction(act_py)
         menu.addSeparator()
         act_auto = QAction("Auto", menu)
@@ -350,6 +354,7 @@ class _ScriptsMixin:
         def sync_checks() -> None:
             lang = editor.language
             act_js.setChecked(lang == "javascript")
+            act_ts.setChecked(lang == "typescript")
             act_py.setChecked(lang == "python")
 
         menu.aboutToShow.connect(sync_checks)
@@ -357,6 +362,16 @@ class _ScriptsMixin:
         def pick_js() -> None:
             self._set_script_lang_auto(script_type, False)
             editor.set_language("javascript")
+            self._sync_lang_menu_button_text(editor, btn)
+            if script_type == "test":
+                self._refresh_pm_test_gutter_markers()
+            self._schedule_banner_check()
+            if not getattr(self, "_loading", False):
+                self._on_field_changed()  # type: ignore[attr-defined]
+
+        def pick_ts() -> None:
+            self._set_script_lang_auto(script_type, False)
+            editor.set_language("typescript")
             self._sync_lang_menu_button_text(editor, btn)
             if script_type == "test":
                 self._refresh_pm_test_gutter_markers()
@@ -379,6 +394,7 @@ class _ScriptsMixin:
             self._apply_auto_script_language(script_type)
 
         act_js.triggered.connect(pick_js)
+        act_ts.triggered.connect(pick_ts)
         act_py.triggered.connect(pick_py)
         act_auto.triggered.connect(pick_auto)
         btn.setMenu(menu)
@@ -420,23 +436,12 @@ class _ScriptsMixin:
         *,
         history_type: str,
         search_bar: SearchReplaceBar,
-    ) -> QPushButton:
-        """Build history row, editor toolbar, and auto-save toggle."""
+    ) -> None:
+        """Build editor toolbar (find/replace, run, debug) and auto-save toggle."""
         lang_row = QHBoxLayout()
         lang_row.setContentsMargins(0, 0, 0, 0)
 
-        history_btn = QPushButton("History")
-        history_btn.setIcon(phi("clock-counter-clockwise", size=14))
-        history_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        history_btn.setToolTip("View script version history")
-        history_btn.clicked.connect(
-            lambda _checked=False, ht=history_type: self._open_version_history(ht),
-        )
-        lang_row.addWidget(history_btn)
-
-        lang_row.addSpacing(8)
-
-        # -- Toolbar buttons (left of stretch so they stay near History) --
+        # -- Toolbar buttons (left; stretch keeps auto-save right-aligned) --
         find_hint = QKeySequence(QKeySequence.StandardKey.Find).toString(
             QKeySequence.SequenceFormat.NativeText,
         )
@@ -533,8 +538,6 @@ class _ScriptsMixin:
             self._version_capture_timer.setInterval(initial_ms)
             self._version_capture_timer.timeout.connect(self._capture_script_versions)
 
-        return history_btn
-
     def _build_script_status_bar(
         self,
         parent_layout: QVBoxLayout,
@@ -553,6 +556,17 @@ class _ScriptsMixin:
         sep1 = QLabel("\u2502")
         sep1.setObjectName("mutedLabel")
         lang_btn = self._create_script_lang_toolbutton(editor, script_type)
+        sep_hist = QLabel("\u2502")
+        sep_hist.setObjectName("mutedLabel")
+        hist_btn = QToolButton()
+        hist_btn.setObjectName("scriptHistoryLinkButton")
+        hist_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        hist_btn.setText("History")
+        hist_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        hist_btn.setToolTip("View script version history")
+        hist_btn.clicked.connect(
+            lambda _checked=False, ht=script_type: self._open_version_history(ht),
+        )
         sep2 = QLabel("\u2502")
         sep2.setObjectName("mutedLabel")
         chars_lbl = QLabel()
@@ -561,6 +575,8 @@ class _ScriptsMixin:
         h.addWidget(ln_lbl)
         h.addWidget(sep1)
         h.addWidget(lang_btn)
+        h.addWidget(sep_hist)
+        h.addWidget(hist_btn)
         h.addWidget(sep2)
         h.addWidget(chars_lbl)
         h.addStretch()
@@ -570,10 +586,12 @@ class _ScriptsMixin:
             self._pre_status_ln_lbl = ln_lbl
             self._pre_status_chars_lbl = chars_lbl
             self._pre_lang_menu_btn = lang_btn
+            self._pre_history_btn = hist_btn
         else:
             self._test_status_ln_lbl = ln_lbl
             self._test_status_chars_lbl = chars_lbl
             self._test_lang_menu_btn = lang_btn
+            self._test_history_btn = hist_btn
 
         def _update(_line: int = 0, _col: int = 0) -> None:
             cur = editor.textCursor()
@@ -588,8 +606,8 @@ class _ScriptsMixin:
         _update()
 
     @property
-    def _history_btn(self) -> QPushButton:
-        """Return the pre-request history button for legacy callers."""
+    def _history_btn(self) -> QToolButton:
+        """Return the pre-request history control for legacy callers."""
         return self._pre_history_btn
 
     def _load_scripts(self, scripts: Any) -> None:
@@ -1012,7 +1030,7 @@ class _ScriptsMixin:
         """Run or debug only the named ``pm.test(…)`` block."""
         user_src = self._test_script_edit.toPlainText()
         language = self._test_script_edit.language
-        if language == "javascript":
+        if language in ("javascript", "typescript"):
             wrapper = (
                 "(function(){\n"
                 f"  var __target={json.dumps(name)};\n"

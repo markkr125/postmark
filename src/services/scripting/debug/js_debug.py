@@ -189,6 +189,7 @@ def debug_execute(
     *,
     script_type: str = "pre_request",
     source_name: str = "",
+    language: str = "javascript",
 ) -> ScriptOutput:
     """Delegate to :func:`deno_debug.debug_execute` (Deno + V8 inspector)."""
     from .deno_debug import debug_execute as d
@@ -199,6 +200,7 @@ def debug_execute(
         protocol,
         script_type=script_type,
         source_name=source_name,
+        language=language,
     )
 
 

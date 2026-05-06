@@ -71,4 +71,3 @@ class _VersionItemDelegate(QStyledItemDelegate):
             painter.drawText(left, date_y, date)
 
         painter.restore()
-        painter.restore()

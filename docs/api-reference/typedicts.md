@@ -379,7 +379,7 @@ Defined in `services/scripting/__init__.py`.  See
 | Field | Type | Description |
 |-------|------|-------------|
 | `code` | `str` | Script source code |
-| `language` | `str` | `"javascript"` or `"python"` |
+| `language` | `str` | `"javascript"`, `"typescript"`, or `"python"` |
 | `source_name` | `str` | Display label (e.g. collection/folder name) |
 
 ### `TestResult`

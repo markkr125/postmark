@@ -13,7 +13,7 @@ the subprocess, the subprocess streams `console.log` and `pm.sendRequest`
 events as JSON lines, and emits a single `__done__` JSON envelope on
 completion. The host parses that envelope and returns a `ScriptOutput`.
 
-Three runtimes exist today:
+Three execution modes exist today (TypeScript shares the Deno JavaScript path; the temp bundle uses a `.ts` extension so Deno strips types):
 
 - **JavaScript via Deno** — [src/services/scripting/deno_runtime.py](../../src/services/scripting/deno_runtime.py).
 - **Python via Pyodide (CPython on WebAssembly)** — [src/services/scripting/pyodide_runtime.py](../../src/services/scripting/pyodide_runtime.py).
@@ -122,6 +122,12 @@ concatenates parts in this order:
 6. [data/scripts/pm_bootstrap.js](../../data/scripts/pm_bootstrap.js).
 7. The user script.
 8. [data/scripts/deno_drain.mjs](../../data/scripts/deno_drain.mjs).
+
+The host writes that concatenated text to a temp file under a unique directory:
+`bundle.mjs` when the script language is `javascript`, or `bundle.ts` when it
+is `typescript`, so Deno parses and type-strips the latter. The inline Esprima
+linter does not run on TypeScript (annotations would produce false positives)
+until a TS-aware parser is wired in; debug bundles follow the same filename rule.
 
 ## Pyodide entry script (Python path)
 

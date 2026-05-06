@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from esprima_test_util import deno_and_esprima_available  # type: ignore[import-not-found]
+from esprima_test_util import deno_available, deno_and_esprima_available  # type: ignore[import-not-found]
 
 from services.scripting import ScriptEngine, ScriptEntry, ScriptInput
 from services.scripting.context import (
@@ -459,6 +459,26 @@ class TestScriptEngine:
             'pm.test("ok", lambda: pm.expect(1).to.equal(1))',
             "python",
             _make_context(),
+        )
+        assert len(result["test_results"]) == 1
+        assert result["test_results"][0]["passed"] is True
+
+    @pytest.mark.skipif(
+        not deno_available(),
+        reason="Deno required for TypeScript execution",
+    )
+    def test_run_single_typescript(self):
+        """TypeScript runs on the Deno path with type stripping."""
+        result = ScriptEngine.run_single(
+            "const x: number = 1; pm.test('ok', () => pm.expect(x).to.equal(1));",
+            "typescript",
+            _make_context(
+                response={
+                    "status_code": 200,
+                    "body": "",
+                    "headers": {},
+                },
+            ),
         )
         assert len(result["test_results"]) == 1
         assert result["test_results"][0]["passed"] is True
