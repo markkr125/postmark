@@ -1,43 +1,25 @@
-"""Runtime download banner — prompts the user to install Deno.
+"""Runtime download banner — prompts the user to install or configure Deno.
 
-Shown above the script editor when a script uses features that require
-the Deno runtime (``async``/``await``, ``require("npm:...")``).
-The banner includes a download button, progress bar, and dismiss button.
+Shown above a JavaScript script editor when :class:`RuntimeSettings` reports
+no usable Deno executable (PATH, managed install, or Settings custom path).
+The banner includes a link to open Scripting settings, a download button, and
+a progress bar.  It stays visible until Deno becomes available (no dismiss
+control).
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import QObject, QThread, Qt, Signal
-from PySide6.QtWidgets import (
-    QFrame,
-    QHBoxLayout,
-    QLabel,
-    QProgressBar,
-    QPushButton,
-    QVBoxLayout,
-)
+from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QProgressBar, QPushButton, QVBoxLayout
 
 from ui.styling.icons import phi
+from ui.widgets.deno_download_worker import DenoDownloadWorker
 
-
-class _DownloadWorker(QObject):
-    """Background worker that downloads the Deno binary."""
-
-    progress = Signal(int, int)
-    finished = Signal(str)
-    error = Signal(str)
-
-    def run(self) -> None:
-        """Download Deno and emit progress updates."""
-        from services.scripting.deno_manager import DenoManager
-
-        try:
-            path = DenoManager.download(
-                progress_callback=lambda received, total: self.progress.emit(received, total),
-            )
-            self.finished.emit(str(path))
-        except Exception as exc:
-            self.error.emit(str(exc))
+# Rich text: link href is handled in :meth:`RuntimeBanner._on_message_link`.
+_BANNER_HTML = (
+    'JavaScript scripts run with Deno. <a href="action:scripting">Open Scripting settings</a> '
+    "to choose a path, or use <b>Download Deno</b> for the managed runtime."
+)
 
 
 class RuntimeBanner(QFrame):
@@ -45,26 +27,26 @@ class RuntimeBanner(QFrame):
 
     Signals:
         download_completed: Emitted when the Deno binary is installed.
-        dismissed: Emitted when the user clicks the dismiss button.
+        open_settings_clicked: Emitted when the user clicks the Scripting settings link.
     """
 
     download_completed = Signal()
-    dismissed = Signal()
+    open_settings_clicked = Signal()
 
     def __init__(self, parent: QFrame | None = None) -> None:
-        """Initialise the banner with download button and progress bar."""
+        """Initialise the banner with link, download button, and progress bar."""
         super().__init__(parent)
         self.setObjectName("RuntimeBanner")
 
         self._thread: QThread | None = None
-        self._worker: _DownloadWorker | None = None
+        self._worker: DenoDownloadWorker | None = None
 
         # -- Layout ----------------------------------------------------
         outer = QVBoxLayout(self)
         outer.setContentsMargins(8, 6, 8, 6)
         outer.setSpacing(4)
 
-        # Row 1: icon + message + buttons.
+        # Row 1: icon + message + download.
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(8)
@@ -73,8 +55,13 @@ class RuntimeBanner(QFrame):
         icon_label.setPixmap(phi("warning", size=16).pixmap(16, 16))
         row.addWidget(icon_label)
 
-        self._message = QLabel("This script uses features that require the Deno runtime.")
+        self._message = QLabel()
         self._message.setObjectName("bannerMessage")
+        self._message.setWordWrap(True)
+        self._set_message_rich_default()
+        self._message.setOpenExternalLinks(False)
+        self._message.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
+        self._message.linkActivated.connect(self._on_message_link)
         row.addWidget(self._message, 1)
 
         self._download_btn = QPushButton("Download Deno")
@@ -82,15 +69,6 @@ class RuntimeBanner(QFrame):
         self._download_btn.setObjectName("bannerDownloadBtn")
         self._download_btn.clicked.connect(self._start_download)
         row.addWidget(self._download_btn)
-
-        self._dismiss_btn = QPushButton()
-        self._dismiss_btn.setIcon(phi("x", size=14))
-        self._dismiss_btn.setFixedSize(24, 24)
-        self._dismiss_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._dismiss_btn.setObjectName("iconButton")
-        self._dismiss_btn.setToolTip("Dismiss")
-        self._dismiss_btn.clicked.connect(self._on_dismiss)
-        row.addWidget(self._dismiss_btn)
 
         outer.addLayout(row)
 
@@ -106,6 +84,21 @@ class RuntimeBanner(QFrame):
         self._status_label.setVisible(False)
         outer.addWidget(self._status_label)
 
+    def _set_message_rich_default(self) -> None:
+        """Set the default HTML message (link to Scripting settings)."""
+        self._message.setTextFormat(Qt.TextFormat.RichText)
+        self._message.setText(_BANNER_HTML)
+
+    def _set_message_plain(self, text: str) -> None:
+        """Set a plain-text status line (install result or error)."""
+        self._message.setTextFormat(Qt.TextFormat.PlainText)
+        self._message.setText(text)
+
+    def _on_message_link(self, url: str) -> None:
+        """Handle the in-message link to open Settings on the Scripting page."""
+        if url == "action:scripting":
+            self.open_settings_clicked.emit()
+
     # -- Download flow -------------------------------------------------
 
     def _start_download(self) -> None:
@@ -113,6 +106,7 @@ class RuntimeBanner(QFrame):
         if self._thread is not None:
             return
 
+        self._set_message_rich_default()
         self._download_btn.setEnabled(False)
         self._download_btn.setText("Downloading\u2026")
         self._progress_bar.setVisible(True)
@@ -121,7 +115,7 @@ class RuntimeBanner(QFrame):
         self._status_label.setText("Connecting\u2026")
 
         self._thread = QThread()
-        self._worker = _DownloadWorker()
+        self._worker = DenoDownloadWorker()
         self._worker.moveToThread(self._thread)
 
         self._thread.started.connect(self._worker.run)
@@ -153,7 +147,7 @@ class RuntimeBanner(QFrame):
 
     def _on_download_finished(self, path: str) -> None:
         """Handle successful download."""
-        self._message.setText("Deno runtime installed successfully.")
+        self._set_message_plain("Deno runtime installed successfully.")
         self._download_btn.setVisible(False)
         self._progress_bar.setVisible(False)
         self._status_label.setText(path)
@@ -161,7 +155,7 @@ class RuntimeBanner(QFrame):
 
     def _on_download_error(self, error: str) -> None:
         """Handle download failure — show error and retry button."""
-        self._message.setText(f"Download failed: {error}")
+        self._set_message_plain(f"Download failed: {error}")
         self._download_btn.setEnabled(True)
         self._download_btn.setText("Retry")
         self._progress_bar.setVisible(False)
@@ -171,8 +165,3 @@ class RuntimeBanner(QFrame):
         """Reset thread references after the worker thread finishes."""
         self._thread = None
         self._worker = None
-
-    def _on_dismiss(self) -> None:
-        """Hide the banner and emit the dismissed signal."""
-        self.setVisible(False)
-        self.dismissed.emit()

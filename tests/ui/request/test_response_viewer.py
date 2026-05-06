@@ -56,6 +56,9 @@ def _make_response(
         "request_body_size": 0,
         "response_headers_size": 0,
         "network": _SAMPLE_NETWORK,
+        "request_method": "GET",
+        "request_url": "https://example.com/x",
+        "request_headers": [{"key": "Accept", "value": "application/json"}],
     }
 
 
@@ -75,7 +78,6 @@ class TestResponseViewerWidget:
         assert not viewer._empty_label.isHidden()
         assert viewer._tabs.isHidden()
         assert viewer._status_bar_widget.isHidden()
-        assert viewer._error_label.isHidden()
 
     def test_show_loading(self, qapp: QApplication, qtbot) -> None:
         """Loading state shows progress bar and hides other elements."""
@@ -87,19 +89,18 @@ class TestResponseViewerWidget:
         assert not viewer._progress_bar.isHidden()
         assert viewer._tabs.isHidden()
         assert viewer._empty_label.isHidden()
-        assert viewer._error_label.isHidden()
 
     def test_show_error(self, qapp: QApplication, qtbot) -> None:
-        """Error state shows error label with message."""
+        """String error is shown in the tabbed view with an ERROR badge."""
         viewer = ResponseViewerWidget()
         qtbot.addWidget(viewer)
 
         viewer.show_error("Connection refused")
 
-        assert not viewer._error_label.isHidden()
-        assert "Connection refused" in viewer._error_label.text()
-        assert viewer._tabs.isHidden()
+        assert not viewer._tabs.isHidden()
         assert viewer._empty_label.isHidden()
+        assert "ERROR" in viewer._status_label.text()
+        assert "Connection refused" in viewer.visible_body_text()
 
     def test_load_response_success(self, qapp: QApplication, qtbot) -> None:
         """Loading a successful response shows status, body, and headers."""
@@ -120,25 +121,39 @@ class TestResponseViewerWidget:
         assert not viewer._tabs.isHidden()
         assert not viewer._status_bar_widget.isHidden()
         assert viewer._empty_label.isHidden()
-        assert viewer._error_label.isHidden()
         assert "200" in viewer._status_label.text()
         assert "OK" in viewer._status_label.text()
         assert "142" in viewer._time_label.text()
         # Body is pretty-printed by default
         assert '"result": "success"' in viewer._body_edit.toPlainText()
         assert "Content-Type: application/json" in viewer._headers_edit.toPlainText()
+        assert "GET https://example.com/x" in viewer._request_headers_edit.toPlainText()
+        assert "Accept: application/json" in viewer._request_headers_edit.toPlainText()
 
     def test_load_response_with_error_key(self, qapp: QApplication, qtbot) -> None:
-        """Response dict with error key shows error state."""
+        """Response dict with error key shows tabbed view, ERROR badge, and request data."""
         viewer = ResponseViewerWidget()
         qtbot.addWidget(viewer)
 
-        data = {"error": "Connection refused: localhost:9999", "elapsed_ms": 15.0}
+        data = {
+            "error": "Connection refused: localhost:9999",
+            "elapsed_ms": 15.0,
+            "request_method": "GET",
+            "request_url": "http://x/",
+            "request_headers": [{"key": "Authorization", "value": "Bearer abc"}],
+        }
         viewer.load_response(data)
 
-        assert not viewer._error_label.isHidden()
-        assert "Connection refused" in viewer._error_label.text()
-        assert viewer._tabs.isHidden()
+        assert not viewer._tabs.isHidden()
+        assert "ERROR" in viewer._status_label.text()
+        assert "15" in viewer._time_label.text()
+        assert "Connection refused" in viewer.visible_body_text()
+        assert not viewer._body_chrome.isVisible()
+        assert viewer._body_stack.currentIndex() == 1
+        assert "No response received." in viewer._headers_edit.toPlainText()
+        assert "GET http://x/" in viewer._request_headers_edit.toPlainText()
+        assert "Authorization: Bearer abc" in viewer._request_headers_edit.toPlainText()
+        assert not viewer.has_live_response()
 
     def test_load_response_404(self, qapp: QApplication, qtbot) -> None:
         """A 404 response is shown normally (not as an error)."""

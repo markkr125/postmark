@@ -27,6 +27,7 @@
 | [Directory Structure](architecture/directory-structure.md) | Full annotated `src/` and `tests/` tree |
 | [Data Flow](architecture/data-flow.md) | Sequence diagrams for key operations |
 | [Database Layer](architecture/database-layer.md) | SQLite engine, sessions, migration, model relationships |
+| [Script Runtime](architecture/script-runtime.md) | Subprocess lifecycle, IPC, Deno/Pyodide permissions |
 | [Service Layer](architecture/service-layer.md) | Static method pattern, TypedDict interchange |
 | [UI Layer](architecture/ui-layer.md) | MainWindow mixin stack, widget hierarchy, theming |
 
@@ -83,6 +84,7 @@
 | Page | Description |
 |------|-------------|
 | [Adding an Import Parser](guides/adding-import-parser.md) | Step-by-step guide for new format parsers |
+| [Adding a Script Language](guides/adding-script-language.md) | Recipe for a third scripting runtime and completion schema |
 | [Adding an Auth Type](guides/adding-auth-type.md) | New auth type: field specs, handler, UI page |
 | [Adding a Widget](guides/adding-widget.md) | New widget checklist and patterns |
 | [Writing Tests](guides/writing-tests.md) | Test patterns for each layer |
@@ -94,6 +96,7 @@
 | Page | Description |
 |------|-------------|
 | [Overview](scripting/overview.md) | Script types, execution order, language support, security summary |
+| [External Packages](scripting/external-packages.md) | `pm.require` (npm, jsr, PyPI) and vendored `require()` allowlist |
 | [JavaScript API](scripting/javascript-api.md) | Complete JS `pm` object reference |
 | [Python API](scripting/python-api.md) | Complete Python `pm` object reference |
 | [Examples](scripting/examples.md) | Side-by-side JS/Python real-world patterns |

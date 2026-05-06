@@ -53,7 +53,10 @@ class _CollectionFetcher(QObject):
 
     @Slot()
     def run(self) -> None:
-        """Fetch all collections in a blocking call and emit the result."""
+        """Initialise the DB (idempotent) then fetch all collections."""
+        from database.database import init_db
+
+        init_db()
         self.finished.emit(CollectionService.fetch_all())
 
 

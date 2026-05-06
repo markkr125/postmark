@@ -4,7 +4,7 @@ Provides:
 
 - :class:`DebugProtocol` — state machine and breakpoint management.
 - :func:`inject_checkpoints` — JS statement-boundary injection.
-- :func:`js_debug_execute` — JS debug execution with V8 callbacks.
+- :func:`js_debug_execute` — JS step-through via Deno inspector (CDP).
 - :func:`py_debug_execute` — Python debug execution with settrace IPC.
 
 Re-exports for convenience::

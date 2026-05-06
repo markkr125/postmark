@@ -141,7 +141,8 @@ docs/                              # Project documentation (see docs/README.md)
 ├── guides/                        # How-to guides (import parser, auth, widget, tests, signals)
 └── contributing/                  # Coding conventions, testing, updating docs
 src/
-├── main.py                        # Entry point — QApplication + init_db()
+├── main.py                        # Entry point — configure_before_qapplication + QApplication + init_db()
+├── qt_app_init.py                 # Hi-DPI bootstrap (before first QApplication; tests + app)
 ├── database/                      # Engine, models, repository
 │   ├── database.py                # init_db(), get_session(), migration
 │   └── models/
@@ -171,15 +172,20 @@ src/
 │   ├── script_service.py          # ScriptService (script chain resolution)
 │   ├── scripting/                 # Script execution sub-package
 │   │   ├── __init__.py            # TypedDicts (ScriptInput/Output, TestResult, etc.)
-│   │   ├── engine.py              # ScriptEngine (run chains, merge outputs) + run_debug_chain
+│   │   ├── engine.py              # ScriptEngine + run_debug_chain + find_pm_tests + find_top_level_statement_lines (gutter)
 │   │   ├── context.py             # Context builders + normalize_events() + execute_sub_request() + globals persistence
-│   │   ├── feature_detect.py      # detect_advanced_features() — async/npm pattern detection
-│   │   ├── deno_manager.py        # DenoManager — Deno binary download/cache/removal
-│   │   ├── js_runtime.py          # JSRuntime (V8 via PyMiniRacer) + vendor script loader
-│   │   ├── py_runtime.py          # PyRuntime (RestrictedPython subprocess)
+│   │   ├── deno_manager.py        # DenoManager — managed Deno download/cache; managed_deno_path() = cache only
+│   │   ├── runtime_settings.py   # RuntimeSettings + RuntimePathStatus — QSettings Deno/Python paths, validation
+│   │   ├── deno_runtime.py        # DenoRuntime — default JS run via deno run + data/scripts/deno_drain.mjs (sendRequest IPC)
+│   │   ├── esprima_deno.py        # Esprima parse via deno run data/scripts/esprima_parse.mjs (linter, gutter)
+│   │   ├── js_runtime.py          # JSRuntime (DenoRuntime) + bootstrap/vendor + pm.require literal detection / ESM import block for npm:/jsr:
+│   │   ├── py_runtime.py          # PyRuntime — Pyodide (Deno) when vendor present, else RestrictedPython subprocess
+│   │   ├── pyodide_runtime.py     # PyodideRuntime — data/scripts/pyodide_run.mjs + vendor_pyodide + micropip / pm.require
 │   │   └── debug/                 # Debug sub-package (step-through debugging)
 │   │       ├── protocol.py        # DebugProtocol state machine + DebugPauseInfo
-│   │       ├── js_debug.py        # JS statement-by-statement debug execution
+│   │       ├── js_debug.py        # JS: inject_checkpoints, locals readers; debug_execute → deno_debug
+│   │       ├── deno_scope.py      # CDP scope materialisation; deep expand pm/console; ``__pm_className__`` for CDP descriptions
+│   │       ├── deno_debug.py      # Deno --inspect-brk + CDP (Chrome DevTools Protocol) step-through
 │   │       └── py_debug.py        # Python settrace subprocess debug execution
 │   ├── http/                      # HTTP request/response handling
 │   │   ├── http_service.py        # HttpService (httpx) + response TypedDicts
@@ -209,7 +215,7 @@ src/
     │   ├── sidebar_widget.py      # RightSidebar (icon rail) + _FlyoutPanel
     │   ├── variables_panel.py     # VariablesPanel — read-only variable display
     │   ├── snippet_panel.py       # SnippetPanel — inline code snippet generator
-    │   ├── debug_panel.py         # DebugPanel — step controls + variable inspector
+    │   ├── debug_panel.py         # DebugPanel — step controls; DebugVariablesPanel — single QTreeWidget sections + stacked placeholder
     │   └── saved_responses/           # Saved responses sub-package
     │       ├── panel.py               # SavedResponsesPanel — saved example list/detail flyout
     │       ├── search_filter.py       # _PanelSearchFilterMixin — body search/filter
@@ -223,22 +229,28 @@ src/
     │   └── icons.py               # Phosphor font-glyph icon provider (phi())
     ├── widgets/                   # Reusable shared components
     │   ├── code_editor/           # CodeEditorWidget sub-package
-    │   │   ├── editor_widget.py   # CodeEditorWidget — main editor class
+    │   │   ├── editor_widget.py   # CodeEditorWidget (per-pm.test gutter, Shift+Enter)
+    │   │   ├── debug_hover_popup.py # DebugValuePopup — expandable hover for paused script locals
     │   │   ├── highlighter.py     # Syntax highlighting engine
     │   │   ├── folding.py         # Code folding logic
-    │   │   ├── gutter.py          # Line-number gutter + minimap (_MinimapArea)
+    │   │   ├── gutter.py          # Gutter QWidget delegates + minimap (_MinimapArea); column order in painting.resizeEvent
     │   │   ├── painting.py        # Custom painting helpers
     │   │   └── completion/        # Autocomplete sub-package
     │   │       ├── schema/        # Schema sub-package
     │   │       │   ├── core.py    # SchemaNode TypedDict, expectation chain, shared helpers
     │   │       │   ├── js.py      # JS_SCHEMA (pm, console, CryptoJS, postman) + JS_GLOBALS
     │   │       │   └── py.py      # PY_SCHEMA + PY_GLOBALS (Python variant)
-    │   │       ├── engine.py      # CompletionEngine — dot-path/variable resolver
-    │   │       └── popup.py       # CompletionPopup — floating autocomplete widget
+    │   │       ├── engine.py      # CompletionEngine — dot-path, variables, resolve_symbol(), find_definition_pos(), resolve_call_signature(), resolve_nearest_call_signature()
+    │   │       ├── mixin.py       # _CompletionMixin — triggers, filtering, parameter hint + Ctrl+hover symbol doc wiring
+    │   │       ├── parameter_hint.py # ParameterHintPopup — floating call-signature hint
+    │   │       ├── popup.py       # CompletionPopup — floating autocomplete widget
+    │   │       └── symbol_doc_popup.py # SymbolDocPopup — Ctrl+hover / Ctrl+Q quick-doc tooltip
     │   ├── info_popup.py          # InfoPopup (QFrame) base + ClickableLabel
     │   ├── key_value_table.py     # Reusable key-value editor widget
     │   ├── search_replace_bar.py  # SearchReplaceBar — find/replace + go-to-line for CodeEditorWidget
-    │   ├── runtime_banner.py      # RuntimeBanner — Deno download prompt banner
+    │   ├── deno_download_worker.py # DenoDownloadWorker — QThread background Deno download (banner + settings)
+    │   ├── debug_value_tree.py    # Debug tree helpers (CLASSNAME_KEY, attach_selectable_cell_widgets, debug_tree_cell_text, fill_tree_item, populate_debug_tree, source_dot_icon, make_debug_value_tree)
+    │   ├── runtime_banner.py      # RuntimeBanner — Deno install/configure prompt for JS editors
     │   ├── variable_line_edit.py  # VariableLineEdit — QLineEdit with {{var}} highlighting + hover popup
     │   └── variable_popup.py      # VariablePopup — singleton hover popup for variable details
     ├── collections/               # Collection sidebar
@@ -253,14 +265,13 @@ src/
     │       └── collection_tree_delegate.py  # Custom delegate for method badges
     ├── dialogs/                   # Modal dialogs
     │   ├── collection_runner/
-    │   │   ├── __init__.py        # Re-exports CollectionRunnerDialog
-    │   │   ├── dialog.py          # CollectionRunnerDialog + run history persistence
+    │   │   ├── __init__.py        # Re-exports RunnerConfigView, RunnerResultsView, RunnerWorker
     │   │   ├── config.py          # RunnerConfigView (env selector, request checklist, data file, iterations, delay)
     │   │   ├── results.py         # RunnerResultsView (summary + results table + detail panel + export)
     │   │   └── worker.py          # RunnerWorker (QThread), parse_data_file, env var substitution, scripts_enabled
     │   ├── import_dialog.py
     │   ├── save_request_dialog.py  # Save draft request to collection
-    │   └── settings_dialog.py     # Settings (theme + request-tab behaviour)
+    │   └── settings_dialog.py     # Settings (theme + request-tab + Scripting: Deno/Python paths)
     ├── environments/              # Environment management widgets
     │   ├── environment_editor.py
     │   └── environment_selector.py
@@ -270,7 +281,8 @@ src/
     └── request/                   # Request/response editing
         ├── folder_editor/           # Folder/collection detail editor sub-package
         │   ├── editor_widget.py     # FolderEditorWidget — main editor class
-        │   └── runs.py              # _RunsMixin + _build_runs_table (run history tab)
+        │   ├── runner_panel.py      # _RunnerPanel — inline collection runner (Runs -> New run)
+        │   └── runs.py              # _RunsMixin + _build_runs_table (run history table)
         ├── http_worker.py           # HttpSendWorker + SchemaFetchWorker (QThread)
         ├── auth/                    # Shared auth sub-package (14 auth types)
         │   ├── auth_field_specs.py  # Per-type FieldSpec definitions (AUTH_FIELD_SPECS)
@@ -284,6 +296,7 @@ src/
         │   ├── body_search.py       # _BodySearchMixin — search/replace in body
         │   ├── graphql.py           # _GraphQLMixin — GraphQL mode + schema
         │   └── scripts/             # Scripts sub-package
+        │       ├── script_language.py # detect_script_language, code_to_display, normalise_script_code
         │       ├── scripts_mixin.py # _ScriptsMixin — dual pre-request/test script editors
         │       ├── output_panel.py  # ScriptOutputPanel — inline script execution results
         │       ├── script_run_worker.py # ScriptRunWorker — background thread for inline runs
@@ -327,6 +340,7 @@ tests/
 │       ├── test_import_service.py
 │       ├── test_script_bridge_globals.py
 │       ├── test_script_debug.py
+│       ├── test_script_debug_cdp.py
 │       ├── test_script_engine.py
 │       ├── test_script_linter.py
 │       ├── test_script_sandbox.py
@@ -334,8 +348,8 @@ tests/
 │       ├── test_script_vendor.py
 │       ├── test_script_vendor_libs.py
 │       ├── test_script_version_service.py
-│       ├── test_feature_detect.py
 │       ├── test_deno_manager.py
+│       ├── test_runtime_settings.py
 │       └── http/                  # HTTP service tests
 │           ├── test_http_service.py
 │           ├── test_graphql_schema_service.py
@@ -399,6 +413,7 @@ tests/
         ├── conftest.py              # make_request_dict fixture factory
         ├── test_folder_editor.py
         ├── test_folder_editor_scripts.py
+        ├── test_runner_panel.py
         ├── test_http_worker.py
         ├── test_request_editor.py
         ├── test_request_editor_auth.py

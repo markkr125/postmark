@@ -1,4 +1,4 @@
-"""Tests for the CollectionRunnerDialog and runner helpers."""
+"""Tests for the inline folder runner panel and runner helpers."""
 
 from __future__ import annotations
 
@@ -10,8 +10,8 @@ import pytest
 from PySide6.QtCore import QSettings, Qt
 from PySide6.QtWidgets import QApplication
 
-from ui.dialogs.collection_runner import CollectionRunnerDialog
 from ui.dialogs.collection_runner.config import RunnerConfigView
+from ui.request.folder_editor.runner_panel import _RunnerPanel
 from ui.dialogs.collection_runner.results import RunnerResultsView
 from ui.dialogs.collection_runner.worker import (
     RunnerWorker,
@@ -418,83 +418,90 @@ class TestSentinel:
 
 
 # ===================================================================
-# CollectionRunnerDialog tests
+# _RunnerPanel (inline folder runner) tests
 # ===================================================================
-class TestCollectionRunnerDialog:
-    """Tests for dialog construction and UI layout."""
+class TestFolderRunnerPanel:
+    """Tests for inline runner panel construction and UI layout."""
 
     def test_construction(self, qapp: QApplication, qtbot, make_collection_with_request) -> None:
-        """Dialog can be instantiated for a collection."""
+        """Panel can be instantiated for a collection."""
         coll, _req = make_collection_with_request()
-        dialog = CollectionRunnerDialog(coll.id)
-        qtbot.addWidget(dialog)
-        assert dialog.windowTitle() == "Collection Runner"
-        assert dialog._config.iterations == 1
+        panel = _RunnerPanel()
+        qtbot.addWidget(panel)
+        panel.load_collection(coll.id)
+        assert panel._config.iterations == 1
 
     def test_shows_request_count(
         self, qapp: QApplication, qtbot, make_collection_with_request
     ) -> None:
         """Info label displays the number of requests."""
         coll, _req = make_collection_with_request()
-        dialog = CollectionRunnerDialog(coll.id)
-        qtbot.addWidget(dialog)
-        assert "request" in dialog._config.info_label.text().lower()
+        panel = _RunnerPanel()
+        qtbot.addWidget(panel)
+        panel.load_collection(coll.id)
+        assert "request" in panel._config.info_label.text().lower()
 
     def test_data_file_label_default(
         self, qapp: QApplication, qtbot, make_collection_with_request
     ) -> None:
         """Data file label shows default text before any file is loaded."""
         coll, _req = make_collection_with_request()
-        dialog = CollectionRunnerDialog(coll.id)
-        qtbot.addWidget(dialog)
-        assert "no data" in dialog._config._data_file_label.text().lower()
+        panel = _RunnerPanel()
+        qtbot.addWidget(panel)
+        panel.load_collection(coll.id)
+        assert "no data" in panel._config._data_file_label.text().lower()
 
     def test_iteration_spin_range(
         self, qapp: QApplication, qtbot, make_collection_with_request
     ) -> None:
         """Iteration spinner has a valid range."""
         coll, _req = make_collection_with_request()
-        dialog = CollectionRunnerDialog(coll.id)
-        qtbot.addWidget(dialog)
-        assert dialog._config._iter_spin.minimum() == 1
-        assert dialog._config._iter_spin.maximum() >= 100
+        panel = _RunnerPanel()
+        qtbot.addWidget(panel)
+        panel.load_collection(coll.id)
+        assert panel._config._iter_spin.minimum() == 1
+        assert panel._config._iter_spin.maximum() >= 100
 
     def test_progress_bar_exists(
         self, qapp: QApplication, qtbot, make_collection_with_request
     ) -> None:
         """Progress bar is present and has a positive maximum."""
         coll, _req = make_collection_with_request()
-        dialog = CollectionRunnerDialog(coll.id)
-        qtbot.addWidget(dialog)
-        assert dialog._progress.maximum() >= 1
+        panel = _RunnerPanel()
+        qtbot.addWidget(panel)
+        panel.load_collection(coll.id)
+        assert panel._progress.maximum() >= 1
 
     def test_results_table_columns(
         self, qapp: QApplication, qtbot, make_collection_with_request
     ) -> None:
         """Results table has the expected columns."""
         coll, _req = make_collection_with_request()
-        dialog = CollectionRunnerDialog(coll.id)
-        qtbot.addWidget(dialog)
-        assert dialog._results._table.columnCount() == 6
+        panel = _RunnerPanel()
+        qtbot.addWidget(panel)
+        panel.load_collection(coll.id)
+        assert panel._results._table.columnCount() == 6
 
     def test_env_combo_populated(
         self, qapp: QApplication, qtbot, make_collection_with_request
     ) -> None:
         """Environment selector is populated with at least the no-env option."""
         coll, _req = make_collection_with_request()
-        dialog = CollectionRunnerDialog(coll.id)
-        qtbot.addWidget(dialog)
-        assert dialog._config._env_combo.count() >= 1
-        assert dialog._config.environment_id is None
+        panel = _RunnerPanel()
+        qtbot.addWidget(panel)
+        panel.load_collection(coll.id)
+        assert panel._config._env_combo.count() >= 1
+        assert panel._config.environment_id is None
 
     def test_request_checklist_populated(
         self, qapp: QApplication, qtbot, make_collection_with_request
     ) -> None:
         """Request checklist shows the collection's requests."""
         coll, _req = make_collection_with_request()
-        dialog = CollectionRunnerDialog(coll.id)
-        qtbot.addWidget(dialog)
-        assert dialog._config._request_list.count() >= 1
+        panel = _RunnerPanel()
+        qtbot.addWidget(panel)
+        panel.load_collection(coll.id)
+        assert panel._config._request_list.count() >= 1
 
 
 # ===================================================================
@@ -635,6 +642,35 @@ class TestRunnerResultsView:
         view.show_summary([{"name": "R1", "status_code": 200, "test_results": []}])
         assert view._export_btn.isEnabled()
 
+    def test_show_summary_selects_first_row_shows_test_section(
+        self, qapp: QApplication, qtbot
+    ) -> None:
+        """After a run, row 0 is selected and the detail always lists Test Results."""
+        view = RunnerResultsView()
+        qtbot.addWidget(view)
+        view.add_result(
+            {
+                "name": "R1",
+                "method": "GET",
+                "status_code": 200,
+                "elapsed_ms": 0,
+                "test_results": [],
+            }
+        )
+        view.show_summary(
+            [
+                {
+                    "name": "R1",
+                    "status_code": 200,
+                    "test_results": [],
+                }
+            ]
+        )
+        assert view._table.currentRow() == 0
+        html = view._detail.toHtml()
+        assert "Test Results" in html
+        assert "No post-response tests defined" in html
+
     def test_export_csv(self, qapp: QApplication, qtbot, tmp_path: Path) -> None:
         """CSV export writes correct file."""
         view = RunnerResultsView()
@@ -750,6 +786,60 @@ class TestWorkerEnvironmentVars:
 
         assert len(results) == 1
         assert results[0]["status_code"] == 200
+
+    def test_iteration_data_substitutes_in_url(self) -> None:
+        """Data file row values replace {{key}} in URL (no environment)."""
+        worker = RunnerWorker()
+        worker.set_requests([{"name": "R", "method": "GET", "url": "https://x.test/{{city}}/path"}])
+        worker.set_iteration_data([{"city": "tokyo"}], 1)
+        worker.set_environment_vars({})
+
+        sent_urls: list[str] = []
+
+        def fake_send(**kwargs: Any) -> dict[str, Any]:
+            sent_urls.append(str(kwargs.get("url", "")))
+            return {"status_code": 200, "elapsed_ms": 1, "body": "", "headers": []}
+
+        with (
+            patch(
+                "ui.dialogs.collection_runner.worker.HttpService.send_request",
+                side_effect=fake_send,
+            ),
+            patch(
+                "ui.dialogs.collection_runner.worker.ScriptService.build_script_chain",
+                return_value=([], []),
+            ),
+        ):
+            worker.run()
+
+        assert sent_urls == ["https://x.test/tokyo/path"]
+
+    def test_environment_overrides_iteration_data_for_substitution(self) -> None:
+        """Environment map wins over data file keys when both define the same name."""
+        worker = RunnerWorker()
+        worker.set_requests([{"name": "R", "method": "GET", "url": "https://x.test/{{city}}"}])
+        worker.set_iteration_data([{"city": "tokyo"}], 1)
+        worker.set_environment_vars({"city": "osaka"})
+
+        sent_urls: list[str] = []
+
+        def fake_send(**kwargs: Any) -> dict[str, Any]:
+            sent_urls.append(str(kwargs.get("url", "")))
+            return {"status_code": 200, "elapsed_ms": 1, "body": "", "headers": []}
+
+        with (
+            patch(
+                "ui.dialogs.collection_runner.worker.HttpService.send_request",
+                side_effect=fake_send,
+            ),
+            patch(
+                "ui.dialogs.collection_runner.worker.ScriptService.build_script_chain",
+                return_value=([], []),
+            ),
+        ):
+            worker.run()
+
+        assert sent_urls == ["https://x.test/osaka"]
 
 
 # ===================================================================

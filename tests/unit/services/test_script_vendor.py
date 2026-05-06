@@ -1,9 +1,9 @@
-"""Tests for vendor libraries bundled in the V8 sandbox.
+"""Tests for vendor libraries bundled in the JS (Deno) script bundle.
 
 Verifies that CryptoJS, atob/btoa polyfills, the ``require()`` shim,
 and UUIDv4 generation work correctly inside the script runtime.
 
-Requires ``py_mini_racer`` — skipped when unavailable.
+Requires **Deno** — skipped when unavailable.
 """
 
 from __future__ import annotations
@@ -49,7 +49,13 @@ class TestCryptoJS:
 
     @pytest.fixture(autouse=True)
     def _require_mini_racer(self) -> None:
-        pytest.importorskip("py_mini_racer")
+        from services.scripting.runtime_settings import RuntimeSettings
+
+        st = RuntimeSettings.validate_deno(RuntimeSettings.deno_path())
+        if not st.get("available"):
+            import pytest
+
+            pytest.skip("Deno not available")
 
     def test_sha256(self):
         """SHA-256 produces the known hash for 'hello'."""
@@ -161,7 +167,13 @@ class TestBase64Polyfills:
 
     @pytest.fixture(autouse=True)
     def _require_mini_racer(self) -> None:
-        pytest.importorskip("py_mini_racer")
+        from services.scripting.runtime_settings import RuntimeSettings
+
+        st = RuntimeSettings.validate_deno(RuntimeSettings.deno_path())
+        if not st.get("available"):
+            import pytest
+
+            pytest.skip("Deno not available")
 
     def test_btoa(self):
         """Encode to Base64 with btoa."""
@@ -211,7 +223,13 @@ class TestUUID:
 
     @pytest.fixture(autouse=True)
     def _require_mini_racer(self) -> None:
-        pytest.importorskip("py_mini_racer")
+        from services.scripting.runtime_settings import RuntimeSettings
+
+        st = RuntimeSettings.validate_deno(RuntimeSettings.deno_path())
+        if not st.get("available"):
+            import pytest
+
+            pytest.skip("Deno not available")
 
     _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 
@@ -247,7 +265,13 @@ class TestRequireShim:
 
     @pytest.fixture(autouse=True)
     def _require_mini_racer(self) -> None:
-        pytest.importorskip("py_mini_racer")
+        from services.scripting.runtime_settings import RuntimeSettings
+
+        st = RuntimeSettings.validate_deno(RuntimeSettings.deno_path())
+        if not st.get("available"):
+            import pytest
+
+            pytest.skip("Deno not available")
 
     def test_require_unknown_module_throws(self):
         """Requiring an unknown module produces a runtime error."""
@@ -282,7 +306,13 @@ class TestPostmanScriptPatterns:
 
     @pytest.fixture(autouse=True)
     def _require_mini_racer(self) -> None:
-        pytest.importorskip("py_mini_racer")
+        from services.scripting.runtime_settings import RuntimeSettings
+
+        st = RuntimeSettings.validate_deno(RuntimeSettings.deno_path())
+        if not st.get("available"):
+            import pytest
+
+            pytest.skip("Deno not available")
 
     def test_hmac_signature_to_env(self):
         """HMAC signature computed and saved to environment variable."""

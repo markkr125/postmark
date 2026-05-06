@@ -83,16 +83,28 @@ class RunnerResultsView(QWidget):
 
         header = self._table.horizontalHeader()
         if header:
-            header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-            for col in range(1, len(_RESULT_HEADERS)):
-                header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)  # Name
+            header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)  # Method
+            header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)  # Status
+            header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)  # Time
+            header.setSectionResizeMode(4, QHeaderView.ResizeMode.Interactive)  # Tests
+            header.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)  # Result
+            header.setSectionsMovable(True)
+            self._table.setColumnWidth(0, 320)
+            self._table.setColumnWidth(1, 70)
+            self._table.setColumnWidth(2, 70)
+            self._table.setColumnWidth(3, 80)
+            self._table.setColumnWidth(4, 70)
 
         splitter.addWidget(self._table)
 
         # Detail panel
         self._detail = QTextEdit()
         self._detail.setReadOnly(True)
-        self._detail.setPlaceholderText("Click a result row to see details\u2026")
+        self._detail.setPlaceholderText(
+            "Select a row above to see response body, headers, and test results "
+            "(\u2705 / \u274c per assertion)."
+        )
         splitter.addWidget(self._detail)
 
         splitter.setStretchFactor(0, 3)
@@ -171,6 +183,8 @@ class RunnerResultsView(QWidget):
             parts.append(f"{req_skipped} skipped")
         self._summary_label.setText(" | ".join(parts))
         self._export_btn.setEnabled(bool(results))
+        if self._table.rowCount() > 0 and self._table.currentRow() < 0:
+            self._table.selectRow(0)
 
     # -- Detail panel --------------------------------------------------
 
@@ -222,10 +236,12 @@ class RunnerResultsView(QWidget):
         if error:
             lines.append(f"<br/><b>Error:</b> {error}")
 
-        # Test assertions
+        # Test assertions — always show the section so users learn the feature exists.
         test_results = result.get("test_results", [])
-        if test_results:
-            lines.append("<br/><b>Test Results</b>")
+        lines.append("<br/><b>Test Results</b>")
+        if not test_results:
+            lines.append("  <i>No post-response tests defined for this request.</i>")
+        else:
             for t in test_results:
                 icon = "\u2705" if t.get("passed") else "\u274c"
                 lines.append(f"  {icon} {t.get('name', 'Unnamed')}")

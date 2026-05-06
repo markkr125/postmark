@@ -1,7 +1,8 @@
 """Configuration view for the collection runner.
 
 Provides data-file picker, iteration count, delay input, and start/cancel
-controls.  The actual request execution is handled by the dialog.
+controls.  The actual request execution is handled by the inline runner
+panel or tests hosting this view.
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ from PySide6.QtWidgets import (
 
 from ui.dialogs.collection_runner.worker import parse_data_file
 from ui.styling.icons import phi
+from ui.styling.theme import COLOR_TEXT_MUTED, COLOR_WHITE
 
 
 class RunnerConfigView(QWidget):
@@ -56,14 +58,28 @@ class RunnerConfigView(QWidget):
 
         # Data file / iterations row
         data_row = QHBoxLayout()
-        self._data_file_label = QLabel("No data file")
-        data_row.addWidget(self._data_file_label, 1)
-        data_btn = QPushButton("Data File\u2026")
+        self._data_file_label = QLabel("No data file (optional — for parameterized runs)")
+        data_row.addWidget(self._data_file_label, 0)
+        data_btn = QPushButton("Data File (CSV/JSON)\u2026")
         data_btn.setIcon(phi("file-csv"))
         data_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        data_btn.setToolTip(
+            "Pick a CSV or JSON file. Each row drives one iteration.\n"
+            "Columns auto-fill {{name}} placeholders in URL/headers/body,\n"
+            "and are also available as pm.iterationData.<column> in scripts."
+        )
         data_btn.clicked.connect(self._pick_data_file)
-        data_row.addWidget(data_btn)
+        data_row.addWidget(data_btn, 0)
+        data_row.addStretch(1)
         root.addLayout(data_row)
+
+        help_lbl = QLabel(
+            "Each row in the data file = one iteration. "
+            "Column names auto-fill {{var}} in URL/headers/body."
+        )
+        help_lbl.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 11px;")
+        help_lbl.setWordWrap(True)
+        root.addWidget(help_lbl)
 
         # Environment selector row
         env_row = QHBoxLayout()
@@ -118,20 +134,20 @@ class RunnerConfigView(QWidget):
         btn_row = QHBoxLayout()
         btn_row.addStretch()
         self._run_btn = QPushButton("Run")
-        self._run_btn.setIcon(phi("play"))
+        # Match QSS `color` on primaryButton / dangerButton (palette ``bg``), not ``COLOR_TEXT_MUTED``.
+        self._run_btn.setIcon(phi("play", color=COLOR_WHITE))
         self._run_btn.setObjectName("primaryButton")
         self._run_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._run_btn.clicked.connect(self.run_requested)
         btn_row.addWidget(self._run_btn)
 
         self._cancel_btn = QPushButton("Cancel")
-        self._cancel_btn.setIcon(phi("stop"))
+        self._cancel_btn.setIcon(phi("stop", color=COLOR_WHITE))
         self._cancel_btn.setObjectName("dangerButton")
-        self._cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._cancel_btn.clicked.connect(self.cancel_requested)
-        self._cancel_btn.setEnabled(False)
         btn_row.addWidget(self._cancel_btn)
         root.addLayout(btn_row)
+        self.set_running(False)
 
     # -- Public API ------------------------------------------------
 
@@ -196,6 +212,18 @@ class RunnerConfigView(QWidget):
         """Toggle button states between running and idle."""
         self._run_btn.setEnabled(not running)
         self._cancel_btn.setEnabled(running)
+        if running:
+            # Run is inactive while the worker is active; Cancel stops the run.
+            self._run_btn.setIcon(phi("play", color=COLOR_TEXT_MUTED))
+            self._run_btn.setCursor(Qt.CursorShape.ArrowCursor)
+            self._cancel_btn.setIcon(phi("stop", color=COLOR_WHITE))
+            self._cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        else:
+            self._run_btn.setIcon(phi("play", color=COLOR_WHITE))
+            self._run_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            # Cancel is meaningless while idle: muted chrome + default arrow.
+            self._cancel_btn.setIcon(phi("stop", color=COLOR_TEXT_MUTED))
+            self._cancel_btn.setCursor(Qt.CursorShape.ArrowCursor)
 
     # -- Data file picker -----------------------------------------
 

@@ -3,10 +3,12 @@
 ## Quick rules — read these first
 
 1. **Every `QPushButton` / `QToolButton` MUST call
-   `setCursor(Qt.CursorShape.PointingHandCursor)`** — no exceptions.
+   `setCursor(Qt.CursorShape.PointingHandCursor)`** when the control is
+   **enabled and meant to be clicked**.  If the button is
+   `setEnabled(False)` (e.g. **Cancel** while a runner is idle), use
+   `Qt.CursorShape.ArrowCursor` so the pointer does not look clickable.
    This applies to icon-only buttons, outline buttons, primary buttons,
-   link buttons, toolbar buttons, and dialog buttons.  Always add the
-   call immediately after construction.
+   link buttons, toolbar buttons, and dialog buttons.
 2. **Always use fully qualified enums:** `Qt.ItemDataRole.UserRole`, not
    `Qt.UserRole`.
 3. **Wrap programmatic item edits in `blockSignals(True)` / `blockSignals(False)`**
@@ -125,6 +127,9 @@ action.setIcon(phi("trash", color="#e74c3c", size=16))
 - `phi(name)` returns a cached `QIcon` rendered from the bundled Phosphor
   TTF font (`data/fonts/phosphor.ttf`).
 - Default colour is `COLOR_TEXT_MUTED`; override with the `color` kwarg.
+  Glyphs on `dangerButton` (e.g. debug **Stop** in `DebugControls`) must use
+  `color=COLOR_WHITE` so they contrast the red fill (`COLOR_WHITE` tracks
+  `ThemePalette["bg"]` — white in light theme, near-black in dark).
 - Default size is 16 px; override with `size`.
 - Icons are cached by `(name, color, size)` — each unique combo is created
   once.
@@ -150,7 +155,9 @@ The application uses a centralised theme system with three layers:
    (`ui/styling/theme.py`) via `ThemeManager._build_qpalette()`.  Two
    palettes exist: `LIGHT_PALETTE` and `DARK_PALETTE`.
    `set_active_palette()` updates the mutable module-level colour aliases
-   (`COLOR_ACCENT`, `COLOR_TEXT`, etc.).
+   (`COLOR_ACCENT`, `COLOR_TEXT`, etc.).  The code editor palette includes
+   `editor_breakpoint_unreachable` for breakpoint dots on lines where the
+   step-debugger cannot pause (nested callbacks).
 
 ### objectName conventions for styling
 
@@ -196,11 +203,19 @@ standard object names:
 | `variablePopupNoEnv` | `QLabel` | "No environment selected" warning |
 | `variablePopup` | `QFrame` | Variable popup container |
 | `saveButton` | `QPushButton` | Save action button |
+| `scriptLanguageLinkButton` | `QToolButton` | Script editor status strip: language picker (accent underlined link) |
 | `sidebarSearch` | `QLineEdit` | Collection sidebar search input |
 | `sidebarSectionLabel` | `QLabel` | Sidebar section heading |
 | `sidebarToolButton` | `QToolButton` | Sidebar toolbar button |
 | `newItemPopup` | `QDialog` | Postman-style "Create New" dialog |
 | `newItemTile` | `QPushButton` | Tile button inside the new-item dialog |
+| `settingsDenoPathEdit` | `QLineEdit` | Scripting: Deno executable path |
+| `settingsDenoStatusLabel` | `QLabel` | Scripting: Deno validation / status line |
+| `settingsDenoDownloadBtn` | `QPushButton` | Scripting: download managed Deno |
+| `settingsDenoDownloadProgress` | `QProgressBar` | Scripting: Deno download progress |
+| `settingsDenoAutodetectBtn` | `QPushButton` | Scripting: clear custom Deno path (auto-detect) |
+| `settingsPythonPathEdit` | `QLineEdit` | Scripting: Python executable path |
+| `settingsPythonStatusLabel` | `QLabel` | Scripting: Python validation / status line |
 | `newItemTileLabel` | `QLabel` | Tile label text inside the dialog |
 | `newItemTitle` | `QLabel` | Dialog heading ("What do you want to create?") |
 | `newItemDescription` | `QLabel` | Description text below tiles |
@@ -209,16 +224,34 @@ standard object names:
 | `sidebarRailButton` | `QToolButton` | Checkable icon button in the rail |
 | `sidebarPanelArea` | `QWidget` | Collapsible flyout panel (separate splitter child) |
 | `sidebarTitleLabel` | `QLabel` | Bold panel title in flyout header |
-| `variableKeyLabel` | `QLabel` | Variable key in sidebar panel |
-| `variableValueLabel` | `QLabel` | Variable value in sidebar panel |
+| `variableKeyLabel` | `QLineEdit` | Variable key (read-only, selectable) in variables / debug KV rows |
+| `variableValueLabel` | `QLineEdit` | Variable value preview (read-only, selectable); long values use a collapsible row in legacy KV rows |
+| `variableValueEditor` | `QPlainTextEdit` | Expanded full value in collapsible KV rows (flat debug locals) |
+| `kvValueExpandToggle` | `QToolButton` | Phosphor caret; expands long KV values (flat locals path; see ``phi`` in ``icons.py``) |
 | `sidebarSourceDot` | `QLabel` | Colour-coded variable source dot |
 | `sidebarSeparator` | `QFrame` | Separator line in sidebar panels |
 | `completionPopup` | `QFrame` | Code editor autocomplete popup container |
 | `completionPopupList` | `QListWidget` | Completion item list inside popup |
 | `completionPopupDoc` | `QLabel` | Selected-item doc/signature label |
+| `parameterHintPopup` | `QFrame` | Code editor parameter-info tooltip (`Ctrl+P` when cursor is inside a call, also after typing `(`) |
+| `parameterHintPopupLabel` | `QLabel` | Rich-text signature inside the parameter hint |
+| `symbolDocPopup` | `QFrame` | Code editor quick-doc tooltip (`Ctrl+Q`, `Ctrl+hover`, `Ctrl+click` on `pm.*`) |
+| `symbolDocPopupLabel` | `QLabel` | Rich-text body inside the symbol quick-doc popup |
+| `debugHoverValueTree` | `QTreeWidget` | Paused-script debug hover: expandable object inspector (Name / Value columns) |
+| `debugVariablesTree` | `QTreeWidget` | Unified script debug variables: collapsible section roots (``UserRole`` + source icon) and value rows; header hidden |
+| `debugTreeCellLabel` | `QLabel` | Per-cell name/value in debug trees (``TextSelectableByMouse``; section rows use native painting) |
 | `RuntimeBanner` | `QFrame` | Deno download prompt banner container |
 | `bannerMessage` | `QLabel` | Banner message text |
 | `bannerDownloadBtn` | `QPushButton` | "Download Deno" action button |
+
+`RequestEditorWidget` and `FolderEditorWidget` call
+`_update_runtime_banners()` at the end of their load/clear entry points
+(`load_request` / `clear_request`, `load_collection` / `clear`) so the
+Deno prompt appears after script text is applied under `_loading` (the
+debounced check from `textChanged` is skipped while loading).  Language
+combo changes also re-schedule the check.  The banner’s **Open Scripting
+settings** link emits `open_scripting_settings_requested` on the editor
+and opens ``SettingsDialog`` on the Scripting category.
 
 ### QTabBar overflow scroll buttons
 

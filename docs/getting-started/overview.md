@@ -44,8 +44,8 @@ external service required.
   moment, CryptoJS, Chai, tv4, Ajv, xml2js, and csv-parse.
 - **IntelliSense** — autocomplete for the `pm.*` API, `console.*`,
   and `require()` module names in the script editor.
-- **Collection runner** — execute all requests in a collection
-  sequentially with per-request test results, script flow control
+- **Collection runner** — execute all requests in a folder tab (**Runs →
+  New run**) with per-request test results, script flow control
   (`setNextRequest`, `skipRequest`), and data-driven iterations.
 - **Console and history panels** — log panel for HTTP traffic, history of
   sent requests.  Script `console.log()` / `print()` output appears here.
@@ -82,3 +82,13 @@ src/
 
 See [Directory Structure](../architecture/directory-structure.md) for the
 full annotated tree.
+
+## Hi-DPI displays
+
+On fractional system scale factors (for example 125 % or 150 %), Postmark
+calls `configure_before_qapplication()` in `src/qt_app_init.py` before
+constructing `QApplication`, so Qt rounds scale factors for sharper layout and
+text. That usually fixes uniformly soft-looking UI on fractional Hi-DPI
+setups. If text is still poor on your machine, check your OS fractional-scaling
+options and the Qt Hi-DPI documentation for environment variables (for example
+`QT_SCALE_FACTOR_ROUNDING_POLICY`).

@@ -7,9 +7,11 @@ both JS and Python debug workers use it.
 
 from __future__ import annotations
 
+import contextlib
 import enum
 import threading
 from typing import Any, TypedDict
+from collections.abc import Callable
 
 
 class StepMode(enum.Enum):
@@ -38,6 +40,8 @@ class DebugPauseInfo(TypedDict):
     source_name: str
     local_vars: dict[str, Any]
     script_type: str
+    env_changes: dict[str, Any]
+    global_changes: dict[str, Any]
 
 
 class DebugProtocol:
@@ -59,6 +63,7 @@ class DebugProtocol:
         self._pause_info: DebugPauseInfo | None = None
         self._lock = threading.Lock()
         self._on_pause: Any = None  # callback: (DebugPauseInfo) -> None
+        self._abort_cb: Callable[[], None] | None = None
 
     # -- State queries --------------------------------------------------
 
@@ -66,6 +71,12 @@ class DebugProtocol:
     def state(self) -> DebugState:
         """Return the current debug state."""
         return self._state
+
+    @property
+    def is_stopped(self) -> bool:
+        """True after :meth:`stop` was called on this session (before next :meth:`start`)."""
+        with self._lock:
+            return self._stop_requested
 
     @property
     def pause_info(self) -> DebugPauseInfo | None:
@@ -76,6 +87,16 @@ class DebugProtocol:
 
     def set_breakpoints(self, lines: set[int]) -> None:
         """Replace the breakpoint set (0-based line numbers)."""
+        with self._lock:
+            self._breakpoints = set(lines)
+
+    def update_breakpoints(self, lines: set[int]) -> None:
+        """Replace the breakpoint set during an active session (same as :meth:`set_breakpoints`).
+
+        Thread-safe. The in-process JS runtime sees the new set at the next
+        :meth:`checkpoint`. The Python sandbox receives updates on each
+        resume command (see the debug IPC layer).
+        """
         with self._lock:
             self._breakpoints = set(lines)
 
@@ -108,17 +129,36 @@ class DebugProtocol:
             self._pause_event.clear()
 
     def stop(self) -> None:
-        """Request a debug session stop. Unblocks any paused checkpoint."""
+        """Request a debug session stop. Unblocks any paused checkpoint.
+
+        Also fires an abort callback (if registered) so the worker can
+        terminate a runtime that is blocked outside a checkpoint —
+        e.g. a sandbox subprocess waiting for a step command, or a V8
+        isolate stuck inside ``ctx.eval``.
+        """
         with self._lock:
             self._stop_requested = True
             self._state = DebugState.STOPPED
             self._pause_event.set()
+            cb = self._abort_cb
+        if cb is not None:
+            with contextlib.suppress(Exception):
+                cb()
+
+    def set_abort_callback(self, cb: Callable[[], None] | None) -> None:
+        """Register a callback fired from :meth:`stop`.
+
+        Interrupts a runtime blocked outside :meth:`checkpoint`.
+        """
+        with self._lock:
+            self._abort_cb = cb
 
     def finish(self) -> None:
         """Mark the session as cleanly finished (IDLE)."""
         with self._lock:
             self._state = DebugState.IDLE
             self._on_pause = None
+            self._abort_cb = None
 
     # -- Checkpoint (called from worker thread) -------------------------
 
@@ -129,6 +169,8 @@ class DebugProtocol:
         source_name: str = "",
         local_vars: dict[str, Any] | None = None,
         script_type: str = "pre_request",
+        env_changes: dict[str, Any] | None = None,
+        global_changes: dict[str, Any] | None = None,
     ) -> bool:
         """Called at each statement boundary by the debug worker.
 
@@ -159,6 +201,8 @@ class DebugProtocol:
                 "source_name": source_name,
                 "local_vars": local_vars or {},
                 "script_type": script_type,
+                "env_changes": env_changes or {},
+                "global_changes": global_changes or {},
             }
             self._pause_info = info
             callback = self._on_pause

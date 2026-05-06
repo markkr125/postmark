@@ -69,12 +69,13 @@ class _TabControllerMixin:
     _right_sidebar: RightSidebar
 
     def _on_send_request(self) -> None: ...
-    def _on_debug_request(self) -> None: ...
     def _on_save_request(self) -> None: ...
     def _on_save_response(self, data: dict) -> None: ...
     def _sync_save_btn(self, dirty: bool) -> None: ...
     def _current_tab_context(self) -> TabContext | None: ...
     def _on_run_collection_by_id(self, collection_id: int) -> None: ...
+    def _on_debug_step(self, mode_name: str) -> None: ...
+    def _on_open_scripting_settings(self) -> None: ...
     def _refresh_variable_map(
         self,
         editor: RequestEditorWidget,
@@ -216,7 +217,9 @@ class _TabControllerMixin:
 
         editor.load_request(data, request_id=request_id)
         editor.send_requested.connect(self._on_send_request)
-        editor.debug_requested.connect(self._on_debug_request)
+        editor.debug_step_requested.connect(self._on_debug_step)
+        editor.open_collection_requested.connect(self._open_folder)
+        editor.open_scripting_settings_requested.connect(self._on_open_scripting_settings)
         editor.save_requested.connect(self._on_save_request)
         editor.dirty_changed.connect(self._sync_save_btn)
         editor.dirty_changed.connect(self._on_editor_dirty_changed)
@@ -508,7 +511,7 @@ class _TabControllerMixin:
                 if tab_type == "request":
                     self._restore_request_deferred(entry, item_id)
                 elif tab_type == "folder":
-                    self._open_folder(item_id)
+                    self._open_folder(item_id, show_missing_warning=False)
         finally:
             self._restoring_session = False
 
@@ -608,7 +611,9 @@ class _TabControllerMixin:
 
         editor.load_request(req_data, request_id=request_id)
         editor.send_requested.connect(self._on_send_request)
-        editor.debug_requested.connect(self._on_debug_request)
+        editor.debug_step_requested.connect(self._on_debug_step)
+        editor.open_collection_requested.connect(self._open_folder)
+        editor.open_scripting_settings_requested.connect(self._on_open_scripting_settings)
         editor.save_requested.connect(self._on_save_request)
         editor.dirty_changed.connect(self._sync_save_btn)
         editor.dirty_changed.connect(self._on_editor_dirty_changed)
@@ -686,6 +691,7 @@ class _TabControllerMixin:
             # Folder tab cleanup
             folder_editor = ctx.folder_editor
             if folder_editor is not None:
+                folder_editor.shutdown_runner()
                 folder_editor.collection_changed.disconnect(self._on_folder_auto_save)
                 self._editor_stack.removeWidget(folder_editor)
                 folder_editor.setParent(None)
@@ -880,15 +886,37 @@ class _TabControllerMixin:
     # ------------------------------------------------------------------
     # Folder tab management
     # ------------------------------------------------------------------
-    def _open_folder(self, collection_id: int) -> None:
+    def _open_folder(
+        self,
+        collection_id: int,
+        *,
+        focus_scripts_kind: str | None = None,
+        focus_runner_panel: bool = False,
+        show_missing_warning: bool = True,
+    ) -> None:
         """Open a folder detail view in a tab.
 
         If an existing tab for this folder is already open, switch to it.
         Otherwise create a new folder tab.
+
+        When *focus_scripts_kind* is ``'pre_request'`` or ``'test'``, the folder
+        editor shows the Scripts tab with that script sub-tab selected.
+
+        When *focus_runner_panel* is ``True``, the Runs tab shows **New run**
+        (mutually exclusive with *focus_scripts_kind* in typical use).
         """
         collection = CollectionService.get_collection(collection_id)
         if collection is None:
             logger.warning("Collection id=%s not found", collection_id)
+            if show_missing_warning:
+                from PySide6.QtWidgets import QMessageBox
+
+                QMessageBox.warning(
+                    self,  # type: ignore[arg-type]
+                    "Collection not found",
+                    f"The collection (id {collection_id}) could not be loaded. "
+                    "It may have been removed or the data may be out of date.",
+                )
             return
 
         data: dict = {
@@ -915,6 +943,11 @@ class _TabControllerMixin:
             if ctx.tab_type == "folder" and ctx.collection_id == collection_id:
                 self._tab_bar.setCurrentIndex(idx)
                 self._flush_tab_change()
+                if ctx.folder_editor is not None:
+                    if focus_runner_panel:
+                        ctx.folder_editor.focus_runner_panel()
+                    elif focus_scripts_kind:
+                        ctx.folder_editor.focus_scripts_panel(focus_scripts_kind)
                 return
 
         # 2. Open a new folder tab
@@ -930,6 +963,8 @@ class _TabControllerMixin:
             created_at=created_at,
             updated_at=updated_at,
             recent_requests=recent_requests,
+            focus_scripts_kind=focus_scripts_kind,
+            focus_runner_panel=focus_runner_panel,
         )
 
     def _create_folder_tab(
@@ -942,6 +977,8 @@ class _TabControllerMixin:
         created_at: str | None = None,
         updated_at: str | None = None,
         recent_requests: list[dict] | None = None,
+        focus_scripts_kind: str | None = None,
+        focus_runner_panel: bool = False,
     ) -> int:
         """Create a new folder tab and switch to it."""
         if not self._enforce_tab_limit_before_open():
@@ -977,7 +1014,7 @@ class _TabControllerMixin:
 
         self._tabs[idx] = ctx
         folder_editor.collection_changed.connect(self._on_folder_auto_save)
-        folder_editor.run_requested.connect(self._on_run_collection_by_id)
+        folder_editor.debug_step_requested.connect(self._on_debug_step)
 
         # Switch to the new tab BEFORE loading data so that the folder
         # editor is visible even if load_collection raises.
@@ -1000,6 +1037,11 @@ class _TabControllerMixin:
 
         runs = RunHistoryService.get_runs(collection_id)
         folder_editor.load_runs(runs)
+
+        if focus_runner_panel:
+            folder_editor.focus_runner_panel()
+        elif focus_scripts_kind:
+            folder_editor.focus_scripts_panel(focus_scripts_kind)
 
         self._persist_open_tabs()
         return idx

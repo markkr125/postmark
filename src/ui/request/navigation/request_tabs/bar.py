@@ -132,21 +132,6 @@ class RequestTabBar(_TabLayoutMixin, QWidget):
             return entry.label
         return None
 
-    def tab_search_text(self, index: int) -> str:
-        """Return a human-readable tab label for search and jump actions."""
-        entry = self._entry(index)
-        if entry is None:
-            return ""
-        if entry.tab_type == "request" and isinstance(entry.label, TabLabel):
-            text = f"{entry.label._method} {entry.label._name}"
-        elif isinstance(entry.label, FolderTabLabel):
-            text = f"Folder {entry.label._name}"
-        else:
-            text = ""
-        if entry.path and entry.path not in text:
-            return f"{text} - {entry.path}"
-        return text
-
     def tab_request_info(self, index: int) -> tuple[str, str]:
         """Return ``(method, name)`` for the request tab at *index*.
 

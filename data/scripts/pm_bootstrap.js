@@ -533,12 +533,36 @@ var pm = {
             responseSize: res.response_size || res.responseSize || 0,
             body: res.body || "",
             json: function () {
-                return JSON.parse(typeof obj.body === "string" ? obj.body : "");
+                var s = typeof obj.body === "string" ? obj.body : "";
+                if (s.length === 0) {
+                    throw new Error(
+                        "pm.response.json(): response body is empty. " +
+                        "Set a JSON body in the Mock response section (Status / body) below the script editor, " +
+                        "or guard the call with `if (pm.response.text())` before parsing."
+                    );
+                }
+                try {
+                    return JSON.parse(s);
+                } catch (e) {
+                    throw new Error(
+                        "pm.response.json(): body is not valid JSON (" + (e && e.message ? e.message : "parse error") + "). " +
+                        "Check the Mock response body below the script editor."
+                    );
+                }
             },
             text: function () {
                 return typeof obj.body === "string" ? obj.body : String(obj.body);
             },
         };
+
+        // Postman-style: pm.response.to.have.status(N), .to.have.header, .to.have.jsonBody
+        // Fresh __Expectation per access so .not does not leak across chains.
+        Object.defineProperty(obj, "to", {
+            get: function () {
+                return new __Expectation(obj);
+            },
+        });
+
         return obj;
     })(),
 
@@ -568,6 +592,37 @@ var pm = {
 
     expect: function (value) {
         return new __Expectation(value);
+    },
+
+    require: function (specifier) {
+        if (typeof specifier !== "string" || specifier.length === 0) {
+            throw new Error("pm.require: specifier must be a non-empty string");
+        }
+        if (specifier.indexOf("npm:") !== 0 && specifier.indexOf("jsr:") !== 0) {
+            throw new Error(
+                "pm.require: specifier must start with 'npm:' or 'jsr:' (got '" +
+                    specifier +
+                    "')"
+            );
+        }
+        var registry = globalThis.__pm_require_modules || {};
+        if (Object.prototype.hasOwnProperty.call(registry, specifier)) {
+            return registry[specifier];
+        }
+        var at = specifier.lastIndexOf("@");
+        var slash = specifier.lastIndexOf("/");
+        if (at > 4 && at > slash) {
+            var bare = specifier.slice(0, at);
+            if (Object.prototype.hasOwnProperty.call(registry, bare)) {
+                return registry[bare];
+            }
+        }
+        throw new Error(
+            "pm.require: package '" +
+                specifier +
+                "' was not bundled. " +
+                "Make sure the call uses a string literal so the host can detect it."
+        );
     },
 
     sendRequest: function (spec, callback) {
@@ -778,4 +833,12 @@ if (!__pm_context.is_pre_request) {
             : [],
         body: pm.request.body,
     };
+}
+
+// ``Debugger.evaluateOnCallFrame`` evaluates in the paused user frame; module
+// top-level ``var`` bindings are not in that lexical environment.  Mirror the
+// live objects onto ``globalThis`` so debug variable reads see ``variable_changes``.
+if (typeof globalThis !== "undefined") {
+    globalThis.__pm_state = __pm_state;
+    globalThis.pm = pm;
 }

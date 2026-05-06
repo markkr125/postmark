@@ -21,16 +21,13 @@ class TestRuntimeBanner:
         assert not banner._progress_bar.isVisible()
         assert not banner._status_label.isVisible()
 
-    def test_dismiss_hides_and_emits(self, qapp: QApplication, qtbot) -> None:  # type: ignore[no-untyped-def]
-        """Clicking dismiss hides the banner and emits the signal."""
+    def test_settings_link_emits(self, qapp: QApplication, qtbot) -> None:  # type: ignore[no-untyped-def]
+        """The Scripting settings link emits ``open_settings_clicked``."""
         banner = RuntimeBanner()
         qtbot.addWidget(banner)
-        banner.setVisible(True)
 
-        with qtbot.waitSignal(banner.dismissed, timeout=1000):
-            banner._dismiss_btn.click()
-
-        assert not banner.isVisible()
+        with qtbot.waitSignal(banner.open_settings_clicked, timeout=1000):
+            banner._on_message_link("action:scripting")
 
     def test_download_button_starts_download(self, qapp: QApplication, qtbot) -> None:  # type: ignore[no-untyped-def]
         """Clicking download disables the button and shows progress."""

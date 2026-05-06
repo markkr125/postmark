@@ -1,20 +1,17 @@
-"""JavaScript debug execution — statement-by-statement V8 stepping.
+"""JavaScript debug helpers: grouping, ``let``/``const`` rewrite, and variable reads.
 
-Splits a script into top-level statement groups (respecting brace
-nesting), then executes each group with a separate ``ctx.eval()`` call.
-Between groups the :class:`DebugProtocol` is consulted so the UI can
-pause, inspect variables, and step.
-
-All ``eval()`` calls share a single :pyclass:`MiniRacer` context so
-side effects (variable assignments, ``pm.*`` calls) accumulate across
-groups exactly as they would in a single-pass execution.
+Step-through runs in :mod:`deno_debug` (Deno + Chrome DevTools protocol).
+This module keeps the pure-Python statement splitter, regex
+``const``/``let``  ``var`` at line starts, and the ``__pm_baseline`` / IIFE
+string used to snapshot ``pm`` + new ``globalThis`` names for the
+debugger panel.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import time
+import re
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -22,6 +19,8 @@ if TYPE_CHECKING:
     from services.scripting.debug.protocol import DebugProtocol
 
 logger = logging.getLogger(__name__)
+
+_LET_CONST_LINE_RE = re.compile(r"(?m)^([ \t]*)(const|let)\b")
 
 
 def inject_checkpoints(source: str) -> str:
@@ -31,8 +30,8 @@ def inject_checkpoints(source: str) -> str:
     breakpoint line numbers map directly to the editor.
 
     .. note::
-       This function is retained for tests and potential future use
-       with an async MiniRacer backend.
+       Retained for tests; step-through now uses the Deno inspector
+       (:mod:`deno_debug`).
     """
     lines = source.split("\n")
     result: list[str] = []
@@ -53,6 +52,11 @@ def inject_checkpoints(source: str) -> str:
 # ------------------------------------------------------------------
 
 
+def _transform_let_const_regex_fallback(source: str) -> str:
+    """Last-resort: line-anchored ``const``/``let`` → ``var`` (can misfire in edge cases)."""
+    return _LET_CONST_LINE_RE.sub(r"\1var", source)
+
+
 def _split_into_groups(source: str) -> list[tuple[int, str]]:
     """Split JS source into executable top-level statement groups.
 
@@ -65,6 +69,7 @@ def _split_into_groups(source: str) -> list[tuple[int, str]]:
     current: list[str] = []
     group_start = 0
     depth = 0
+    in_block_comment = False
 
     for i, line in enumerate(lines):
         stripped = line.strip()
@@ -78,9 +83,16 @@ def _split_into_groups(source: str) -> list[tuple[int, str]]:
             group_start = i
 
         current.append(line)
-        depth += stripped.count("{") - stripped.count("}")
+        code_for_braces, in_block_comment = _strip_comments_for_brace_count(
+            line,
+            in_block_comment,
+        )
+        depth += code_for_braces.count("{") - code_for_braces.count("}")
 
-        if depth <= 0:
+        # Never flush mid-block-comment: the next line is still inside
+        # the comment and must be appended to the same group so the
+        # whole /* ... */ span reaches ctx.eval as one valid unit.
+        if depth <= 0 and not in_block_comment:
             groups.append((group_start, "\n".join(current)))
             current = []
             depth = 0
@@ -92,6 +104,84 @@ def _split_into_groups(source: str) -> list[tuple[int, str]]:
     return groups
 
 
+def _strip_comments_for_brace_count(line: str, in_block_comment: bool) -> tuple[str, bool]:
+    """Strip JS line/block comments from *line* while preserving string literals."""
+    out: list[str] = []
+    i = 0
+    n = len(line)
+    quote: str | None = None
+    escaped = False
+    while i < n:
+        ch = line[i]
+        nxt = line[i + 1] if i + 1 < n else ""
+
+        if in_block_comment:
+            if ch == "*" and nxt == "/":
+                in_block_comment = False
+                i += 2
+                continue
+            i += 1
+            continue
+
+        if quote is not None:
+            out.append(ch)
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == quote:
+                quote = None
+            i += 1
+            continue
+
+        if ch in ("'", '"', "`"):
+            quote = ch
+            out.append(ch)
+            i += 1
+            continue
+
+        if ch == "/" and nxt == "/":
+            break
+        if ch == "/" and nxt == "*":
+            in_block_comment = True
+            i += 2
+            continue
+
+        out.append(ch)
+        i += 1
+    return "".join(out), in_block_comment
+
+
+def read_locals_from_iife_json_string(s: str) -> dict[str, Any]:
+    """Parse the JSON from :data:`_READ_JS_DEBUG_VARS` (plain string, not the CDP wrapper)."""
+    try:
+        out: dict[str, Any] = json.loads(s)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return {
+            "pm": {},
+            "globals": {},
+            "env_changes": {},
+            "global_changes": {},
+        }
+    if isinstance(out.get("pm"), dict) and isinstance(out.get("globals"), dict):
+        return {
+            "pm": out["pm"],
+            "globals": out["globals"],
+            "env_changes": out.get("env_changes")
+            if isinstance(out.get("env_changes"), dict)
+            else {},
+            "global_changes": out.get("global_changes")
+            if isinstance(out.get("global_changes"), dict)
+            else {},
+        }
+    return {
+        "pm": {},
+        "globals": {},
+        "env_changes": {},
+        "global_changes": {},
+    }
+
+
 def debug_execute(
     script: str,
     context: ScriptInput,
@@ -100,120 +190,169 @@ def debug_execute(
     script_type: str = "pre_request",
     source_name: str = "",
 ) -> ScriptOutput:
-    """Run *script* in debug mode, executing statement-by-statement.
+    """Delegate to :func:`deno_debug.debug_execute` (Deno + V8 inspector)."""
+    from .deno_debug import debug_execute as d
 
-    Each top-level statement group is executed as a separate
-    ``ctx.eval()`` call.  Between groups, the :class:`DebugProtocol`
-    checkpoint blocks the worker thread until the UI resumes.
-    """
-    from services.scripting.js_runtime import (
-        _MAX_MEMORY_BYTES,
-        _build_js_context,
-        _detect_required_modules,
-        _empty_output,
-        _get_bootstrap,
-        _get_polyfills,
-        _get_vendor_file,
-        _process_send_queue,
-        _resolve_vendor_files,
+    return d(
+        script,
+        context,
+        protocol,
+        script_type=script_type,
+        source_name=source_name,
     )
 
-    output = _empty_output()
-    start = time.monotonic()
 
+_READ_JS_DEBUG_VARS = r"""(function() {
+  try {
+    var baselineJson = (
+      typeof globalThis !== "undefined" && typeof globalThis.__pm_baseline_json === "string"
+    )
+      ? globalThis.__pm_baseline_json
+      : (typeof __pm_baseline_json !== "undefined" ? __pm_baseline_json : "[]");
+    var baseList = JSON.parse(baselineJson);
+    var base = Object.create ? Object.create(null) : {};
+    for (var bi = 0; bi < baseList.length; bi++) {
+      base[baseList[bi]] = 1;
+    }
+    var g = {};
+    var names = Object.getOwnPropertyNames(globalThis);
+    for (var j = 0; j < names.length; j++) {
+      var k = names[j];
+      if (base[k]) { continue; }
+      try {
+        var v = globalThis[k];
+        if (v === null) { g[k] = null; }
+        else if (typeof v === "function") { g[k] = "[fn]"; }
+        else if (typeof v === "object") {
+          try { g[k] = JSON.parse(JSON.stringify(v)); } catch (e2) { g[k] = "[object]"; }
+        } else { g[k] = v; }
+      } catch (e) {
+        g[k] = "[unavailable]";
+      }
+    }
+    var st = null;
+    if (typeof globalThis !== "undefined" && globalThis.__pm_state) {
+      st = globalThis.__pm_state;
+    } else if (typeof __pm_state !== "undefined") {
+      st = __pm_state;
+    }
+    var envc = st && st.variable_changes ? st.variable_changes : {};
+    var gvc = st && st.global_variable_changes ? st.global_variable_changes : {};
+    var pmSnap = {};
+    try {
+      var pmObj = (typeof globalThis !== "undefined" && globalThis.pm)
+        ? globalThis.pm
+        : (typeof pm !== "undefined" ? pm : null);
+      if (pmObj && pmObj.response) {
+        var r = pmObj.response;
+        var hdrs = {};
+        try {
+          if (r.headers && typeof r.headers.toObject === "function") hdrs = r.headers.toObject();
+          else if (r.headers && typeof r.headers === "object") hdrs = JSON.parse(JSON.stringify(r.headers));
+        } catch (e) { hdrs = {"_error": "[unavailable]"}; }
+        var bodyStr = "";
+        try { bodyStr = typeof r.text === "function" ? r.text() : (r.body || ""); } catch (e) { bodyStr = ""; }
+        if (typeof bodyStr === "string" && bodyStr.length > 500) bodyStr = bodyStr.slice(0, 500) + "…";
+        pmSnap = {
+          "response.code": r.code,
+          "response.status": r.status,
+          "response.responseTime": r.responseTime,
+          "response.responseSize": r.responseSize,
+          "response.headers": hdrs,
+          "response.body": bodyStr
+        };
+      }
+    } catch (e) { pmSnap = {}; }
+    return JSON.stringify({ "pm": pmSnap, "globals": g, "env_changes": envc, "global_changes": gvc });
+  } catch (e) {
+    return JSON.stringify({ "pm": {}, "globals": {}, "env_changes": {}, "global_changes": {} });
+  }
+})()"""
+
+
+def _read_js_debug_vars(ctx: Any) -> dict[str, Any]:
+    """``pm`` environment/collection vars and new ``globalThis`` keys since the baseline.
+
+    On failure, falls back to :func:`_read_js_vars_legacy` (``pm`` + empty ``globals``).
+    """
     try:
-        from py_mini_racer import MiniRacer  # type: ignore[import-untyped]
-
-        ctx = MiniRacer()
-
-        # 1. Load polyfills (always) + vendor libs required by the script.
-        ctx.eval(_get_polyfills())
-        for vf in _resolve_vendor_files(_detect_required_modules(script)):
-            ctx.eval(_get_vendor_file(vf))
-
-        # 2. Set context data before bootstrap reads it.
-        ctx.eval("var __pm_context = " + json.dumps(_build_js_context(context)) + ";")
-
-        # 3. Run bootstrap to create pm/console objects.
-        ctx.eval(_get_bootstrap())
-
-        # 4. Split into statement groups and step through.
-        groups = _split_into_groups(script)
-
-        stopped = False
-        for group_start, code in groups:
-            # Read current variable state for the debugger panel.
-            local_vars = _read_js_vars(ctx)
-
-            should_continue = protocol.checkpoint(
-                group_start,
-                source_name=source_name,
-                local_vars=local_vars,
-                script_type=script_type,
-            )
-            if not should_continue:
-                stopped = True
-                break
-
-            ctx.eval(code, max_memory=_MAX_MEMORY_BYTES)
-
-        if stopped:
-            output["console_logs"].append(
-                {
-                    "level": "info",
-                    "message": "[Debug] Session stopped by user",
-                    "timestamp": time.time(),
-                }
-            )
-        else:
-            # 4. Process sendRequest queue after all groups.
-            _process_send_queue(ctx)
-
-        # 5. Extract accumulated state.
-        state_json = ctx.eval("JSON.stringify(__pm_state)")
-        state: dict[str, Any] = json.loads(state_json)  # type: ignore[arg-type]
-
-        output["test_results"] = state.get("test_results", [])
-        output["console_logs"].extend(state.get("console_logs", []))
-        output["variable_changes"] = state.get("variable_changes", {})
-        global_changes = state.get("global_variable_changes", {})
-        if global_changes:
-            output["global_variable_changes"] = global_changes
-
-        if context.get("response") is None and state.get("request_mutations"):
-            output["request_mutations"] = state["request_mutations"]
-
-        if state.get("next_request") is not None or "next_request" in state:
-            output["next_request"] = state.get("next_request")
-        if state.get("skip_request"):
-            output["skip_request"] = True
-
-    except Exception as exc:
-        elapsed = (time.monotonic() - start) * 1000
-        error_msg = str(exc)
-        if "memory" in error_msg.lower():
-            error_msg = "Script exceeded memory limit"
-
-        output["test_results"].append(
-            {
-                "name": "(debug error)",
-                "passed": False,
-                "error": error_msg,
-                "duration_ms": elapsed,
+        raw = ctx.eval(_READ_JS_DEBUG_VARS)
+        if raw is None:
+            return _read_js_vars_legacy(ctx)
+        out: dict[str, Any] = json.loads(str(raw))  # type: ignore[assignment]
+        if isinstance(out.get("pm"), dict) and isinstance(out.get("globals"), dict):
+            return {
+                "pm": out["pm"],
+                "globals": out["globals"],
+                "env_changes": out.get("env_changes")
+                if isinstance(out.get("env_changes"), dict)
+                else {},
+                "global_changes": out.get("global_changes")
+                if isinstance(out.get("global_changes"), dict)
+                else {},
             }
-        )
-        logger.warning("JS debug execution failed: %s", error_msg)
-    finally:
-        protocol.finish()
-
-    return output
-
-
-def _read_js_vars(ctx: Any) -> dict[str, Any]:
-    """Read current ``__pm_state.variables`` from the V8 context."""
-    try:
-        raw = ctx.eval("JSON.stringify(__pm_state.variables || {})")
-        result: dict[str, Any] = json.loads(raw)  # type: ignore[arg-type]
-        return result
     except Exception:
+        pass
+    return _read_js_vars_legacy(ctx)
+
+
+def _read_js_vars_legacy(ctx: Any) -> dict[str, Any]:
+    """Read ``variable_changes`` / ``global_variable_changes`` when the full IIFE fails."""
+    try:
+        ec_raw = ctx.eval("JSON.stringify(__pm_state.variable_changes || {})")
+        gc_raw = ctx.eval("JSON.stringify(__pm_state.global_variable_changes || {})")
+        ec: dict[str, Any] = json.loads(str(ec_raw))  # type: ignore[assignment]
+        gc: dict[str, Any] = json.loads(str(gc_raw))  # type: ignore[assignment]
+        return {"pm": {}, "globals": {}, "env_changes": ec, "global_changes": gc}
+    except Exception:
+        return {"pm": {}, "globals": {}, "env_changes": {}, "global_changes": {}}
+
+
+def _cdp_remote_object_string(ro: dict[str, Any]) -> str:
+    """String payload from a CDP ``Runtime.RemoteObject``-shaped dict."""
+    v = ro.get("value")
+    if isinstance(v, str):
+        return v
+    desc = ro.get("description")
+    if isinstance(desc, str):
+        return desc
+    return str(ro)
+
+
+def cdp_evaluation_result_string(res: Any) -> str:
+    """String value from a CDP ``*evaluate*`` response (``result.result`` RemoteObject)."""
+    if not isinstance(res, dict):
+        return str(res) if res else ""
+    inner = res.get("result")
+    if isinstance(inner, dict):
+        return _cdp_remote_object_string(inner)
+    return _cdp_remote_object_string(res)
+
+
+CDP_RUNTIME_VARIABLE_CHANGES_JSON = (
+    'JSON.stringify((typeof globalThis!=="undefined"&&globalThis.__pm_state&&'
+    "globalThis.__pm_state.variable_changes)||{})"
+)
+CDP_RUNTIME_GLOBAL_CHANGES_JSON = (
+    'JSON.stringify((typeof globalThis!=="undefined"&&globalThis.__pm_state&&'
+    "globalThis.__pm_state.global_variable_changes)||{})"
+)
+
+
+def cdp_runtime_evaluate_json_object(cdp_client: Any, expression: str) -> dict[str, Any]:
+    """Run ``Runtime.evaluate`` on *cdp_client* and parse a JSON-object string result."""
+    try:
+        out = cdp_client.req(
+            "Runtime.evaluate",
+            {"expression": expression, "returnByValue": True},
+        )
+    except (OSError, TypeError, KeyError, json.JSONDecodeError):
         return {}
+    if not isinstance(out, dict):
+        return {}
+    raw = cdp_evaluation_result_string(out)
+    try:
+        parsed: Any = json.loads(raw)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}

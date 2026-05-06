@@ -1,14 +1,18 @@
-"""Python script runtime using subprocess isolation.
+"""Python script runtime — Pyodide (Deno + WASM) or RestrictedPython subprocess.
 
-Spawns a child process running ``_py_sandbox.py`` with
-``RestrictedPython`` compilation and heavily restricted builtins.
+When Deno is available and :file:`data/scripts/vendor_pyodide/pyodide.asm.wasm`
+exists, :meth:`PyRuntime.execute` runs scripts in **Pyodide** via
+:mod:`services.scripting.pyodide_runtime` (``micropip`` + ``pm.require``).
 
-Security layers:
+Otherwise scripts run in a CPython child process with ``_py_sandbox.py`` and
+``RestrictedPython`` (:meth:`PyRuntime.execute_restricted`).
+
+Security layers (RestrictedPython path):
 - Subprocess isolation — crash/exploit cannot affect the main app.
 - Empty environment — no leaked secrets from parent process.
 - Hard timeout — killed after *_SUBPROCESS_TIMEOUT* seconds.
 - One process per execution — no state reuse.
-- IPC bridge for ``pm.sendRequest()`` — sandbox has no network.
+- IPC bridge for ``pm.send_request()`` — sandbox has no network.
 """
 
 from __future__ import annotations
@@ -17,11 +21,13 @@ import contextlib
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 import threading
 import time
-from typing import TYPE_CHECKING, Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 if TYPE_CHECKING:
     from services.scripting import ScriptInput, ScriptOutput
@@ -33,6 +39,55 @@ _SUBPROCESS_TIMEOUT = 10
 
 # Module path for the sandbox worker.
 _SANDBOX_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_py_sandbox.py")
+
+_PYODIDE_VENDOR_MARKER = (
+    Path(__file__).resolve().parents[3] / "data" / "scripts" / "vendor_pyodide" / "pyodide.asm.wasm"
+)
+
+_PM_REQUIRE_PY_RE = re.compile(
+    r"""pm\s*\.\s*require\s*\(\s*['"]"""
+    r"""(?P<name>[a-z0-9][a-z0-9._-]*)"""
+    r"""(?:==(?P<ver>[^'"]+))?['"]\s*\)""",
+    re.IGNORECASE,
+)
+_PY_EXACT_VERSION_RE = re.compile(r"^\d+(\.\d+){0,3}([abrc]\d+|\.post\d+|\.dev\d+)?$")
+
+
+class PmPyRequireSpec(NamedTuple):
+    """A literal ``pm.require("pkg"|"pkg==1.2.3")`` call found in Python source."""
+
+    name: str
+    version: str  # "" for latest
+
+    @property
+    def pip_spec(self) -> str:
+        """Specifier passed to ``micropip.install``."""
+        return f"{self.name}=={self.version}" if self.version else self.name
+
+
+def detect_pm_require_py_specs(source: str) -> list[PmPyRequireSpec]:
+    """Collect unique ``pm.require`` string literals from *source*."""
+    seen: dict[tuple[str, str], PmPyRequireSpec] = {}
+    for m in _PM_REQUIRE_PY_RE.finditer(source):
+        name = m.group("name").lower()
+        ver = m.group("ver") or ""
+        if ver and not _PY_EXACT_VERSION_RE.match(ver):
+            raise ValueError(
+                f"pm.require: version must be exact (got {ver!r}). "
+                "Ranges and tags are not supported."
+            )
+        seen[(name, ver)] = PmPyRequireSpec(name, ver)
+    return list(seen.values())
+
+
+def _use_pyodide() -> bool:
+    """Return True when the Pyodide + Deno path should run :meth:`PyRuntime.execute`."""
+    from services.scripting.runtime_settings import RuntimeSettings
+
+    if not _PYODIDE_VENDOR_MARKER.is_file():
+        return False
+    st = RuntimeSettings.validate_deno(RuntimeSettings.deno_path())
+    return bool(st.get("available"))
 
 
 def _empty_output() -> ScriptOutput:
@@ -46,23 +101,44 @@ def _empty_output() -> ScriptOutput:
 
 
 class PyRuntime:
-    """Execute Python scripts in an isolated subprocess.
-
-    Each call to :meth:`execute` spawns a fresh process — no state
-    leaks between executions.
-    """
+    """Execute Python scripts in Pyodide (preferred) or a RestrictedPython subprocess."""
 
     @staticmethod
     def execute(script: str, context: ScriptInput) -> ScriptOutput:
         """Run *script* with *context* and return accumulated results.
 
-        Returns a valid :class:`ScriptOutput` even on error — failures
-        are recorded as a single failed ``TestResult``.
+        Uses Pyodide under Deno when available; otherwise
+        :meth:`execute_restricted`.
         """
-        return _run_in_subprocess(script, context)
+        start = time.monotonic()
+        if _use_pyodide():
+            from services.scripting.pyodide_runtime import PyodideRuntime
+
+            raw = PyodideRuntime.execute(script, context)
+            elapsed_ms = (time.monotonic() - start) * 1000
+            if raw.get("error"):
+                o = _empty_output()
+                o["test_results"] = [
+                    {
+                        "name": "(runtime error)",
+                        "passed": False,
+                        "error": str(raw["error"]),
+                        "duration_ms": elapsed_ms,
+                    }
+                ]
+                return o
+            o = _empty_output()
+            _apply_result(raw, o)
+            return o
+        return PyRuntime.execute_restricted(script, context)
+
+    @staticmethod
+    def execute_restricted(script: str, context: ScriptInput) -> ScriptOutput:
+        """Run *script* in the RestrictedPython subprocess (CI security tests)."""
+        return _run_restricted_subprocess(script, context)
 
 
-def _run_in_subprocess(script: str, context: ScriptInput) -> ScriptOutput:
+def _run_restricted_subprocess(script: str, context: ScriptInput) -> ScriptOutput:
     r"""Spawn sandbox process and run the IPC loop.
 
     Communication protocol (line-based JSON):
@@ -104,8 +180,10 @@ def _run_in_subprocess(script: str, context: ScriptInput) -> ScriptOutput:
         )
         return output
 
-    # Hard-kill timer prevents runaway scripts.
+    # Hard-kill timer prevents runaway scripts. Daemon so it does not
+    # block interpreter shutdown if the app closes mid-run.
     timer = threading.Timer(_SUBPROCESS_TIMEOUT, _kill_proc, args=(proc,))
+    timer.daemon = True
     timer.start()
 
     try:

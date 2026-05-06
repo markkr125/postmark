@@ -230,30 +230,69 @@ class _Expectation:
         return self._assert(ok, f"expected {self._value!r} to match {pattern!r}")
 
     def status(self, code: int) -> _Expectation:
-        """Assert HTTP status code."""
-        actual = self._value
+        """Assert HTTP status code (dict response or :class:`_PmResponse`)."""
+        actual: Any = self._value
         if isinstance(actual, dict) and "code" in actual:
-            actual = actual["code"]
+            actual = int(actual["code"])
+        elif type(actual).__name__ == "_PmResponse" and hasattr(actual, "code"):
+            actual = int(getattr(actual, "code", 0))
         return self._assert(actual == code, f"expected status {actual} to be {code}")
 
     def header(self, name: str, value: Any = None) -> _Expectation:
-        """Assert response header existence/value."""
+        """Assert response header existence/value (dict or :class:`_PmResponse`)."""
         resp = self._value
-        if not isinstance(resp, dict) or "headers" not in resp:
+        headers: dict[str, str] | None = None
+        if isinstance(resp, dict) and "headers" in resp:
+            h = resp.get("headers")
+            headers = h if isinstance(h, dict) else None
+        elif type(resp).__name__ == "_PmResponse" and hasattr(resp, "headers"):
+            h = getattr(resp, "headers", None)
+            headers = dict(h) if isinstance(h, dict) else None
+        if not headers:
             return self._assert(False, "expected a response object with headers")
-        headers = resp["headers"]
         lower = name.lower()
-        found = None
-        if isinstance(headers, dict):
-            for k, v in headers.items():
-                if k.lower() == lower:
-                    found = v
-                    break
+        found: Any = None
+        for k, v in headers.items():
+            if k.lower() == lower:
+                found = v
+                break
         if value is not None:
             return self._assert(
                 found == value, f"expected header {name} to be {value!r} but got {found!r}"
             )
         return self._assert(found is not None, f"expected response to have header {name!r}")
+
+    def json_body(self, path: str, value: Any = _MISSING) -> _Expectation:
+        """Assert JSON body path (Postman-style), or path exists when *value* omitted."""
+        resp = self._value
+        raw: str
+        if type(resp).__name__ == "_PmResponse" and hasattr(resp, "_body"):
+            raw = str(getattr(resp, "_body", "") or "")
+        elif isinstance(resp, dict) and "body" in resp:
+            b = resp.get("body")
+            raw = b if isinstance(b, str) else json.dumps(b, default=str)
+        else:
+            return self._assert(False, "expected a response object with a body")
+        s = raw.strip()
+        if not s:
+            return self._assert(False, "jsonBody: response body is empty")
+        try:
+            data: Any = json.loads(s)
+        except json.JSONDecodeError as e:
+            return self._assert(False, f"jsonBody: invalid JSON ({e.msg})")
+        cur: Any = data
+        for part in path.split("."):
+            if part == "":
+                continue
+            if not isinstance(cur, dict):
+                cur = None
+                break
+            cur = cur.get(part)
+        if value is not _Expectation._MISSING:
+            a = json.dumps(cur, sort_keys=True, default=str)
+            b = json.dumps(value, sort_keys=True, default=str)
+            return self._assert(a == b, f"expected {path!r} to be {value!r} but got {cur!r}")
+        return self._assert(cur is not None, f"expected body to have path {path!r}")
 
     # -- Boolean property assertions --
 
@@ -278,6 +317,9 @@ class _Expectation:
         ok = len(self._value) == 0 if isinstance(self._value, str | list | tuple | dict) else False
         return self._assert(ok, f"expected {self._value!r} to be empty")
 
+
+# Postman / JS naming alias for :meth:`_Expectation.json_body`.
+_Expectation.jsonBody = _Expectation.json_body  # type: ignore[attr-defined, misc]
 
 # Alias so scripts can call ``pm.expect(x).to.have.property("key")``
 # without shadowing Python's built-in ``property`` descriptor inside the class.
@@ -356,10 +398,28 @@ class _PmResponse:
         self._body: str = data.get("body", "")
 
     def json(self) -> Any:
-        return json.loads(self._body)
+        body = self._body or ""
+        if not body:
+            raise ValueError(
+                "pm.response.json(): response body is empty. "
+                "Set a JSON body in the Mock response section below the script editor, "
+                "or guard the call with `if pm.response.text():` before parsing."
+            )
+        try:
+            return json.loads(body)
+        except json.JSONDecodeError as e:
+            raise ValueError(
+                "pm.response.json(): body is not valid JSON "
+                f"({e.msg}). Check the Mock response body below the script editor."
+            ) from e
 
     def text(self) -> str:
         return self._body
+
+    @property
+    def to(self) -> _Expectation:
+        """Postman-style ``pm.response.to.have.status(…)`` (fresh chain per access)."""
+        return _Expectation(self)
 
 
 class _PmInfo:
@@ -520,9 +580,49 @@ def _execute_debug(script: str, pm: _Pm, debug_cfg: dict[str, Any]) -> dict[str,
             except Exception:
                 safe_locals[k] = "<error>"
 
+        # Expose pm.response so the user can inspect status/headers/body while paused.
+        pm_response_snapshot: dict[str, str] = {}
+        try:
+            resp = getattr(pm, "response", None)
+            if resp is not None:
+                for attr in ("code", "status", "response_time", "response_size"):
+                    try:
+                        pm_response_snapshot[attr] = repr(getattr(resp, attr, None))[:200]
+                    except Exception:
+                        pm_response_snapshot[attr] = "<error>"
+                try:
+                    headers = getattr(resp, "headers", None)
+                    pm_response_snapshot["headers"] = repr(headers)[:500]
+                except Exception:
+                    pm_response_snapshot["headers"] = "<error>"
+                try:
+                    body = getattr(resp, "_body", "")
+                    bstr = str(body)
+                    pm_response_snapshot["body"] = (bstr[:500] + "…") if len(bstr) > 500 else bstr
+                except Exception:
+                    pm_response_snapshot["body"] = "<error>"
+        except Exception:
+            pm_response_snapshot = {}
+        if pm_response_snapshot:
+            safe_locals["pm.response"] = repr(pm_response_snapshot)[:600]
+
+        env_changes: dict[str, str] = {}
+        for scope in (pm.variables, pm.environment, pm.collection_variables):
+            env_changes.update(scope._changes)
+        global_changes: dict[str, str] = dict(pm.globals._changes)
+
         # Write pause message.
         sys.stdout.write(
-            json.dumps({"__ipc__": "debugPause", "line": line, "locals": safe_locals}) + "\n"
+            json.dumps(
+                {
+                    "__ipc__": "debugPause",
+                    "line": line,
+                    "locals": safe_locals,
+                    "env_changes": env_changes,
+                    "global_changes": global_changes,
+                }
+            )
+            + "\n"
         )
         sys.stdout.flush()
 
@@ -535,6 +635,11 @@ def _execute_debug(script: str, pm: _Pm, debug_cfg: dict[str, Any]) -> dict[str,
             cmd = json.loads(cmd_line)
         except json.JSONDecodeError:
             return _trace_fn
+
+        raw_bp = cmd.get("breakpoints")
+        if isinstance(raw_bp, list):
+            breakpoints.clear()
+            breakpoints.update(int(x) for x in raw_bp if isinstance(x, int))
 
         command = cmd.get("command", "continue")
         if command == "stop":

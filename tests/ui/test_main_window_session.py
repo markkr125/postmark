@@ -228,8 +228,12 @@ class TestRestoreTabs:
             }
         )
 
-        window = MainWindow(tab_settings_manager=tab_settings)
-        qtbot.addWidget(window)
+        from unittest.mock import patch
+
+        with patch("PySide6.QtWidgets.QMessageBox.warning") as warning:
+            window = MainWindow(tab_settings_manager=tab_settings)
+            qtbot.addWidget(window)
+            warning.assert_not_called()
 
         window.collection_widget.load_finished.emit()
 

@@ -29,7 +29,6 @@ from PySide6.QtWidgets import (
 )
 
 from services.collection_service import SavedResponseDict
-from ui.sidebar.debug_panel import DebugPanel
 from ui.sidebar.saved_responses.panel import SavedResponsesPanel
 from ui.sidebar.snippet_panel import SnippetPanel
 from ui.sidebar.variables_panel import VariablesPanel
@@ -84,7 +83,6 @@ class _FlyoutPanel(QWidget):
         self.variables_panel = VariablesPanel()
         self.snippet_panel = SnippetPanel()
         self.saved_responses_panel = SavedResponsesPanel()
-        self.debug_panel = DebugPanel()
         self.snippet_panel.setSizePolicy(
             QSizePolicy.Policy.Preferred,
             QSizePolicy.Policy.Expanding,
@@ -92,11 +90,9 @@ class _FlyoutPanel(QWidget):
         layout.addWidget(self.variables_panel, 1)
         layout.addWidget(self.snippet_panel, 1)
         layout.addWidget(self.saved_responses_panel, 1)
-        layout.addWidget(self.debug_panel, 1)
         self.variables_panel.hide()
         self.snippet_panel.hide()
         self.saved_responses_panel.hide()
-        self.debug_panel.hide()
 
     def minimumSizeHint(self) -> QSize:
         """Enforce a readable minimum width for the flyout."""
@@ -134,7 +130,6 @@ class RightSidebar(QWidget):
         self._variables_panel = self._flyout.variables_panel
         self._snippet_panel = self._flyout.snippet_panel
         self._saved_responses_panel = self._flyout.saved_responses_panel
-        self._debug_panel = self._flyout.debug_panel
         self._close_btn.clicked.connect(self._close_panel)
 
         # --- Rail layout ----------------------------------------------
@@ -148,14 +143,11 @@ class RightSidebar(QWidget):
         )
         self._snippet_btn = self._make_rail_button("code", "Code snippet")
         self._saved_btn = self._make_rail_button("floppy-disk-back", "Saved responses")
-        self._debug_btn = self._make_rail_button("bug", "Debugger")
         self._snippet_btn.hide()
         self._saved_btn.hide()
-        self._debug_btn.hide()
         rail_layout.addWidget(self._var_btn)
         rail_layout.addWidget(self._snippet_btn)
         rail_layout.addWidget(self._saved_btn)
-        rail_layout.addWidget(self._debug_btn)
         rail_layout.addStretch()
 
         # State
@@ -173,9 +165,6 @@ class RightSidebar(QWidget):
         )
         self._saved_btn.clicked.connect(
             lambda: self._toggle_panel("saved_responses"),
-        )
-        self._debug_btn.clicked.connect(
-            lambda: self._toggle_panel("debug"),
         )
 
     # Keep a reference for the ``_rail`` attribute used by tests.
@@ -239,11 +228,6 @@ class RightSidebar(QWidget):
     def saved_responses_panel(self) -> SavedResponsesPanel:
         """Return the saved responses panel widget."""
         return self._saved_responses_panel
-
-    @property
-    def debug_panel(self) -> DebugPanel:
-        """Return the debug panel widget."""
-        return self._debug_panel
 
     @property
     def active_panel(self) -> str | None:
@@ -348,27 +332,10 @@ class RightSidebar(QWidget):
         self._var_btn.setEnabled(False)
         self._snippet_btn.hide()
         self._saved_btn.hide()
-        self._debug_btn.hide()
         self._close_panel()
         self._variables_panel.clear()
         self._snippet_panel.clear()
         self._saved_responses_panel.clear()
-        self._debug_panel.set_idle()
-
-    def show_debug_panel(self) -> None:
-        """Make the debug rail button visible and open the debug panel."""
-        self._available_panels.add("debug")
-        self._debug_btn.show()
-        self._debug_btn.setEnabled(True)
-        self._show_panel("debug")
-
-    def hide_debug_panel(self) -> None:
-        """Hide the debug rail button and close the panel if active."""
-        self._available_panels.discard("debug")
-        self._debug_btn.hide()
-        self._debug_panel.set_idle()
-        if self._active_panel == "debug":
-            self._close_panel()
 
     def open_panel(self, panel: str) -> None:
         """Programmatically open a specific panel by key."""
@@ -413,16 +380,13 @@ class RightSidebar(QWidget):
         self._variables_panel.setVisible(panel == "variables")
         self._snippet_panel.setVisible(panel == "snippet")
         self._saved_responses_panel.setVisible(panel == "saved_responses")
-        self._debug_panel.setVisible(panel == "debug")
         self._var_btn.setChecked(panel == "variables")
         self._snippet_btn.setChecked(panel == "snippet")
         self._saved_btn.setChecked(panel == "saved_responses")
-        self._debug_btn.setChecked(panel == "debug")
         titles = {
             "variables": "Variables",
             "snippet": "Code snippet",
             "saved_responses": "Saved Responses",
-            "debug": "Debugger",
         }
         self._title_label.setText(titles.get(panel, panel))
         self._flyout.show()
@@ -434,11 +398,9 @@ class RightSidebar(QWidget):
         self._variables_panel.hide()
         self._snippet_panel.hide()
         self._saved_responses_panel.hide()
-        self._debug_panel.hide()
         self._var_btn.setChecked(False)
         self._snippet_btn.setChecked(False)
         self._saved_btn.setChecked(False)
-        self._debug_btn.setChecked(False)
         self._collapse_flyout()
 
     def _expand_flyout(self, target_width: int | None = None) -> None:
@@ -480,11 +442,9 @@ class RightSidebar(QWidget):
             self._variables_panel.hide()
             self._snippet_panel.hide()
             self._saved_responses_panel.hide()
-            self._debug_panel.hide()
             self._var_btn.setChecked(False)
             self._snippet_btn.setChecked(False)
             self._saved_btn.setChecked(False)
-            self._debug_btn.setChecked(False)
 
         if flyout_width > 0 and not self._active_panel:
             # User expanded the flyout by dragging — open a panel.

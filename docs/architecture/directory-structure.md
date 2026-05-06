@@ -8,7 +8,7 @@ the codebase quickly.
 
 ```text
 src/
-+-- main.py                          Entry point -- QApplication + init_db()
++-- main.py                          Entry point -- QApplication + MainWindow bootstrap
 +-- database/                        Engine, models, repository
 |   +-- database.py                  init_db(), get_session(), forward-only migration
 |   +-- models/
@@ -80,7 +80,9 @@ src/
     |   |       |   +-- core.py      SchemaNode TypedDict, expectation chain, shared helpers
     |   |       |   +-- js.py        JS_SCHEMA (pm, console, CryptoJS, postman) + JS_GLOBALS
     |   |       |   +-- py.py        PY_SCHEMA + PY_GLOBALS (Python variant)
-    |   |       +-- engine.py        CompletionEngine -- dot-path/variable resolver
+    |   |       +-- engine.py        CompletionEngine -- dot-path/variable resolver + resolve_call_signature + resolve_nearest_call_signature
+    |   |       +-- mixin.py         _CompletionMixin -- completion + parameter hint triggers
+    |   |       +-- parameter_hint.py  ParameterHintPopup -- call signature tooltip
     |   |       +-- popup.py         CompletionPopup -- floating autocomplete widget
     |   +-- info_popup.py            InfoPopup (QFrame) base + ClickableLabel
     |   +-- key_value_table.py       Reusable key-value editor widget
@@ -98,9 +100,8 @@ src/
     |       +-- tree_actions.py      _TreeActionsMixin -- context menus, rename, delete
     |       +-- collection_tree_delegate.py  Custom delegate for method badges
     +-- dialogs/                     Modal dialogs
-    |   +-- collection_runner/       Collection runner sub-package
-    |   |   +-- __init__.py          Re-exports CollectionRunnerDialog
-    |   |   +-- dialog.py            CollectionRunnerDialog + run history persistence
+    |   +-- collection_runner/       Shared runner widgets + RunnerWorker (no modal shell)
+    |   |   +-- __init__.py          Re-exports RunnerConfigView, RunnerResultsView, RunnerWorker
     |   |   +-- config.py            RunnerConfigView (env selector, request checklist, data file, iterations, delay)
     |   |   +-- results.py           RunnerResultsView (summary + results table + detail panel + export)
     |   |   +-- worker.py            RunnerWorker (QThread), parse_data_file, env var substitution
@@ -116,7 +117,8 @@ src/
     +-- request/                     Request/response editing
         +-- folder_editor/              Folder/collection detail editor sub-package
         |   +-- editor_widget.py        FolderEditorWidget -- main editor class
-        |   +-- runs.py                 _RunsMixin + _build_runs_table (run history tab)
+        |   +-- runner_panel.py         _RunnerPanel -- inline collection runner (Runs -> New run)
+        |   +-- runs.py                 _RunsMixin + _build_runs_table (run history table)
         +-- http_worker.py           HttpSendWorker + SchemaFetchWorker (QThread)
         +-- auth/                    Shared auth sub-package (12 auth types)
         |   +-- auth_field_specs.py  Per-type FieldSpec definitions (AUTH_FIELD_SPECS dict)

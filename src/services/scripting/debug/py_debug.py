@@ -93,7 +93,12 @@ def debug_execute(
         return output
 
     timer = threading.Timer(_SUBPROCESS_TIMEOUT, _kill_proc, args=(proc,))
+    timer.daemon = True
     timer.start()
+
+    # Killing the sandbox on protocol.stop() unblocks the IPC loop
+    # when the sandbox is paused at a breakpoint (no output to read).
+    protocol.set_abort_callback(lambda: _kill_proc(proc))
 
     try:
         assert proc.stdin is not None
@@ -103,6 +108,14 @@ def debug_execute(
         result = _debug_ipc_loop(proc, protocol, script_type, source_name)
         if result is not None:
             _apply_result(result, output)
+        elif protocol.is_stopped:
+            output["console_logs"].append(
+                {
+                    "level": "info",
+                    "message": "[Debug] Session stopped by user",
+                    "timestamp": time.time(),
+                }
+            )
         else:
             output["test_results"].append(
                 {
@@ -113,14 +126,15 @@ def debug_execute(
                 }
             )
     except Exception as exc:
-        output["test_results"].append(
-            {
-                "name": "(debug error)",
-                "passed": False,
-                "error": f"Debug IPC error: {exc}",
-                "duration_ms": (time.monotonic() - start) * 1000,
-            }
-        )
+        if not protocol.is_stopped:
+            output["test_results"].append(
+                {
+                    "name": "(debug error)",
+                    "passed": False,
+                    "error": f"Debug IPC error: {exc}",
+                    "duration_ms": (time.monotonic() - start) * 1000,
+                }
+            )
     finally:
         timer.cancel()
         protocol.finish()
@@ -160,15 +174,23 @@ def _debug_ipc_loop(
         if data.get("__ipc__") == "debugPause":
             pause_line = int(data.get("line", 0))
             local_vars = data.get("locals", {})
+            env_changes = data.get("env_changes", {}) or {}
+            global_changes = data.get("global_changes", {}) or {}
 
             should_continue = protocol.checkpoint(
                 pause_line,
                 source_name=source_name,
                 local_vars=local_vars,
                 script_type=script_type,
+                env_changes=env_changes,
+                global_changes=global_changes,
             )
 
-            cmd = {"command": protocol._step_mode.value} if should_continue else {"command": "stop"}
+            command = protocol._step_mode.value if should_continue else "stop"
+            cmd: dict[str, Any] = {
+                "command": command,
+                "breakpoints": sorted(protocol.breakpoints),
+            }
 
             proc.stdin.write(json.dumps(cmd).encode() + b"\n")
             proc.stdin.flush()

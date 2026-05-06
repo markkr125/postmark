@@ -266,7 +266,7 @@ class TestGlobalsInScripts:
 
 
 # ===================================================================
-# JS globals tests (require py_mini_racer)
+# JS globals tests (require Deno)
 # ===================================================================
 
 
@@ -275,7 +275,13 @@ class TestJSGlobals:
 
     @pytest.fixture(autouse=True)
     def _require_mini_racer(self) -> None:
-        pytest.importorskip("py_mini_racer")
+        from services.scripting.runtime_settings import RuntimeSettings
+
+        st = RuntimeSettings.validate_deno(RuntimeSettings.deno_path())
+        if not st.get("available"):
+            import pytest
+
+            pytest.skip("Deno not available")
 
     def test_js_globals_set_tracked_separately(self) -> None:
         from services.scripting.js_runtime import JSRuntime

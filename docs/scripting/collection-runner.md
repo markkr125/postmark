@@ -38,12 +38,14 @@ A summary line shows aggregate totals:
 
 ### Per-Request Detail
 
-Clicking a result row shows a detail panel with:
+Selecting a result row (the first row is selected automatically when the
+run finishes) shows a detail panel with:
 
 - Response status code and timing
 - Response headers
 - Response body (first 2000 characters)
-- Test assertions with pass/fail icons
+- A **Test Results** section (always present): per-assertion pass/fail, or
+  a short message when the request has no test script
 - Error message (if any)
 
 ### Export
@@ -113,11 +115,13 @@ pm.test("Retry on 500", function() {
 
 The runner supports data-driven iterations via CSV or JSON data files:
 
-1. Click **Data File…** to load a CSV or JSON file.
+1. Click **Data File (CSV/JSON)…** to load a CSV or JSON file.
 2. Each row becomes one iteration.
-3. `pm.iterationData.get(key)` / `pm.iteration_data.get(key)` returns
+3. Column names also auto-fill `{{var}}` placeholders in the request URL,
+   headers, and body (environment variables override a column on name clash).
+4. `pm.iterationData.get(key)` / `pm.iteration_data.get(key)` returns
    the value for the current row.
-4. The **Iterations** spinner adjusts the iteration count.
+5. The **Iterations** spinner adjusts the iteration count.
 
 ### CSV format
 

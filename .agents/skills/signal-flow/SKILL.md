@@ -303,8 +303,13 @@ MainWindow snippet_act.triggered
 ```
 MainWindow settings_act.triggered
   → _on_settings
-    → SettingsDialog(ThemeManager)
-      → theme changes applied via ThemeManager
+    → _open_settings_dialog(initial_category="Appearance")
+      → SettingsDialog(..., initial_category=...)
+
+RequestEditorWidget / FolderEditorWidget open_scripting_settings_requested
+  → MainWindow._on_open_scripting_settings
+    → _open_settings_dialog(initial_category="Scripting")
+      → editor._update_runtime_banners() after dialog closes
 ```
 
 ### Collection runner flow
@@ -316,11 +321,10 @@ MainWindow run_act.triggered
 CollectionWidget.run_collection_requested(int)
   → MainWindow._on_run_collection_by_id(collection_id)
 
-FolderEditorWidget.run_requested(int)
-  → MainWindow._on_run_collection_by_id(collection_id)
-
 _on_run_collection_by_id(collection_id)
-  → CollectionRunnerDialog(collection_id)
+  → _open_folder(collection_id, focus_runner_panel=True)
+    → FolderEditorWidget (Runs → New run)
+      → _RunnerPanel.load_collection(collection_id)
     → RunnerConfigView: env combo, request checklist, iterations, delay
     → RunnerWorker.set_environment_vars(env_vars)
     → RunnerWorker.set_requests(selected_requests)
@@ -330,13 +334,17 @@ _on_run_collection_by_id(collection_id)
     → RunnerWorker.finished(results_list)
       → RunnerResultsView.show_summary(results_list)
       → RunHistoryService.finish_run(run_id, stats incl. skipped)
+      → _RunnerPanel.run_finished → FolderEditorWidget.load_runs(...)
     → RunnerWorker.error(message)
+      → _RunnerPanel.run_finished → FolderEditorWidget.load_runs(...)
 ```
 
 Runner supports `pm.execution.setNextRequest()` / `skipRequest()` flow
-control, data-driven iterations via CSV/JSON files, environment variable
-substitution in URLs/headers/body, request selection/deselection,
-per-request detail view, and CSV/JSON export.
+control, data-driven iterations via CSV/JSON files, `{{var}}` substitution
+from the merged scope (data row, then environment on key clash),
+per-request detail view (Test Results always shown), and CSV/JSON export.
+On success, `_on_finished` updates the config info label (not only the
+summary bar).
 
 ### Send request flow
 
@@ -487,7 +495,9 @@ All other signals in the flow diagrams above are fully wired.
 | `RequestEditorWidget` | `save_requested` | `Signal()` |
 | `RequestEditorWidget` | `dirty_changed` | `Signal(bool)` |
 | `RequestEditorWidget` | `request_changed` | `Signal(dict)` |
-| `FolderEditorWidget` | `run_requested` | `Signal(int)` — collection ID |
+| `RequestEditorWidget` | `open_collection_requested` | `Signal(int)` |
+| `RequestEditorWidget` | `open_scripting_settings_requested` | `Signal()` |
+| `_RunnerPanel` | `run_finished` | `Signal()` — refresh run history |
 | `ResponseViewerWidget` | `save_response_requested` | `Signal(dict)` |
 | `HttpSendWorker` | `finished` | `Signal(dict)` — `HttpResponseDict` |
 | `HttpSendWorker` | `error` | `Signal(str)` |
@@ -530,6 +540,7 @@ All other signals in the flow diagrams above are fully wired.
 | Class | Signal | Signature |
 |-------|--------|-----------|
 | `FolderEditor` | `collection_changed` | `Signal(dict)` |
+| `FolderEditor` | `open_scripting_settings_requested` | `Signal()` |
 
 ### Dialogs
 
@@ -551,6 +562,8 @@ All other signals in the flow diagrams above are fully wired.
 | `ClickableLabel` | `clicked` | `Signal()` |
 | `KeyValueTable` | `data_changed` | `Signal()` |
 | `CodeEditorWidget` | `validation_changed` | `Signal(list)` |
+| `CodeEditorWidget` | `run_single_test_requested` | `Signal(str)` — per-`pm.test` gutter Run |
+| `CodeEditorWidget` | `debug_single_test_requested` | `Signal(str)` — per-`pm.test` gutter Debug |
 | `HistoryPanel` | `entry_clicked` | `Signal(str, str)` |
 
 ## MainWindow signal wiring summary

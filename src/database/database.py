@@ -32,11 +32,18 @@ _SessionLocal: sessionmaker[Session] | None = None
 def init_db(db_path: Path | None = None) -> None:
     """Create the database engine, run DDL, and prepare the session factory.
 
-    Call this **once** at application startup (before any UI is constructed).
-    If *db_path* is ``None`` the default location
-    ``<project_root>/data/database/main.db`` is used.
+    Safe to call multiple times: if the engine already exists, returns
+    immediately without re-running DDL. Tests reset module-level state and call
+    ``init_db`` again with a fresh path via ``_fresh_db`` in ``conftest.py``.
+
+    At application startup, call before any database access. If *db_path* is
+    ``None`` the default location ``<project_root>/data/database/main.db`` is
+    used.
     """
     global _engine, _SessionLocal
+
+    if _engine is not None:
+        return
 
     if db_path is None:
         project_root = Path(__file__).resolve().parents[2]

@@ -214,12 +214,17 @@ class RunnerWorker(QObject):
         headers: dict[str, str] = req.get("headers") or {}
         body: str = req.get("body") or ""
 
-        # Apply environment variable substitution
+        # Build substitution scope: data-file row first, env vars override on key clash.
         env = self._environment_vars
+        scope: dict[str, str] = {}
+        if iter_data:
+            scope.update({str(k): str(v) for k, v in iter_data.items()})
         if env:
-            url = _substitute(url, env)
-            headers = {_substitute(k, env): _substitute(v, env) for k, v in headers.items()}
-            body = _substitute(body, env)
+            scope.update(env)
+        if scope:
+            url = _substitute(url, scope)
+            headers = {_substitute(k, scope): _substitute(v, scope) for k, v in headers.items()}
+            body = _substitute(body, scope)
 
         info: dict[str, Any] = {
             "requestName": req.get("name", ""),

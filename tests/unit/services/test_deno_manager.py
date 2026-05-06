@@ -27,6 +27,7 @@ class TestDenoManagerPaths:
         binary = tmp_path / "deno"
         binary.write_text("fake")
         with patch.object(DenoManager, "runtime_dir", return_value=tmp_path):
+            assert DenoManager.managed_deno_path() == binary
             assert DenoManager.deno_path() == binary
 
     def test_is_available_false_when_missing(self, tmp_path: Path) -> None:

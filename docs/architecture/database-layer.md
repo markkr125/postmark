@@ -47,8 +47,10 @@ def get_session() -> Generator[Session, None, None]:
 - Every repository function creates its own session — no long-lived
   sessions.
 - Never create `Session()` manually — always use `get_session()`.
-- `init_db()` must be called before any database access (app startup and
-  test fixtures).
+- `init_db()` must complete before any database access. It is **idempotent**
+  if the engine already exists. Production runs it on the collection-fetch
+  worker thread before `fetch_all()`; tests call it from the `_fresh_db`
+  fixture.
 
 ## Forward-Only Migration
 

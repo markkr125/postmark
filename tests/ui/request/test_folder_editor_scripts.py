@@ -73,29 +73,29 @@ class TestFolderEditorScriptHistory:
 class TestFolderEditorStatusBar:
     """Tests for the script editor status bar."""
 
-    def test_status_bar_exists(self, qapp: QApplication, qtbot) -> None:
-        """Both script editors have a status label."""
+    def test_status_bar_widgets_exist(self, qapp: QApplication, qtbot) -> None:
+        """Both script editors have line/column labels and a language picker."""
         editor = FolderEditorWidget()
         qtbot.addWidget(editor)
-        assert hasattr(editor, "_pre_status_label")
-        assert hasattr(editor, "_test_status_label")
+        assert hasattr(editor, "_pre_status_ln_lbl")
+        assert hasattr(editor, "_test_status_ln_lbl")
+        assert hasattr(editor, "_pre_lang_menu_btn")
+        assert hasattr(editor, "_test_lang_menu_btn")
 
     def test_status_bar_initial_text(self, qapp: QApplication, qtbot) -> None:
-        """Status bar shows initial cursor position."""
+        """Status bar shows initial cursor position and language."""
         editor = FolderEditorWidget()
         qtbot.addWidget(editor)
-        text = editor._pre_status_label.text()
-        assert "Ln 1" in text
-        assert "Col 1" in text
-        assert "JavaScript" in text
+        assert "Ln 1" in editor._pre_status_ln_lbl.text()
+        assert "Col 1" in editor._pre_status_ln_lbl.text()
+        assert editor._pre_lang_menu_btn.text() == "JavaScript"
 
     def test_status_bar_updates_on_text(self, qapp: QApplication, qtbot) -> None:
         """Typing text updates the character count."""
         editor = FolderEditorWidget()
         qtbot.addWidget(editor)
         editor._pre_request_edit.setPlainText("hello")
-        text = editor._pre_status_label.text()
-        assert "5 chars" in text
+        assert "5 chars" in editor._pre_status_chars_lbl.text()
 
 
 class TestFolderEditorSearchBar:

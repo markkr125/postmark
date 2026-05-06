@@ -94,6 +94,11 @@ class HttpResponseDict(TypedDict):
     console_logs: NotRequired[list[dict[str, Any]]]
     variable_changes: NotRequired[dict[str, str]]
 
+    # What was actually sent (for UI, including network-error responses)
+    request_method: NotRequired[str]
+    request_url: NotRequired[str]
+    request_headers: NotRequired[list[dict[str, str]]]
+
 
 def _phase_ms(trace_times: dict[str, float], *prefixes: str) -> float:
     """Compute the duration of a trace phase from start/complete timestamps.
@@ -172,6 +177,10 @@ class HttpService:
             ``error`` key describing the failure.
         """
         parsed_headers = parse_header_dict(headers)
+        request_headers_list: list[dict[str, str]] = [
+            {"key": k, "value": v} for k, v in parsed_headers.items()
+        ]
+        request_method_value = method.strip().upper() if method else "GET"
         content: bytes | None = body.encode("utf-8") if body else None
 
         # -- 1. DNS pre-resolve ----------------------------------------
@@ -308,6 +317,9 @@ class HttpService:
                 request_body_size=req_body_size,
                 response_headers_size=resp_headers_size,
                 network=network,
+                request_method=request_method_value,
+                request_url=url,
+                request_headers=request_headers_list,
             )
 
             content_encoding = response.headers.get("content-encoding", "").lower()
@@ -320,22 +332,46 @@ class HttpService:
             elapsed = (time.monotonic() - start) * 1000
             msg = f"Connection refused: {exc}"
             logger.warning(msg)
-            return HttpResponseDict(error=msg, elapsed_ms=round(elapsed, 1))
+            return HttpResponseDict(
+                error=msg,
+                elapsed_ms=round(elapsed, 1),
+                request_method=request_method_value,
+                request_url=url,
+                request_headers=request_headers_list,
+            )
 
         except httpx.TimeoutException as exc:
             elapsed = (time.monotonic() - start) * 1000
             msg = f"Request timed out: {exc}"
             logger.warning(msg)
-            return HttpResponseDict(error=msg, elapsed_ms=round(elapsed, 1))
+            return HttpResponseDict(
+                error=msg,
+                elapsed_ms=round(elapsed, 1),
+                request_method=request_method_value,
+                request_url=url,
+                request_headers=request_headers_list,
+            )
 
         except httpx.TooManyRedirects as exc:
             elapsed = (time.monotonic() - start) * 1000
             msg = f"Too many redirects: {exc}"
             logger.warning(msg)
-            return HttpResponseDict(error=msg, elapsed_ms=round(elapsed, 1))
+            return HttpResponseDict(
+                error=msg,
+                elapsed_ms=round(elapsed, 1),
+                request_method=request_method_value,
+                request_url=url,
+                request_headers=request_headers_list,
+            )
 
         except Exception as exc:
             elapsed = (time.monotonic() - start) * 1000
             msg = f"Request failed: {exc}"
             logger.exception(msg)
-            return HttpResponseDict(error=msg, elapsed_ms=round(elapsed, 1))
+            return HttpResponseDict(
+                error=msg,
+                elapsed_ms=round(elapsed, 1),
+                request_method=request_method_value,
+                request_url=url,
+                request_headers=request_headers_list,
+            )

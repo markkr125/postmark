@@ -65,8 +65,24 @@ User clicks Send
 
 ## Link conventions
 
-- Link to source files as relative paths from `docs/`:
-  `[collection_service.py](../src/services/collection_service.py)`.
-- Link to other doc pages: `[Architecture Overview](architecture/overview.md)`.
-- Link to architecture agent instructions:
-  `[src/AGENTS.md](../src/AGENTS.md)`.
+Relative paths must be computed from the *current file*, not from
+`docs/`. Count the directories between the doc and its target:
+
+- Top-level page (`docs/foo.md`) → target
+  ``../src/services/collection_service.py`` from `docs/foo.md`.
+- Sub-directory page (`docs/architecture/foo.md`,
+  `docs/scripting/foo.md`, `docs/guides/foo.md`) → target
+  ``../../src/services/collection_service.py``.
+- Sibling doc page from a sub-directory → use one `..` segment per
+  directory (e.g. ``../architecture/overview.md``).
+- Same-directory doc page → bare filename (e.g. ``overview.md`` in the
+  same folder).
+- Architecture agent instructions: ``../src/AGENTS.md`` from a
+  top-level `docs/` page, or ``../../src/AGENTS.md`` from a nested
+  `docs/` sub-page.
+
+## Script runtime docs
+
+- [architecture/script-runtime.md](architecture/script-runtime.md) — script subprocess lifecycle, IPC, permissions.
+- [guides/adding-script-language.md](guides/adding-script-language.md) — recipe for adding a third scripting language.
+- [scripting/external-packages.md](scripting/external-packages.md) — `pm.require` for npm / jsr / PyPI; vendored allowlist.

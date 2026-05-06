@@ -59,6 +59,17 @@ class TestDebugProtocolLifecycle:
         assert proto.state == DebugState.RUNNING
         assert proto._stop_requested is False
 
+    def test_is_stopped(self) -> None:
+        """is_stopped follows stop() and clears after start()."""
+        proto = DebugProtocol()
+        assert not proto.is_stopped
+        proto.start()
+        assert not proto.is_stopped
+        proto.stop()
+        assert proto.is_stopped
+        proto.start()
+        assert not proto.is_stopped
+
 
 # ===================================================================
 # DebugProtocol — breakpoint management
@@ -80,6 +91,14 @@ class TestDebugProtocolBreakpoints:
         proto.set_breakpoints({1, 2})
         proto.set_breakpoints({3, 4})
         assert proto.breakpoints == {3, 4}
+
+    def test_update_breakpoints_matches_set(self) -> None:
+        """:meth:`update_breakpoints` is the live-session equivalent of :meth:`set_breakpoints`."""
+        by_set = DebugProtocol()
+        by_set.set_breakpoints({1, 2, 3})
+        by_update = DebugProtocol()
+        by_update.update_breakpoints({1, 2, 3})
+        assert by_set.breakpoints == by_update.breakpoints
 
     def test_toggle_adds(self) -> None:
         """toggle_breakpoint() adds a line not in the set."""
@@ -152,6 +171,8 @@ class TestDebugProtocolCheckpoint:
         assert len(paused_info) == 1
         assert paused_info[0]["line"] == 3
         assert paused_info[0]["local_vars"] == {"x": 42}
+        assert paused_info[0].get("env_changes") == {}
+        assert paused_info[0].get("global_changes") == {}
 
         # Resume and check continuation
         proto.resume(StepMode.CONTINUE)
@@ -236,6 +257,8 @@ class TestDebugProtocolCheckpoint:
         assert info["line"] == 5
         assert info["source_name"] == "script.js"
         assert info["script_type"] == "test"
+        assert info.get("env_changes") == {}
+        assert info.get("global_changes") == {}
 
         proto.resume()
         t.join(timeout=2)
@@ -267,14 +290,12 @@ def _make_context(
     }
 
 
-def _mini_racer_available() -> bool:
-    """Return True if py_mini_racer is importable."""
-    try:
-        import py_mini_racer  # noqa: F401
+def _deno_debug_available() -> bool:
+    """Return True if a valid Deno binary is available for JS debug tests."""
+    from services.scripting.runtime_settings import RuntimeSettings
 
-        return True
-    except ImportError:
-        return False
+    st = RuntimeSettings.validate_deno(RuntimeSettings.deno_path())
+    return bool(st.get("available"))
 
 
 # ===================================================================
@@ -402,8 +423,8 @@ class TestRunDebugChain:
         assert result["console_logs"] == []
 
     @pytest.mark.skipif(
-        not _mini_racer_available(),
-        reason="py_mini_racer not available",
+        not _deno_debug_available(),
+        reason="Deno not available for JS step-through",
     )
     def test_runs_js_with_debug(self) -> None:
         """A simple JS script runs through the debug engine."""
@@ -423,8 +444,8 @@ class TestRunDebugChain:
         assert result["variable_changes"].get("result") == "ok"
 
     @pytest.mark.skipif(
-        not _mini_racer_available(),
-        reason="py_mini_racer not available",
+        not _deno_debug_available(),
+        reason="Deno not available for JS step-through",
     )
     def test_debug_breakpoint_fires(self) -> None:
         """Breakpoints cause the protocol to pause during debug execution."""
@@ -459,8 +480,8 @@ class TestRunDebugChain:
         assert 0 in paused_lines
 
     @pytest.mark.skipif(
-        not _mini_racer_available(),
-        reason="py_mini_racer not available",
+        not _deno_debug_available(),
+        reason="Deno not available for JS step-through",
     )
     def test_debug_stop_halts_execution(self) -> None:
         """Stopping the debug protocol halts script execution."""

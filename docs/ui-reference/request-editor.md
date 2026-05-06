@@ -31,7 +31,7 @@ and hover popup.
 | 2 | Body | Mode selector + stacked editors |
 | 3 | Auth | Auth type selector + field pages (via `_AuthMixin`) |
 | 4 | Description | `QTextEdit` for request documentation |
-| 5 | Scripts | `QTextEdit` for pre-request/test scripts |
+| 5 | Scripts | Dual `CodeEditorWidget` tabs (Pre-request / Post-response) with inline output panels |
 
 ### Body Modes
 
@@ -71,6 +71,47 @@ with Ctrl+R.
 | `_toggle_body_search()` | Show/hide find bar |
 | `_search_next()` / `_search_prev()` | Navigate matches |
 | `_replace_all()` | Bulk replace |
+
+## Scripts (_ScriptsMixin)
+
+Scripts has two sub-tabs:
+
+- **Pre-request** — runs before send.
+- **Post-response** — runs against a response context.
+
+Each sub-tab uses a vertical splitter between the code editor and the **Output**
+panel (`ScriptOutputPanel`). The default split gives the output band slightly
+more than half of the tab height (you can drag the handle). During inline debug,
+the variable inspector grows with that output area; long lists scroll inside it.
+Variable names and values are selectable for copy (each cell is a label; the
+tree item text in those columns is cleared so only one layer is painted).
+Long values start collapsed with an arrow to expand the full text.
+
+Below the editor, a **status strip** shows cursor line/column, a **language**
+control (VS Code-style: underlined accent link; click to choose JavaScript, Python, or **Auto**), and a
+character count. In **Auto** mode the language is inferred from the script text
+after a short debounce; choosing JavaScript or Python locks the mode until you
+pick **Auto** again. Saved requests store `pre_language` and `test_language`
+independently.
+
+Post-response inline output now uses a response-source selector:
+
+- `Use current response` (default): `Run` first sends the active request, then executes the current post-response script against the live response.
+- `Manual mock response`: expands status/body mock inputs and keeps the original offline inline run behavior.
+
+**Folder / collection Scripts → Post-response** (same `ScriptOutputPanel` with
+`host_kind="folder"`) has **no** “Use current response” option (there is no
+single request tab to send), but the **Mock response** block (status + body)
+is always shown so `pm.response` is populated for inline Run/Debug (paste JSON
+for `pm.response.json()`).  A blank mock body defaults to ``{}`` so
+`pm.response.json()` is valid without typing a body first.  Postman-style
+`pm.response.to.have.status(…)`, `header(…)`, and `jsonBody(…)` assertions are
+supported in both JavaScript and Python test scripts.
+
+For **JavaScript** inline debug (Deno), gutter breakpoints inside a
+`pm.test(..., function () { ... })` callback are wired to the inspector like
+any other user line; use **Debug test '…'** from the test gutter menu when you
+want to run a single named test only.
 
 ## GraphQL (_GraphQLMixin)
 

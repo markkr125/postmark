@@ -6,7 +6,7 @@ functions injected as builtins) for the Python script variant.
 
 from __future__ import annotations
 
-from ui.widgets.code_editor.completion.schema.core import _EXPECTATION_CHAIN_JS, SchemaNode
+from ui.widgets.code_editor.completion.schema.core import _EXPECTATION_CHAIN_PY, SchemaNode
 
 # -- Python-specific helpers -------------------------------------------
 
@@ -208,6 +208,12 @@ PY_SCHEMA: dict[str, SchemaNode] = {
                         "doc": "Return body as string",
                         "signature": "()",
                     },
+                    "to": {
+                        "kind": "object",
+                        "type_str": "Expectation",
+                        "doc": "Postman-style assertion chain (pm.response.to.have.status(...))",
+                        "children": _EXPECTATION_CHAIN_PY,
+                    },
                 },
             },
             "variables": {
@@ -245,7 +251,13 @@ PY_SCHEMA: dict[str, SchemaNode] = {
                 "type_str": "Expectation",
                 "doc": "Create assertion chain",
                 "signature": "(value: Any)",
-                "children": _EXPECTATION_CHAIN_JS,
+                "children": _EXPECTATION_CHAIN_PY,
+            },
+            "require": {
+                "kind": "method",
+                "type_str": "ModuleType",
+                "doc": "Install (via micropip) and import a PyPI package (Pyodide path)",
+                "signature": "(spec: str)",
             },
             "send_request": {
                 "kind": "method",

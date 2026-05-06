@@ -12,8 +12,9 @@ from typing import Any
 
 from PySide6.QtCore import QObject, Signal, Slot
 
-from services.scripting import ScriptEngine, ScriptInput
+from services.scripting import ScriptEngine, ScriptEntry, ScriptInput
 from services.scripting.context import build_pre_request_context, build_test_context
+from services.scripting.debug import DebugProtocol
 
 
 def build_inline_context(
@@ -82,11 +83,13 @@ class ScriptRunWorker(QObject):
     connect signals, and start.  Single-use — discard after completion.
 
     Signals:
-        finished(dict, float): ``(ScriptOutput, elapsed_ms)`` on success.
+        finished(object, float): ``(ScriptOutput, elapsed_ms)`` on success.
         error(str): Error message on failure.
     """
 
-    finished = Signal(dict, float)
+    # ``object`` avoids PySide6 converting ``dict`` via QVariantMap (nested
+    # lists/structures can be lost when crossing the meta-object border).
+    finished = Signal(object, float)
     error = Signal(str)
 
     def __init__(self) -> None:
@@ -129,4 +132,73 @@ class ScriptRunWorker(QObject):
             self.finished.emit(result, elapsed)
         except Exception as exc:
             self.error.emit(str(exc))
+
+
+class ScriptDebugWorker(QObject):
+    """Run a single script on a background thread with :class:`DebugProtocol`.
+
+    Mirrors the debug path in :class:`~ui.request.http_worker.HttpSendWorker`
+    (``protocol.start`` then ``run_debug_chain``) so the UI can handle pauses and resume.
+    """
+
+    # ``object`` avoids PySide6 converting ``dict`` via QVariantMap (nested
+    # lists/structures can be lost when crossing the meta-object border).
+    finished = Signal(object, float)
+    error = Signal(str)
+    debug_paused = Signal(object)
+
+    def __init__(self) -> None:
+        """Initialise with empty parameters."""
+        super().__init__()
+        self._script: str = ""
+        self._language: str = "javascript"
+        self._context: ScriptInput | None = None
+        self._protocol: DebugProtocol | None = None
+        self._script_type: str = "pre_request"
+
+    def set_params(
+        self,
+        *,
+        script: str,
+        language: str,
+        context: ScriptInput,
+        protocol: DebugProtocol,
+        script_type: str,
+    ) -> None:
+        """Configure the script, context, and protocol. Call before ``moveToThread()``."""
+        self._script = script
+        self._language = language
+        self._context = context
+        self._protocol = protocol
+        self._script_type = script_type
+
+    @Slot()
+    def run(self) -> None:
+        """Execute the script in debug mode and emit results."""
+        if self._context is None or self._protocol is None:
+            self.error.emit("Debug worker not configured")
+            return
+
+        from services.scripting.engine import run_debug_chain
+
+        self._protocol.start(
+            on_pause=lambda info: self.debug_paused.emit(info),
+        )
+
+        entry: ScriptEntry = {
+            "code": self._script,
+            "language": self._language,
+            "source_name": "(inline debug)",
+        }
+        start = time.perf_counter()
+        try:
+            result = run_debug_chain(
+                [entry],
+                self._context,
+                self._protocol,
+                script_type=self._script_type,
+            )
+            elapsed = (time.perf_counter() - start) * 1000.0
+            self.finished.emit(result, elapsed)
+        except Exception as exc:
             self.error.emit(str(exc))

@@ -15,13 +15,6 @@ from typing import TYPE_CHECKING
 from PySide6.QtGui import QColor, QTextCharFormat, QTextCursor, QTextDocument
 from PySide6.QtWidgets import QTextEdit
 
-from ui.styling.theme import (
-    COLOR_EDITOR_BRACKET_MATCH,
-    COLOR_EDITOR_CURRENT_LINE,
-    COLOR_EDITOR_ERROR_UNDERLINE,
-    COLOR_EDITOR_FOLD_HIGHLIGHT,
-    COLOR_EDITOR_WARNING_UNDERLINE,
-)
 from ui.widgets.code_editor.gutter import (
     _ALL_BRACKETS,
     _BRACKET_PAIRS,
@@ -41,6 +34,8 @@ from ui.widgets.code_editor.gutter import (
 if TYPE_CHECKING:
     from PySide6.QtCore import QTimer, Signal
     from PySide6.QtWidgets import QPlainTextEdit
+
+    from ui.styling.theme import ThemePalette
 
     _FoldingBase = QPlainTextEdit
 else:
@@ -75,6 +70,8 @@ class _FoldingMixin(_FoldingBase):
         def _update_gutter_width(self) -> None: ...
 
         def _update_active_fold(self) -> None: ...
+
+        def _editor_palette(self) -> ThemePalette: ...
 
     # -- Fold detection -------------------------------------------------
 
@@ -318,6 +315,7 @@ class _FoldingMixin(_FoldingBase):
 
     def _refresh_extra_selections(self) -> None:
         """Combine current-line, bracket-match, error, search, and fold extra selections."""
+        p = self._editor_palette()
         selections: list[QTextEdit.ExtraSelection] = []
 
         # 0. Current-line highlight (full-width, subtle background)
@@ -325,13 +323,31 @@ class _FoldingMixin(_FoldingBase):
         if not self._read_only:
             line_sel = QTextEdit.ExtraSelection()
             line_fmt = QTextCharFormat()
-            line_fmt.setBackground(QColor(COLOR_EDITOR_CURRENT_LINE))
+            line_fmt.setBackground(QColor(p["editor_current_line"]))
             line_fmt.setProperty(QTextCharFormat.Property.FullWidthSelection, True)
             line_sel.format = line_fmt
             line_cur = QTextCursor(cursor)
             line_cur.clearSelection()
             line_sel.cursor = line_cur
             selections.append(line_sel)
+
+        selections.extend(self._breakpoint_selections())
+
+        # 0b. Debug execution line (full-width, above current-line when overlapping)
+        dbg_line = getattr(self, "_debug_line", None)
+        if dbg_line is not None:
+            doc = self.document()
+            block = doc.findBlockByNumber(dbg_line)
+            if block.isValid():
+                dbg_sel = QTextEdit.ExtraSelection()
+                dbg_fmt = QTextCharFormat()
+                dbg_fmt.setBackground(QColor(p["editor_debug_line"]))
+                dbg_fmt.setProperty(QTextCharFormat.Property.FullWidthSelection, True)
+                dbg_cur = QTextCursor(block)
+                dbg_cur.clearSelection()
+                dbg_sel.cursor = dbg_cur
+                dbg_sel.format = dbg_fmt
+                selections.append(dbg_sel)
 
         # 1. Bracket matching
         block = cursor.block()
@@ -350,7 +366,7 @@ class _FoldingMixin(_FoldingBase):
             match_pos = self._find_matching_bracket(abs_pos, ch)
             if match_pos >= 0:
                 fmt = QTextCharFormat()
-                fmt.setBackground(QColor(COLOR_EDITOR_BRACKET_MATCH))
+                fmt.setBackground(QColor(p["editor_bracket_match"]))
 
                 sel1 = QTextEdit.ExtraSelection()
                 cur1 = QTextCursor(self.document())
@@ -380,6 +396,10 @@ class _FoldingMixin(_FoldingBase):
 
         # 5. Diff highlight selections
         selections.extend(self._diff_selections)
+
+        # 6. Ctrl+hover symbol link underline
+        if hasattr(self, "_symbol_link_selections"):
+            selections.extend(self._symbol_link_selections)
 
         self.setExtraSelections(selections)
 
@@ -424,15 +444,42 @@ class _FoldingMixin(_FoldingBase):
 
     # -- Extra selections -----------------------------------------------
 
+    def _breakpoint_selections(self) -> list[QTextEdit.ExtraSelection]:
+        """Full-width tint for each line with a breakpoint (gutter dot)."""
+        selections: list[QTextEdit.ExtraSelection] = []
+        bps = getattr(self, "_breakpoints", None)
+        if not bps:
+            return selections
+
+        p = self._editor_palette()
+        doc = self.document()
+        fmt = QTextCharFormat()
+        fmt.setBackground(QColor(p["editor_breakpoint_line"]))
+        fmt.setProperty(QTextCharFormat.Property.FullWidthSelection, True)
+
+        for line in sorted(bps):
+            block = doc.findBlockByNumber(line)
+            if not block.isValid():
+                continue
+            sel = QTextEdit.ExtraSelection()
+            cur = QTextCursor(block)
+            cur.clearSelection()
+            sel.cursor = cur
+            sel.format = fmt
+            selections.append(sel)
+
+        return selections
+
     def _collapsed_fold_selections(self) -> list[QTextEdit.ExtraSelection]:
         """Build ExtraSelections to highlight collapsed fold-header lines."""
         selections: list[QTextEdit.ExtraSelection] = []
         if not self._collapsed_folds:
             return selections
 
+        p = self._editor_palette()
         doc = self.document()
         fmt = QTextCharFormat()
-        fmt.setBackground(QColor(COLOR_EDITOR_FOLD_HIGHLIGHT))
+        fmt.setBackground(QColor(p["editor_fold_highlight"]))
         fmt.setProperty(QTextCharFormat.Property.FullWidthSelection, True)
 
         for start_line in self._collapsed_folds:
@@ -451,6 +498,7 @@ class _FoldingMixin(_FoldingBase):
     def _error_selections(self) -> list[QTextEdit.ExtraSelection]:
         """Build ExtraSelections for validation errors (wave underline)."""
         selections: list[QTextEdit.ExtraSelection] = []
+        p = self._editor_palette()
         doc = self.document()
 
         for error in self._errors:
@@ -461,9 +509,9 @@ class _FoldingMixin(_FoldingBase):
             fmt = QTextCharFormat()
             fmt.setUnderlineStyle(QTextCharFormat.UnderlineStyle.WaveUnderline)
             uline = (
-                COLOR_EDITOR_WARNING_UNDERLINE
+                p["editor_warning_underline"]
                 if error.severity == "warning"
-                else COLOR_EDITOR_ERROR_UNDERLINE
+                else p["editor_error_underline"]
             )
             fmt.setUnderlineColor(QColor(uline))
 

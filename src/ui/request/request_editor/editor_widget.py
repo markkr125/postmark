@@ -86,10 +86,12 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, _ScriptsM
     """
 
     send_requested = Signal()
-    debug_requested = Signal()
+    debug_step_requested = Signal(str)
     save_requested = Signal()
     dirty_changed = Signal(bool)
     request_changed = Signal(dict)
+    open_collection_requested = Signal(int)
+    open_scripting_settings_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Initialise the request editor layout."""
@@ -136,15 +138,6 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, _ScriptsM
         self._send_btn.setFixedWidth(90)
         self._send_btn.clicked.connect(self.send_requested.emit)
         top_bar.addWidget(self._send_btn)
-
-        self._debug_btn = QPushButton()
-        self._debug_btn.setIcon(phi("bug", size=16))
-        self._debug_btn.setObjectName("iconButton")
-        self._debug_btn.setFixedSize(32, 32)
-        self._debug_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._debug_btn.setToolTip("Debug (send with breakpoints)")
-        self._debug_btn.clicked.connect(self.debug_requested.emit)
-        top_bar.addWidget(self._debug_btn)
 
         root.addLayout(top_bar)
 
@@ -323,6 +316,9 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, _ScriptsM
         finally:
             self._loading = False
         self._sync_tab_indicators()
+        # Script editors populate while ``_loading`` is True, so
+        # ``_schedule_banner_check`` was skipped; refresh Deno prompt now.
+        self._update_runtime_banners()
 
     def _load_body_content(self, data: RequestLoadDict, body_mode: str) -> None:
         """Load body content into the correct widget for *body_mode*."""
@@ -446,6 +442,7 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, _ScriptsM
             self._set_dirty(False)
         finally:
             self._loading = False
+        self._update_runtime_banners()
 
     # -- Dirty tracking -----------------------------------------------
 

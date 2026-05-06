@@ -8,6 +8,7 @@ import sys
 from PySide6.QtWidgets import QApplication
 
 from database.database import init_db
+from qt_app_init import configure_before_qapplication
 from ui.main_window import MainWindow
 from ui.styling.icons import load_font
 from ui.styling.tab_settings_manager import TabSettingsManager
@@ -17,6 +18,7 @@ from ui.styling.theme_manager import ThemeManager
 # Main entry point
 # --------------------------------------------------------------------------
 if __name__ == "__main__":
+    configure_before_qapplication()
     app = QApplication(sys.argv)
 
     # Apply theme (reads QSettings, sets style + palette + global QSS)
@@ -36,8 +38,6 @@ if __name__ == "__main__":
     window.showMaximized()
     ret = app.exec()
 
-    # Release the cached V8 context so MiniRacer's event-loop
-    # thread stops and the process can exit cleanly.
     from services.scripting.engine import ScriptLinter
 
     ScriptLinter.shutdown()

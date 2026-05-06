@@ -1,13 +1,14 @@
 """Tests for the script execution engine, context builder, and Python runtime.
 
-JS runtime tests require ``py_mini_racer`` (marked with
-``pytest.importorskip``) and will be skipped when the library is
-unavailable.
+JavaScript tests require **Deno** and are skipped when
+``RuntimeSettings.validate_deno`` reports the binary unavailable.
 """
 
 from __future__ import annotations
 
 import pytest
+
+from esprima_test_util import deno_and_esprima_available  # type: ignore[import-not-found]
 
 from services.scripting import ScriptEngine, ScriptEntry, ScriptInput
 from services.scripting.context import (
@@ -43,6 +44,35 @@ def _make_context(
 # ===================================================================
 # Context builder tests
 # ===================================================================
+
+
+class TestBuildJsContext:
+    """Tests for ``js_runtime._build_js_context`` (no Deno required)."""
+
+    def test_maps_code_key_to_status_code(self) -> None:
+        """Mock / inline UI uses ``code`` like Postman; JS must see the real status."""
+        from services.scripting.js_runtime import _build_js_context
+
+        ctx: ScriptInput = {
+            "request": {"url": "https://example.com", "method": "GET", "headers": {}, "body": ""},
+            "response": {
+                "code": 201,
+                "status": "201",
+                "headers": [],
+                "body": "{}",
+                "responseTime": 0,
+                "responseSize": 2,
+            },
+            "variables": {},
+            "environment_vars": {},
+            "collection_vars": {},
+            "info": {},
+        }
+        js_ctx = _build_js_context(ctx)
+        assert js_ctx["response"] is not None
+        assert js_ctx["response"]["status_code"] == 201
+        assert js_ctx["response"]["response_time"] == 0
+        assert js_ctx["response"]["response_size"] == 2
 
 
 class TestBuildPreRequestContext:
@@ -497,20 +527,78 @@ class TestScriptEngine:
         assert errs[0]["source_name"] == "Hyperguest"
 
 
+class TestFindPmTests:
+    """Tests for :func:`services.scripting.engine.find_pm_tests`."""
+
+    def test_find_python_pm_test_calls(self) -> None:
+        """AST path lists each ``pm.test("name", ...)`` with 1-based lines."""
+        from services.scripting.engine import find_pm_tests
+
+        src = 'pm.test("a", lambda: None)\n\npm.test("b", lambda: None)\n'
+        out = find_pm_tests(src, "python")
+        assert [x["name"] for x in out] == ["a", "b"]
+        assert [x["line"] for x in out] == [1, 3]
+
+    def test_find_javascript_pm_test_regex_fallback(self) -> None:
+        """JavaScript path finds tests (regex when parse is unavailable)."""
+        from services.scripting.engine import find_pm_tests
+
+        src = "pm.test('x', function() { pm.expect(1).to.equal(1); });"
+        out = find_pm_tests(src, "javascript")
+        assert any(t.get("name") == "x" for t in out)
+
+
+class TestFindTopLevelStatementLines:
+    """Tests for :func:`services.scripting.engine.find_top_level_statement_lines`."""
+
+    def test_python_module_body_lines_zero_based(self) -> None:
+        from services.scripting.engine import find_top_level_statement_lines
+
+        src = "a = 1\ndef f():\n    x = 2\n"
+        lines = find_top_level_statement_lines(src, "python")
+        assert lines == {0, 1}
+
+    @pytest.mark.skipif(
+        not deno_and_esprima_available(),
+        reason="Deno + Esprima required for JS top-level line scan",
+    )
+    def test_javascript_top_level_only(self) -> None:
+        """Esprima path: only the ``pm.test`` statement is a checkpoint line."""
+        from services.scripting.engine import find_top_level_statement_lines
+
+        src = "pm.test('x', function() {\n  var y = 1;\n});\n"
+        lines = find_top_level_statement_lines(src, "javascript")
+        assert lines
+        assert 0 in lines
+        assert 1 not in lines
+
+    def test_unsupported_or_empty_returns_empty(self) -> None:
+        from services.scripting.engine import find_top_level_statement_lines
+
+        assert find_top_level_statement_lines("", "javascript") == set()
+        assert find_top_level_statement_lines(" ", "rust") == set()
+
+
 # ===================================================================
-# JS runtime tests (require py_mini_racer)
+# JS runtime tests (require Deno for DenoRuntime / JSRuntime.execute)
 # ===================================================================
 
 
 class TestJSRuntime:
-    """Tests for the JavaScript V8 runtime.
+    """Tests for the JavaScript runtime (Deno subprocess via ``JSRuntime``).
 
-    Skipped when py_mini_racer is not available.
+    Skipped when Deno is not available.
     """
 
     @pytest.fixture(autouse=True)
     def _require_mini_racer(self) -> None:
-        pytest.importorskip("py_mini_racer")
+        from services.scripting.runtime_settings import RuntimeSettings
+
+        st = RuntimeSettings.validate_deno(RuntimeSettings.deno_path())
+        if not st.get("available"):
+            import pytest
+
+            pytest.skip("Deno not available")
 
     def test_simple_test_pass(self):
         from services.scripting.js_runtime import JSRuntime
@@ -541,6 +629,14 @@ class TestJSRuntime:
         result = JSRuntime.execute(script, _make_context())
         assert len(result["console_logs"]) >= 1
         assert result["console_logs"][0]["message"] == "hello"
+
+    def test_console_log_without_trailing_semicolon(self):
+        """Omitting ``;`` on the last line must not let ASI join the drain IIFE."""
+        from services.scripting.js_runtime import JSRuntime
+
+        result = JSRuntime.execute("console.log('asi-ok')", _make_context())
+        assert not any(t.get("name") == "(runtime error)" for t in result.get("test_results", []))
+        assert any("asi-ok" in (e.get("message", "") or "") for e in result.get("console_logs", []))
 
     def test_cookies_parsed_from_response(self):
         from services.scripting.js_runtime import JSRuntime
@@ -582,3 +678,72 @@ pm.test("count", function() { pm.expect(all.length).to.equal(2); });
 """
         result = JSRuntime.execute(script, ctx)
         assert result["test_results"][0]["passed"] is True
+
+    def test_pm_response_to_have_status_passes(self) -> None:
+        from services.scripting.js_runtime import JSRuntime
+
+        ctx = _make_context(
+            response={"status_code": 200, "body": "{}", "headers": []},
+        )
+        script = 'pm.test("s", function() { pm.response.to.have.status(200); });'
+        result = JSRuntime.execute(script, ctx)
+        assert result["test_results"][0]["passed"] is True
+
+    def test_pm_response_to_have_status_fails(self) -> None:
+        from services.scripting.js_runtime import JSRuntime
+
+        ctx = _make_context(
+            response={"status_code": 200, "body": "{}", "headers": []},
+        )
+        script = 'pm.test("s", function() { pm.response.to.have.status(404); });'
+        result = JSRuntime.execute(script, ctx)
+        assert result["test_results"][0]["passed"] is False
+
+    def test_pm_response_to_not_does_not_leak_negation(self) -> None:
+        """``to`` returns a fresh ``__Expectation`` so ``.not`` does not affect the next chain."""
+        from services.scripting.js_runtime import JSRuntime
+
+        ctx = _make_context(
+            response={"status_code": 200, "body": "{}", "headers": []},
+        )
+        script = """
+pm.test("a", function() { pm.response.to.not.have.status(500); });
+pm.test("b", function() { pm.response.to.have.status(200); });
+"""
+        result = JSRuntime.execute(script, ctx)
+        assert len(result["test_results"]) == 2
+        assert all(r["passed"] for r in result["test_results"])
+
+    def test_pm_response_to_have_header(self) -> None:
+        from services.scripting.js_runtime import JSRuntime
+
+        ctx = _make_context(
+            response={
+                "status_code": 200,
+                "body": "{}",
+                "headers": [
+                    {"key": "Content-Type", "value": "application/json"},
+                ],
+            },
+        )
+        script = """
+pm.test("h", function() {
+    pm.response.to.have.header("Content-Type", "application/json");
+});
+"""
+        result = JSRuntime.execute(script, ctx)
+        assert result["test_results"][0]["passed"] is True
+
+    def test_pm_response_to_have_json_body(self) -> None:
+        from services.scripting.js_runtime import JSRuntime
+
+        ctx = _make_context(
+            response={"status_code": 200, "body": '{"id": 7, "a": {"b": 1}}', "headers": []},
+        )
+        script = """
+pm.test("id", function() { pm.response.to.have.jsonBody("id", 7); });
+pm.test("path", function() { pm.response.to.have.jsonBody("a.b", 1); });
+"""
+        result = JSRuntime.execute(script, ctx)
+        assert len(result["test_results"]) == 2
+        assert all(r["passed"] for r in result["test_results"])

@@ -10,6 +10,9 @@ from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QApplication
 
 from database.database import init_db
+from qt_app_init import configure_before_qapplication
+
+configure_before_qapplication()
 
 # ------------------------------------------------------------------
 # Isolate QSettings so tests never overwrite user preferences

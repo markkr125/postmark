@@ -6,14 +6,19 @@ and Scripting pages.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QSettings, Qt
+import sys
+
+from PySide6.QtCore import QSettings, QThread, Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
+    QFileDialog,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
+    QProgressBar,
     QPushButton,
     QSpinBox,
     QSplitter,
@@ -44,6 +49,8 @@ from ui.styling.theme_manager import (
     STYLES,
     ThemeManager,
 )
+from ui.widgets.deno_download_worker import DenoDownloadWorker
+from services.scripting.runtime_settings import RuntimeSettings
 
 
 class SettingsDialog(QDialog):
@@ -54,8 +61,15 @@ class SettingsDialog(QDialog):
         theme_manager: ThemeManager | None,
         tab_settings_manager: TabSettingsManager | None = None,
         parent: QWidget | None = None,
+        *,
+        initial_category: str = "Appearance",
     ) -> None:
-        """Initialise the settings dialog."""
+        """Initialise the settings dialog.
+
+        *initial_category* is one of ``"Appearance"``, ``"Tabs"``, or
+        ``"Scripting"`` (case-insensitive) and selects the list row and
+        detail page on open.
+        """
         super().__init__(parent)
         self.setWindowTitle("Settings")
         self.setMinimumSize(520, 340)
@@ -64,6 +78,8 @@ class SettingsDialog(QDialog):
 
         self._tm = theme_manager
         self._tab_settings = tab_settings_manager or TabSettingsManager(self)
+        self._deno_download_thread: QThread | None = None
+        self._deno_download_worker: DenoDownloadWorker | None = None
 
         root = QVBoxLayout(self)
 
@@ -110,6 +126,17 @@ class SettingsDialog(QDialog):
         btn_row.addWidget(close_btn)
 
         root.addLayout(btn_row)
+
+        self._apply_initial_category(initial_category)
+
+    def _apply_initial_category(self, name: str) -> None:
+        """Select the settings category list row matching *name*."""
+        options = ("Appearance", "Tabs", "Scripting")
+        key = name.strip().casefold()
+        for i, label in enumerate(options):
+            if label.casefold() == key:
+                self._cat_list.setCurrentRow(i)
+                return
 
     # -- Page builders -------------------------------------------------
 
@@ -283,6 +310,98 @@ class SettingsDialog(QDialog):
         note.setObjectName("mutedLabel")
         layout.addWidget(note)
 
+        deno_label = QLabel("JavaScript (Deno)")
+        deno_label.setObjectName("sectionLabel")
+        layout.addWidget(deno_label)
+
+        deno_row = QHBoxLayout()
+        deno_row.setContentsMargins(0, 0, 0, 0)
+        self._deno_path_edit = QLineEdit()
+        self._deno_path_edit.setObjectName("settingsDenoPathEdit")
+        self._deno_path_edit.setPlaceholderText("Default: PATH, then the managed download cache")
+        raw_deno = settings.value("scripting/deno_path", "")
+        if not isinstance(raw_deno, str):
+            raw_deno = str(raw_deno or "")
+        self._deno_path_edit.setText(raw_deno.strip())
+        self._deno_path_edit.textChanged.connect(self._refresh_deno_status)
+        deno_row.addWidget(self._deno_path_edit, 1)
+
+        deno_browse = QPushButton("Browse")
+        deno_browse.setObjectName("outlineButton")
+        deno_browse.setCursor(Qt.CursorShape.PointingHandCursor)
+        deno_browse.clicked.connect(self._on_browse_deno)
+        deno_row.addWidget(deno_browse)
+        self._deno_autodetect_btn = QPushButton("Auto-detect")
+        self._deno_autodetect_btn.setObjectName("settingsDenoAutodetectBtn")
+        self._deno_autodetect_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._deno_autodetect_btn.setToolTip(
+            "Clear a custom path and use Deno on PATH or the managed cache."
+        )
+        self._deno_autodetect_btn.clicked.connect(self._on_deno_autodetect)
+        deno_row.addWidget(self._deno_autodetect_btn)
+        layout.addLayout(deno_row)
+
+        deno_action_row = QHBoxLayout()
+        deno_action_row.setContentsMargins(0, 0, 0, 0)
+        self._deno_download_btn = QPushButton("Download managed Deno")
+        self._deno_download_btn.setObjectName("settingsDenoDownloadBtn")
+        self._deno_download_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._deno_download_btn.setToolTip(
+            "Download the pinned Deno build into the application data directory."
+        )
+        self._deno_download_btn.clicked.connect(self._on_deno_download)
+        deno_action_row.addWidget(self._deno_download_btn)
+        self._deno_download_progress = QProgressBar()
+        self._deno_download_progress.setObjectName("settingsDenoDownloadProgress")
+        self._deno_download_progress.setRange(0, 0)
+        self._deno_download_progress.setFixedHeight(4)
+        self._deno_download_progress.setTextVisible(False)
+        self._deno_download_progress.setVisible(False)
+        self._deno_download_progress.setMaximumWidth(200)
+        deno_action_row.addWidget(self._deno_download_progress)
+        deno_action_row.addStretch()
+        layout.addLayout(deno_action_row)
+
+        self._deno_status_label = QLabel()
+        self._deno_status_label.setObjectName("settingsDenoStatusLabel")
+        self._deno_status_label.setWordWrap(True)
+        layout.addWidget(self._deno_status_label)
+
+        py_label = QLabel("Python (RestrictedPython host)")
+        py_label.setObjectName("sectionLabel")
+        layout.addWidget(py_label)
+
+        py_row = QHBoxLayout()
+        py_row.setContentsMargins(0, 0, 0, 0)
+        self._python_path_edit = QLineEdit()
+        self._python_path_edit.setObjectName("settingsPythonPathEdit")
+        self._python_path_edit.setPlaceholderText("Default: this application's Python interpreter")
+        raw_py = settings.value("scripting/python_path", "")
+        if not isinstance(raw_py, str):
+            raw_py = str(raw_py or "")
+        self._python_path_edit.setText(raw_py.strip())
+        self._python_path_edit.textChanged.connect(self._refresh_python_status)
+        py_row.addWidget(self._python_path_edit, 1)
+        py_browse = QPushButton("Browse")
+        py_browse.setObjectName("outlineButton")
+        py_browse.setCursor(Qt.CursorShape.PointingHandCursor)
+        py_browse.clicked.connect(self._on_browse_python)
+        py_row.addWidget(py_browse)
+        self._python_reset_btn = QPushButton("Reset to app")
+        self._python_reset_btn.setObjectName("outlineButton")
+        self._python_reset_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._python_reset_btn.setToolTip(
+            "Use the current Postmark app Python (clear custom path)."
+        )
+        self._python_reset_btn.clicked.connect(self._on_python_reset)
+        py_row.addWidget(self._python_reset_btn)
+        layout.addLayout(py_row)
+
+        self._python_status_label = QLabel()
+        self._python_status_label.setObjectName("settingsPythonStatusLabel")
+        self._python_status_label.setWordWrap(True)
+        layout.addWidget(self._python_status_label)
+
         # Auto-save default
         auto_save_label = QLabel("Version Capture")
         auto_save_label.setObjectName("sectionLabel")
@@ -301,6 +420,9 @@ class SettingsDialog(QDialog):
         )
         auto_save_note.setObjectName("mutedLabel")
         layout.addWidget(auto_save_note)
+
+        self._refresh_deno_status()
+        self._refresh_python_status()
 
         layout.addStretch()
         self._stack.addWidget(page)
@@ -352,3 +474,139 @@ class SettingsDialog(QDialog):
             "scripting/auto_save_default",
             self._auto_save_default_check.isChecked(),
         )
+
+        d_text = self._deno_path_edit.text().strip()
+        if d_text:
+            RuntimeSettings.set_deno_path(d_text)
+        else:
+            RuntimeSettings.clear_deno_path()
+        py_text = self._python_path_edit.text().strip()
+        if py_text:
+            RuntimeSettings.set_python_path(py_text)
+        else:
+            RuntimeSettings.clear_python_path()
+        self._refresh_deno_status()
+        self._refresh_python_status()
+
+    def _provisional_deno_executable(self) -> str | None:
+        """Deno path from the line edit, or auto-detect when the field is empty."""
+        t = self._deno_path_edit.text().strip()
+        if t:
+            return t
+        return RuntimeSettings.auto_detected_deno_path()
+
+    def _provisional_python_executable(self) -> str:
+        """Python path from the line edit, or the app default when empty."""
+        t = self._python_path_edit.text().strip()
+        if t:
+            return t
+        return sys.executable
+
+    def _refresh_deno_status(self) -> None:
+        """Update the Deno validation line under the text field."""
+        cand = self._provisional_deno_executable()
+        st = RuntimeSettings.validate_deno(cand)
+        if st["available"]:
+            ver = st["version"] or "Deno"
+            self._deno_status_label.setText(ver)
+        else:
+            self._deno_status_label.setText(st["error"] or "Deno is not available.")
+        self._deno_download_btn.setEnabled(not st["available"])
+        if self._deno_download_thread is not None:
+            self._deno_download_btn.setEnabled(False)
+
+    def _refresh_python_status(self) -> None:
+        """Update the Python validation line under the text field."""
+        cand = self._provisional_python_executable()
+        st = RuntimeSettings.validate_python(cand)
+        if st["available"]:
+            v = st["version"]
+            self._python_status_label.setText(f"Valid — {v}" if v else "Valid")
+        else:
+            self._python_status_label.setText(
+                st["error"] or "Python cannot load RestrictedPython with this path."
+            )
+
+    def _on_browse_deno(self) -> None:
+        """Set the Deno path from a file dialog."""
+        start = self._deno_path_edit.text().strip() or "/"
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Deno executable",
+            start,
+            "Executables (*)",
+        )
+        if file_path:
+            self._deno_path_edit.setText(file_path)
+
+    def _on_browse_python(self) -> None:
+        """Set the Python path from a file dialog."""
+        start = self._python_path_edit.text().strip() or "/"
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Python executable",
+            start,
+            "Executables (*)",
+        )
+        if file_path:
+            self._python_path_edit.setText(file_path)
+
+    def _on_deno_autodetect(self) -> None:
+        """Clear a custom path so :meth:`RuntimeSettings.deno_path` can resolve."""
+        self._deno_path_edit.clear()
+
+    def _on_python_reset(self) -> None:
+        """Clear a custom Python so :data:`sys.executable` is used on Apply."""
+        self._python_path_edit.clear()
+
+    def _on_deno_download(self) -> None:
+        """Start the background Deno download; user-initiated only."""
+        if self._deno_download_thread is not None:
+            return
+        self._deno_download_btn.setEnabled(False)
+        self._deno_download_progress.setVisible(True)
+        self._deno_download_progress.setRange(0, 0)
+
+        self._deno_download_thread = QThread()
+        self._deno_download_worker = DenoDownloadWorker()
+        self._deno_download_worker.moveToThread(self._deno_download_thread)
+
+        self._deno_download_thread.started.connect(self._deno_download_worker.run)
+        self._deno_download_worker.progress.connect(self._on_deno_download_progress)
+        self._deno_download_worker.finished.connect(self._on_deno_download_finished)
+        self._deno_download_worker.error.connect(self._on_deno_download_error)
+
+        self._deno_download_worker.finished.connect(self._deno_download_thread.quit)
+        self._deno_download_worker.error.connect(self._deno_download_thread.quit)
+        self._deno_download_worker.finished.connect(self._deno_download_worker.deleteLater)
+        self._deno_download_worker.error.connect(self._deno_download_worker.deleteLater)
+        self._deno_download_thread.finished.connect(self._deno_download_thread.deleteLater)
+        self._deno_download_thread.finished.connect(self._on_deno_download_thread_done)
+
+        self._deno_download_thread.start()
+
+    def _on_deno_download_progress(self, received: int, total: int) -> None:
+        """Update indeterminate or determinate download progress bar."""
+        if total > 0:
+            self._deno_download_progress.setRange(0, total)
+            self._deno_download_progress.setValue(received)
+        else:
+            self._deno_download_progress.setRange(0, 0)
+
+    def _on_deno_download_finished(self, _path: str) -> None:
+        """Deno is installed; prefer the auto-resolved (managed) path."""
+        self._deno_download_progress.setVisible(False)
+        self._deno_path_edit.clear()
+        self._refresh_deno_status()
+
+    def _on_deno_download_error(self, err: str) -> None:
+        """Show a download failure on the status label."""
+        self._deno_download_progress.setVisible(False)
+        self._deno_status_label.setText(f"Download failed: {err}")
+        self._deno_download_btn.setEnabled(True)
+        self._refresh_deno_status()
+
+    def _on_deno_download_thread_done(self) -> None:
+        """Clear thread state after a download attempt."""
+        self._deno_download_thread = None
+        self._deno_download_worker = None

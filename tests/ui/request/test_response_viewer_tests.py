@@ -159,8 +159,8 @@ class TestPreRequestTab:
             variable_changes={"token": "abc123", "host": "api.example.com"},
             errors=[],
         )
-        assert not viewer._pre_request_vars_label.isHidden()
-        text = viewer._pre_request_vars_label.text()
+        assert not viewer._pre_request_vars_edit.isHidden()
+        text = viewer._pre_request_vars_edit.toPlainText()
         assert "token" in text
         assert "abc123" in text
         assert "host" in text
@@ -173,7 +173,7 @@ class TestPreRequestTab:
             variable_changes={},
             errors=[],
         )
-        assert viewer._pre_request_vars_label.isHidden()
+        assert viewer._pre_request_vars_edit.isHidden()
 
     def test_error_shows_red_tab_label(self, qapp: QApplication, qtbot) -> None:
         """Pre-request errors turn the tab label red."""

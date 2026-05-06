@@ -8,22 +8,25 @@ and what implicit contracts exist.
 1. **UI must never import from `database/`.**  Go through the service layer.
 2. **Call `init_db()` before creating `MainWindow`** — the constructor
    immediately starts a background DB query.
-3. **Create `ThemeManager(app)` before creating `MainWindow`** — it applies
+3. **Call `configure_before_qapplication()` before the first `QApplication()`**
+   — see `qt_app_init.py` (used from `main.py` and `tests/conftest.py`) for
+   Hi-DPI scale-factor rounding on fractional displays.
+4. **Create `ThemeManager(app)` before creating `MainWindow`** — it applies
    the global stylesheet, QPalette, and widget style on construction.
    Import from `ui.styling.theme_manager`.
-4. **Every repository function is its own transaction.** You cannot batch
+5. **Every repository function is its own transaction.** You cannot batch
    multiple calls into one commit.
-5. **Always wrap programmatic tree-item edits in `blockSignals(True/False)`**
+6. **Always wrap programmatic tree-item edits in `blockSignals(True/False)`**
    — see [ui/AGENTS.md](ui/AGENTS.md).
-6. **The data interchange format is a nested `dict[str, Any]`**, not ORM
+7. **The data interchange format is a nested `dict[str, Any]`**, not ORM
    objects.  See the schema below.
-7. **`_safe_svc_call` swallows all exceptions.**  Errors are logged but never
+8. **`_safe_svc_call` swallows all exceptions.**  Errors are logged but never
    shown to the user.
-8. **`CollectionService` methods are all `@staticmethod`.**  Do not add
+9. **`CollectionService` methods are all `@staticmethod`.**  Do not add
    instance state.
-9. **Never call `setStyleSheet()` for static widget styling** — use
+10. **Never call `setStyleSheet()` for static widget styling** — use
    `setObjectName()` and global QSS.  See [ui/AGENTS.md](ui/AGENTS.md).
-10. **Never use `# type: ignore` to assign `None` to a non-optional
+11. **Never use `# type: ignore` to assign `None` to a non-optional
     attribute.**  This silences mypy but Pylance still widens the inferred
     type to `X | None`, propagating false errors everywhere the attribute
     is read.  If a field truly needs to become `None`, declare it as
@@ -55,6 +58,9 @@ RequestEditorWidget  ──send_requested──►  MainWindow
   MainWindow → HttpSendWorker (QThread) → HttpService.send_request()
     → HttpSendWorker.finished(HttpResponseDict) → ResponseViewerWidget.load_response()
 
+RequestEditorWidget / FolderEditorWidget  ──open_scripting_settings_requested──►  MainWindow
+  → ``SettingsDialog`` (``initial_category="Scripting"``)
+
 RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread)
   → GraphQLSchemaService.fetch_schema() → SchemaFetchWorker.finished()
 ```
@@ -84,13 +90,28 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
 - `ScriptService` and `ScriptEngine` also follow the `@staticmethod`
   pattern.  `ScriptService.build_script_chain(request_id)` walks the
   ancestor chain to collect inherited scripts.  `ScriptEngine` dispatches
-  to `JSRuntime` (V8 via PyMiniRacer) or `PyRuntime` (RestrictedPython
-  subprocess).  TypedDicts (`ScriptInput`, `ScriptOutput`, `TestResult`,
+  to `DenoRuntime` (default JavaScript: ``deno run`` + `data/scripts/deno_drain.mjs`
+  for ``pm.sendRequest`` IPC) or `PyRuntime` (Pyodide under Deno when
+  :file:`data/scripts/vendor_pyodide/` is present, otherwise RestrictedPython
+  subprocess via :file:`_py_sandbox.py`).
+  :class:`JSRuntime` delegates execution to :class:`DenoRuntime` and provides
+  bootstrap and vendor file loaders.  JavaScript parse for the linter and
+  gutter uses Esprima via :mod:`esprima_deno` (Deno subprocess;
+  :file:`data/scripts/esprima_parse.mjs`).
+  `RuntimeSettings` (``scripting/deno_path``, ``scripting/python_path`` in
+  QSettings) resolves/validates executables.  TypedDicts (`ScriptInput`, `ScriptOutput`, `TestResult`,
   `ConsoleLog`, `ScriptEntry`) live in `services/scripting/__init__.py`.
-  `detect_advanced_features(script, language)` scans for `async/await` and
-  `npm:` patterns, returning `{"async"}` and/or `{"npm"}` feature flags.
-  `DenoManager` manages Deno binary download/cache/removal under
-  `~/.local/share/postmark/runtimes/deno-<version>/`.
+  `find_pm_tests(source, language)` in `engine.py` locates `pm.test("name", …)`
+  call sites (Python AST or JavaScript esprima, with regex fallback) for the
+  per-test script gutter.  `find_top_level_statement_lines(source, language)`
+  returns 0-based top-level statement lines (where the step-debugger can pause);
+  the post-response editor uses it to render unreachable breakpoints with a
+  muted style.  `ScriptLinter._esprima_parse_result()` shares the
+  same esprima JSON round-trip as the linter.
+  `DenoManager` manages a **downloaded** Deno under
+  `~/.local/share/postmark/runtimes/deno-<version>/` (`managed_deno_path()`);
+  full resolution also uses `PATH` and `RuntimeSettings` (see
+  `runtime_settings.py`).
   `pm.sendRequest()` uses a host-side HTTP bridge (`execute_sub_request`
   in `context.py`) with a trampoline loop (JS) or IPC protocol (Python).
   The JS-side rate limit is 10 calls; the host enforces a hard cap of 50
@@ -105,16 +126,64 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   with `_REQUIRE_MAP` and `_GLOBAL_IMPLIES`.  `require('uuid')` is built
   into the bootstrap.  The `postman` legacy API object delegates to
   `pm.environment`/`pm.globals`.
+  Postman-style response assertions: `pm.response.to` (JS getter on the
+  response object; Python ``@property`` on ``_PmResponse``) returns a fresh
+  ``__Expectation`` / :class:`_Expectation` for ``.have.status`` / ``.header`` /
+  ``.jsonBody`` (Python also ``json_body``) on the mock/live response.
 - **Debug sub-package** (`services/scripting/debug/`):
   `DebugProtocol` is a thread-safe state machine that coordinates
   pause/resume between the worker thread and the UI.
-  `js_debug.debug_execute` splits JS into top-level statement groups and
-  executes each with a separate `ctx.eval()`, calling
-  `protocol.checkpoint()` between groups.
+  `js_debug.debug_execute` delegates to `deno_debug.debug_execute`, which
+  runs Deno with ``--inspect-brk``, drives the V8 debugger over CDP
+  (WebSocket), sets breakpoints, and steps with
+  `Runtime.evaluate` / `protocol.checkpoint()`.  `inject_checkpoints` and
+  `js_debug` group splitting prepare statement boundaries for the inspector.
   `py_debug.debug_execute` launches a subprocess with `sys.settrace` and
   uses IPC for pause/resume.
   `engine.run_debug_chain` mirrors `_run_chain` but routes through debug
   dispatch.  TypedDicts: `DebugPauseInfo`, enums: `DebugState`, `StepMode`.
+  On pause, Python `debugPause` includes a `pm.response` string in
+  `locals` (built from the sandbox `pm` object).  JS variable reads merge
+  `pm.response` fields into the `pm` map for the debug variables panel
+  (`js_debug._READ_JS_DEBUG_VARS`).  Deno/CDP pauses extend
+  `checkpoint(..., local_vars=...)` with optional ``locals`` (flat name→value
+  map, innermost lexical binding wins) and ``scopes`` (ordered list of
+  ``{type, name, vars}`` from ``callFrames[0].scopeChain``) for the debug
+  panel and editor hover.  ``send_pipeline._merge_debug_hover_values`` flattens
+  ``globals``/``pm`` into one map for word hover; ``send_pipeline._debug_hover_root_objects``
+  passes whole ``pm`` and ``console`` dicts via ``CodeEditorWidget.set_debug_locals(..., root_values=...)``
+  so the identifier ``pm`` still resolves after flattening, and dict/list values
+  use ``debug_hover_popup.DebugValuePopup`` (expandable tree; stays until a
+  mouse press outside the popup on the editor or main window or Escape in the editor;
+  the editor does not dismiss it when ``_var_at_cursor`` flickers off the token).
+  :func:`deno_runtime.build_debug_bundle_text`
+  wraps the user script in ``function __pm_debugUserScript() { … }`` so
+  ``const``/``let`` bind under a ``local`` CDP scope instead of sharing the
+  bundle ``module`` record with polyfills.  While paused in
+  ``__pm_debugUserScript`` or ``__denoIpcDrain``, the ``module`` scope is
+  skipped entirely; otherwise ``module`` property names starting with ``__``
+  are dropped.  Collected scope types include ``module``, ``local``, ``block``,
+  etc.  ``pm_bootstrap.js`` assigns ``globalThis.__pm_state`` and ``globalThis.pm``,
+  including ``pm.require`` for ``npm:`` / ``jsr:`` specifiers pre-bundled as static
+  imports in ``deno_runtime._build_bundle_text``, so ``Debugger.evaluateOnCallFrame`` (paused inside the user wrapper) can read
+  ``variable_changes`` for the debug panel.  The debug bundle mirrors
+  ``__pm_baseline_json`` onto ``globalThis`` so the same evaluation can parse the
+  globals baseline without a ``ReferenceError`` on module-only ``var`` bindings.
+  CDP ``evaluateOnCallFrame`` nests the RemoteObject under ``result``;
+  ``js_debug.cdp_evaluation_result_string`` unwraps the JSON string, and
+  ``js_debug.cdp_runtime_evaluate_json_object`` reads ``variable_changes`` /
+  ``global_variable_changes`` via ``Runtime.evaluate`` when the call-frame read
+  is empty.
+  ``deno_scope._collect_call_frame_scopes`` walks CDP ``scopeChain``; for
+  ``module`` bindings named ``pm`` or ``console`` it issues nested
+  ``Runtime.getProperties`` so the inspector and merged hover locals receive
+  JSON-like dicts instead of the RemoteObject description string ``Object``.
+  Deno binds ``Debugger.setBreakpointByUrl`` at the union of top-level group
+  starts (``js_debug._split_into_groups``) and ``DebugProtocol`` editor lines
+  (``deno_debug._cdp_break_editor_lines``); pauses mapped into the user-script
+  line range call ``checkpoint`` so breakpoints inside nested callbacks (e.g.
+  ``pm.test`` bodies) work.  Changing breakpoints while a Deno session is
+  paused does not push new CDP breakpoints until the next debug run.
 
 ## The dict interchange schema
 
@@ -178,10 +247,20 @@ Key signals to know (always-on summary):
   requests/folders in MainWindow.
 - `CollectionWidget.draft_request_requested()` → opens a new draft
   (unsaved) request tab in MainWindow.
-- `CollectionWidget.run_collection_requested(int)` → triggers the collection
-  runner dialog for the given collection ID.
-- `FolderEditorWidget.run_requested(int)` → triggers collection runner from
-  the folder editor's Run button.
+- `CollectionWidget.run_collection_requested(int)` →
+  `MainWindow._on_run_collection_by_id` opens/focuses the folder tab on
+  **Runs → New run** (inline runner in `FolderEditorWidget`).
+- `_RunnerPanel.run_finished()` (internal to folder editor) → host reloads
+  run history via `RunHistoryService.get_runs`.
+- `_RunnerPanel._collect_requests(collection_id)` walks each root from
+  `CollectionService.fetch_all()`, DFS-finds the folder whose `id` matches
+  (nested folders are not top-level keys), then depth-first collects all
+  descendant `request` nodes for the inline runner checklist.
+- `RunnerWorker` builds a single substitution map for each iteration: current
+  data-file row (if any), then environment variables; on duplicate keys the
+  environment value wins.  That map is applied to URL, headers, and body
+  `{{var}}` placeholders before scripts run; `pm.iterationData` still
+  reflects the current row for script APIs.
 - `NewItemPopup.new_request_clicked()` / `new_collection_clicked()` →
   emitted by the icon grid popup when tiles are clicked.
 - `RequestEditorWidget.send_requested()` → triggers HTTP send flow.
@@ -195,10 +274,11 @@ Key signals to know (always-on summary):
 - `TabSettingsManager.settings_changed()` → `MainWindow` / `RequestTabBar`
   refresh tab behaviour and label presentation, including switching
   between single-row and wrapped-row layouts.
-- `MainWindow` View menu exposes `Search Tabs…` (`Ctrl+P`), `Next Tab`
-  (`Ctrl+Tab`, `Ctrl+PgDown`), and `Previous Tab`
-  (`Ctrl+Shift+Tab`, `Ctrl+PgUp`) so the wrapped deck keeps editor-style
-  keyboard navigation even though it is no longer a native `QTabBar`.
+- `MainWindow` View menu exposes `Next Tab` (`Ctrl+Tab`, `Ctrl+PgDown`)
+  and `Previous Tab` (`Ctrl+Shift+Tab`, `Ctrl+PgUp`) so the wrapped deck
+  keeps editor-style keyboard navigation even though it is no longer a
+  native `QTabBar`. `CodeEditorWidget` uses `Ctrl+P` for parameter-info
+  hints when the script editor has focus.
 - `VariablePopup` uses **class-level callbacks**, not signals — wired once
   in `MainWindow.__init__`.
 
@@ -341,7 +421,7 @@ into `%Y-%m-%d %H:%M` strings for the UI.
   `QTabBar`; it keeps a small compatibility API (`currentIndex()`,
   `setCurrentIndex()`, `count()`, `tabRect()`, `tabButton()`,
   `tabToolTip()`, `select_next_tab()`, `select_previous_tab()`,
-  `tab_search_text()`, `tab_request_info()`) so `MainWindow` and tests
+  `tab_request_info()`) so `MainWindow` and tests
   do not depend on Qt tab-bar internals.  `MainWindow` enforces the
   limit/promotion policies when opening and closing tabs.
   **Session persistence:** `_TabControllerMixin._persist_open_tabs()` saves
@@ -376,3 +456,20 @@ into `%Y-%m-%d %H:%M` strings for the UI.
   repository or service directly for mutations; it only emits signals to
   `MainWindow`, which calls `CollectionService` and then refreshes the
   sidebar state.
+12. **Post-response inline Run defaults to live response mode** —
+  In `RequestEditorWidget` Scripts → Post-response, `ScriptOutputPanel`
+  defaults to `response_source_mode() == "live"`.  Clicking Run delegates to
+  `MainWindow.run_post_response_script_with_live_response()` with
+  `editor` set to the **scripts host** (``RequestEditorWidget`` or
+  ``FolderEditorWidget`` from ``_ScriptsMixin``), not the nested
+  ``CodeEditorWidget``.  The call triggers
+  the normal send pipeline, skips request-level script chains for that send,
+  maps `HttpResponseDict` to test context fields (`code`, `status`, `headers`,
+  `body`, `responseTime`, `responseSize`), then runs only the current
+  post-response script in the inline output panel.  Switching to
+  `Manual mock response` keeps the existing offline inline worker path.
+  `ScriptOutputPanel(..., host_kind="folder")` (folder/collection scope) omits
+  the **Response source** (live) row but still shows **Mock response** (status
+  + body) for `pm.response` in inline runs.  For test panels, when the mock
+  body field is blank, `get_response_data()` uses ``"{}"`` as the default body
+  so `pm.response.json()` does not fail on first use.

@@ -24,10 +24,7 @@ if TYPE_CHECKING:
     from services.environment_service import VariableDetail
 
 from ui.styling.theme import (
-    COLOR_VARIABLE_HIGHLIGHT,
-    COLOR_VARIABLE_UNRESOLVED_HIGHLIGHT,
-    COLOR_VARIABLE_UNRESOLVED_TEXT,
-    COLOR_WARNING,
+    ThemePalette,
     current_palette,
 )
 from ui.widgets.code_editor.gutter import _VAR_RE
@@ -74,9 +71,8 @@ def _build_format(color: str, *, bold: bool = False, italic: bool = False) -> QT
     return fmt
 
 
-def _build_token_formats() -> dict[T._TokenType, QTextCharFormat]:
-    """Build token-type to format mapping from current theme colours."""
-    p = current_palette()
+def _build_token_formats_for_palette(p: ThemePalette) -> dict[T._TokenType, QTextCharFormat]:
+    """Build token-type → format mapping from a specific theme palette."""
     return {
         T.Literal.String: _build_format(p["editor_string"]),
         T.Literal.String.Double: _build_format(p["editor_string"]),
@@ -101,6 +97,11 @@ def _build_token_formats() -> dict[T._TokenType, QTextCharFormat]:
     }
 
 
+def _build_token_formats() -> dict[T._TokenType, QTextCharFormat]:
+    """Build token-type to format mapping from current theme colours."""
+    return _build_token_formats_for_palette(current_palette())
+
+
 class PygmentsHighlighter(QSyntaxHighlighter):
     """Syntax highlighter backed by a Pygments lexer.
 
@@ -119,6 +120,8 @@ class PygmentsHighlighter(QSyntaxHighlighter):
         # list of (block_number, [(start_in_block, length, token_type), ...])
         self._block_tokens: dict[int, list[tuple[int, int, T._TokenType]]] | None = None
         self._variable_map: dict[str, VariableDetail] = {}
+        # When set, syntax + variable overlay colours use this palette (e.g. light “paper” in a dark app).
+        self._format_palette: ThemePalette | None = None
 
     def set_variable_map(self, variables: dict[str, VariableDetail]) -> None:
         """Update the variable resolution map for unresolved distinction."""
@@ -141,7 +144,18 @@ class PygmentsHighlighter(QSyntaxHighlighter):
 
     def rebuild_formats(self) -> None:
         """Rebuild token formats from current theme (call on theme change)."""
+        self._format_palette = None
         self._token_formats = _build_token_formats()
+        self._block_tokens = None
+        self.rehighlight()
+
+    def set_token_palette(self, palette: ThemePalette | None) -> None:
+        """Use *palette* for token colours, or the app theme when *palette* is None."""
+        self._format_palette = palette
+        if palette is None:
+            self._token_formats = _build_token_formats()
+        else:
+            self._token_formats = _build_token_formats_for_palette(palette)
         self._block_tokens = None
         self.rehighlight()
 
@@ -225,12 +239,13 @@ class PygmentsHighlighter(QSyntaxHighlighter):
         """Overlay ``{{variable}}`` highlights on the current block."""
         if "{{" not in text:
             return
+        p = self._format_palette or current_palette()
         resolved_fmt = QTextCharFormat()
-        resolved_fmt.setBackground(QColor(COLOR_VARIABLE_HIGHLIGHT))
-        resolved_fmt.setForeground(QColor(COLOR_WARNING))
+        resolved_fmt.setBackground(QColor(p["variable_highlight"]))
+        resolved_fmt.setForeground(QColor(p["warning"]))
         unresolved_fmt = QTextCharFormat()
-        unresolved_fmt.setBackground(QColor(COLOR_VARIABLE_UNRESOLVED_HIGHLIGHT))
-        unresolved_fmt.setForeground(QColor(COLOR_VARIABLE_UNRESOLVED_TEXT))
+        unresolved_fmt.setBackground(QColor(p["variable_unresolved_highlight"]))
+        unresolved_fmt.setForeground(QColor(p["variable_unresolved_text"]))
         for match in _VAR_RE.finditer(text):
             var_name = match.group(1)
             fmt = resolved_fmt if var_name in self._variable_map else unresolved_fmt

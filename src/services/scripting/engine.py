@@ -12,12 +12,11 @@ inline editor validation).
 from __future__ import annotations
 
 import ast
-import json
 import logging
-from pathlib import Path
+import re
 from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
 
-from services.scripting.js_runtime import JSRuntime
+from services.scripting.deno_runtime import DenoRuntime
 from services.scripting.pm_api_schema import lookup as _pm_lookup
 from services.scripting.py_runtime import PyRuntime
 
@@ -147,7 +146,7 @@ def _dispatch(script: str, language: str, context: ScriptInput) -> ScriptOutput:
     """Route a script to the correct runtime."""
     if language == "python":
         return PyRuntime.execute(script, context)
-    return JSRuntime.execute(script, context)
+    return DenoRuntime.execute(script, context)
 
 
 def _debug_dispatch(
@@ -243,8 +242,6 @@ def run_debug_chain(
 
 # -- Syntax linter (no execution) --------------------------------------
 
-_ESPRIMA_JS_PATH = Path(__file__).resolve().parents[3] / "data" / "scripts" / "vendor" / "esprima.js"
-
 
 class Diagnostic(TypedDict):
     """A static issue in a script (syntax or API misuse)."""
@@ -258,20 +255,10 @@ class Diagnostic(TypedDict):
 class ScriptLinter:
     """Lightweight syntax + pm-API checker for JavaScript and Python scripts."""
 
-    _js_ctx: Any = None
-    _esprima_loaded: bool = False
-
     @classmethod
     def shutdown(cls) -> None:
-        """Release the cached V8 context so the process can exit.
-
-        ``MiniRacer`` runs an internal event-loop thread that prevents
-        clean shutdown.  Deleting the context stops the thread.
-        """
-        if cls._js_ctx is not None:
-            del cls._js_ctx
-            cls._js_ctx = None
-        cls._esprima_loaded = False
+        """No-op: Esprima runs in a short-lived ``deno run`` process (no cached V8)."""
+        _ = cls
 
     @classmethod
     def check(cls, script: str, language: str) -> list[Diagnostic]:
@@ -325,60 +312,24 @@ class ScriptLinter:
     # ---- JavaScript --------------------------------------------------
 
     @classmethod
-    def _check_javascript(cls, script: str) -> list[Diagnostic]:
-        try:
-            from py_mini_racer import MiniRacer  # type: ignore[import-untyped]
-        except ImportError:
-            return []
-        if cls._js_ctx is None:
-            cls._js_ctx = MiniRacer()
-        if not cls._esprima_loaded:
-            try:
-                esprima_src = _ESPRIMA_JS_PATH.read_text(encoding="utf-8")
-                cls._js_ctx.eval(esprima_src)
-                cls._esprima_loaded = True
-            except (OSError, FileNotFoundError, Exception):
-                return []
+    def _esprima_parse_result(cls, script: str) -> dict[str, Any] | None:
+        """Run esprima through ``deno run data/scripts/esprima_parse.mjs`` (no MiniRacer)."""
+        from services.scripting.esprima_deno import esprima_parse_to_dict
 
-        wrapper = (
-            "function(__src) {"
-            " try { return {ok: true, tree: esprima.parseScript(__src, {loc: true, tolerant: false}) };"
-            " } catch (e) {"
-            " return {"
-            " ok: false, line: e.lineNumber || 1,"
-            " column: (e.column != null && e.column !== undefined) ? (e.column + 1) : 1,"
-            " message: e.description || e.message || String(e)"
-            " };"
-            " }"
-            " }"
-        )
-        try:
-            cls._js_ctx.eval("var __pm_lint_parse = " + wrapper + ";")
-            safe = json.dumps(script)
-            # Round-trip through JSON so the AST is plain dicts (not JSMappedObject);
-            # the walker relies on :class:`dict` iteration and ``==`` on nested nodes.
-            raw = cls._js_ctx.eval("JSON.stringify(__pm_lint_parse(" + safe + "))")
-            if raw is None:
-                return []
-            result = cast(dict[str, Any], json.loads(str(raw)))
-        except Exception as exc:
-            return [
-                cast(
-                    Diagnostic,
-                    {
-                        "message": str(exc).splitlines()[0],
-                        "line": 1,
-                        "column": 1,
-                        "severity": "error",
-                    },
-                )
-            ]
+        _ = cls
+        return esprima_parse_to_dict(script)
+
+    @classmethod
+    def _check_javascript(cls, script: str) -> list[Diagnostic]:
+        result = cls._esprima_parse_result(script)
+        if result is None:
+            return []
         if not result.get("ok"):
             return [
                 cast(
                     Diagnostic,
                     {
-                        "message": str(result["message"]),
+                        "message": str(result.get("message", "parse error")),
                         "line": int(result.get("line", 1)),
                         "column": int(result.get("column", 1)),
                         "severity": "error",
@@ -455,48 +406,47 @@ def _js_walk_for_pm(tree: object, diags: list[Diagnostic]) -> None:
         if not isinstance(node, dict):
             return
         ntype = node.get("type")
-        if ntype == "MemberExpression":
-            if not (
-                isinstance(parent, dict)
-                and parent.get("type") == "MemberExpression"
-                and parent.get("object") == node
-            ):
-                path: list[str] = []
-                cur: Any = node
-                while isinstance(cur, dict) and cur.get("type") == "MemberExpression":
-                    if cur.get("optional"):
-                        path = []
-                        break
-                    if cur.get("computed"):
-                        path = []
-                        break
-                    prop = cur.get("property") or {}
-                    if prop.get("type") != "Identifier":
-                        path = []
-                        break
-                    path.append(str(prop.get("name", "")))
-                    cur = cur.get("object") or {}
-                if path and isinstance(cur, dict) and cur.get("type") == "Identifier":
-                    root_name = str(cur.get("name", ""))
-                    if root_name in ("pm", "postman"):
-                        path.reverse()
-                        is_call = bool(
-                            isinstance(parent, dict)
-                            and parent.get("type") == "CallExpression"
-                            and parent.get("callee") == node
-                        )
-                        loc = (node.get("loc") or {}).get("start") or {}
-                        line = int(loc.get("line", 1))
-                        col0 = int(loc.get("column", 0))
-                        # Esprima columns are 0-based
-                        _emit_pm_diag(
-                            diags,
-                            root_name,
-                            path,
-                            is_call,
-                            line,
-                            col0 + 1,
-                        )
+        if ntype == "MemberExpression" and not (
+            isinstance(parent, dict)
+            and parent.get("type") == "MemberExpression"
+            and parent.get("object") == node
+        ):
+            path: list[str] = []
+            cur: Any = node
+            while isinstance(cur, dict) and cur.get("type") == "MemberExpression":
+                if cur.get("optional"):
+                    path = []
+                    break
+                if cur.get("computed"):
+                    path = []
+                    break
+                prop = cur.get("property") or {}
+                if prop.get("type") != "Identifier":
+                    path = []
+                    break
+                path.append(str(prop.get("name", "")))
+                cur = cur.get("object") or {}
+            if path and isinstance(cur, dict) and cur.get("type") == "Identifier":
+                root_name = str(cur.get("name", ""))
+                if root_name in ("pm", "postman"):
+                    path.reverse()
+                    is_call = bool(
+                        isinstance(parent, dict)
+                        and parent.get("type") == "CallExpression"
+                        and parent.get("callee") == node
+                    )
+                    loc = (node.get("loc") or {}).get("start") or {}
+                    line = int(loc.get("line", 1))
+                    col0 = int(loc.get("column", 0))
+                    # Esprima columns are 0-based
+                    _emit_pm_diag(
+                        diags,
+                        root_name,
+                        path,
+                        is_call,
+                        line,
+                        col0 + 1,
+                    )
         for v in node.values():
             if isinstance(v, dict):
                 visit(v, node)
@@ -506,3 +456,113 @@ def _js_walk_for_pm(tree: object, diags: list[Diagnostic]) -> None:
                         visit(item, node)
 
     visit(tree, None)
+
+
+def find_pm_tests(source: str, language: str) -> list[dict[str, Any]]:
+    """Return ``{"name": str, "line": int}`` (1-based line) for each ``pm.test`` call.
+
+    Used by the script editor gutter for per-test Run/Debug affordances.
+    On parse failure, returns an empty list.
+    """
+    out: list[dict[str, Any]] = []
+    if not source or not source.strip():
+        return []
+    if language == "python":
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return []
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "test"
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "pm"
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+            ):
+                out.append({"name": node.args[0].value, "line": node.lineno})
+        return out
+    if language == "javascript":
+        result = ScriptLinter._esprima_parse_result(source)
+        if result and result.get("ok") and result.get("tree") is not None:
+            tree = result["tree"]
+
+            def _walk(node: Any) -> None:
+                if isinstance(node, dict):
+                    if (
+                        node.get("type") == "CallExpression"
+                        and node.get("callee", {}).get("type") == "MemberExpression"
+                        and node.get("callee", {}).get("object", {}).get("name") == "pm"
+                        and node.get("callee", {}).get("property", {}).get("name") == "test"
+                    ):
+                        args = node.get("arguments") or []
+                        if (
+                            args
+                            and args[0].get("type") == "Literal"
+                            and isinstance(
+                                args[0].get("value"),
+                                str,
+                            )
+                        ):
+                            loc = (node.get("loc") or {}).get("start") or {}
+                            line = int(loc.get("line", 1))
+                            out.append({"name": args[0]["value"], "line": line})
+                    for v in node.values():
+                        _walk(v)
+                elif isinstance(node, list):
+                    for v in node:
+                        _walk(v)
+
+            _walk(tree)
+            return out
+        pat = re.compile(r"""\bpm\s*\.\s*test\s*\(\s*['"]([^'"]+)['"]""")
+        for m in pat.finditer(source):
+            line = source.count("\n", 0, m.start()) + 1
+            out.append({"name": m.group(1), "line": line})
+        return out
+    return []
+
+
+def find_top_level_statement_lines(source: str, language: str) -> set[int]:
+    """Return 0-based line numbers of top-level statements the step-debugger can pause on.
+
+    The JS and Python debuggers only invoke :meth:`DebugProtocol.checkpoint` at
+    boundaries between top-level statements (not inside nested functions or
+    ``pm.test`` callbacks).  The code editor uses this set to show breakpoints
+    on non-checkpoint lines with a muted style.
+
+    An **empty** set means the UI should not apply unreachable styling: parse
+    failure, empty source, or an unsupported *language* string.
+    """
+    if not source or not source.strip():
+        return set()
+    lang = language.lower()
+    if lang == "python":
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return set()
+        return {n.lineno - 1 for n in tree.body if getattr(n, "lineno", 0) > 0}
+    if lang == "javascript":
+        result = ScriptLinter._esprima_parse_result(source)
+        if not result or not result.get("ok") or result.get("tree") is None:
+            return set()
+        tree = result["tree"]
+        if not isinstance(tree, dict):
+            return set()
+        body = tree.get("body")
+        if not isinstance(body, list):
+            return set()
+        out: set[int] = set()
+        for node in body:
+            if not isinstance(node, dict):
+                continue
+            loc = (node.get("loc") or {}).get("start") or {}
+            line1 = int(loc.get("line", 0))
+            if line1 > 0:
+                out.add(line1 - 1)
+        return out
+    return set()

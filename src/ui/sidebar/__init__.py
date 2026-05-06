@@ -7,8 +7,22 @@ Re-exports :class:`RightSidebar` for use from the main window:
 
 from __future__ import annotations
 
-from ui.sidebar.debug_panel import DebugPanel
+from ui.sidebar.debug_panel import (
+    DEBUG_VARIABLES_PAGE_MESSAGE,
+    DEBUG_VARIABLES_PAGE_TREE,
+    DebugControls,
+    DebugPanel,
+    DebugVariablesPanel,
+)
 from ui.sidebar.saved_responses.panel import SavedResponsesPanel
 from ui.sidebar.sidebar_widget import RightSidebar
 
-__all__ = ["DebugPanel", "RightSidebar", "SavedResponsesPanel"]
+__all__ = [
+    "DEBUG_VARIABLES_PAGE_MESSAGE",
+    "DEBUG_VARIABLES_PAGE_TREE",
+    "DebugControls",
+    "DebugPanel",
+    "DebugVariablesPanel",
+    "RightSidebar",
+    "SavedResponsesPanel",
+]

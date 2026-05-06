@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from PySide6.QtWidgets import QApplication
 
 from ui.request.folder_editor import FolderEditorWidget, _normalize_events
@@ -58,6 +59,39 @@ class TestFolderEditorLoad:
         assert editor._empty_label.isHidden()
         assert not editor._tabs.isHidden()
         assert editor.collection_id == 42
+
+    def test_deno_runtime_banner_shows_after_load_when_deno_unavailable(
+        self, qapp: QApplication, qtbot, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Same as the request editor: script load under ``_loading`` must refresh the Deno bar."""
+        from services.scripting import runtime_settings as rs
+
+        def _fake_validate(_path: object) -> dict[str, object]:
+            return {
+                "path": "",
+                "available": False,
+                "version": "",
+                "error": "unavailable",
+            }
+
+        monkeypatch.setattr(
+            rs.RuntimeSettings,
+            "validate_deno",
+            staticmethod(_fake_validate),  # type: ignore[arg-type]
+        )
+        editor = FolderEditorWidget()
+        qtbot.addWidget(editor)
+        editor.load_collection(
+            {
+                "name": "C",
+                "events": {"pre_request": "// x"},
+            },
+            collection_id=1,
+        )
+        editor.show()
+        qtbot.waitExposed(editor)
+        editor._tabs.setCurrentIndex(2)
+        assert editor._pre_runtime_banner.isVisible()
 
     def test_load_description(self, qapp: QApplication, qtbot) -> None:
         """Loading populates the description field."""
@@ -466,7 +500,7 @@ class TestFolderEditorPostmanEvents:
 
 
 class TestFolderEditorRunsTab:
-    """Tests for the Runs tab and Run button."""
+    """Tests for the Runs tab, inline runner, and history."""
 
     def test_runs_tab_exists(self, qapp: QApplication, qtbot) -> None:
         """The editor has a Runs tab."""
@@ -475,33 +509,25 @@ class TestFolderEditorRunsTab:
         tab_labels = [editor._tabs.tabText(i) for i in range(editor._tabs.count())]
         assert "Runs" in tab_labels
 
-    def test_run_button_exists(self, qapp: QApplication, qtbot) -> None:
-        """The editor has a Run button."""
+    def test_runs_subtabs_new_run_then_history(self, qapp: QApplication, qtbot) -> None:
+        """Runs tab has New run and History sub-tabs in order."""
         editor = FolderEditorWidget()
         qtbot.addWidget(editor)
-        assert editor._run_btn is not None
-        assert editor._run_btn.text() == "Run"
+        st = editor._runs_sub_tabs
+        assert st.count() == 2
+        assert st.tabText(0) == "New run"
+        assert st.tabText(1) == "History"
 
-    def test_run_button_emits_signal(self, qapp: QApplication, qtbot) -> None:
-        """Clicking Run emits run_requested with the collection ID."""
+    def test_focus_runner_panel_selects_new_run(self, qapp: QApplication, qtbot) -> None:
+        """focus_runner_panel shows Runs -> New run."""
         editor = FolderEditorWidget()
         qtbot.addWidget(editor)
-        editor.load_collection({"name": "Test"}, collection_id=42)
-
-        with qtbot.waitSignal(editor.run_requested) as blocker:
-            editor._run_btn.click()
-
-        assert blocker.args == [42]
-
-    def test_run_button_no_signal_without_collection(self, qapp: QApplication, qtbot) -> None:
-        """Run button does not emit when no collection is loaded."""
-        editor = FolderEditorWidget()
-        qtbot.addWidget(editor)
-
-        signals: list[int] = []
-        editor.run_requested.connect(signals.append)
-        editor._run_btn.click()
-        assert signals == []
+        editor.load_collection({"name": "Test"}, collection_id=7)
+        editor._tabs.setCurrentIndex(0)
+        editor._runs_sub_tabs.setCurrentIndex(1)
+        editor.focus_runner_panel()
+        assert editor._tabs.currentWidget() is editor._runs_tab
+        assert editor._runs_sub_tabs.currentWidget() is editor._runner_new_tab
 
     def test_load_runs_populates_table(self, qapp: QApplication, qtbot) -> None:
         """load_runs fills the runs table with history data."""
@@ -563,6 +589,59 @@ class TestFolderEditorRunsTab:
         skipped_item = editor._runs_table.item(0, 6)
         assert skipped_item is not None
         assert skipped_item.text() == "1"
+
+    def test_run_history_row_populates_detail_table(
+        self,
+        qapp: QApplication,
+        qtbot,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Selecting a history row loads per-request results into the detail table."""
+        from ui.request.folder_editor import runs as runs_mod
+
+        def _fake_get_run_results(_run_id: int) -> list[dict]:
+            return [
+                {
+                    "request_name": "Ping",
+                    "request_method": "GET",
+                    "status_code": 200,
+                    "elapsed_ms": 12.0,
+                    "test_passed": 1,
+                    "test_failed": 0,
+                    "error": None,
+                }
+            ]
+
+        monkeypatch.setattr(
+            runs_mod.RunHistoryService,
+            "get_run_results",
+            staticmethod(_fake_get_run_results),
+        )
+        editor = FolderEditorWidget()
+        qtbot.addWidget(editor)
+        runs = [
+            {
+                "id": 99,
+                "started_at": "2024-01-15 10:30:00",
+                "source": "manual",
+                "duration_ms": 1000,
+                "total_tests": 1,
+                "passed": 1,
+                "failed": 0,
+                "skipped": 0,
+                "avg_response_ms": 12.0,
+                "status": "completed",
+            },
+        ]
+        editor.load_runs(runs)
+        editor._runs_table.selectRow(0)
+        assert editor._run_detail_table.rowCount() == 1
+        c0 = editor._run_detail_table.item(0, 0)
+        c1 = editor._run_detail_table.item(0, 1)
+        c2 = editor._run_detail_table.item(0, 2)
+        assert c0 is not None and c0.text() == "Ping"
+        assert c1 is not None and c1.text() == "GET"
+        assert c2 is not None and "200" in c2.text()
 
 
 # Script history, status bar, and search bar tests have been extracted

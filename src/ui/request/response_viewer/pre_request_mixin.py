@@ -9,8 +9,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QLabel, QScrollArea, QTabWidget, QTextEdit, QVBoxLayout, QWidget
+from PySide6.QtGui import QFontMetrics
+from PySide6.QtWidgets import (
+    QLabel,
+    QPlainTextEdit,
+    QScrollArea,
+    QTabWidget,
+    QSizePolicy,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ui.styling.theme import COLOR_DANGER, COLOR_SUCCESS, COLOR_WARNING
 
@@ -26,7 +35,7 @@ class _PreRequestMixin:
     _pre_request_tab: QWidget
     _pre_tab_index: int
     _pre_request_output: QTextEdit
-    _pre_request_vars_label: QLabel
+    _pre_request_vars_edit: QPlainTextEdit
     _pre_request_header: QLabel
     _pre_request_has_error: bool
 
@@ -52,12 +61,18 @@ class _PreRequestMixin:
         inner.setContentsMargins(0, 0, 0, 0)
         inner.setSpacing(8)
 
-        # Variable changes section.
-        self._pre_request_vars_label = QLabel()
-        self._pre_request_vars_label.setWordWrap(True)
-        self._pre_request_vars_label.setTextFormat(Qt.TextFormat.RichText)
-        self._pre_request_vars_label.hide()
-        inner.addWidget(self._pre_request_vars_label)
+        # Variable changes (plain text so keys/values are selectable).
+        self._pre_request_vars_edit = QPlainTextEdit()
+        self._pre_request_vars_edit.setReadOnly(True)
+        self._pre_request_vars_edit.setObjectName("monoEdit")
+        self._pre_request_vars_edit.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
+        self._pre_request_vars_edit.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed,
+        )
+        self._pre_request_vars_edit.setFrameShape(QPlainTextEdit.Shape.StyledPanel)
+        self._pre_request_vars_edit.hide()
+        inner.addWidget(self._pre_request_vars_edit)
 
         # Console output (monospaced read-only area).
         self._pre_request_output = QTextEdit()
@@ -109,17 +124,18 @@ class _PreRequestMixin:
 
         # 2. Variable changes section.
         if variable_changes:
-            rows = "".join(
-                f"<tr><td style='padding:2px 8px 2px 0;'><b>{k}</b></td>"
-                f"<td style='padding:2px 0;'>{v}</td></tr>"
-                for k, v in variable_changes.items()
-            )
-            self._pre_request_vars_label.setText(
-                f"<b>Variable changes:</b><table style='margin-top:4px;'>{rows}</table>"
-            )
-            self._pre_request_vars_label.show()
+            block = ["Variable changes:", ""]
+            block.extend(f"{k}  {v}" for k, v in variable_changes.items())
+            self._pre_request_vars_edit.setPlainText("\n".join(block))
+            fm = QFontMetrics(self._pre_request_vars_edit.font())
+            line_h = max(fm.lineSpacing(), 1)
+            n_lines = 2 + len(variable_changes)
+            h = int(line_h * n_lines + self._pre_request_vars_edit.contentsMargins().top() * 2 + 16)
+            h = min(max(h, 52), 360)
+            self._pre_request_vars_edit.setFixedHeight(h)
+            self._pre_request_vars_edit.show()
         else:
-            self._pre_request_vars_label.hide()
+            self._pre_request_vars_edit.hide()
 
         # 3. Console output.
         if console_logs:
@@ -155,7 +171,8 @@ class _PreRequestMixin:
         """Reset the Pre-request tab to its initial hidden state."""
         self._pre_request_output.clear()
         self._pre_request_header.setText("")
-        self._pre_request_vars_label.hide()
+        self._pre_request_vars_edit.clear()
+        self._pre_request_vars_edit.hide()
         self._pre_request_has_error = False
         self._tabs.setTabVisible(self._pre_tab_index, False)
         # Reset tab text colour.

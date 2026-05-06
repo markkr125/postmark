@@ -56,8 +56,8 @@ makes it available in every downstream script.
 
 | Language | Runtime | Default | Sandbox |
 |----------|---------|---------|---------|
-| JavaScript | V8 via PyMiniRacer | Yes | V8 isolate (5 s, 64 MB) |
-| Python | Subprocess + RestrictedPython | No | Process isolation (5 s CPU, 128 MB) |
+| JavaScript | Deno subprocess (`deno run`, bundled bootstrap + user script) | Yes | `deno run` with scoped `--allow-read` to the temp workdir; 10 s process timeout |
+| Python | Pyodide (Deno + WASM) when vendored assets and Deno are available; otherwise RestrictedPython subprocess | No | Deno permissions + WASM, or process isolation (5 s CPU, 128 MB) |
 
 JavaScript is the default because most existing Postman collections use
 it.  Python is opt-in via the language selector in the Scripts tab.
@@ -166,6 +166,7 @@ for the full list.
 
 ## Related Pages
 
+- [External packages](external-packages.md) — `pm.require`, npm/jsr/PyPI, vendored allowlist
 - [JavaScript API Reference](javascript-api.md)
 - [Python API Reference](python-api.md)
 - [Examples](examples.md)

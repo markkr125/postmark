@@ -23,9 +23,9 @@ MainWindow
 in the inheritance list.  The mixins are ordered so that specialised
 behaviour (send pipeline) takes precedence.
 
-**Signal wiring:** All inter-widget connections are made in
-`MainWindow.__init__()`.  Widgets never reference each other directly —
-they emit signals that MainWindow connects.
+**Signal wiring:** Inter-widget connections are made in
+`MainWindow._build_full_ui()` (scheduled from `__init__`).  Widgets never
+reference each other directly — they emit signals that MainWindow connects.
 
 See [MainWindow Reference](../ui-reference/main-window.md) for the full
 wiring map.
@@ -81,7 +81,7 @@ Workers in the codebase:
 | `SchemaFetchWorker` | `request/http_worker.py` | Fetch GraphQL schema in background |
 | `CollectionLoader` | `collections/collection_widget.py` | Load collection tree from DB |
 | `ImportWorker` | `dialogs/import_dialog.py` | Run import pipeline in background |
-| `CollectionRunnerWorker` | `dialogs/collection_runner/worker.py` | Run collection requests sequentially |
+| `RunnerWorker` | `dialogs/collection_runner/worker.py` | Run collection requests sequentially (used by folder inline runner) |
 
 ## Theming System
 

@@ -96,7 +96,6 @@ controlled by `TabSettingsManager.small_labels`.
 | `add_request_tab(method, name, path, index)` | Add request tab chip |
 | `add_folder_tab(name, index)` | Add folder tab chip (italic) |
 | `update_tab(index, is_preview, is_sending, is_dirty)` | Refresh visual state |
-| `tab_search_text(index)` | Search text for tab search shortcut |
 
 ## TabButton
 

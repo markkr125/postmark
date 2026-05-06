@@ -63,7 +63,7 @@ Tab lifecycle and history navigation.
 | Method | Description |
 |--------|-------------|
 | `_open_request(request_id, push_history, is_preview)` | Load request into existing or new tab |
-| `_open_folder(collection_id)` | Open folder detail editor tab |
+| `_open_folder(collection_id, focus_scripts_kind=..., focus_runner_panel=...)` | Open folder detail editor tab; optional Scripts sub-tab or **Runs → New run** (`focus_runner_panel`).  Run menu / tree **Run** use `_on_run_collection_by_id`, which calls `_open_folder(..., focus_runner_panel=True)` |
 | `_on_tab_changed(index)` | Active tab switched (debounced) |
 | `_flush_tab_change()` | Immediate breadcrumb, sidebar, variable refresh |
 | `_navigate_back()` / `_navigate_forward()` | History navigation |

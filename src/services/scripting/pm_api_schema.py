@@ -13,8 +13,10 @@ Kind = Literal["namespace", "function", "scope", "any"]
 
 
 class PmNode(TypedDict, total=False):
+    """Recursive schema node for the pm/postman API tree."""
+
     kind: Kind
-    children: dict[str, "PmNode"]
+    children: dict[str, PmNode]
 
 
 # A "scope" has: get, set, unset, has, toObject, clear, replaceIn.

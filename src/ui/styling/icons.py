@@ -200,6 +200,3 @@ def _device_pixel_ratio() -> float:
         if screen is not None:
             return float(screen.devicePixelRatio())
     return 1.0
-    return 1.0
-    return 1.0
-    return 1.0

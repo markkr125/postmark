@@ -457,9 +457,10 @@ def get_script_chain(request_id: int) -> list[dict[str, Any]]:
     Each entry has ``source`` (``"collection"`` or ``"request"``),
     ``id``, ``name``, and ``scripts`` (raw events/scripts dict).
 
-    Folder levels use ``CollectionModel.events``.  The request level
+    Folder levels use ``CollectionModel.events``.      The request level
     uses ``RequestModel.scripts`` (falling back to ``RequestModel.events``
-    for Postman-imported data).
+    for Postman-imported data).  The request's layer also carries
+    ``disabled_inherited`` (normalized) when present in ``RequestModel.scripts``.
     """
     with get_session() as session:
         req = session.get(RequestModel, request_id)
@@ -486,12 +487,17 @@ def get_script_chain(request_id: int) -> list[dict[str, Any]]:
         ancestor_layers.reverse()
 
         # 3. Append the request itself.
+        from services.script_service import normalize_disabled_inherited
+
+        req_scripts_dict: dict[str, Any] = req.scripts if isinstance(req.scripts, dict) else {}
+        disabled = normalize_disabled_inherited(req_scripts_dict.get("disabled_inherited"))
         ancestor_layers.append(
             {
                 "source": "request",
                 "id": req.id,
                 "name": req.name,
                 "scripts": req.scripts or req.events,
+                "disabled_inherited": disabled,
             }
         )
 

@@ -53,7 +53,10 @@ Read-only display of resolved variables grouped by source.
 | Collection | Variables from selected collection |
 | Local Overrides | Per-request temporary overrides |
 
-Each row shows key, value, and a source badge.
+Each row shows key and value as read-only line edits (selectable text); the key
+column is wider than before with the full name on hover. Very long values start
+collapsed behind a Phosphor caret icon (same ``data/fonts/phosphor.ttf`` set as
+elsewhere via ``phi()``) to expand the full text.
 
 ### Key Method
 

@@ -1,10 +1,12 @@
-"""Collection runner dialog sub-package.
+"""Collection runner shared widgets (config, results, worker).
 
-Re-exports the main dialog class for backward compatibility::
-
-    from ui.dialogs.collection_runner import CollectionRunnerDialog
+The inline runner lives in :mod:`ui.request.folder_editor.runner_panel`.
 """
 
-from .dialog import CollectionRunnerDialog
+from __future__ import annotations
 
-__all__ = ["CollectionRunnerDialog"]
+from .config import RunnerConfigView
+from .results import RunnerResultsView
+from .worker import RunnerWorker
+
+__all__ = ["RunnerConfigView", "RunnerResultsView", "RunnerWorker"]

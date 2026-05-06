@@ -158,9 +158,6 @@ class MainWindow(
             self._on_delete_saved_response
         )
 
-        # Wire debug panel step controls
-        self._right_sidebar.debug_panel.step_requested.connect(self._on_debug_step)
-
         # Refresh variable highlighting when the environment changes
         self._env_selector.environment_changed.connect(self._on_environment_changed)
 
@@ -264,11 +261,6 @@ class MainWindow(
 
         # View menu
         view_menu = menubar.addMenu("&View")
-        self._search_tabs_action = QAction("Search &Tabs\u2026", self)
-        self._search_tabs_action.setShortcut(QKeySequence("Ctrl+P"))
-        self._search_tabs_action.triggered.connect(self._search_tabs)
-        view_menu.addAction(self._search_tabs_action)
-
         self._next_tab_action = QAction("&Next Tab", self)
         self._next_tab_action.setShortcuts([QKeySequence("Ctrl+Tab"), QKeySequence("Ctrl+PgDown")])
         self._next_tab_action.triggered.connect(self._activate_next_tab)
@@ -358,7 +350,11 @@ class MainWindow(
 
         # Wire send for the default editor
         self.request_widget.send_requested.connect(self._on_send_request)
-        self.request_widget.debug_requested.connect(self._on_debug_request)
+        self.request_widget.debug_step_requested.connect(self._on_debug_step)
+        self.request_widget.open_collection_requested.connect(self._open_folder)
+        self.request_widget.open_scripting_settings_requested.connect(
+            self._on_open_scripting_settings
+        )
 
         return wrapper
 
@@ -537,57 +533,31 @@ class MainWindow(
         """Select the previous open tab, wrapping at the start of the deck."""
         self._tab_bar.select_previous_tab()
 
-    def _search_tabs(self) -> None:
-        """Prompt for an open tab and activate the best matching result."""
-        items = [self._tab_bar.tab_search_text(index) for index in range(self._tab_bar.count())]
-        if not items:
-            return
-
-        current_index = max(0, self._tab_bar.currentIndex())
-        choice, accepted = QInputDialog.getItem(
-            self,
-            "Search Tabs",
-            "Type to filter open tabs",
-            items,
-            current_index,
-            True,
-        )
-        if not accepted:
-            return
-
-        query = choice.strip().casefold()
-        if not query:
-            return
-
-        target_index = next(
-            (index for index, item in enumerate(items) if item.casefold() == query),
-            None,
-        )
-        if target_index is None:
-            target_index = next(
-                (index for index, item in enumerate(items) if query in item.casefold()),
-                None,
-            )
-        if target_index is None:
-            return
-
-        self._tab_bar.setCurrentIndex(target_index)
-        self._on_tab_changed(target_index)
-        self._flush_tab_change()
-
     # ------------------------------------------------------------------
     # Dialogs
     # ------------------------------------------------------------------
     def _on_settings(self) -> None:
-        """Open the settings dialog."""
+        """Open the settings dialog (Appearance first)."""
+        self._open_settings_dialog(initial_category="Appearance")
+
+    def _on_open_scripting_settings(self) -> None:
+        """Open Settings on the Scripting page (Deno path, download)."""
+        self._open_settings_dialog(initial_category="Scripting")
+
+    def _open_settings_dialog(self, *, initial_category: str) -> None:
+        """Show the modal settings dialog and refresh script Deno banners when it closes."""
         from ui.dialogs.settings_dialog import SettingsDialog
 
         dialog = SettingsDialog(
             self._theme_manager,
             self._tab_settings_manager,
-            parent=self,
+            self,
+            initial_category=initial_category,
         )
         dialog.exec()
+        w = self._editor_stack.currentWidget()
+        if w is not None and hasattr(w, "_update_runtime_banners"):
+            w._update_runtime_banners()  # type: ignore[union-attr]
 
     # ------------------------------------------------------------------
     # Current tab helper
@@ -680,6 +650,11 @@ class MainWindow(
         for ctx in self._tabs.values():
             ctx.cancel_send()
             ctx.cleanup_thread()
+            editor = getattr(ctx, "editor", None)
+            for attr in ("_pre_output_panel", "_test_output_panel"):
+                panel = getattr(editor, attr, None)
+                if panel is not None:
+                    panel.cleanup()
         self._cleanup_send_thread()
         self._console_panel.cleanup()
 
@@ -693,7 +668,7 @@ class MainWindow(
     # Collection runner
     # ------------------------------------------------------------------
     def _on_run_collection(self) -> None:
-        """Open the collection runner dialog for the selected collection."""
+        """Open the folder tab and inline runner for the selected collection."""
         coll_id = self.collection_widget.selected_collection_id()
         if coll_id is None:
             logger.warning("No collection selected for runner")
@@ -701,11 +676,8 @@ class MainWindow(
         self._on_run_collection_by_id(coll_id)
 
     def _on_run_collection_by_id(self, collection_id: int) -> None:
-        """Open the collection runner dialog for a specific collection."""
-        from ui.dialogs.collection_runner import CollectionRunnerDialog
-
-        dialog = CollectionRunnerDialog(collection_id, parent=self)
-        dialog.exec()
+        """Open or focus the folder tab on Runs -> New run for *collection_id*."""
+        self._open_folder(collection_id, focus_runner_panel=True)
 
     # ------------------------------------------------------------------
     # Environment editor

@@ -1,13 +1,16 @@
 """Tests for the CompletionEngine.
 
 Exercises dot-path resolution, variable completions, language switching,
-prefix filtering, and top-level completion generation.
+prefix filtering, top-level completion generation, ``pm.response.to`` chain,
+``resolve_call_signature``, ``resolve_nearest_call_signature``, and rich
+signature formatting.
 """
 
 from __future__ import annotations
 
 from services.environment_service import VariableDetail
 from ui.widgets.code_editor.completion.engine import CompletionEngine, CompletionItem
+from ui.widgets.code_editor.completion.parameter_hint import format_signature_rich
 
 # -- Construction & language switching ---------------------------------
 
@@ -68,6 +71,7 @@ class TestDotPathJS:
         assert "status" in labels
         assert "headers" in labels
         assert "json" in labels
+        assert "to" in labels
 
     def test_pm_response_headers_dot(self) -> None:
         """'pm.response.headers.' returns header methods."""
@@ -132,6 +136,68 @@ class TestDotPathJS:
         assert "get" in labels
 
 
+# -- Dot-path mid-typing (prefix after dot) ---------------------------
+
+
+class TestDotPathMidTypingJS:
+    """``pm.v``-style contexts narrow schema children instead of top-level fallback."""
+
+    def test_pm_v_narrows_to_variables_not_top_level(self) -> None:
+        """'pm.v' suggests variables among pm children, not CryptoJS/console."""
+        engine = CompletionEngine("javascript")
+        items = engine.complete("pm.v")
+        labels = {item.label for item in items}
+        assert "variables" in labels
+        for bad in ("CryptoJS", "console", "postman", "atob", "pm"):
+            assert bad not in labels
+
+    def test_pm_variables_without_trailing_dot_narrows(self) -> None:
+        """'pm.variables' filters pm children to the variables property."""
+        engine = CompletionEngine("javascript")
+        items = engine.complete("pm.variables")
+        labels = {item.label for item in items}
+        assert labels == {"variables"}
+
+    def test_pm_variables_s_narrows_to_set(self) -> None:
+        """'pm.variables.s' narrows VariableScope methods to set."""
+        engine = CompletionEngine("javascript")
+        items = engine.complete("pm.variables.s")
+        labels = {item.label for item in items}
+        assert "set" in labels
+        for bad in ("CryptoJS", "console", "postman", "get", "has"):
+            assert bad not in labels
+
+    def test_pm_variables_trailing_dot_still_full_children(self) -> None:
+        """'pm.variables.' returns full scope children (regression vs prefix branch)."""
+        engine = CompletionEngine("javascript")
+        items = engine.complete("pm.variables.")
+        labels = {item.label for item in items}
+        assert "set" in labels
+        assert "get" in labels
+        assert "has" in labels
+        assert "toObject" in labels
+
+
+class TestDotPathMidTypingPython:
+    """Same mid-dot behaviour for the Python schema."""
+
+    def test_pm_var_narrows_to_variables(self) -> None:
+        """'pm.var' narrows to variables."""
+        engine = CompletionEngine("python")
+        items = engine.complete("pm.var")
+        labels = {item.label for item in items}
+        assert "variables" in labels
+        for bad in ("CryptoJS", "console", "postman", "pm"):
+            assert bad not in labels
+
+    def test_pm_variables_s_narrows_to_set(self) -> None:
+        """'pm.variables.s' narrows to set."""
+        engine = CompletionEngine("python")
+        items = engine.complete("pm.variables.s")
+        labels = {item.label for item in items}
+        assert labels == {"set"}
+
+
 # -- Dot-path completions (Python) ------------------------------------
 
 
@@ -162,6 +228,157 @@ class TestDotPathPython:
         items = engine.complete("pm.")
         labels = {item.label for item in items}
         assert "collection_variables" in labels
+
+
+# -- pm.response.to expectation chain ---------------------------------
+
+
+class TestPmResponseToExpectationChainJS:
+    """``pm.response.to`` uses the shared expectation chain schema."""
+
+    def test_pm_response_to_dot_returns_chain(self) -> None:
+        """``pm.response.to.`` lists chain connectors and assertion helpers."""
+        engine = CompletionEngine("javascript")
+        items = engine.complete("pm.response.to.")
+        labels = {item.label for item in items}
+        assert "have" in labels
+        assert "be" in labels
+        assert "equal" in labels
+        assert "not" in labels
+
+    def test_pm_response_to_have_dot_still_chain(self) -> None:
+        """``pm.response.to.have.`` continues the fluent chain."""
+        engine = CompletionEngine("javascript")
+        items = engine.complete("pm.response.to.have.")
+        labels = {item.label for item in items}
+        assert "status" in labels
+        assert "header" in labels
+        assert "equal" in labels
+
+    def test_pm_response_to_have_status_mid_typing(self) -> None:
+        """Mid-word filter on ``status`` under the chain."""
+        engine = CompletionEngine("javascript")
+        for fragment in ("pm.response.to.have.status", "pm.response.to.have.s"):
+            items = engine.complete(fragment)
+            labels = {item.label for item in items}
+            assert "status" in labels
+
+
+class TestPmResponseToExpectationChainPython:
+    """Python schema mirrors ``pm.response.to`` chain."""
+
+    def test_pm_response_includes_to(self) -> None:
+        engine = CompletionEngine("python")
+        items = engine.complete("pm.response.")
+        labels = {item.label for item in items}
+        assert "to" in labels
+
+    def test_pm_response_to_dot_and_have(self) -> None:
+        engine = CompletionEngine("python")
+        labels_to = {item.label for item in engine.complete("pm.response.to.")}
+        assert "have" in labels_to
+        labels_have = {item.label for item in engine.complete("pm.response.to.have.")}
+        assert "status" in labels_have
+
+    def test_pm_response_to_have_status_mid_typing(self) -> None:
+        engine = CompletionEngine("python")
+        items = engine.complete("pm.response.to.have.s")
+        labels = {item.label for item in items}
+        assert "status" in labels
+
+
+class TestResolveCallSignature:
+    """``CompletionEngine.resolve_call_signature`` for parameter hints."""
+
+    def test_status_call_js(self) -> None:
+        engine = CompletionEngine("javascript")
+        got = engine.resolve_call_signature("pm.response.to.have.status(")
+        assert got is not None
+        sig, idx = got
+        assert sig == "(code: number)"
+        assert idx == 0
+
+    def test_expect_receiver_strips_simple_parens_js(self) -> None:
+        engine = CompletionEngine("javascript")
+        got = engine.resolve_call_signature("pm.expect(value).to.equal(")
+        assert got is not None
+        sig, idx = got
+        assert sig == "(expected: any)"
+        assert idx == 0
+
+    def test_variables_set_second_param_js(self) -> None:
+        engine = CompletionEngine("javascript")
+        got = engine.resolve_call_signature('pm.variables.set("foo", ')
+        assert got is not None
+        sig, idx = got
+        assert "value" in sig
+        assert idx == 1
+
+    def test_variables_set_python(self) -> None:
+        engine = CompletionEngine("python")
+        got = engine.resolve_call_signature('pm.variables.set("foo", ')
+        assert got is not None
+        sig, idx = got
+        assert "value" in sig
+        assert idx == 1
+
+    def test_no_open_call_returns_none(self) -> None:
+        engine = CompletionEngine("javascript")
+        assert engine.resolve_call_signature("pm.response.code") is None
+
+    def test_outer_call_with_inner_simple_group_strips_to_inner_method(self) -> None:
+        """Receiver ``f(g()).m(`` resolves ``m`` on parent ``f`` after stripping ``(g())``."""
+        engine = CompletionEngine("javascript")
+        got = engine.resolve_call_signature("pm.expect(pm.response).to.equal(")
+        assert got is not None
+        assert got[0] == "(expected: any)"
+
+
+class TestResolveNearestCallSignature:
+    """``CompletionEngine.resolve_nearest_call_signature`` — Ctrl+P / past-`)` fallback."""
+
+    def test_past_closing_paren_js_status(self) -> None:
+        engine = CompletionEngine("javascript")
+        got = engine.resolve_nearest_call_signature("pm.response.to.have.status(201);")
+        assert got is not None
+        sig, idx = got
+        assert sig == "(code: number)"
+        assert idx == 0
+
+    def test_past_closing_paren_js_variables_set(self) -> None:
+        engine = CompletionEngine("javascript")
+        got = engine.resolve_nearest_call_signature('pm.variables.set("foo", 1);')
+        assert got is not None
+        sig, idx = got
+        assert "value" in sig
+        assert idx == 1
+
+    def test_no_schema_match_returns_none(self) -> None:
+        engine = CompletionEngine("javascript")
+        assert engine.resolve_nearest_call_signature("foo();\n") is None
+
+    def test_open_call_delegates_like_strict(self) -> None:
+        engine = CompletionEngine("javascript")
+        strict = engine.resolve_call_signature("pm.response.to.have.status(")
+        nearest = engine.resolve_nearest_call_signature("pm.response.to.have.status(")
+        assert strict == nearest
+
+    def test_past_closing_paren_python(self) -> None:
+        engine = CompletionEngine("python")
+        got = engine.resolve_nearest_call_signature("pm.response.to.have.status(201);")
+        assert got is not None
+        assert got[0] == "(code: int)"
+        assert got[1] == 0
+
+
+class TestFormatSignatureRich:
+    """HTML formatting for the parameter hint label."""
+
+    def test_bolds_active_param(self) -> None:
+        html = format_signature_rich("(key: string, value: any)", 1)
+        assert "<b" in html and "value: any</b>" in html
+        assert "key: string" in html
+        assert html.startswith("(")
 
 
 # -- Variable completions ---------------------------------------------
@@ -597,5 +814,4 @@ class TestJSGlobals:
         items = engine.top_level_completions()
         labels = {item.label for item in items}
         assert "require" not in labels
-        assert "CryptoJS" not in labels
         assert "CryptoJS" not in labels

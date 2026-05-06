@@ -130,6 +130,15 @@ def build_global_qss(p: ThemePalette) -> str:
         font-size: 12px;
     }}
 
+    /* Read-only inherited-script preview: light paper even in a dark app */
+    QPlainTextEdit[objectName="codeEditorInheritedRead"] {{
+        background: {LIGHT_PALETTE["input_bg"] if p is DARK_PALETTE else p["input_bg"]};
+        border: 1px solid {p["border"]};
+        color: {LIGHT_PALETTE["text"] if p is DARK_PALETTE else p["text"]};
+        font-family: monospace;
+        font-size: 12px;
+    }}
+
     /* ---- Buttons ------------------------------------------------ */
     QPushButton[objectName="primaryButton"] {{
         background: {p["accent"]};
@@ -142,6 +151,10 @@ def build_global_qss(p: ThemePalette) -> str:
     QPushButton[objectName="primaryButton"]:hover {{
         opacity: 0.85;
     }}
+    QPushButton[objectName="primaryButton"]:disabled {{
+        background: {p["bg_alt"]};
+        color: {p["text_muted"]};
+    }}
     QPushButton[objectName="dangerButton"] {{
         background: {p["danger"]};
         color: {p["bg"]};
@@ -152,6 +165,10 @@ def build_global_qss(p: ThemePalette) -> str:
     }}
     QPushButton[objectName="dangerButton"]:hover {{
         opacity: 0.85;
+    }}
+    QPushButton[objectName="dangerButton"]:disabled {{
+        background: {p["bg_alt"]};
+        color: {p["text_muted"]};
     }}
     QPushButton[objectName="smallPrimaryButton"] {{
         background: {p["accent"]};
@@ -168,6 +185,9 @@ def build_global_qss(p: ThemePalette) -> str:
         border-radius: 4px;
         background: transparent;
         color: {p["text"]};
+    }}
+    QPushButton[objectName="outlineButton"]:hover {{
+        background: {"rgba(255,255,255,0.08)" if p is DARK_PALETTE else "rgba(0,0,0,0.06)"};
     }}
     QPushButton[objectName="saveButton"] {{
         border: 1px solid {p["accent"]};
@@ -385,6 +405,67 @@ def build_global_qss(p: ThemePalette) -> str:
         padding: 3px 6px;
     }}
 
+    /* ---- Scroll bars (app-wide) -----------------------------------
+       Full rules for every sub-control so the style does not fall back
+       to faint platform defaults. Handle has a 1px border for contrast. */
+    QScrollBar:vertical {{
+        background: {p["bg_alt"]};
+        width: 12px;
+        margin: 0px;
+        border: none;
+    }}
+    QScrollBar:horizontal {{
+        background: {p["bg_alt"]};
+        height: 12px;
+        margin: 0px;
+        border: none;
+    }}
+    QScrollBar::handle:vertical {{
+        background: {p["muted"]};
+        border: 1px solid {p["border"]};
+        border-radius: 4px;
+        min-height: 28px;
+        margin: 2px;
+    }}
+    QScrollBar::handle:vertical:hover {{
+        background: {p["text_muted"]};
+        border-color: {p["text_muted"]};
+    }}
+    QScrollBar::handle:vertical:pressed {{
+        background: {p["text_muted"]};
+    }}
+    QScrollBar::handle:horizontal {{
+        background: {p["muted"]};
+        border: 1px solid {p["border"]};
+        border-radius: 4px;
+        min-width: 28px;
+        margin: 2px;
+    }}
+    QScrollBar::handle:horizontal:hover {{
+        background: {p["text_muted"]};
+        border-color: {p["text_muted"]};
+    }}
+    QScrollBar::handle:horizontal:pressed {{
+        background: {p["text_muted"]};
+    }}
+    QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+        height: 0px;
+        width: 0px;
+        border: none;
+    }}
+    QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+        width: 0px;
+        height: 0px;
+        border: none;
+    }}
+    QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical,
+    QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
+        background: transparent;
+    }}
+    QAbstractScrollArea::corner {{
+        background: {p["bg_alt"]};
+    }}
+
     /* ---- Scroll areas ------------------------------------------- */
     QScrollArea {{
         border: none;
@@ -393,6 +474,9 @@ def build_global_qss(p: ThemePalette) -> str:
     QScrollArea[objectName="scriptOutputScroll"] {{
         border: 1px solid {p["border"]};
         background-color: {p["input_bg"]};
+    }}
+    QWidget[objectName="scriptOutputSection"] {{
+        border-bottom: 1px solid {p["border"]};
     }}
     QWidget[objectName="scriptOutputInner"] {{
         background-color: {p["input_bg"]};
@@ -458,6 +542,26 @@ def build_global_qss(p: ThemePalette) -> str:
     /* ---- Toolbar buttons ---------------------------------------- */
     QToolButton {{
         background: {p["bg"]};
+    }}
+    QToolButton[objectName="scriptLanguageLinkButton"] {{
+        background: transparent;
+        border: none;
+        color: {p["accent"]};
+        font-size: 12px;
+        font-weight: normal;
+        /* top, right, bottom, left — extra right room so label and menu arrow are not cramped */
+        padding: 0px 18px 0px 6px;
+        text-decoration: underline;
+    }}
+    QToolButton[objectName="scriptLanguageLinkButton"]::menu-indicator {{
+        width: 12px;
+        height: 12px;
+        subcontrol-position: right center;
+        subcontrol-origin: padding;
+        right: 4px;
+    }}
+    QToolButton[objectName="scriptLanguageLinkButton"]:hover {{
+        background: {"rgba(255,255,255,0.08)" if p is DARK_PALETTE else "rgba(0,0,0,0.06)"};
     }}
 
     /* ---- Sidebar flat buttons ----------------------------------- */
@@ -532,6 +636,29 @@ def build_global_qss(p: ThemePalette) -> str:
         background: {p["border"]};
         max-height: 1px;
         min-height: 1px;
+    }}
+    QTreeWidget#debugHoverValueTree {{
+        border: none;
+        background: {p["input_bg"]};
+    }}
+    QTreeWidget#debugHoverValueTree::item:selected {{
+        background: {p["selected_bg"]};
+    }}
+    QTreeWidget#debugVariablesTree {{
+        border: none;
+        background: {p["input_bg"]};
+    }}
+    /* Section titles use bold ``setFont`` on top-level items (see ``debug_panel._add_section``). */
+    QTreeWidget#debugVariablesTree::item:selected {{
+        background: {p["selected_bg"]};
+    }}
+    /* Foreground inherits the tree viewport palette (sharper than forcing ``color`` here). */
+    QTreeWidget#debugVariablesTree QLabel#debugTreeCellLabel,
+    QTreeWidget#debugHoverValueTree QLabel#debugTreeCellLabel {{
+        background: transparent;
+        border: none;
+        padding: 0px;
+        margin: 0px;
     }}
 
     /* ---- Variable popup (hover tooltip for {{variables}}) ------- */
@@ -737,6 +864,39 @@ def build_global_qss(p: ThemePalette) -> str:
         font-size: 12px;
         color: {p["text_muted"]};
     }}
+    QLineEdit[objectName="variableKeyLabel"] {{
+        font-family: monospace;
+        font-size: 12px;
+        color: {p["text"]};
+        background: transparent;
+        border: none;
+        padding: 1px 0px;
+    }}
+    QLineEdit[objectName="variableValueLabel"] {{
+        font-family: monospace;
+        font-size: 12px;
+        color: {p["text_muted"]};
+        background: transparent;
+        border: none;
+        padding: 1px 0px;
+    }}
+    QPlainTextEdit[objectName="variableValueEditor"] {{
+        font-family: monospace;
+        font-size: 12px;
+        color: {p["text_muted"]};
+        background: transparent;
+        border: none;
+        padding: 2px 0px;
+    }}
+    QToolButton[objectName="kvValueExpandToggle"] {{
+        background: transparent;
+        border: none;
+        padding: 4px;
+    }}
+    QToolButton[objectName="kvValueExpandToggle"]:hover {{
+        background: {"rgba(255,255,255,0.08)" if p is DARK_PALETTE else "rgba(0,0,0,0.06)"};
+        border-radius: 4px;
+    }}
     QLabel[objectName="sidebarSourceDot"] {{
         font-size: 16px;
         font-weight: bold;
@@ -784,6 +944,29 @@ def build_global_qss(p: ThemePalette) -> str:
         border-bottom: 1px solid {p["border"]};
     }}
 
+    /* ---- Parameter hint (code editor call signatures) ----------- */
+    QFrame[objectName="parameterHintPopup"] {{
+        background: {p["bg"]};
+        border: 1px solid {p["border"]};
+        border-radius: 4px;
+    }}
+    QLabel[objectName="parameterHintPopupLabel"] {{
+        color: {p["text_muted"]};
+        font-family: monospace;
+        font-size: 12px;
+    }}
+
+    QFrame[objectName="symbolDocPopup"] {{
+        background: {p["bg"]};
+        border: 1px solid {p["border"]};
+        border-radius: 4px;
+    }}
+    QLabel[objectName="symbolDocPopupLabel"] {{
+        color: {p["text"]};
+        font-family: monospace;
+        font-size: 12px;
+    }}
+
     /* ---- Runtime download banner -------------------------------- */
     QFrame[objectName="RuntimeBanner"] {{
         background: {p["bg_alt"]};
@@ -793,6 +976,13 @@ def build_global_qss(p: ThemePalette) -> str:
     QLabel[objectName="bannerMessage"] {{
         color: {p["text"]};
         font-size: 12px;
+    }}
+    QLabel[objectName="bannerMessage"] a {{
+        color: {p["accent"]};
+        text-decoration: none;
+    }}
+    QLabel[objectName="bannerMessage"] a:hover {{
+        text-decoration: underline;
     }}
     QPushButton[objectName="bannerDownloadBtn"] {{
         background: {p["accent"]};

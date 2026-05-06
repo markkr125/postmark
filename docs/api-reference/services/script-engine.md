@@ -53,6 +53,12 @@ blank scripts.
 
 **Module:** `services/scripting/js_runtime.py`
 
+`JSRuntime` provides bootstrap, polyfills, and vendor ``require`` resolution
+for script bundles.  `execute` delegates to `DenoRuntime` in
+`services/scripting/deno_runtime.py`, which runs user code in a
+``deno run`` subprocess with a generated bundle and
+`data/scripts/deno_drain.mjs` (line-JSON ``pm.sendRequest`` IPC to Python).
+
 ### `execute`
 
 ```python
@@ -60,12 +66,11 @@ blank scripts.
 def execute(script: str, context: ScriptInput) -> ScriptOutput
 ```
 
-Run JavaScript in a fresh V8 isolate (PyMiniRacer).  Injects
-`pm_bootstrap.js` preamble, sets context, executes script, extracts
-state.  Returns valid `ScriptOutput` even on error.
+Injects the bundle preamble, sets context, runs the script in Deno, extracts
+state from stdout.  Returns valid `ScriptOutput` even on error.
 
-- Timeout: 5000 ms
-- Max memory: 64 MB
+- Subprocess hard timeout: 10 seconds (see `DenoRuntime`)
+- A configured Deno binary (or managed download) is required
 
 ## Class: `PyRuntime`
 

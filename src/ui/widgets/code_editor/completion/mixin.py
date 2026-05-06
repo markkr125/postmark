@@ -10,11 +10,16 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QPoint, QRect, Qt, QTimer
-from PySide6.QtGui import QMouseEvent, QTextCursor
+from PySide6.QtGui import QKeyEvent, QMouseEvent, QTextCursor
 from PySide6.QtWidgets import QPlainTextEdit
+
+from ui.widgets.code_editor.completion.symbol_doc_popup import SymbolDocPopup
+
+_SYMBOL_HOVER_DELAY_MS = 400
 
 if TYPE_CHECKING:
     from ui.widgets.code_editor.completion.engine import CompletionEngine
+    from ui.widgets.code_editor.completion.parameter_hint import ParameterHintPopup
     from ui.widgets.code_editor.completion.popup import CompletionPopup
 
     _CompletionBase = QPlainTextEdit
@@ -27,8 +32,13 @@ class _CompletionMixin(_CompletionBase):
 
     # -- Attribute stubs (set by CodeEditorWidget.__init__) -------------
     _completion_popup: CompletionPopup
+    _symbol_doc_popup: SymbolDocPopup
+    _symbol_hover_path: str | None
+    _symbol_hover_global_pos: QPoint
+    _symbol_hover_timer: QTimer
     _completion_engine: CompletionEngine
     _completion_prefix: str
+    _parameter_hint_popup: ParameterHintPopup
 
     if TYPE_CHECKING:
 
@@ -43,6 +53,9 @@ class _CompletionMixin(_CompletionBase):
 
     def _trigger_completion(self) -> None:
         """Compute and show completions at the current cursor position."""
+        self._parameter_hint_popup.hide_hint()
+        if hasattr(self, "_symbol_doc_popup"):
+            self._symbol_doc_popup.hide_popup()  # type: ignore[attr-defined]
         self._completion_engine.scan_assignments(self.toPlainText())
         cursor = self.textCursor()
         block_text = cursor.block().text()
@@ -122,8 +135,44 @@ class _CompletionMixin(_CompletionBase):
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         """Expand a collapsed fold when its ``...`` badge is clicked."""
+        # Ctrl+click — jump to definition or show the schema doc.
+        if event.button() == Qt.MouseButton.LeftButton and (
+            event.modifiers() & Qt.KeyboardModifier.ControlModifier
+        ):
+            pos = event.position().toPoint()
+            hit = self._ident_at_pos(pos)  # type: ignore[attr-defined]
+            if hit is not None:
+                path, _start, _end = hit
+                if self._completion_engine.is_linkable_symbol(path, self.toPlainText()):
+                    head = path.split(".", 1)[0]
+                    target = self._completion_engine.find_definition_pos(
+                        head, self.toPlainText()
+                    )
+                    self.set_symbol_link_range(None, None)  # type: ignore[attr-defined]
+                    if target is not None:
+                        cur = self.textCursor()
+                        cur.setPosition(target)
+                        self.setTextCursor(cur)
+                        self.centerCursor()
+                        event.accept()
+                        return
+                    sym = self._completion_engine.resolve_symbol(path, self.toPlainText())
+                    if sym is not None:
+                        self._symbol_hover_global_pos = event.globalPosition().toPoint()
+                        self._symbol_doc_popup.show_for(  # type: ignore[attr-defined]
+                            self._symbol_hover_global_pos,
+                            sym._replace(origin=f"{sym.origin} (no source location)"),
+                        )
+                        event.accept()
+                        return
+        dbg = getattr(self, "_debug_popup", None)
+        if dbg is not None and dbg.isVisible() and hasattr(self, "_hide_debug_value_popup"):
+            self._hide_debug_value_popup()  # type: ignore[attr-defined]
         if self._completion_popup.is_active():
             self._completion_popup.dismiss()
+        self._parameter_hint_popup.hide_hint()
+        if hasattr(self, "_symbol_doc_popup"):
+            self._symbol_doc_popup.hide_popup()  # type: ignore[attr-defined]
         if event.button() == Qt.MouseButton.LeftButton and self._fold_badge_rects:
             pos = event.position().toPoint()
             for start_line, rect in self._fold_badge_rects.items():
@@ -131,6 +180,16 @@ class _CompletionMixin(_CompletionBase):
                     self.toggle_fold(start_line)
                     return
         super().mousePressEvent(event)
+
+    def keyReleaseEvent(self, event: QKeyEvent) -> None:
+        """Clear the Ctrl+hover underline as soon as Ctrl is released."""
+        if event.key() in (Qt.Key.Key_Control, Qt.Key.Key_Meta):
+            if self._symbol_hover_path is not None:
+                self._symbol_hover_path = None
+                self._symbol_hover_timer.stop()  # type: ignore[union-attr]
+            self.set_symbol_link_range(None, None)  # type: ignore[attr-defined]
+            self.viewport().setCursor(Qt.CursorShape.IBeamCursor)
+        super().keyReleaseEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         """Track variable hover and fold-badge cursor changes."""
@@ -145,18 +204,85 @@ class _CompletionMixin(_CompletionBase):
                     return
         self.viewport().setCursor(Qt.CursorShape.IBeamCursor)
 
+        # 1b. Ctrl+hover — quick doc popup for code identifiers.
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            hit = self._ident_at_pos(pos)  # type: ignore[attr-defined]
+            if hit is not None:
+                path, doc_start, doc_end = hit
+                if self._completion_engine.is_linkable_symbol(path, self.toPlainText()):
+                    self.viewport().setCursor(Qt.CursorShape.PointingHandCursor)
+                    if path != self._symbol_hover_path:
+                        self._symbol_hover_path = path
+                        self._symbol_hover_global_pos = event.globalPosition().toPoint()
+                        self.set_symbol_link_range(doc_start, doc_end)  # type: ignore[attr-defined]
+                        self._symbol_hover_timer.stop()  # type: ignore[union-attr]
+                        self._symbol_hover_timer.start(_SYMBOL_HOVER_DELAY_MS)  # type: ignore[union-attr]
+                    super().mouseMoveEvent(event)
+                    return
+        if self._symbol_hover_path is not None:
+            self._symbol_hover_path = None
+            self._symbol_hover_timer.stop()  # type: ignore[union-attr]
+            self._symbol_doc_popup.hide_popup()  # type: ignore[attr-defined]
+            self.set_symbol_link_range(None, None)  # type: ignore[attr-defined]
+
         # 2. Variable hover tracking.
         var_name = self._var_at_cursor(pos)  # type: ignore[attr-defined]
         if var_name:
             if var_name != self._var_hover_name:
+                if hasattr(self, "_debug_popup") and self._debug_popup.isVisible():
+                    self._hide_debug_value_popup()  # type: ignore[attr-defined]
                 self._var_hover_name = var_name
                 self._var_hover_global_pos = event.globalPosition().toPoint()
                 from ui.widgets.variable_popup import VariablePopup
 
                 self._var_hover_timer.start(VariablePopup.hover_delay_ms())  # type: ignore[union-attr]
         else:
+            dbg = getattr(self, "_debug_popup", None)
+            if dbg is not None and dbg.isVisible():
+                # Sticky debug hover: micro-moves can leave the token hit-test without
+                # the pointer leaving the editor; keep the popup until click-away or Escape.
+                super().mouseMoveEvent(event)
+                return
             if self._var_hover_name is not None:
                 self._var_hover_name = None
                 self._var_hover_timer.stop()  # type: ignore[union-attr]
+                if hasattr(self, "_hide_debug_value_popup"):
+                    self._hide_debug_value_popup()  # type: ignore[attr-defined]
 
         super().mouseMoveEvent(event)
+
+    def _text_before_cursor_document(self) -> str:
+        """Return all document text strictly before the text cursor."""
+        cur = self.textCursor()
+        return self.toPlainText()[: cur.position()]
+
+    def _try_show_parameter_hint(self) -> None:
+        """Show parameter hint for the innermost call surrounding the cursor, if known."""
+        self._completion_engine.scan_assignments(self.toPlainText())
+        data = self._completion_engine.resolve_nearest_call_signature(
+            self._text_before_cursor_document()
+        )
+        if not data:
+            self._parameter_hint_popup.hide_hint()
+            return
+        sig, active = data
+        from ui.widgets.code_editor.completion.parameter_hint import format_signature_rich
+
+        html_sig = format_signature_rich(sig, active)
+        cr = self.cursorRect()
+        gp = self.mapToGlobal(cr.topLeft())
+        self._parameter_hint_popup.show_hint(gp, html_sig, cr.height())
+
+    def _refresh_parameter_hint_from_cursor(self) -> None:
+        """Recompute the hint when the cursor moves while the hint is visible."""
+        if self._parameter_hint_popup.isVisible():
+            self._try_show_parameter_hint()
+
+    def _dismiss_parameter_hint(self) -> None:
+        """Hide the parameter hint popup."""
+        self._parameter_hint_popup.hide_hint()
+
+    def _on_cursor_moved_parameter_hint(self) -> None:
+        """Cursor moved: refresh active parameter when the hint is open."""
+        if self._parameter_hint_popup.isVisible():
+            self._refresh_parameter_hint_from_cursor()

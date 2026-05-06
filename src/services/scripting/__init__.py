@@ -12,11 +12,7 @@ from typing import Any, NotRequired, TypedDict
 
 from services.scripting.deno_manager import DenoManager
 from services.scripting.engine import ScriptEngine, ScriptLinter
-from services.scripting.feature_detect import (
-    FEATURE_ASYNC,
-    FEATURE_NPM,
-    detect_advanced_features,
-)
+from services.scripting.runtime_settings import RuntimePathStatus, RuntimeSettings
 
 
 class TestResult(TypedDict):
@@ -71,15 +67,14 @@ class ScriptEntry(TypedDict):
 
 
 __all__ = [
-    "FEATURE_ASYNC",
-    "FEATURE_NPM",
     "ConsoleLog",
     "DenoManager",
+    "RuntimePathStatus",
+    "RuntimeSettings",
     "ScriptEngine",
     "ScriptEntry",
     "ScriptInput",
     "ScriptLinter",
     "ScriptOutput",
     "TestResult",
-    "detect_advanced_features",
 ]

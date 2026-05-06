@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import sys
+from collections.abc import Generator
+
 import pytest
 from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QApplication
@@ -26,8 +29,20 @@ from ui.styling.theme_manager import (
 
 
 @pytest.fixture(autouse=True)
-def _clear_theme_settings() -> None:
-    """Clear persisted theme QSettings before each test."""
+def _clear_theme_settings() -> Generator[None, None, None]:
+    """Clear persisted QSettings so tests do not leak to other test modules.
+
+    A Scripting test may persist a fake ``scripting/deno_path``; the last test
+    in this file has no *following* per-test pre-hook, so we also clear on
+    teardown. Otherwise the next file sees an invalid custom path and script
+    runtimes (e.g. Deno debug) can misbehave in the same session.
+    """
+    settings = QSettings(_ORG, _APP)
+    settings.remove("theme")
+    settings.remove("tabs")
+    settings.remove("scripting")
+    settings.sync()
+    yield
     settings = QSettings(_ORG, _APP)
     settings.remove("theme")
     settings.remove("tabs")
@@ -51,6 +66,14 @@ class TestSettingsDialogConstruction:
         dialog = SettingsDialog(tm)
         qtbot.addWidget(dialog)
         assert dialog._cat_list.count() >= 1
+
+    def test_initial_category_scripting(self, qapp: QApplication, qtbot) -> None:
+        """``initial_category=Scripting`` selects the Scripting row and stack page."""
+        tm = ThemeManager(qapp)
+        dialog = SettingsDialog(tm, initial_category="Scripting")
+        qtbot.addWidget(dialog)
+        assert dialog._cat_list.currentRow() == 2
+        assert dialog._stack.currentIndex() == 2
 
     def test_appearance_category_exists(self, qapp: QApplication, qtbot) -> None:
         """The first category is 'Appearance'."""
@@ -248,3 +271,42 @@ class TestSettingsDialogScripting:
         dialog = SettingsDialog(tm)
         qtbot.addWidget(dialog)
         assert not dialog._auto_save_default_check.isChecked()
+
+    def test_runtime_path_widgets_exist(self, qapp: QApplication, qtbot) -> None:
+        """Scripting page has Deno and Python path line edits and actions."""
+        tm = ThemeManager(qapp)
+        dialog = SettingsDialog(tm)
+        qtbot.addWidget(dialog)
+        assert hasattr(dialog, "_deno_path_edit")
+        assert hasattr(dialog, "_python_path_edit")
+        assert hasattr(dialog, "_deno_autodetect_btn")
+        assert hasattr(dialog, "_deno_download_btn")
+        assert hasattr(dialog, "_python_reset_btn")
+
+    def test_deno_autodetect_clears_path(self, qapp: QApplication, qtbot) -> None:
+        """Auto-detect clears the custom Deno line edit (Apply persists the clear)."""
+        tm = ThemeManager(qapp)
+        dialog = SettingsDialog(tm)
+        qtbot.addWidget(dialog)
+        dialog._deno_path_edit.setText("/opt/deno")
+        dialog._on_deno_autodetect()
+        assert not dialog._deno_path_edit.text().strip()
+
+    def test_apply_persists_custom_runtime_paths(
+        self,
+        qapp: QApplication,
+        qtbot,
+    ) -> None:
+        """Apply stores scripting/deno_path and scripting/python_path."""
+        tm = ThemeManager(qapp)
+        dialog = SettingsDialog(tm)
+        qtbot.addWidget(dialog)
+
+        d_path = f"{sys.prefix}/fake-deno"
+        py_path = f"{sys.prefix}/fake-python"
+        dialog._deno_path_edit.setText(d_path)
+        dialog._python_path_edit.setText(py_path)
+        dialog._on_apply()
+        s = QSettings(_ORG, _APP)
+        assert s.value("scripting/deno_path", "") in (d_path, str(d_path))
+        assert s.value("scripting/python_path", "") in (py_path, str(py_path))

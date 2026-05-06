@@ -23,7 +23,8 @@ Inherits `_PaintingMixin`, `_FoldingMixin`, `QPlainTextEdit`.
 | Bracket matching | Highlight matching parens/braces |
 | Inline validation | JSON/XML/GraphQL error markers |
 | Variable highlighting | `{{variable}}` patterns with coloured background |
-| Autocomplete | Dot-path + variable completions (Ctrl+Space, `.`, `{{`) |
+| Autocomplete | Dot-path + variable completions (Ctrl+Space, `.`, `{{`); parameter info after `(` or **Ctrl+P** (works from the script find field too; cursor must be in or just after a known call on that line) |
+| Symbol navigation | **Ctrl+hover** (~400 ms) shows a quick-doc popup; **Ctrl+click** jumps to the user-defined definition (or shows the popup for `pm.*` schema entries); **Ctrl+Q** opens the same popup at the text cursor |
 | Minimap | Optional bird's-eye view of the document (`set_minimap_visible()`) |
 | Word wrap | Togglable |
 | Prettify | Auto-format JSON/XML |
@@ -36,8 +37,12 @@ Inherits `_PaintingMixin`, `_FoldingMixin`, `QPlainTextEdit`.
 | `_errors` | `list[SyntaxError_]` | Validation results |
 | `_fold_regions` | `dict[int, int]` | Start line to end line fold map |
 | `_variable_map` | `dict[str, VariableDetail]` | Resolved variables |
-| `_completion_engine` | `CompletionEngine` | Dot-path/variable resolver |
+| `_completion_engine` | `CompletionEngine` | Dot-path/variable resolver + call-signature resolution (strict and nearest-on-line) |
 | `_completion_popup` | `CompletionPopup` | Floating autocomplete popup |
+| `_symbol_doc_popup` | `SymbolDocPopup` | Quick-doc popup for Ctrl+hover and Ctrl+Q |
+| `_symbol_hover_path` | `str \| None` | Active hovered identifier dot-path |
+| `_symbol_hover_timer` | `QTimer` | 400 ms hover delay before showing the popup |
+| `_parameter_hint_popup` | `ParameterHintPopup` | Active call signature (JetBrains-style) |
 | `_read_only` | `bool` | Immutable mode (for responses) |
 
 ### Key Methods
@@ -180,8 +185,8 @@ Subclasses: `StatusPopup`, `TimingPopup`, `SizePopup`, `NetworkPopup`.
 
 ## RuntimeBanner
 
-Notification banner shown above script editors when advanced features
-(async/await, npm imports) are detected but Deno is not installed.
+Notification banner shown above JavaScript script editors when
+`RuntimeSettings` does not resolve a usable Deno executable.
 
 Source: `src/ui/widgets/runtime_banner.py`
 
@@ -189,17 +194,17 @@ Source: `src/ui/widgets/runtime_banner.py`
 
 | Feature | Description |
 |---------|-------------|
-| Detection message | Warning icon + explanation of why Deno is needed |
+| Message | Warning icon + rich text; **Open Scripting settings** link opens `Settings` on the Scripting page |
 | Download button | "Download Deno" triggers background download |
 | Progress bar | 4px bar with MB counter during download |
-| Dismiss | X button hides the banner for the current session |
+| Visibility | Stays until Deno becomes available (no dismiss control) |
 
 ### Signals
 
 | Signal | Description |
 |--------|-------------|
 | `download_completed` | Emitted when Deno download finishes successfully |
-| `dismissed` | Emitted when user dismisses the banner |
+| `open_settings_clicked` | Emitted when the user clicks **Open Scripting settings** in the message |
 
 ### QSS objectNames
 

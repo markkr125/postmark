@@ -18,6 +18,7 @@ class SchemaNode(TypedDict, total=False):
     doc: str  # one-line description
     signature: str  # e.g. "(name: string, fn: () => void)"
     children: dict[str, SchemaNode]
+    instance_children: dict[str, SchemaNode]  # for "new ClassName()." resolution
 
 
 # -- Shared sub-trees (reused across scopes) ---------------------------
@@ -309,3 +310,116 @@ _EXPECTATION_CHAIN_JS: dict[str, SchemaNode] = {
         "signature": "(path: string, value?: any)",
     },
 }
+
+# Fluent chain: every node without explicit ``children`` lists the full chain so
+# ``pm.expect.to.have.status`` resolves past single-hop roots.
+for _node in _EXPECTATION_CHAIN_JS.values():
+    if "children" not in _node:
+        _node["children"] = _EXPECTATION_CHAIN_JS
+
+
+# -- Python expectation chain (mirrors src/services/scripting/_py_sandbox.py) ----
+
+_EXPECTATION_CHAIN_PY: dict[str, SchemaNode] = {
+    # Language chain getters (return self)
+    "to": {"kind": "property", "type_str": "Expectation", "doc": "Chain connector"},
+    "be": {"kind": "property", "type_str": "Expectation", "doc": "Chain connector"},
+    "have": {"kind": "property", "type_str": "Expectation", "doc": "Chain connector"},
+    # Negation (Python uses ``not_`` since ``not`` is a keyword)
+    "not_": {"kind": "property", "type_str": "Expectation", "doc": "Toggle negation"},
+    # Boolean / existence
+    "true": {"kind": "property", "type_str": "None", "doc": "Assert value is True"},
+    "false": {"kind": "property", "type_str": "None", "doc": "Assert value is False"},
+    "none": {"kind": "property", "type_str": "None", "doc": "Assert value is None"},
+    "exist": {"kind": "property", "type_str": "None", "doc": "Assert value is not None"},
+    "empty": {"kind": "property", "type_str": "None", "doc": "Assert len(value) == 0"},
+    # Methods
+    "equal": {
+        "kind": "method",
+        "type_str": "Expectation",
+        "doc": "Equality (==)",
+        "signature": "(expected: Any)",
+    },
+    "eql": {
+        "kind": "method",
+        "type_str": "Expectation",
+        "doc": "Deep equality via JSON comparison",
+        "signature": "(expected: Any)",
+    },
+    "a": {
+        "kind": "method",
+        "type_str": "Expectation",
+        "doc": "Type check (isinstance / 'list')",
+        "signature": "(type: str)",
+    },
+    "include": {
+        "kind": "method",
+        "type_str": "Expectation",
+        "doc": "String/list contains or dict has key",
+        "signature": "(val: Any)",
+    },
+    "has_property": {
+        "kind": "method",
+        "type_str": "Expectation",
+        "doc": "Assert dict/object has property",
+        "signature": "(name: str, val: Any = None)",
+    },
+    "length_of": {
+        "kind": "method",
+        "type_str": "Expectation",
+        "doc": "Assert len(value) == n",
+        "signature": "(n: int)",
+    },
+    "above": {
+        "kind": "method",
+        "type_str": "Expectation",
+        "doc": "Assert value > n",
+        "signature": "(n: int | float)",
+    },
+    "below": {
+        "kind": "method",
+        "type_str": "Expectation",
+        "doc": "Assert value < n",
+        "signature": "(n: int | float)",
+    },
+    "least": {
+        "kind": "method",
+        "type_str": "Expectation",
+        "doc": "Assert value >= n",
+        "signature": "(n: int | float)",
+    },
+    "most": {
+        "kind": "method",
+        "type_str": "Expectation",
+        "doc": "Assert value <= n",
+        "signature": "(n: int | float)",
+    },
+    "match": {
+        "kind": "method",
+        "type_str": "Expectation",
+        "doc": "Assert value matches regex pattern",
+        "signature": "(pattern: str)",
+    },
+    "status": {
+        "kind": "method",
+        "type_str": "Expectation",
+        "doc": "Assert HTTP status code",
+        "signature": "(code: int)",
+    },
+    "header": {
+        "kind": "method",
+        "type_str": "Expectation",
+        "doc": "Assert response has header",
+        "signature": "(name: str, value: str | None = None)",
+    },
+    "json_body": {
+        "kind": "method",
+        "type_str": "Expectation",
+        "doc": "Assert JSON body at dot-path",
+        "signature": "(path: str, value: Any = None)",
+    },
+}
+
+for _node in _EXPECTATION_CHAIN_PY.values():
+    if "children" not in _node:
+        _node["children"] = _EXPECTATION_CHAIN_PY

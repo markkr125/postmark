@@ -1,6 +1,7 @@
 # Dialogs
 
-Modal dialog windows for import, save, settings, and batch execution.
+Modal dialog windows for import, save, and settings.  The collection
+runner is **inline** in the folder editor (see below).
 
 Source: `src/ui/dialogs/`
 
@@ -47,7 +48,10 @@ Save a draft request to an existing or new collection.
 
 ## SettingsDialog
 
-Application preferences dialog.
+Application preferences dialog.  Optional constructor keyword
+`initial_category` (``"Appearance"``, ``"Tabs"``, or ``"Scripting"``)
+selects the list row on open; the **Scripting** page holds the Deno path
+and managed download.
 
 ### Category Pages
 
@@ -55,13 +59,20 @@ Application preferences dialog.
 |------|----------|
 | Appearance | Style (Fusion / Native), colour scheme (Auto / Light / Dark) |
 | Tabs | Tab limit, close policies, activate-on-close, wrap mode |
+| Scripting | Deno executable path, validation, managed download; Python path |
 
-## CollectionRunner
+## Collection runner (inline)
 
 Batch request executor that runs all requests in a collection
-sequentially.
+sequentially.  The UI lives in **Folder editor → Runs → New run**
+(`ui/request/folder_editor/runner_panel.py`); shared widgets and the
+worker live under `ui/dialogs/collection_runner/` (no modal shell).
 
-Background `_RunnerWorker` on `QThread` with signals:
+The checklist includes **every request under the open folder** (any depth,
+including nested subfolders), not only requests when the folder is a root
+collection.
+
+Background ``RunnerWorker`` on ``QThread`` with signals:
 
 | Signal | Parameters | Description |
 |--------|------------|-------------|
@@ -84,11 +95,14 @@ The runner executes inherited script chains for each request:
 
 | Column | Content |
 |--------|---------|
-| # | Request index |
-| Name | Request name |
-| Status | HTTP status code (colour-coded) |
-| Time | Response time in ms |
-| Tests | `N/M passed` (green if all pass, red otherwise) |
+| Name | Request name (resizable) |
+| Method | HTTP method |
+| Status | HTTP status code, `ERR`, or `SKIP` |
+| Time (ms) | Response time |
+| Tests | `passed/total` (colour-coded) |
+| Result | `OK` or error text (stretches to fill) |
 
-The summary row aggregates total test pass/fail counts across all
-requests in the run.
+Columns are resizable; the last column grows with the available width. The
+summary line aggregates pass/fail across the run. When the run completes,
+the first result row is selected so the detail panel is populated
+immediately.

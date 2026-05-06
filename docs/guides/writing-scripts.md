@@ -10,7 +10,10 @@ requests and collections.
 1. Open a request in the editor.
 2. Click the **Scripts** tab (next to Auth, Headers, Body).
 3. Two editors appear: **Pre-request** and **Test**.
-4. Select a language from the dropdown (JavaScript or Python).
+4. Set the script language from the **status bar** under each editor: click the
+   language name (e.g. **JavaScript**) to open JavaScript, Python, or **Auto**
+   (content-based detection). The top toolbar no longer has a separate language
+   dropdown.
 
 ### Collection/Folder-level scripts
 
@@ -24,12 +27,31 @@ requests and collections.
 | Factor | JavaScript | Python |
 |--------|-----------|--------|
 | Postman compatibility | Full | Partial (different naming) |
-| Sandbox | V8 isolate | Subprocess + RestrictedPython |
+| Sandbox | Deno subprocess | Pyodide (Deno + WASM) when the vendored runtime is installed; otherwise RestrictedPython subprocess |
 | Timeout | 5 seconds | 5 seconds CPU |
 | Default | Yes | No (opt-in) |
 
 Use JavaScript for Postman-imported collections.  Use Python if you
 prefer Python syntax.  Both languages provide the same `pm.*` API.
+
+## npm and JSR packages (JavaScript)
+
+Use **`pm.require`** with a **string literal** whose value starts with **`npm:`**
+or **`jsr:`** and pins an **exact** semantic version (for example
+``pm.require('npm:lodash@4.17.21')``).  The host scans your script before launch,
+emits static `import` lines for Deno, and registers the module on
+`pm.require` at runtime.  Calls that use variables, concatenation, or
+version ranges (such as ``^1.0.0``) are not supported for bundling.
+
+## PyPI packages (Python)
+
+When the **Pyodide** runtime is installed (see ``data/scripts/vendor_pyodide/``),
+Python scripts run under Deno with **`pm.require("package")`** or
+**`pm.require("package==1.2.3")`** using **string literals** only (same
+scanning rules as the host — exact versions after ``==``).  ``micropip``
+downloads wheels into the per-user cache; first use may require network
+access to PyPI and the Pyodide CDN.  Without the vendored runtime, Postmark
+falls back to the RestrictedPython subprocess.
 
 ## Your First Test Script
 
@@ -118,8 +140,20 @@ Python scripts that use `getattr()` on private attributes, `exec()`,
 `eval()`, or `open()` will fail at compilation time with a
 `Compilation failed` error.
 
+## Editor shortcuts
+
+- **Ctrl+/** — toggle line comment on the selection or current line.
+- **Ctrl+Space** — manually open the autocomplete popup.
+- **Ctrl+P** — show the parameter signature for the current call.
+- **Ctrl+Q** — show a quick-doc popup for the symbol at the text cursor.
+- **Ctrl+click** — jump to the definition of a user-declared variable;
+  for `pm.*` API entries the quick-doc popup opens instead.
+- **Ctrl+hover** — same quick-doc popup, triggered by hovering an
+  identifier with Ctrl held for ~400 ms.
+
 ## Related Pages
 
+- [External packages](../scripting/external-packages.md) — `pm.require` and the legacy vendored allowlist
 - [JavaScript API Reference](../scripting/javascript-api.md)
 - [Python API Reference](../scripting/python-api.md)
 - [Examples](../scripting/examples.md)

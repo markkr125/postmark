@@ -20,31 +20,34 @@ Scripts are NOT like browser JavaScript.  The user explicitly imports a
 collection or writes a script.  But users often don't read scripts
 before running them, so defense-in-depth is mandatory.
 
-## JavaScript Sandbox (V8 Isolate)
+## JavaScript (Deno subprocess)
 
-The JavaScript runtime uses PyMiniRacer, which embeds a V8 isolate.
+JavaScript runs in a **Deno** child process, not in an embedded V8 in the
+Postmark process.  The runner builds a single file (polyfills, allowed vendor
+shims, pm bootstrap, user script, and a small drain that prints JSON per line)
+and invokes ``deno run`` with a narrow ``--allow-read`` scoped to the
+temporary work directory, plus a hard wall-clock timeout that kills the
+process if the script or IPC loop hangs.
 
 | Capability | Status | Notes |
 |-----------|--------|-------|
-| File system access | Blocked | V8 has no `fs` module |
-| Network access | Blocked | No `fetch`, `XMLHttpRequest`, `net` |
-| Process spawning | Blocked | No `child_process`, `exec` |
-| `require` / `import` | Controlled | Only pre-bundled vendor libraries |
-| `eval()` | Available | Runs inside same isolate |
-| Timers (`setTimeout`) | Not available | V8 isolate has no event loop |
+| File system (outside workdir) | Not granted by default | Only the temp run directory is allowed for ``deno run`` |
+| Direct network in Deno | Not used for typical runs | `pm.sendRequest` is line-JSON IPC to the host, which issues HTTP (`context.py`) |
+| `require` / `import` | Controlled | Pre-bundled vendor files only; map in `js_runtime` |
+| `eval()` | In user space | Still subject to `deno run` + same bundle as normal execution |
 
 ### Resource Limits
 
 | Resource | Limit |
 |----------|-------|
-| Execution time | 5 seconds |
-| Memory (heap) | 64 MB |
-| Console messages | 200 per execution |
+| Execution time (Deno process) | 10 seconds (hard) |
+| Console messages | 200 per execution (host-side cap) |
 | `pm.sendRequest()` calls | 10 (JS-side); 50 total (host-side) |
 | Sub-request response size | 10 MB |
 
-Implementation: `src/services/scripting/js_runtime.py` —
-`_TIMEOUT_MS = 5000`, `_MAX_MEMORY_BYTES = 67_108_864`.
+Implementation: `src/services/scripting/deno_runtime.py` —
+`_SUBPROCESS_TIMEOUT`, `src/services/scripting/js_runtime.py` — sub-request cap
+and vendor loading.
 
 ## Python Sandbox (Three-Layer Defense)
 

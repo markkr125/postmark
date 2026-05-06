@@ -8,23 +8,31 @@ a response body to test against.
 
 from __future__ import annotations
 
+import contextlib
 import html
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from PySide6.QtCore import QObject, Qt, QThread, Slot
 from PySide6.QtWidgets import (
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSpinBox,
     QVBoxLayout,
     QWidget,
 )
 
+from services.scripting.debug import DebugPauseInfo, DebugProtocol
+from ui.sidebar.debug_panel import DebugVariablesPanel
 from ui.styling.icons import phi
 from ui.styling.theme import COLOR_ACCENT, COLOR_DANGER, COLOR_SUCCESS, COLOR_WARNING
+
+# Matches the send-pipeline QThread wait budget in tab_manager.
+_THREAD_WAIT_MS = 3000
 
 # Console log level → colour mapping.
 _LOG_COLORS: dict[str, str] = {
@@ -47,17 +55,28 @@ class ScriptOutputPanel(QWidget):
         *,
         script_type: str = "pre_request",
         parent: QWidget | None = None,
+        host_kind: str = "request",
     ) -> None:
         """Initialise the output panel.
 
         *script_type*: ``"pre_request"`` or ``"test"``.  When
         ``"test"``, response input fields are shown.
+
+        *host_kind*: ``"request"`` shows the **Response source** combo (live vs
+        manual).  ``"folder"`` has **no** live path and no combo, but still shows
+        **Mock response** (status + body) for ``pm.response`` in inline runs.
         """
         super().__init__(parent)
+        self.setSizePolicy(
+            QSizePolicy.Policy.Preferred,
+            QSizePolicy.Policy.Expanding,
+        )
         self._script_type = script_type
-        self._run_btn: QPushButton | None = None
+        self._host_kind = host_kind
+        self._busy_buttons: list[QPushButton] = []
         self._worker_thread: QThread | None = None
         self._current_worker: QObject | None = None
+        self._is_inline_debug = False
         self._build_ui()
 
     # -- UI construction -----------------------------------------------
@@ -72,11 +91,8 @@ class ScriptOutputPanel(QWidget):
         if self._script_type == "test":
             self._build_response_input(root)
 
-        # 2. Output header row.
-        self._build_output_header(root)
-
-        # 3. Scrollable results area.
-        self._build_results_area(root)
+        # 2. Output: header + scroll (placeholder, debugger, console — see _build_results_area).
+        self._build_output_section(root)
 
         # Visible before any run so users discover Run / Ctrl+Enter.
         self._show_idle_hint()
@@ -89,16 +105,104 @@ class ScriptOutputPanel(QWidget):
         else:
             self.setMinimumHeight(240)
 
+    def _build_output_section(self, parent_layout: QVBoxLayout) -> None:
+        """Column: Output title, then scrollable body (placeholder, debugger, logs)."""
+        section = QWidget()
+        section.setObjectName("scriptOutputSection")
+        col = QVBoxLayout(section)
+        col.setContentsMargins(0, 0, 0, 0)
+        col.setSpacing(4)
+
+        self._build_output_header(col)
+        self._build_results_area(col)
+
+        parent_layout.addWidget(section, 1)
+
+    def _build_debug_variables(self, parent_layout: QVBoxLayout) -> None:
+        """Variable inspector (hidden until a debug session pauses)."""
+        self._debug_variables = DebugVariablesPanel(self)
+        self._debug_variables.setSizePolicy(
+            QSizePolicy.Policy.Preferred,
+            QSizePolicy.Policy.Expanding,
+        )
+        self._debug_variables.hide()
+        # Large stretch vs trailing addStretch(1) so almost all spare height goes
+        # to the inspector (``DebugVariablesPanel`` fills with a single ``QTreeWidget``).
+        parent_layout.addWidget(self._debug_variables, 100)
+
+    def show_debug_controls(self, info: dict[str, Any]) -> None:
+        """Show the debug variable list for the current pause payload.
+
+        Step/continue/stop controls now live in the editor toolbar
+        (see :class:`_ScriptsMixin`); this panel only surfaces the
+        variable inspector here.
+        """
+        self._clear_result_rows()
+        pause: DebugPauseInfo = cast(DebugPauseInfo, info)
+        self._debug_variables.update_pause(pause)
+        self._debug_variables.setVisible(True)
+
+    def hide_debug_controls(self) -> None:
+        """Hide the debug variable list."""
+        self._debug_variables.set_idle()
+        self._debug_variables.hide()
+
     def _build_response_input(self, parent_layout: QVBoxLayout) -> None:
-        """Build the response body/status input for test scripts."""
+        """Build response controls for post-response scripts.
+
+        Request tabs: **Response source** (live vs manual) plus mock fields.
+        Folder/collection tabs: **Mock response** only (no live send for a collection).
+        """
+        self._response_source_combo = None
+        self._live_response_hint = None
+
+        if self._host_kind == "request":
+            source_row = QHBoxLayout()
+            source_row.setContentsMargins(0, 0, 0, 0)
+
+            source_lbl = QLabel("Response source")
+            source_lbl.setObjectName("mutedLabel")
+            source_lbl.setStyleSheet("font-weight: bold;")
+            source_row.addWidget(source_lbl)
+
+            self._response_source_combo = QComboBox()
+            self._response_source_combo.addItem("Use current response", "live")
+            self._response_source_combo.addItem("Manual mock response", "manual")
+            self._response_source_combo.setCursor(Qt.CursorShape.PointingHandCursor)
+            self._response_source_combo.setFixedWidth(190)
+            self._response_source_combo.currentIndexChanged.connect(
+                self._on_response_source_changed
+            )
+            source_row.addWidget(self._response_source_combo)
+            source_row.addStretch()
+            parent_layout.addLayout(source_row)
+
+            self._live_response_hint = QLabel(
+                "Run will send the current request and use that response."
+            )
+            self._live_response_hint.setObjectName("mutedLabel")
+            self._live_response_hint.setWordWrap(True)
+            parent_layout.addWidget(self._live_response_hint)
+        else:
+            mock_title = QLabel("Mock response")
+            mock_title.setObjectName("mutedLabel")
+            mock_title.setStyleSheet("font-weight: bold;")
+            parent_layout.addWidget(mock_title)
+            folder_hint = QLabel(
+                "Script runs use this as the HTTP response (pm.response). "
+                "There is no \u201ccurrent request\u201d for a collection."
+            )
+            folder_hint.setObjectName("mutedLabel")
+            folder_hint.setWordWrap(True)
+            parent_layout.addWidget(folder_hint)
+
+        self._manual_response_container = QWidget()
+        manual_col = QVBoxLayout(self._manual_response_container)
+        manual_col.setContentsMargins(0, 0, 0, 0)
+        manual_col.setSpacing(4)
+
         header = QHBoxLayout()
         header.setContentsMargins(0, 0, 0, 0)
-
-        lbl = QLabel("Response")
-        lbl.setObjectName("mutedLabel")
-        lbl.setStyleSheet("font-weight: bold;")
-        header.addWidget(lbl)
-
         status_lbl = QLabel("Status:")
         status_lbl.setObjectName("mutedLabel")
         header.addWidget(status_lbl)
@@ -109,15 +213,48 @@ class ScriptOutputPanel(QWidget):
         self._status_spin.setFixedWidth(70)
         self._status_spin.setToolTip("HTTP status code for the mock response")
         header.addWidget(self._status_spin)
-
         header.addStretch()
-        parent_layout.addLayout(header)
+        manual_col.addLayout(header)
 
         self._response_body_edit = QPlainTextEdit()
-        self._response_body_edit.setPlaceholderText("Paste or type response body here\u2026")
+        self._response_body_edit.setPlaceholderText(
+            "Paste or type response body here\u2026 "
+            "Defaults to `{}` if blank — replace with your mock JSON to test pm.response.json()."
+        )
         self._response_body_edit.setMaximumHeight(100)
         self._response_body_edit.setMinimumHeight(40)
-        parent_layout.addWidget(self._response_body_edit)
+        manual_col.addWidget(self._response_body_edit)
+        parent_layout.addWidget(self._manual_response_container)
+
+        if self._host_kind == "request":
+            self._on_response_source_changed()
+        else:
+            self._manual_response_container.setVisible(True)
+
+    def _on_response_source_changed(self) -> None:
+        """Show either live-response hint or manual mock editor."""
+        if self._response_source_combo is None or self._live_response_hint is None:
+            return
+        mode = self.response_source_mode()
+        self._live_response_hint.setVisible(mode == "live")
+        if self._manual_response_container is not None:
+            self._manual_response_container.setVisible(mode == "manual")
+
+    def response_source_mode(self) -> str:
+        """Return selected test response source: ``live`` or ``manual``."""
+        if self._script_type != "test" or self._response_source_combo is None:
+            return "manual"
+        data = self._response_source_combo.currentData()
+        return "manual" if data == "manual" else "live"
+
+    def set_response_source_mode(self, mode: str) -> None:
+        """Set response source mode for test scripts."""
+        if self._script_type != "test" or self._response_source_combo is None:
+            return
+        target = "manual" if mode == "manual" else "live"
+        idx = self._response_source_combo.findData(target)
+        if idx >= 0:
+            self._response_source_combo.setCurrentIndex(idx)
 
     def _build_output_header(self, parent_layout: QVBoxLayout) -> None:
         """Build the output results header row."""
@@ -147,12 +284,23 @@ class ScriptOutputPanel(QWidget):
         parent_layout.addLayout(header)
 
     def _build_results_area(self, parent_layout: QVBoxLayout) -> None:
-        """Build the scrollable results container."""
+        """Build the scrollable body: variable inspector, dynamic rows, stretch.
+
+        The first layout item is always :attr:`_debug_variables` (hidden
+        when no debug session is paused).  Step controls live in the
+        editor toolbar, not here.  Hint text and console log rows are
+        inserted at index 1+ so the variable inspector stays pinned to
+        the top of the output box during a debug pause.
+        """
         scroll = QScrollArea()
         scroll.setObjectName("scriptOutputScroll")
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         scroll.setMinimumHeight(180)
+        scroll.setSizePolicy(
+            QSizePolicy.Policy.Preferred,
+            QSizePolicy.Policy.Expanding,
+        )
         self._results_scroll = scroll
 
         container = QWidget()
@@ -160,18 +308,29 @@ class ScriptOutputPanel(QWidget):
         self._results_layout = QVBoxLayout(container)
         self._results_layout.setContentsMargins(4, 2, 4, 2)
         self._results_layout.setSpacing(2)
-        self._results_layout.addStretch()
+
+        self._build_debug_variables(self._results_layout)
+        # When the inspector is visible it should win almost all extra height; when
+        # hidden, the trailing stretch absorbs flex so log rows still breathe.
+        self._results_layout.addStretch(1)
+
         scroll.setWidget(container)
         parent_layout.addWidget(scroll, 1)
 
     def _show_idle_hint(self) -> None:
         """Show placeholder text when there is no output yet (or after clear)."""
-        msg = (
-            "Execute the script with the Run button or Ctrl+Enter to see output here."
-            if self._script_type == "pre_request"
-            else "Execute the script with the Run button or Ctrl+Enter — output and tests "
-            "appear here using the mock response above."
-        )
+        if self._script_type == "pre_request":
+            msg = "Execute the script with the Run button or Ctrl+Enter to see output here."
+        elif self._host_kind == "request":
+            msg = (
+                "Execute the script with the Run button or Ctrl+Enter — output and tests "
+                "appear here using the mock response above."
+            )
+        else:
+            msg = (
+                "Execute the script with the Run button or Ctrl+Enter — output and tests "
+                "use the mock body above for pm.response."
+            )
         hint = QLabel(f"<span style='font-size:12px;'>{html.escape(msg)}</span>")
         hint.setObjectName("mutedLabel")
         hint.setTextFormat(Qt.TextFormat.RichText)
@@ -190,16 +349,21 @@ class ScriptOutputPanel(QWidget):
         language: str,
         context: ScriptInput,
         run_btn: QPushButton | None = None,
+        debug_btn: QPushButton | None = None,
     ) -> None:
         """Launch a background thread to execute *script* and show results.
 
-        Disables *run_btn* during execution and re-enables on completion.
+        Disables *run_btn* and *debug_btn* (when provided) for this panel
+        while the worker is active and re-enables them on completion.
         """
         from ui.request.request_editor.scripts.script_run_worker import ScriptRunWorker
 
-        self._run_btn = run_btn
-        if run_btn:
-            run_btn.setEnabled(False)
+        if self._worker_thread is not None and self._worker_thread.isRunning():
+            return
+
+        self._busy_buttons = [b for b in (run_btn, debug_btn) if b is not None]
+        for b in self._busy_buttons:
+            b.setEnabled(False)
 
         thread = QThread()
         worker = ScriptRunWorker()
@@ -217,19 +381,109 @@ class ScriptOutputPanel(QWidget):
         self._current_worker = worker
         thread.start()
 
-    @Slot(dict, float)
+    def run_script_debug(
+        self,
+        *,
+        script: str,
+        language: str,
+        context: ScriptInput,
+        protocol: DebugProtocol,
+        script_type: str,
+        run_btn: QPushButton | None = None,
+        debug_btn: QPushButton | None = None,
+    ) -> None:
+        """Run *script* with :class:`DebugProtocol` and show output on completion."""
+        from ui.request.request_editor.scripts.script_run_worker import ScriptDebugWorker
+
+        if self._worker_thread is not None and self._worker_thread.isRunning():
+            return
+
+        self._busy_buttons = [b for b in (run_btn, debug_btn) if b is not None]
+        for b in self._busy_buttons:
+            b.setEnabled(False)
+        self._is_inline_debug = True
+
+        thread = QThread()
+        worker = ScriptDebugWorker()
+        worker.set_params(
+            script=script,
+            language=language,
+            context=context,
+            protocol=protocol,
+            script_type=script_type,
+        )
+        worker.moveToThread(thread)
+
+        main = self.window()
+        on_pause = getattr(main, "_on_debug_paused", None)
+        if callable(on_pause):
+            worker.debug_paused.connect(on_pause)
+
+        worker.finished.connect(self._on_debug_worker_finished)
+        worker.error.connect(self._on_debug_worker_error)
+        thread.finished.connect(self._on_thread_finished)
+        thread.started.connect(worker.run)
+
+        self._worker_thread = thread
+        self._current_worker = worker
+        thread.start()
+
+    @Slot(object, float)
+    def _on_debug_worker_finished(self, output: dict, elapsed_ms: float) -> None:
+        """Handle successful inline debug run."""
+        self.show_results(output, elapsed_ms)
+        self._end_inline_debug_if_current()
+        self._stop_worker_thread()
+
+    @Slot(str)
+    def _on_debug_worker_error(self, msg: str) -> None:
+        """Handle inline debug run error."""
+        self.show_error(msg)
+        self._end_inline_debug_if_current()
+        self._stop_worker_thread()
+
+    def _end_inline_debug_if_current(self) -> None:
+        if not self._is_inline_debug:
+            return
+        self._is_inline_debug = False
+        end = getattr(self.window(), "end_inline_script_debug", None)
+        if callable(end):
+            end()
+
+    @Slot(object, float)
     def _on_worker_finished(self, output: dict, elapsed_ms: float) -> None:
         """Handle successful script execution on the main thread."""
         self.show_results(output, elapsed_ms)
-        if self._worker_thread:
-            self._worker_thread.quit()
+        self._stop_worker_thread()
 
     @Slot(str)
     def _on_worker_error(self, msg: str) -> None:
         """Handle script execution error on the main thread."""
         self.show_error(msg)
-        if self._worker_thread:
-            self._worker_thread.quit()
+        self._stop_worker_thread()
+
+    def _stop_worker_thread(self) -> None:
+        """Quit and join the worker QThread, if any."""
+        thread = self._worker_thread
+        if thread is None:
+            return
+        thread.quit()
+        thread.wait(_THREAD_WAIT_MS)
+
+    def cleanup(self) -> None:
+        """Tear down any running script/debug worker before the app closes.
+
+        Called from ``MainWindow.closeEvent`` so a worker still running
+        at close does not pin the process (non-daemon timers + blocked
+        subprocess reads).
+        """
+        worker = self._current_worker
+        if worker is not None:
+            protocol = getattr(worker, "_protocol", None)
+            if protocol is not None:
+                with contextlib.suppress(Exception):
+                    protocol.stop()
+        self._stop_worker_thread()
 
     @Slot()
     def _on_thread_finished(self) -> None:
@@ -240,9 +494,9 @@ class ScriptOutputPanel(QWidget):
         if self._worker_thread:
             self._worker_thread.deleteLater()
             self._worker_thread = None
-        if self._run_btn:
-            self._run_btn.setEnabled(True)
-            self._run_btn = None
+        for b in self._busy_buttons:
+            b.setEnabled(True)
+        self._busy_buttons = []
 
     def show_results(
         self,
@@ -314,6 +568,8 @@ class ScriptOutputPanel(QWidget):
                 "responseSize": 0,
             }
         body = self._response_body_edit.toPlainText()
+        if not body.strip():
+            body = "{}"  # Sensible default so pm.response.json() does not throw on first debug
         code = self._status_spin.value()
         return {
             "code": code,
@@ -343,10 +599,12 @@ class ScriptOutputPanel(QWidget):
             label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
 
     def _clear_result_rows(self) -> None:
-        """Remove all rows from the results layout (keep stretch)."""
+        """Remove dynamic rows: keep debug variables and trailing stretch."""
         layout = self._results_layout
-        while layout.count() > 1:
-            item = layout.takeAt(0)
+        # [0]: debug variables. Last: stretch. [1..-2]: hint / log rows.
+        # Stop at count 2 so we never remove the stretch.
+        while layout.count() > 2:
+            item = layout.takeAt(1)
             if item is not None:
                 w = item.widget()
                 if w is not None:

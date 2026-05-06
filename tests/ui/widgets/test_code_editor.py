@@ -10,11 +10,13 @@ import json
 from unittest.mock import patch
 
 import pytest
-from PySide6.QtCore import QEvent, Qt
-from PySide6.QtGui import QHelpEvent, QKeyEvent, QTextCharFormat, QTextCursor
-from PySide6.QtWidgets import QApplication, QPlainTextEdit, QTextEdit, QToolTip
+from PySide6.QtCore import QEvent, QPoint, Qt
+from PySide6.QtGui import QFocusEvent, QHelpEvent, QKeyEvent, QTextCharFormat, QTextCursor
+from PySide6.QtWidgets import QApplication, QPlainTextEdit, QTextEdit, QToolTip, QTreeWidget
 
 from ui.widgets.code_editor import CodeEditorWidget, SyntaxError_
+from ui.widgets.code_editor.editor_widget import _is_parameter_hint_shortcut
+from ui.widgets.debug_value_tree import debug_tree_cell_text
 
 # -- Helpers -----------------------------------------------------------
 
@@ -23,6 +25,158 @@ _PRETTY_JSON = json.dumps(json.loads(_SAMPLE_JSON), indent=4, ensure_ascii=False
 _SAMPLE_XML = "<root><child>text</child></root>"
 _INVALID_JSON = '{"name": "Alice", "age": }'
 _INVALID_XML = "<root><child>text</root>"
+
+
+# -- Parameter hint (Ctrl+P) ------------------------------------------
+
+
+class TestParameterHintShortcut:
+    """Ctrl+P must match even when Qt adds non-chord modifier bits."""
+
+    def test_group_switch_bit_still_matches(self, qapp: QApplication) -> None:
+        """Regression: equality to ``ControlModifier`` alone dropped the shortcut."""
+        m = Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.GroupSwitchModifier
+        ev = QKeyEvent(QKeyEvent.Type.KeyPress, Qt.Key.Key_P, m, "")
+        assert _is_parameter_hint_shortcut(ev) is True
+
+    def test_shift_control_p_rejected(self, qapp: QApplication) -> None:
+        m = Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier
+        ev = QKeyEvent(QKeyEvent.Type.KeyPress, Qt.Key.Key_P, m, "")
+        assert _is_parameter_hint_shortcut(ev) is False
+
+    def test_ctrl_p_shows_popup_inside_call(self, qapp: QApplication, qtbot) -> None:
+        """``keyPressEvent`` with Ctrl+P surfaces a signature when the cursor is in a call."""
+        editor = CodeEditorWidget()
+        qtbot.addWidget(editor)
+        editor.set_language("javascript")
+        editor.setPlainText("pm.variables.set(")
+        editor.moveCursor(QTextCursor.MoveOperation.End)
+        ev = QKeyEvent(
+            QKeyEvent.Type.KeyPress, Qt.Key.Key_P, Qt.KeyboardModifier.ControlModifier, ""
+        )
+        editor.keyPressEvent(ev)
+        assert editor._parameter_hint_popup.isVisible()
+
+    def test_ctrl_p_read_only_editor_still_shows_hint(self, qapp: QApplication, qtbot) -> None:
+        """Hints are useful when viewing code in a read-only ``CodeEditorWidget``."""
+        editor = CodeEditorWidget(read_only=True)
+        qtbot.addWidget(editor)
+        editor.set_language("javascript")
+        editor.setPlainText("pm.variables.set(")
+        editor.moveCursor(QTextCursor.MoveOperation.End)
+        ev = QKeyEvent(
+            QKeyEvent.Type.KeyPress, Qt.Key.Key_P, Qt.KeyboardModifier.ControlModifier, ""
+        )
+        editor.keyPressEvent(ev)
+        assert editor._parameter_hint_popup.isVisible()
+
+    def test_focus_out_active_window_reason_keeps_hint(self, qapp: QApplication, qtbot) -> None:
+        """Showing a Tool popup raises ActiveWindowFocusReason; hint must survive it."""
+        editor = CodeEditorWidget()
+        qtbot.addWidget(editor)
+        editor.set_language("javascript")
+        editor.setPlainText("pm.variables.set(")
+        editor.moveCursor(QTextCursor.MoveOperation.End)
+        editor.trigger_parameter_hint()
+        assert editor._parameter_hint_popup.isVisible()
+
+        ev = QFocusEvent(QFocusEvent.Type.FocusOut, Qt.FocusReason.ActiveWindowFocusReason)
+        editor.focusOutEvent(ev)
+        assert editor._parameter_hint_popup.isVisible()
+
+    def test_focus_out_popup_reason_keeps_hint(self, qapp: QApplication, qtbot) -> None:
+        """PopupFocusReason fires when child popups open; hint must survive it."""
+        editor = CodeEditorWidget()
+        qtbot.addWidget(editor)
+        editor.set_language("javascript")
+        editor.setPlainText("pm.variables.set(")
+        editor.moveCursor(QTextCursor.MoveOperation.End)
+        editor.trigger_parameter_hint()
+        assert editor._parameter_hint_popup.isVisible()
+
+        ev = QFocusEvent(QFocusEvent.Type.FocusOut, Qt.FocusReason.PopupFocusReason)
+        editor.focusOutEvent(ev)
+        assert editor._parameter_hint_popup.isVisible()
+
+    def test_paren_keystroke_multiline_shows_hint(self, qapp: QApplication, qtbot) -> None:
+        """Typing ``(`` after a known method on a later line still resolves the call."""
+        editor = CodeEditorWidget()
+        qtbot.addWidget(editor)
+        editor.set_language("javascript")
+        editor.setPlainText("// header\n// padding\npm.variables.set")
+        editor.moveCursor(QTextCursor.MoveOperation.End)
+        ev = QKeyEvent(
+            QKeyEvent.Type.KeyPress, Qt.Key.Key_ParenLeft, Qt.KeyboardModifier.NoModifier, "("
+        )
+        editor.keyPressEvent(ev)
+        assert editor._parameter_hint_popup.isVisible()
+        assert "key: string" in editor._parameter_hint_popup._label.text()
+
+    def test_focus_out_mouse_reason_dismisses_hint(self, qapp: QApplication, qtbot) -> None:
+        """User clicking outside the editor genuinely loses focus; hint should hide."""
+        editor = CodeEditorWidget()
+        qtbot.addWidget(editor)
+        editor.set_language("javascript")
+        editor.setPlainText("pm.variables.set(")
+        editor.moveCursor(QTextCursor.MoveOperation.End)
+        editor.trigger_parameter_hint()
+        assert editor._parameter_hint_popup.isVisible()
+
+        ev = QFocusEvent(QFocusEvent.Type.FocusOut, Qt.FocusReason.MouseFocusReason)
+        editor.focusOutEvent(ev)
+        assert not editor._parameter_hint_popup.isVisible()
+
+
+class TestSymbolDocFeatures:
+    """Ctrl+hover, Ctrl+click, and Ctrl+Q symbol-doc surfaces."""
+
+    def test_ident_at_pos_resolves_dot_path(self, qapp: QApplication, qtbot) -> None:
+        editor = CodeEditorWidget()
+        qtbot.addWidget(editor)
+        editor.set_language("javascript")
+        editor.setPlainText("pm.variables.set('k', 1);")
+        cur = editor.textCursor()
+        cur.setPosition(15)  # inside 'set'
+        rect = editor.cursorRect(cur)
+        hit = editor._ident_at_pos(rect.center())
+        assert hit is not None
+        assert hit[0] == "pm.variables.set"
+
+    def test_resolve_symbol_pm_api(self, qapp: QApplication) -> None:
+        from ui.widgets.code_editor.completion.engine import CompletionEngine
+
+        eng = CompletionEngine("javascript")
+        sym = eng.resolve_symbol("pm.variables.set", "")
+        assert sym is not None
+        assert sym.kind == "method"
+        assert "key" in (sym.signature or "")
+        assert sym.origin == "pm API"
+
+    def test_find_definition_pos_user_var(self, qapp: QApplication) -> None:
+        from ui.widgets.code_editor.completion.engine import CompletionEngine
+
+        eng = CompletionEngine("javascript")
+        src = "// hi\nconst foo = 1;\n"
+        pos = eng.find_definition_pos("foo", src)
+        assert pos is not None
+        assert src[pos:].startswith("const foo")
+
+    def test_ctrl_q_shows_symbol_popup(self, qapp: QApplication, qtbot) -> None:
+        editor = CodeEditorWidget()
+        qtbot.addWidget(editor)
+        editor.set_language("javascript")
+        editor.setPlainText("pm.variables.set('k', 1);")
+        cur = editor.textCursor()
+        cur.setPosition(15)
+        editor.setTextCursor(cur)
+        ev = QKeyEvent(
+            QKeyEvent.Type.KeyPress,
+            Qt.Key.Key_Q,
+            Qt.KeyboardModifier.ControlModifier,
+            "",
+        )
+        editor.keyPressEvent(ev)
+        assert editor._symbol_doc_popup.isVisible()
 
 
 # -- Construction & language -----------------------------------------
@@ -256,6 +410,13 @@ class TestValidation:
 
     def test_invalid_javascript_has_errors(self, qapp: QApplication, qtbot) -> None:
         """Invalid JavaScript syntax produces errors with wave underline."""
+        from esprima_test_util import (  # type: ignore[import-not-found]
+            deno_and_esprima_available,
+        )
+
+        if not deno_and_esprima_available():
+            pytest.skip("Deno + Esprima required for JavaScript editor validation")
+
         editor = CodeEditorWidget()
         qtbot.addWidget(editor)
         editor.set_language("javascript")
@@ -507,6 +668,71 @@ class TestSearchSelections:
         ]
         assert len(full_width) == 0
 
+    def test_debug_line_adds_full_width_selection(self, qapp: QApplication, qtbot) -> None:
+        """Paused debug line (0-based) gets a full-width extra selection."""
+        editor = CodeEditorWidget()
+        qtbot.addWidget(editor)
+        editor.setPlainText("zero\none\ntwo")
+        editor.set_debug_line(1)  # line "one"
+        sels = editor.extraSelections()
+        fw = [s for s in sels if s.format.boolProperty(QTextCharFormat.Property.FullWidthSelection)]
+        on_one = [s for s in fw if s.cursor.block().blockNumber() == 1]
+        assert len(on_one) == 1
+        assert on_one[0].format.background().color().isValid()
+
+    def test_breakpoint_line_adds_full_width_tint(self, qapp: QApplication, qtbot) -> None:
+        """A breakpoint on a line adds a full-width extra selection in breakpoint-line colour."""
+        from PySide6.QtGui import QColor
+
+        from ui.styling.theme import COLOR_EDITOR_BREAKPOINT_LINE, COLOR_EDITOR_DEBUG_LINE
+
+        editor = CodeEditorWidget()
+        qtbot.addWidget(editor)
+        editor.setPlainText("a\nb\nc")
+        editor.toggle_breakpoint(1)
+        sels = editor.extraSelections()
+        fw = [s for s in sels if s.format.boolProperty(QTextCharFormat.Property.FullWidthSelection)]
+        on_b = [s for s in fw if s.cursor.block().blockNumber() == 1]
+        assert len(on_b) == 1
+        assert on_b[0].format.background().color() == QColor(COLOR_EDITOR_BREAKPOINT_LINE)
+        # Debug execution line adds a second full-width selection on the same line
+        editor.set_debug_line(1)
+        sels2 = editor.extraSelections()
+        fw2 = [
+            s for s in sels2 if s.format.boolProperty(QTextCharFormat.Property.FullWidthSelection)
+        ]
+        on_b_dbg = [s for s in fw2 if s.cursor.block().blockNumber() == 1]
+        assert len(on_b_dbg) >= 1
+        line_hex = {s.format.background().color().name(QColor.NameFormat.HexArgb) for s in on_b_dbg}
+        assert QColor(COLOR_EDITOR_DEBUG_LINE).name(QColor.NameFormat.HexArgb) in line_hex
+        assert QColor(COLOR_EDITOR_BREAKPOINT_LINE).name(QColor.NameFormat.HexArgb) in line_hex
+
+    def test_breakpoints_changed_fires_on_toggle(self, qapp: QApplication, qtbot) -> None:
+        """Gutter breakpoint toggles emit ``breakpoints_changed`` for live debug sync."""
+        editor = CodeEditorWidget()
+        qtbot.addWidget(editor)
+        editor.setPlainText("a\nb")
+        n = 0
+
+        def _bump() -> None:
+            nonlocal n
+            n += 1
+
+        editor.breakpoints_changed.connect(_bump)
+        editor.toggle_breakpoint(0)
+        assert n == 1
+        editor.toggle_breakpoint(0)
+        assert n == 2
+
+    def test_hiding_breakpoint_gutter_clears_hover_line(self, qapp: QApplication, qtbot) -> None:
+        """Turning off the breakpoint column clears the hover preview line."""
+        editor = CodeEditorWidget()
+        qtbot.addWidget(editor)
+        editor.set_breakpoint_gutter_visible(True)
+        editor._set_breakpoint_hover_line(0)
+        editor.set_breakpoint_gutter_visible(False)
+        assert editor._breakpoint_hover_line is None
+
     def test_set_search_selections_updates_extra(self, qapp: QApplication, qtbot) -> None:
         """set_search_selections merges search highlights into extra selections."""
         editor = CodeEditorWidget(read_only=True)
@@ -540,3 +766,192 @@ class TestSearchSelections:
         # Only bracket-match / error selections remain (if any)
         remaining = editor.extraSelections()
         assert len(remaining) == 0 or all(s.cursor.position() != 5 for s in remaining)
+
+
+class TestBreakpointGutterUx:
+    """Wide gutter clicks, ``pm.test`` column vs breakpoint column, and fold + breakpoint."""
+
+    def test_breakpoint_add_preview_active_respects_breakpoint_and_debug_line(
+        self, qapp: QApplication, qtbot
+    ) -> None:
+        """Tooltip / hollow-ring logic skips lines that already have a BP or are the debug line."""
+        editor = CodeEditorWidget(read_only=False)
+        qtbot.addWidget(editor)
+        editor.set_breakpoint_gutter_visible(True)
+        editor.setPlainText("a\nb")
+        editor._set_breakpoint_hover_line(0)
+        assert editor._breakpoint_add_preview_active()
+        editor.toggle_breakpoint(0)
+        assert not editor._breakpoint_add_preview_active()
+        editor.toggle_breakpoint(0)
+        assert editor._breakpoint_add_preview_active()
+        editor.set_debug_line(0)
+        assert not editor._breakpoint_add_preview_active()
+
+    def test_line_has_pm_test_at_gutter_y(self, qapp: QApplication, qtbot) -> None:
+        """``pm.test`` rows are detected by *y* for the full test-gutter column."""
+        editor = CodeEditorWidget(read_only=False)
+        qtbot.addWidget(editor)
+        editor.resize(520, 240)
+        editor.set_language("javascript")
+        editor.set_test_gutter_enabled(True)
+        editor.setPlainText('pm.test("n", function () {});')
+        editor.set_pm_tests([{"line": 1, "name": "n"}])
+        qtbot.waitExposed(editor)
+        block = editor.document().firstBlock()
+        top = float(editor.blockBoundingGeometry(block).translated(editor.contentOffset()).top())
+        bottom = top + float(editor.blockBoundingRect(block).height())
+        y = (top + bottom) / 2.0
+        assert editor._line_has_pm_test_at_gutter_y(y)
+        assert not editor._line_has_pm_test_at_gutter_y(y + 9999.0)
+
+    def test_test_gutter_right_edge_opens_test_not_breakpoint(
+        self, qapp: QApplication, qtbot
+    ) -> None:
+        """Clicks on the right edge of a ``pm.test`` row still invoke the test gutter, not BP."""
+        editor = CodeEditorWidget(read_only=False)
+        qtbot.addWidget(editor)
+        editor.resize(520, 240)
+        editor.set_language("javascript")
+        editor.set_test_gutter_enabled(True)
+        editor.set_breakpoint_gutter_visible(True)
+        editor.setPlainText('pm.test("n", function () {});')
+        editor.set_pm_tests([{"line": 1, "name": "n"}])
+        qtbot.waitExposed(editor)
+        block = editor.document().firstBlock()
+        top = float(editor.blockBoundingGeometry(block).translated(editor.contentOffset()).top())
+        bottom = top + float(editor.blockBoundingRect(block).height())
+        y = (top + bottom) / 2.0
+        tw = editor.test_gutter_width()
+        tg = editor._test_gutter_area
+        with patch.object(editor, "_show_test_menu") as mock_show:
+            qtbot.mouseClick(tg, Qt.MouseButton.LeftButton, pos=QPoint(int(tw) - 1, int(y)))
+        mock_show.assert_called_once()
+        assert 0 not in editor.breakpoints
+
+    def test_line_number_left_click_toggles_breakpoint(self, qapp: QApplication, qtbot) -> None:
+        """Clicking the line-number column toggles a breakpoint for that row."""
+        editor = CodeEditorWidget(read_only=False)
+        qtbot.addWidget(editor)
+        editor.resize(520, 240)
+        editor.setPlainText("alpha\nbeta")
+        editor.set_breakpoint_gutter_visible(True)
+        qtbot.waitExposed(editor)
+        ln = editor._line_number_area
+        block = editor.document().firstBlock()
+        top = int(editor.blockBoundingGeometry(block).translated(editor.contentOffset()).top())
+        bottom = int(top + editor.blockBoundingRect(block).height())
+        y = (top + bottom) // 2
+        assert 0 not in editor.breakpoints
+        qtbot.mouseClick(ln, Qt.MouseButton.LeftButton, pos=QPoint(max(1, ln.width() // 2), y))
+        assert 0 in editor.breakpoints
+        qtbot.mouseClick(ln, Qt.MouseButton.LeftButton, pos=QPoint(max(1, ln.width() // 2), y))
+        assert 0 not in editor.breakpoints
+
+    def test_fold_gutter_on_non_fold_line_toggles_breakpoint(
+        self, qapp: QApplication, qtbot
+    ) -> None:
+        """Fold gutter clicks on lines without a fold mark toggle the breakpoint instead."""
+        editor = CodeEditorWidget(read_only=False)
+        qtbot.addWidget(editor)
+        editor.resize(520, 240)
+        editor.set_language("text")
+        editor.setPlainText("x\ny")
+        editor.set_breakpoint_gutter_visible(True)
+        qtbot.waitExposed(editor)
+        assert 0 not in editor._fold_regions
+        fg = editor._fold_gutter_area
+        block = editor.document().firstBlock()
+        top = int(editor.blockBoundingGeometry(block).translated(editor.contentOffset()).top())
+        bottom = int(top + editor.blockBoundingRect(block).height())
+        y = (top + bottom) // 2
+        assert 0 not in editor.breakpoints
+        qtbot.mouseClick(fg, Qt.MouseButton.LeftButton, pos=QPoint(fg.width() // 2, y))
+        assert 0 in editor.breakpoints
+
+
+class TestDebugHoverInspect:
+    """Paused-debug hover: ``pm`` from *root_values* and expandable dict popup."""
+
+    def test_var_at_cursor_resolves_pm_from_root_values_only(
+        self,
+        qapp: QApplication,
+        qtbot,
+    ) -> None:
+        """When the flat map omits ``pm``, hover still resolves from *root_values*."""
+        editor = CodeEditorWidget()
+        qtbot.addWidget(editor)
+        editor.setPlainText("pm.response")
+        editor.set_debug_locals(
+            {"response": {"code": 201}},
+            root_values={"pm": {"response": {"code": 201}}},
+        )
+        cursor = editor.textCursor()
+        cursor.setPosition(0)
+        editor.setTextCursor(cursor)
+        pos = editor.cursorRect(cursor).center()
+        assert editor._var_at_cursor(pos) == "pm"
+
+    def test_debug_hover_dict_uses_expandable_tree(self, qapp: QApplication, qtbot) -> None:
+        """Dict snapshots open the tree page with top-level keys."""
+        editor = CodeEditorWidget()
+        qtbot.addWidget(editor)
+        qtbot.addWidget(editor._debug_popup)
+        editor._var_hover_global_pos = QPoint(320, 240)
+        editor._show_debug_value_popup("pm", {"status": "ok", "n": 1})
+        qtbot.waitUntil(lambda: editor._debug_popup.isVisible(), timeout=2000)
+        tree = editor._debug_popup.findChild(QTreeWidget, "debugHoverValueTree")
+        assert tree is not None
+        assert tree.isVisible()
+        assert tree.topLevelItemCount() == 2
+
+    def test_debug_hover_pm_resolves_snapshot_when_locals_are_object_string(
+        self,
+        qapp: QApplication,
+        qtbot,
+    ) -> None:
+        """CDP ``Object`` description in flat locals is replaced by structured *root_values*."""
+        from PySide6.QtWidgets import QTreeWidget
+
+        editor = CodeEditorWidget()
+        qtbot.addWidget(editor)
+        qtbot.addWidget(editor._debug_popup)
+        editor.set_debug_locals(
+            {"pm": "Object", "response.code": 201},
+            root_values={"pm": {"response.code": 201, "response.status": "Created"}},
+        )
+        editor._var_hover_name = "pm"
+        editor._var_hover_global_pos = QPoint(320, 240)
+        editor._show_var_hover_popup()
+        qtbot.waitUntil(lambda: editor._debug_popup.isVisible(), timeout=2000)
+        tree = editor._debug_popup.findChild(QTreeWidget, "debugHoverValueTree")
+        assert tree is not None and tree.isVisible()
+        assert tree.topLevelItemCount() == 2
+
+    def test_debug_hover_pm_prefers_nonempty_cdp_dict_over_snapshot(
+        self,
+        qapp: QApplication,
+        qtbot,
+    ) -> None:
+        """When CDP materialised ``pm`` as a non-empty dict, use it over the evaluate snapshot."""
+        from PySide6.QtWidgets import QTreeWidget
+
+        editor = CodeEditorWidget()
+        qtbot.addWidget(editor)
+        qtbot.addWidget(editor._debug_popup)
+        editor.set_debug_locals(
+            {"pm": {"response": {"code": 500}}},
+            root_values={"pm": {"response.code": 201}},
+        )
+        editor._var_hover_name = "pm"
+        editor._var_hover_global_pos = QPoint(320, 240)
+        editor._show_var_hover_popup()
+        qtbot.waitUntil(lambda: editor._debug_popup.isVisible(), timeout=2000)
+        tree = editor._debug_popup.findChild(QTreeWidget, "debugHoverValueTree")
+        assert tree is not None
+        names: set[str] = set()
+        for i in range(tree.topLevelItemCount()):
+            it = tree.topLevelItem(i)
+            assert it is not None
+            names.add(debug_tree_cell_text(it, 0))
+        assert "response" in names

@@ -297,8 +297,9 @@ class TestMainWindowSendRequest:
         window.request_widget._url_input.setText("")
         window._on_send_request()
 
-        assert not window.response_widget._error_label.isHidden()
-        assert "empty" in window.response_widget._error_label.text().lower()
+        assert not window.response_widget._tabs.isHidden()
+        assert "empty" in window.response_widget.visible_body_text().lower()
+        assert "ERROR" in window.response_widget._status_label.text()
 
     @patch("ui.request.http_worker.HttpSendWorker")
     @patch("ui.main_window.send_pipeline.QThread")
@@ -356,8 +357,65 @@ class TestMainWindowSendRequest:
 
         window._on_send_error("Connection refused")
 
-        assert not window.response_widget._error_label.isHidden()
-        assert "Connection refused" in window.response_widget._error_label.text()
+        assert not window.response_widget._tabs.isHidden()
+        assert "Connection refused" in window.response_widget.visible_body_text()
+        assert "ERROR" in window.response_widget._status_label.text()
+
+    def test_run_post_response_live_triggers_send(self, qapp: QApplication, qtbot) -> None:
+        """Live post-response run stores context then starts send flow."""
+        window = MainWindow()
+        qtbot.addWidget(window)
+        panel = window.request_widget._test_output_panel
+        run_btn = MagicMock()
+        debug_btn = MagicMock()
+        with patch.object(window, "_on_send_request") as mock_send:
+            window.run_post_response_script_with_live_response(
+                editor=window.request_widget,
+                panel=panel,
+                script="pm.test('ok', () => true)",
+                language="javascript",
+                run_btn=run_btn,
+                debug_btn=debug_btn,
+            )
+            mock_send.assert_called_once()
+
+        assert window._inline_test_run is not None
+        assert window._inline_test_run["script"] == "pm.test('ok', () => true)"
+        run_btn.setEnabled.assert_called_with(False)
+        debug_btn.setEnabled.assert_called_with(False)
+
+    def test_send_finished_runs_pending_live_inline_script(self, qapp: QApplication, qtbot) -> None:
+        """Send completion executes pending inline post-response script."""
+        window = MainWindow()
+        qtbot.addWidget(window)
+        panel = MagicMock()
+        run_btn = MagicMock()
+        debug_btn = MagicMock()
+        window._inline_test_run = {
+            "editor": window.request_widget,
+            "panel": panel,
+            "script": "pm.test('ok', () => true)",
+            "language": "javascript",
+            "run_btn": run_btn,
+            "debug_btn": debug_btn,
+        }
+        data = {
+            "status_code": 200,
+            "status_text": "OK",
+            "headers": [{"key": "Content-Type", "value": "application/json"}],
+            "body": '{"ok":true}',
+            "elapsed_ms": 12.0,
+            "size_bytes": 11,
+        }
+
+        window._on_send_finished(data)
+
+        assert window._inline_test_run is None
+        assert panel.run_script.called
+        kwargs = panel.run_script.call_args.kwargs
+        context = kwargs["context"]
+        assert context["response"]["code"] == 200
+        assert context["response"]["body"] == '{"ok":true}'
 
     def test_send_disables_button(self, qapp: QApplication, qtbot) -> None:
         """The Send button switches to Cancel while a request is in flight."""
@@ -411,7 +469,8 @@ class TestMainWindowSendRequest:
         window._cancel_send()
 
         mock_worker.cancel.assert_called_once()
-        assert "cancelled" in window.response_widget._error_label.text().lower()
+        assert "cancelled" in window.response_widget.visible_body_text().lower()
+        assert "ERROR" in window.response_widget._status_label.text()
         assert window.request_widget._send_btn.text() == "Send"
         assert window._send_thread is None
         assert window._send_worker is None
@@ -518,7 +577,7 @@ class TestMainWindowViewToggles:
 
         viewer = window.response_widget
         assert viewer._tabs.isTabVisible(viewer._pre_tab_index)
-        assert "token" in viewer._pre_request_vars_label.text()
+        assert "token" in viewer._pre_request_vars_edit.toPlainText()
 
     def test_pre_request_error_shows_red_tab(self, qapp: QApplication, qtbot) -> None:
         """Pre-request errors turn the tab label red."""
@@ -775,6 +834,66 @@ class TestMainWindowFolderTabs:
         assert ctx.folder_editor is not None
         assert ctx.folder_editor.collection_id == coll.id
 
+    def test_open_folder_focus_runner_panel(self, qapp: QApplication, qtbot) -> None:
+        """``focus_runner_panel=True`` selects Runs -> New run."""
+        svc = CollectionService()
+        coll = svc.create_collection("Folder")
+
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._open_folder(coll.id, focus_runner_panel=True)
+
+        fe = window._tabs[0].folder_editor
+        assert fe is not None
+        assert fe._tabs.currentWidget() is fe._runs_tab
+        assert fe._runs_sub_tabs.currentWidget() is fe._runner_new_tab
+
+    def test_run_collection_by_id_opens_inline_runner(self, qapp: QApplication, qtbot) -> None:
+        """``_on_run_collection_by_id`` focuses the folder Runs -> New run tab."""
+        svc = CollectionService()
+        coll = svc.create_collection("Folder")
+
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._on_run_collection_by_id(coll.id)
+
+        fe = window._tabs[0].folder_editor
+        assert fe is not None
+        assert fe._tabs.currentWidget() is fe._runs_tab
+        assert fe._runs_sub_tabs.currentWidget() is fe._runner_new_tab
+
+    def test_open_folder_focus_scripts_post_response(self, qapp: QApplication, qtbot) -> None:
+        """`focus_scripts_kind='test'` selects Scripts -> Post-response."""
+        svc = CollectionService()
+        coll = svc.create_collection("Folder")
+
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._open_folder(coll.id, focus_scripts_kind="test")
+
+        fe = window._tabs[0].folder_editor
+        assert fe is not None
+        assert fe._tabs.currentWidget() is fe._scripts_tab
+        assert fe._scripts_sub_tabs.currentIndex() == 1
+
+    def test_open_folder_focus_scripts_pre_request(self, qapp: QApplication, qtbot) -> None:
+        """`focus_scripts_kind='pre_request'` selects Scripts -> Pre-request."""
+        svc = CollectionService()
+        coll = svc.create_collection("Folder")
+
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._open_folder(coll.id, focus_scripts_kind="pre_request")
+
+        fe = window._tabs[0].folder_editor
+        assert fe is not None
+        assert fe._tabs.currentWidget() is fe._scripts_tab
+        assert fe._scripts_sub_tabs.currentIndex() == 0
+
     def test_open_same_folder_twice_switches_tab(self, qapp: QApplication, qtbot) -> None:
         """Opening the same folder twice switches to the existing tab."""
         svc = CollectionService()
@@ -787,6 +906,47 @@ class TestMainWindowFolderTabs:
         window._open_folder(coll.id)
 
         assert window._tab_bar.count() == 1
+
+    def test_reopen_folder_with_focus_scripts_selects_subtab(
+        self, qapp: QApplication, qtbot
+    ) -> None:
+        """Re-opening an already-open folder still applies ``focus_scripts_kind``."""
+        svc = CollectionService()
+        coll = svc.create_collection("Folder")
+
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._open_folder(coll.id)
+        fe = window._tabs[0].folder_editor
+        assert fe is not None
+        fe._tabs.setCurrentIndex(0)  # Overview
+
+        window._open_folder(coll.id, focus_scripts_kind="test")
+
+        assert fe._tabs.currentWidget() is fe._scripts_tab
+        assert fe._scripts_sub_tabs.currentIndex() == 1
+
+    def test_reopen_folder_with_focus_runner_selects_new_run(
+        self, qapp: QApplication, qtbot
+    ) -> None:
+        """Re-opening an already-open folder still applies ``focus_runner_panel``."""
+        svc = CollectionService()
+        coll = svc.create_collection("Folder")
+
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._open_folder(coll.id)
+        fe = window._tabs[0].folder_editor
+        assert fe is not None
+        fe._tabs.setCurrentIndex(0)  # Overview
+        fe._runs_sub_tabs.setCurrentIndex(1)  # History
+
+        window._open_folder(coll.id, focus_runner_panel=True)
+
+        assert fe._tabs.currentWidget() is fe._runs_tab
+        assert fe._runs_sub_tabs.currentWidget() is fe._runner_new_tab
 
     def test_close_folder_tab(self, qapp: QApplication, qtbot) -> None:
         """Closing a folder tab removes it cleanly."""

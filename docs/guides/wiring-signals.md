@@ -6,7 +6,7 @@ How to add new signal connections to the UI.
 
 ```
 Child Widget emits signal
-  -> MainWindow connects signal in __init__
+  -> MainWindow connects signal in _build_full_ui()
     -> MainWindow handler calls Service method
       -> Service calls Repository function
         -> Repository writes to database
@@ -46,7 +46,7 @@ def _on_button_clicked(self) -> None:
 
 ### 3. Connect in MainWindow
 
-In `MainWindow.__init__` (or in the appropriate mixin), connect the
+In `MainWindow._build_full_ui()` (or in the appropriate mixin), connect the
 signal to a handler:
 
 ```python

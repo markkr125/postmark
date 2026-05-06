@@ -90,8 +90,14 @@ class DenoManager:
         return base / "postmark" / "runtimes" / f"deno-{DENO_VERSION}"
 
     @staticmethod
-    def deno_path() -> Path | None:
-        """Return the path to the cached Deno binary, or ``None``."""
+    def managed_deno_path() -> Path | None:
+        """Return the path to the **managed cache** binary only, or ``None``.
+
+        This is the user-downloaded or extracted Deno from :meth:`download` —
+        not a PATH or user-configured executable.  Full resolution
+        (settings, ``PATH``, then managed) lives in
+        :class:`services.scripting.runtime_settings.RuntimeSettings`.
+        """
         binary = "deno.exe" if platform.system() == "Windows" else "deno"
         path = DenoManager.runtime_dir() / binary
         if path.is_file():
@@ -99,9 +105,18 @@ class DenoManager:
         return None
 
     @staticmethod
+    def deno_path() -> Path | None:
+        """Return the path to the cached (managed) Deno binary, or ``None``.
+
+        Same as :meth:`managed_deno_path` (name kept for call sites that only
+        care about the managed download cache, not a fully resolved path).
+        """
+        return DenoManager.managed_deno_path()
+
+    @staticmethod
     def is_available() -> bool:
-        """Return ``True`` if a cached Deno binary exists and is executable."""
-        path = DenoManager.deno_path()
+        """Return ``True`` if a managed cached Deno binary exists and is executable."""
+        path = DenoManager.managed_deno_path()
         if path is None:
             return False
         return os.access(path, os.X_OK)
@@ -109,7 +124,7 @@ class DenoManager:
     @staticmethod
     def deno_version() -> str | None:
         """Run ``deno --version`` and return the version string, or ``None``."""
-        path = DenoManager.deno_path()
+        path = DenoManager.managed_deno_path()
         if path is None:
             return None
         try:

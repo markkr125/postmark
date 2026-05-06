@@ -11,7 +11,7 @@
 		// Global (browser)
 		root.CryptoJS = factory();
 	}
-}(this, function () {
+}(typeof globalThis !== "undefined" ? globalThis : this, function () {
 
 	/*globals window, global, require*/
 

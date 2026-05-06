@@ -227,7 +227,15 @@ Source: `ui/dialogs/import_dialog.py`
 | `error` | `str` | Import failed |
 | `files_dropped` (`_DropZone`) | `list` | Files drag-dropped onto zone |
 
-### CollectionRunnerDialog (RunnerWorker)
+### `_RunnerPanel` (folder inline runner)
+
+Source: `ui/request/folder_editor/runner_panel.py`
+
+| Signal | Parameters | Description |
+|--------|------------|-------------|
+| `run_finished` | *(none)* | Run completed, cancelled, or errored (host refreshes history) |
+
+### `RunnerWorker` (collection batch)
 
 Source: `ui/dialogs/collection_runner/worker.py`
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, NamedTuple
 
+from ui.widgets.code_editor.completion.symbol_doc_popup import SymbolDoc
 from ui.widgets.code_editor.completion.schema import (
     JS_GLOBALS,
     JS_KEYWORDS,
@@ -27,6 +28,13 @@ if TYPE_CHECKING:
 # Regex to extract the receiver path before the cursor.
 # e.g. "pm.response." → ["pm", "response"]
 _DOT_PATH_RE = re.compile(r"([\w.]+)\.\s*$")
+
+# "new ClassName(...).foo" — captures ClassName for instance-children lookup.
+_NEW_INSTANCE_DOT_RE = re.compile(r"new\s+(\w+)\s*\([^()]*\)\s*\.\s*$")
+_NEW_INSTANCE_PREFIX_RE = re.compile(r"new\s+(\w+)\s*\([^()]*\)\s*\.(\w+)$")
+
+# Dot-path mid-word: "pm.v" -> base "pm", prefix "v"; "pm.variables.s" -> base "pm.variables", prefix "s"
+_DOT_PATH_PREFIX_RE = re.compile(r"([\w.]+)\.(\w+)$")
 
 # Regex to detect {{ trigger for variable completions.
 _VAR_TRIGGER_RE = re.compile(r"\{\{\s*([\w]*)$")
@@ -47,6 +55,74 @@ _PY_ASSIGN_RE = re.compile(r"^(\w+)\s*=\s*([\w.]+(?:\(\))?)\s*$", re.MULTILINE)
 # Identifier being typed before the cursor (e.g. ``con`` for ``const``),
 # but not after a dot (so ``pm.con`` still uses dot-path logic).
 _IDENT_PREFIX_RE = re.compile(r"(?:^|[^\w.])(\w+)$")
+
+
+def _find_call_open_paren(text: str) -> int | None:
+    """Return the index of the ``(`` that opens the innermost unclosed call, or ``None``."""
+    depth = 0
+    for i in range(len(text) - 1, -1, -1):
+        c = text[i]
+        if c == ")":
+            depth += 1
+        elif c == "(":
+            if depth == 0:
+                return i
+            depth -= 1
+    return None
+
+
+def _strip_simple_paren_groups(s: str) -> str:
+    """Remove non-nested ``(...)`` groups (e.g. ``(value)`` in ``pm.expect(value).to``)."""
+    prev = ""
+    while prev != s:
+        prev = s
+        s = re.sub(r"\([^()]*\)", "", s)
+    return s
+
+
+def _split_receiver_parent_method(receiver: str) -> tuple[str, str] | None:
+    """Split ``receiver`` into ``(parent_dot_path, method_name)``.
+
+    Only the trailing dot-path identifier is considered, so leading content
+    (other lines, statements, comments) is ignored.
+    """
+    s = _strip_simple_paren_groups(receiver.rstrip())
+    m = re.search(r"([\w.]+)\.(\w+)\s*$", s)
+    if not m:
+        return None
+    return m.group(1), m.group(2)
+
+
+def _active_parameter_index(args_fragment: str) -> int:
+    """Count top-level commas in *args_fragment* (cursor at end of fragment)."""
+    depth = 0
+    in_string: str | None = None
+    escape = False
+    commas = 0
+    for c in args_fragment:
+        if in_string:
+            if escape:
+                escape = False
+                continue
+            if c == "\\" and in_string != "`":
+                escape = True
+                continue
+            if c == in_string:
+                in_string = None
+            continue
+        if c in "\"'`":
+            in_string = c
+            continue
+        if c in "([{":
+            depth += 1
+            continue
+        if c in ")]}":
+            if depth > 0:
+                depth -= 1
+            continue
+        if c == "," and depth == 0:
+            commas += 1
+    return commas
 
 
 class CompletionItem(NamedTuple):
@@ -114,7 +190,9 @@ class CompletionEngine:
         Checks, in order:
         1. ``{{`` variable trigger.
         2. ``pm.variables.get("`` string argument trigger.
-        3. Dot-path API completions.
+        3. Dot-path API completions (trailing dot: full children).
+        4. Dot-path with a typed segment after the last dot (e.g. ``pm.v`` narrows
+           ``pm`` children; ``pm.variables.s`` narrows scope methods).
 
         Returns an empty list if no completions match.
         """
@@ -128,12 +206,45 @@ class CompletionEngine:
         if str_match:
             return self._variable_completions(str_match.group(1))
 
-        # 3. Dot-path completions
+        # 3a. ``new ClassName().`` → instance children of ClassName.
+        ni_match = _NEW_INSTANCE_DOT_RE.search(text_before_cursor)
+        if ni_match:
+            return self._instance_children_items(ni_match.group(1))
+
+        # 3b. ``new ClassName().pre`` → filter instance children by prefix.
+        nip_match = _NEW_INSTANCE_PREFIX_RE.search(text_before_cursor)
+        if nip_match:
+            cls_name = nip_match.group(1)
+            prefix = nip_match.group(2).lower()
+            items = self._instance_children_items(cls_name)
+            if items:
+                return [it for it in items if it.label.lower().startswith(prefix)]
+
+        # 3. Dot-path completions (trailing dot: full child list)
         dot_match = _DOT_PATH_RE.search(text_before_cursor)
         if dot_match:
             return self._resolve_path(dot_match.group(1))
 
+        # 4. Dot-path with typed prefix after dot (mid-word; avoids top-level fallback)
+        typed_match = _DOT_PATH_PREFIX_RE.search(text_before_cursor)
+        if typed_match:
+            base = typed_match.group(1)
+            prefix = typed_match.group(2).lower()
+            items = self._resolve_path(base)
+            if items:
+                return [it for it in items if it.label.lower().startswith(prefix)]
+
         return []
+
+    def _instance_children_items(self, class_name: str) -> list[CompletionItem]:
+        """Return ``instance_children`` items for *class_name* in the active schema."""
+        node = self._schema.get(class_name)
+        if not node:
+            return []
+        ic = node.get("instance_children")
+        if not ic:
+            return []
+        return self._schema_to_items(ic)
 
     def complete_prefix(self, text_before_cursor: str, prefix: str) -> list[CompletionItem]:
         """Return completions filtered by a typed prefix after the dot.
@@ -146,6 +257,112 @@ class CompletionEngine:
             return items
         lower = prefix.lower()
         return [item for item in items if item.label.lower().startswith(lower)]
+
+    def resolve_symbol(self, dot_path: str, full_source: str) -> SymbolDoc | None:
+        """Return :class:`SymbolDoc` for *dot_path*, or ``None`` if unknown.
+
+        Lookup order:
+
+        1. Walk *dot_path* through the active schema; the last segment must
+           match a child of the resolved parent.
+        2. Treat the head of *dot_path* as a user-defined variable whose
+           type was inferred from a ``let|const|var x = ...`` (JS) or
+           ``x = ...`` (Python) assignment.
+        3. Treat the head as an undeclared local — return a minimal
+           :class:`SymbolDoc` so the popup can still display the name.
+        """
+        self.scan_assignments(full_source)
+        parts = dot_path.split(".")
+        if len(parts) == 1:
+            head = parts[0]
+            if head in self._inferred_types:
+                inferred = self._inferred_types[head]
+                inferred_parts = inferred.split(".")
+                node = self._schema
+                for p in inferred_parts:
+                    if p not in node:
+                        return None
+                    entry = node[p]
+                    children = entry.get("children")
+                    if children is None:
+                        return None
+                    node = children
+                return SymbolDoc(
+                    label=head,
+                    kind="variable",
+                    type_str=inferred,
+                    doc=f"Inferred from assignment: {inferred}",
+                    signature="",
+                    origin="user variable",
+                )
+            if head in self._schema:
+                entry = self._schema[head]
+                return SymbolDoc(
+                    label=head,
+                    kind=entry.get("kind", "object"),
+                    type_str=entry.get("type_str", ""),
+                    doc=entry.get("doc", ""),
+                    signature=entry.get("signature", ""),
+                    origin="pm API",
+                )
+            return SymbolDoc(
+                label=head,
+                kind="variable",
+                type_str="",
+                doc="",
+                signature="",
+                origin="local",
+            )
+        parent_path = ".".join(parts[:-1])
+        leaf = parts[-1]
+        items = self._resolve_path(parent_path)
+        for it in items:
+            if it.label == leaf:
+                origin = "pm API"
+                if parts[0] in self._inferred_types:
+                    origin = "user variable"
+                return SymbolDoc(
+                    label=leaf,
+                    kind=it.kind,
+                    type_str=it.type_str,
+                    doc=it.doc,
+                    signature=it.signature,
+                    origin=origin,
+                )
+        return None
+
+    def find_definition_pos(self, var_name: str, full_source: str) -> int | None:
+        """Return the start offset of a user binding for *var_name*.
+
+        JavaScript: ``let|const|var var_name = ...``.  Python: ``var_name = ...``
+        at the beginning of a line.  Returns ``None`` when not found.
+        """
+        if self._language == "javascript":
+            pattern = re.compile(r"(?:let|const|var)\s+" + re.escape(var_name) + r"\b")
+        else:
+            pattern = re.compile(r"^" + re.escape(var_name) + r"\s*=", re.MULTILINE)
+        m = pattern.search(full_source)
+        return m.start() if m else None
+
+    def is_linkable_symbol(self, dot_path: str, full_source: str) -> bool:
+        """Return True when *dot_path* should display as a Ctrl+hover link.
+
+        Excludes language keywords and unresolved local identifiers.  A path
+        is linkable when it resolves through the active schema, has a known
+        user-variable type, or its head has a discoverable definition site.
+        """
+        if not dot_path:
+            return False
+        head = dot_path.split(".", 1)[0]
+        keywords = JS_KEYWORDS if self._language == "javascript" else PY_KEYWORDS
+        if head in keywords:
+            return False
+        if self.find_definition_pos(head, full_source) is not None:
+            return True
+        sym = self.resolve_symbol(dot_path, full_source)
+        if sym is None:
+            return False
+        return sym.origin in ("pm API", "user variable")
 
     def top_level_completions(self) -> list[CompletionItem]:
         """Return top-level completions (pm, console, language globals, keywords)."""
@@ -170,6 +387,73 @@ class CompletionEngine:
             return items
         lower = prefix.lower()
         return [i for i in items if i.label.lower().startswith(lower)]
+
+    def resolve_call_signature(self, text_before_cursor: str) -> tuple[str, int] | None:
+        """Return ``(signature, active_param_index)`` for the innermost open call, or ``None``."""
+        open_idx = _find_call_open_paren(text_before_cursor)
+        if open_idx is None:
+            return None
+        receiver = text_before_cursor[:open_idx]
+        # Special case: ``new ClassName(...).method`` — look up instance_children.
+        ni = re.search(r"new\s+(\w+)\s*\([^()]*\)\s*\.(\w+)\s*$", receiver)
+        items: list[CompletionItem] = []
+        method_name = ""
+        if ni:
+            items = self._instance_children_items(ni.group(1))
+            method_name = ni.group(2)
+        else:
+            split = _split_receiver_parent_method(receiver)
+            if split is None:
+                return None
+            parent_path, method_name = split
+            items = self._resolve_path(parent_path)
+        signature = ""
+        for it in items:
+            if it.label == method_name:
+                signature = it.signature or ""
+                break
+        if not signature:
+            return None
+        args_fragment = text_before_cursor[open_idx + 1 :]
+        idx = _active_parameter_index(args_fragment)
+        return (signature, idx)
+
+    def resolve_nearest_call_signature(self, text_before_cursor: str) -> tuple[str, int] | None:
+        """Resolve like :meth:`resolve_call_signature`, or the last closed call on this line.
+
+        When the cursor is not inside an unclosed ``(``, scans the current
+        visual line from the right for the innermost balanced ``(...)`` and
+        resolves the call as if the cursor sat just inside that ``(``,
+        using the full argument text to pick the active parameter (typically
+        the last argument when the cursor is past the closing ``)``).
+        """
+        direct = self.resolve_call_signature(text_before_cursor)
+        if direct is not None:
+            return direct
+        line_start = text_before_cursor.rfind("\n") + 1
+        line = text_before_cursor[line_start:]
+        if not line:
+            return None
+        depth = 0
+        close_idx: int | None = None
+        for i in range(len(line) - 1, -1, -1):
+            c = line[i]
+            if c == ")":
+                if depth == 0:
+                    close_idx = i
+                depth += 1
+            elif c == "(":
+                depth -= 1
+                if depth == 0 and close_idx is not None:
+                    synthetic = text_before_cursor[: line_start + i + 1]
+                    inner = self.resolve_call_signature(synthetic)
+                    if inner is None:
+                        return None
+                    sig, _ = inner
+                    args_text = line[i + 1 : close_idx]
+                    idx = _active_parameter_index(args_text)
+                    return (sig, idx)
+        return None
 
     # -- Private helpers ------------------------------------------------
 

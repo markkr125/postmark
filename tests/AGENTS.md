@@ -12,14 +12,20 @@
 4. **Each test starts with cleared tab preferences** — the
    `_reset_tab_settings` autouse fixture removes the `tabs/*` QSettings
    group so preview/tab-limit settings never leak between cases.
+4b. **Settings → Scripting tests** — `test_settings_dialog` uses an
+   autouse fixture that removes `scripting` (as well as `theme` and `tabs`)
+   **before and after** each test so a fake persisted `scripting/deno_path`
+   from the Apply test cannot affect later test modules in the same session
+   (which would break Deno-based script tests).
 5. **UI tests need `qapp` and `qtbot` fixtures.**  Register widgets with
    `qtbot.addWidget(widget)`.
 6. **The `_no_fetch` fixture is autouse in `tests/ui/`** — it prevents
    `CollectionWidget` from spawning a background thread.  You do not need
    to apply it manually.
 7. **Use bare module imports** (e.g. `from database.database import init_db`)
-   — `src/` is on the Python path.
-8. **Do not test the session or engine directly** — test through the
+   — `src/` and `tests/` are on the Python path (see `pyproject.toml` ``pythonpath``).
+8. **JS tests that need Esprima** can use ``from esprima_test_util import deno_and_esprima_available`` — ``deno --version`` alone is not enough when the Esprima subprocess is broken.
+9. **Do not test the session or engine directly** — test through the
    repository or service layer.
 
 ## Fresh database per test (autouse fixture)
@@ -43,6 +49,10 @@ init_db(tmp_path / "test.db")
 `conftest.py` provides a `qapp` fixture (session-scoped) that returns the
 single `QApplication` instance. All UI tests must accept `qapp` and use
 `qtbot.addWidget(widget)` for cleanup.
+
+At import time, `conftest.py` calls `configure_before_qapplication()` from
+`qt_app_init` (same as `main.py`) so Hi-DPI scale-factor rounding applies before
+the first `QApplication` is constructed in the test process.
 
 ## Fresh QSettings tab preferences per test (autouse fixture)
 
@@ -106,7 +116,8 @@ test file still exceeds 600 lines, split by test class into separate files.
 
 ```
 tests/
-├── conftest.py                    # Root: _fresh_db + _reset_tab_settings (autouse) + qapp
+├── conftest.py                    # Root: configure_before_qapplication + _fresh_db + _reset_tab_settings (autouse) + qapp
+├── esprima_test_util.py           # deno_and_esprima_available() for JS parse-dependent tests
 ├── unit/                          # Pure logic — no Qt widgets
 │   ├── database/                  # Repository layer tests
 │   │   ├── test_repository.py
@@ -119,14 +130,18 @@ tests/
 │       ├── test_import_service.py
 │       ├── test_script_bridge_globals.py
 │       ├── test_script_debug.py
+│       ├── test_script_debug_cdp.py
+│       ├── test_js_debug.py
+│       ├── test_py_debug.py
 │       ├── test_script_engine.py
+│       ├── test_pyodide_runtime.py
 │       ├── test_script_sandbox.py
 │       ├── test_script_service.py
 │       ├── test_script_vendor.py
 │       ├── test_script_vendor_libs.py
 │       ├── test_script_version_service.py
-│       ├── test_feature_detect.py
 │       ├── test_deno_manager.py
+│       ├── test_runtime_settings.py
 │       └── http/                  # HTTP service tests
 │           ├── test_http_service.py
 │           ├── test_graphql_schema_service.py
@@ -188,6 +203,8 @@ tests/
     └── request/                   # Request/response editing tests
         ├── test_folder_editor.py
         ├── test_folder_editor_scripts.py
+        ├── test_runner_panel.py
+        ├── test_script_language.py
         ├── test_http_worker.py
         ├── test_request_editor.py
         ├── test_request_editor_auth.py

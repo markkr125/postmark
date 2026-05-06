@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from unittest.mock import Mock
+
+import pytest
 from PySide6.QtWidgets import QApplication
 
 from services.environment_service import VariableDetail
@@ -83,6 +86,42 @@ class TestRequestEditorWidget:
 
         text = editor._pre_request_edit.toPlainText()
         assert "console.log" in text
+
+    def test_deno_runtime_banner_shows_after_load_when_deno_unavailable(
+        self, qapp: QApplication, qtbot, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Deno prompt must run after load; script text is set under ``_loading``."""
+        from services.scripting import runtime_settings as rs
+
+        def _fake_validate(_path: object) -> dict[str, object]:
+            return {
+                "path": "",
+                "available": False,
+                "version": "",
+                "error": "unavailable",
+            }
+
+        monkeypatch.setattr(
+            rs.RuntimeSettings,
+            "validate_deno",
+            staticmethod(_fake_validate),  # type: ignore[arg-type]
+        )
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor.load_request(
+            {
+                "name": "X",
+                "method": "GET",
+                "url": "http://x",
+                "scripts": {"pre_request": "// script"},
+            }
+        )
+        editor.show()
+        qtbot.waitExposed(editor)
+        # Pre-request runtime banner is inside the Scripts section tab; it is not
+        # top-level visible until that tab (index 5) is active.
+        editor._tabs.setCurrentIndex(5)
+        assert editor._pre_runtime_banner.isVisible()
 
 
 class TestRequestEditorDirtyTracking:
@@ -540,21 +579,23 @@ class TestRequestEditorVariableMap:
 class TestRequestEditorStatusBar:
     """Tests for the script editor status bar in request editor."""
 
-    def test_status_bar_exists(self, qapp: QApplication, qtbot) -> None:
-        """Both script editors have a status label."""
+    def test_status_bar_widgets_exist(self, qapp: QApplication, qtbot) -> None:
+        """Both script editors have line/column labels and a language picker."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
-        assert hasattr(editor, "_pre_status_label")
-        assert hasattr(editor, "_test_status_label")
+        assert hasattr(editor, "_pre_status_ln_lbl")
+        assert hasattr(editor, "_test_status_ln_lbl")
+        assert hasattr(editor, "_pre_lang_menu_btn")
+        assert hasattr(editor, "_test_lang_menu_btn")
 
     def test_status_bar_initial_text(self, qapp: QApplication, qtbot) -> None:
-        """Status bar shows initial cursor position and language."""
+        """Status bar shows initial cursor position, language control, and char count."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
-        text = editor._pre_status_label.text()
-        assert "Ln 1" in text
-        assert "Col 1" in text
-        assert "JavaScript" in text
+        assert "Ln 1" in editor._pre_status_ln_lbl.text()
+        assert "Col 1" in editor._pre_status_ln_lbl.text()
+        assert editor._pre_lang_menu_btn.text() == "JavaScript"
+        assert "chars" in editor._pre_status_chars_lbl.text()
 
 
 class TestRequestEditorScriptSearchBar:
@@ -587,3 +628,36 @@ class TestRequestEditorScriptSearchBar:
         qtbot.addWidget(editor)
         assert editor._pre_request_edit.minimumHeight() >= 80
         assert editor._test_script_edit.minimumHeight() >= 80
+
+    def test_test_run_live_mode_delegates_to_main_window(self, qapp: QApplication, qtbot) -> None:
+        """Post-response Run delegates to live-send pipeline in default mode."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor.load_request({"name": "X", "method": "GET", "url": "https://x"})
+        editor._test_script_edit.setPlainText("pm.test('ok', () => true)")
+
+        delegated: list[dict[str, object]] = []
+
+        def _capture(**kwargs: object) -> None:
+            delegated.append(kwargs)
+
+        editor.run_post_response_script_with_live_response = _capture  # type: ignore[attr-defined]
+        editor._run_inline_script("test")
+
+        assert len(delegated) == 1
+        assert delegated[0]["editor"] is editor
+        assert delegated[0]["panel"] is editor._test_output_panel
+        assert delegated[0]["script"] == "pm.test('ok', () => true)"
+
+    def test_test_run_manual_mode_uses_inline_worker(self, qapp: QApplication, qtbot) -> None:
+        """Manual mode keeps existing inline script execution path."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor.load_request({"name": "X", "method": "GET", "url": "https://x"})
+        editor._test_script_edit.setPlainText("pm.test('ok', () => true)")
+        editor._test_output_panel.set_response_source_mode("manual")
+
+        called = Mock()
+        editor._test_output_panel.run_script = called  # type: ignore[method-assign]
+        editor._run_inline_script("test")
+        assert called.called

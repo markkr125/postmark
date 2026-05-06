@@ -1,14 +1,18 @@
-"""Tests for additional vendor libraries in the V8 sandbox.
+"""Tests for additional vendor libraries in the JS (Deno) script bundle.
 
 Covers lodash, moment, chai, tv4, ajv, xml2js, csv-parse, and the
-lazy-loading detection/resolution used by ``js_runtime``.
+lazy-loading detection/resolution used by ``js_runtime``.  Also covers
+``pm.require('npm:…'|'jsr:…')`` literal detection and the generated ESM import
+block (no subprocess).
 
-Requires ``py_mini_racer`` — skipped when unavailable.
+Requires **Deno** — tests skip when the runtime is unavailable.
 """
 
 from __future__ import annotations
 
 import pytest
+
+from services.scripting import ScriptInput
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -20,7 +24,7 @@ def _make_context(
     response: dict | None = None,
     variables: dict | None = None,
     environment_vars: dict | None = None,
-) -> dict:
+) -> ScriptInput:
     """Return a minimal ``ScriptInput``."""
     return {
         "request": {
@@ -47,7 +51,13 @@ class TestLodash:
 
     @pytest.fixture(autouse=True)
     def _require_mini_racer(self) -> None:
-        pytest.importorskip("py_mini_racer")
+        from services.scripting.runtime_settings import RuntimeSettings
+
+        st = RuntimeSettings.validate_deno(RuntimeSettings.deno_path())
+        if not st.get("available"):
+            import pytest
+
+            pytest.skip("Deno not available")
 
     def test_lodash_map(self):
         """_.map transforms an array."""
@@ -89,7 +99,13 @@ class TestMoment:
 
     @pytest.fixture(autouse=True)
     def _require_mini_racer(self) -> None:
-        pytest.importorskip("py_mini_racer")
+        from services.scripting.runtime_settings import RuntimeSettings
+
+        st = RuntimeSettings.validate_deno(RuntimeSettings.deno_path())
+        if not st.get("available"):
+            import pytest
+
+            pytest.skip("Deno not available")
 
     def test_moment_format(self):
         """moment().format() returns a formatted date string."""
@@ -130,7 +146,13 @@ class TestChai:
 
     @pytest.fixture(autouse=True)
     def _require_mini_racer(self) -> None:
-        pytest.importorskip("py_mini_racer")
+        from services.scripting.runtime_settings import RuntimeSettings
+
+        st = RuntimeSettings.validate_deno(RuntimeSettings.deno_path())
+        if not st.get("available"):
+            import pytest
+
+            pytest.skip("Deno not available")
 
     def test_chai_expect(self):
         """chai.expect assertions work inside pm.test."""
@@ -171,7 +193,13 @@ class TestTv4:
 
     @pytest.fixture(autouse=True)
     def _require_mini_racer(self) -> None:
-        pytest.importorskip("py_mini_racer")
+        from services.scripting.runtime_settings import RuntimeSettings
+
+        st = RuntimeSettings.validate_deno(RuntimeSettings.deno_path())
+        if not st.get("available"):
+            import pytest
+
+            pytest.skip("Deno not available")
 
     def test_tv4_validate_pass(self):
         """tv4 validates a conforming object."""
@@ -214,7 +242,13 @@ class TestAjv:
 
     @pytest.fixture(autouse=True)
     def _require_mini_racer(self) -> None:
-        pytest.importorskip("py_mini_racer")
+        from services.scripting.runtime_settings import RuntimeSettings
+
+        st = RuntimeSettings.validate_deno(RuntimeSettings.deno_path())
+        if not st.get("available"):
+            import pytest
+
+            pytest.skip("Deno not available")
 
     def test_ajv_validate_pass(self):
         """Ajv validates a conforming object."""
@@ -261,7 +295,13 @@ class TestXml2js:
 
     @pytest.fixture(autouse=True)
     def _require_mini_racer(self) -> None:
-        pytest.importorskip("py_mini_racer")
+        from services.scripting.runtime_settings import RuntimeSettings
+
+        st = RuntimeSettings.validate_deno(RuntimeSettings.deno_path())
+        if not st.get("available"):
+            import pytest
+
+            pytest.skip("Deno not available")
 
     def test_xml2js_parse(self):
         """xml2js.parseString extracts tag values."""
@@ -290,7 +330,13 @@ class TestCsvParse:
 
     @pytest.fixture(autouse=True)
     def _require_mini_racer(self) -> None:
-        pytest.importorskip("py_mini_racer")
+        from services.scripting.runtime_settings import RuntimeSettings
+
+        st = RuntimeSettings.validate_deno(RuntimeSettings.deno_path())
+        if not st.get("available"):
+            import pytest
+
+            pytest.skip("Deno not available")
 
     def test_csv_parse(self):
         """csv-parse/sync parses CSV with headers."""
@@ -319,7 +365,13 @@ class TestLazyLoading:
 
     @pytest.fixture(autouse=True)
     def _require_mini_racer(self) -> None:
-        pytest.importorskip("py_mini_racer")
+        from services.scripting.runtime_settings import RuntimeSettings
+
+        st = RuntimeSettings.validate_deno(RuntimeSettings.deno_path())
+        if not st.get("available"):
+            import pytest
+
+            pytest.skip("Deno not available")
 
     def test_no_require_no_vendor(self):
         """A script without require() loads no vendor libraries."""
@@ -365,3 +417,120 @@ var moment = require('moment');
 
         files = _resolve_vendor_files({"lodash", "moment"})
         assert len(files) == len(set(files))
+
+
+# ===================================================================
+# pm.require (npm:/jsr:) — static detection + bundle preamble
+# ===================================================================
+
+
+class TestPmRequireDetector:
+    """``_detect_pm_require_specs`` — string-literal ``pm.require`` calls only."""
+
+    def test_empty_script(self) -> None:
+        """No calls yields an empty list."""
+        from services.scripting.js_runtime import _detect_pm_require_specs
+
+        assert _detect_pm_require_specs("") == []
+        assert _detect_pm_require_specs("console.log(1);") == []
+
+    def test_single_npm_exact_version(self) -> None:
+        """Parses npm name and exact semver."""
+        from services.scripting.js_runtime import PmRequireSpec, _detect_pm_require_specs
+
+        specs = _detect_pm_require_specs("const _ = pm.require('npm:lodash@4.17.21');")
+        assert specs == [PmRequireSpec("npm", "lodash", "4.17.21")]
+
+    def test_double_quoted_literal(self) -> None:
+        """Double-quoted string literals are recognised."""
+        from services.scripting.js_runtime import PmRequireSpec, _detect_pm_require_specs
+
+        specs = _detect_pm_require_specs('pm.require("npm:lodash@4.17.21");')
+        assert specs == [PmRequireSpec("npm", "lodash", "4.17.21")]
+
+    def test_deduplicates_identical_calls(self) -> None:
+        """Duplicate literals collapse to one spec."""
+        from services.scripting.js_runtime import PmRequireSpec, _detect_pm_require_specs
+
+        script = """
+pm.require('npm:lodash@4.17.21');
+pm.require("npm:lodash@4.17.21");
+"""
+        assert _detect_pm_require_specs(script) == [PmRequireSpec("npm", "lodash", "4.17.21")]
+
+    def test_scoped_npm_package(self) -> None:
+        """Scoped npm names are allowed."""
+        from services.scripting.js_runtime import PmRequireSpec, _detect_pm_require_specs
+
+        specs = _detect_pm_require_specs("pm.require('npm:@types/node@20.1.0');")
+        assert specs == [PmRequireSpec("npm", "@types/node", "20.1.0")]
+
+    def test_jsr_registry(self) -> None:
+        """jsr: prefix is accepted."""
+        from services.scripting.js_runtime import PmRequireSpec, _detect_pm_require_specs
+
+        specs = _detect_pm_require_specs("pm.require('jsr:@std/assert@1.0.0');")
+        assert specs == [PmRequireSpec("jsr", "@std/assert", "1.0.0")]
+
+    def test_unversioned_specifier(self) -> None:
+        """Omitted @version yields empty version string."""
+        from services.scripting.js_runtime import PmRequireSpec, _detect_pm_require_specs
+
+        specs = _detect_pm_require_specs("pm.require('npm:lodash');")
+        assert specs == [PmRequireSpec("npm", "lodash", "")]
+
+    def test_invalid_package_name_raises(self) -> None:
+        """Names that fail npm/jsr naming rules raise ``ValueError``."""
+        from services.scripting.js_runtime import _detect_pm_require_specs
+
+        with pytest.raises(ValueError, match="invalid"):
+            _detect_pm_require_specs("pm.require('npm:_bad@1.0.0');")
+
+    def test_version_range_not_allowed(self) -> None:
+        """Caret/range versions are rejected."""
+        from services.scripting.js_runtime import _detect_pm_require_specs
+
+        with pytest.raises(ValueError, match="exact"):
+            _detect_pm_require_specs("pm.require('npm:lodash@^4.17.21');")
+
+
+class TestPmRequireImportsBlock:
+    """``_pm_require_imports_block`` output shape."""
+
+    def test_empty_list_returns_empty_string(self) -> None:
+        """No specs → no preamble."""
+        from services.scripting.js_runtime import _pm_require_imports_block
+
+        assert _pm_require_imports_block([]) == ""
+
+    def test_emits_static_import_and_registry(self) -> None:
+        """Import line plus ``globalThis.__pm_require_modules`` map."""
+        from services.scripting.js_runtime import PmRequireSpec, _pm_require_imports_block
+
+        out = _pm_require_imports_block([PmRequireSpec("npm", "lodash", "4.17.21")])
+        assert 'from "npm:lodash@4.17.21"' in out
+        assert "import * as __pm_req_" in out
+        assert "globalThis.__pm_require_modules" in out
+        assert '"npm:lodash":' in out
+
+
+class TestPmRequireBundleText:
+    """``deno_runtime._build_bundle_text`` includes pm.require preamble."""
+
+    def test_bundle_contains_pm_require_import(self) -> None:
+        """Bundling injects ESM import before vendor polyfills."""
+        from services.scripting.deno_runtime import _build_bundle_text
+
+        ctx = _make_context()
+        script = "pm.require('npm:lodash@4.17.21');"
+        bundle = _build_bundle_text(script, ctx)
+        assert 'from "npm:lodash@4.17.21"' in bundle
+        assert "__pm_require_modules" in bundle
+
+    def test_invalid_pm_require_surfaces_as_runtime_error_string(self) -> None:
+        """``ValueError`` from detection is wrapped for callers."""
+        from services.scripting.deno_runtime import _build_bundle_text
+
+        ctx = _make_context()
+        with pytest.raises(RuntimeError, match="Script bundling failed"):
+            _build_bundle_text("pm.require('npm:lodash@^1');", ctx)

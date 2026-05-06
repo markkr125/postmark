@@ -33,7 +33,9 @@ class SearchReplaceBar(QWidget):
     editor:
         The editor to search.
     parent:
-        Optional parent widget.
+        Parent widget (for script tabs, pass the **editor pane** that contains
+        this bar and the ``CodeEditorWidget`` so **Ctrl+P** parameter hints are
+        registered on the pane and still work while the find field has focus).
     """
 
     def __init__(self, editor: CodeEditorWidget, parent: QWidget | None = None) -> None:
@@ -42,6 +44,7 @@ class SearchReplaceBar(QWidget):
         self._editor = editor
         self._matches: list[int] = []
         self._match_index: int = -1
+        self._pane_parameter_hint_sc: QShortcut | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 4, 0, 4)
@@ -156,6 +159,13 @@ class SearchReplaceBar(QWidget):
         goto_sc = QShortcut(QKeySequence("Ctrl+G"), self._editor)
         goto_sc.setContext(Qt.ShortcutContext.WidgetShortcut)
         goto_sc.activated.connect(self.goto_line)
+
+        # Ctrl+P must work while the find field has focus (sibling of the editor).
+        hub = self.parentWidget()
+        if hub is not None:
+            self._pane_parameter_hint_sc = QShortcut(QKeySequence("Ctrl+P"), hub)
+            self._pane_parameter_hint_sc.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+            self._pane_parameter_hint_sc.activated.connect(self._editor.trigger_parameter_hint)
 
     # -- Public API ----------------------------------------------------
 

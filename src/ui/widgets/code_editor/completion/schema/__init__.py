@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from ui.widgets.code_editor.completion.schema.core import (
     _EXPECTATION_CHAIN_JS,
+    _EXPECTATION_CHAIN_PY,
     SchemaNode,
     _header_list_children,
     _variable_scope_children,
@@ -23,6 +24,7 @@ __all__ = [
     "PY_KEYWORDS",
     "PY_SCHEMA",
     "_EXPECTATION_CHAIN_JS",
+    "_EXPECTATION_CHAIN_PY",
     "SchemaNode",
     "_header_list_children",
     "_variable_scope_children",

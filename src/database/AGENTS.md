@@ -14,8 +14,11 @@
    anything deeper than one level.
 7. **All models inherit from `Base`** in `database/models/base.py`. Do not
    create a second base class.
-8. **`init_db()` must be called before any DB access** — at app startup and
-   in test fixtures.
+8. **`init_db()` must complete before any DB access** — in production the
+   collection fetch worker calls it before ``CollectionService.fetch_all()``;
+   tests call it via the `_fresh_db` fixture. **`init_db()` is idempotent** —
+   second and later calls no-op while `_engine` is set; tests reset `_engine` /
+   `_SessionLocal` to `None` before each run (see `_fresh_db` in `conftest.py`).
 
 ## Use Mapped + mapped_column (2.0 style only)
 
@@ -94,10 +97,15 @@ stmt = select(CollectionModel).where(CollectionModel.parent_id.is_(None))
 results = list(session.execute(stmt).scalars().all())
 ```
 
-## init_db() must be called before any DB access
+## init_db() — idempotent; must complete before any DB access
 
-`main.py` calls `init_db(db_path)` at startup. Tests use an autouse fixture
-in `conftest.py` that resets the engine and calls `init_db()` per test.
+`init_db()` returns immediately if `_engine` is already created.
+
+Production startup does not open the SQLite file on the main thread;
+``CollectionWidget``'s background worker runs ``init_db()`` (no-op if already
+initialised) before fetching collections. Tests use `_fresh_db` in
+`conftest.py`, which resets `_engine` / `_SessionLocal` and calls
+`init_db(db_path)` per test before widgets run.
 
 ## Session-per-function — no cross-function transactions
 

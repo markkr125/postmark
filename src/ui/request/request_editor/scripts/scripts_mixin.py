@@ -2,33 +2,41 @@
 
 from __future__ import annotations
 
+import contextlib
+import json
 from functools import partial
-from typing import Any
+from typing import Any, Literal, cast
 
 from PySide6.QtCore import QSettings, Qt, QTimer
-from PySide6.QtGui import QKeySequence
+from PySide6.QtGui import QAction, QActionGroup, QKeySequence
 from PySide6.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QPushButton,
     QSplitter,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
+from database.models.collections.collection_query_repository import get_script_chain
+from services.script_service import normalize_disabled_inherited
 from services.script_version_service import ScriptVersionService
 from services.scripting.context import normalize_events as _normalize_events
-from services.scripting.deno_manager import DenoManager
-from services.scripting.feature_detect import detect_advanced_features
+from services.scripting.runtime_settings import RuntimeSettings
+from ui.request.request_editor.scripts.inherited_banner import InheritedScriptsBanner
+from ui.request.request_editor.scripts.script_language import (
+    code_to_display,
+    detect_script_language,
+    normalise_script_code,
+)
+from ui.sidebar.debug_panel import DebugControls
 from ui.styling.icons import phi
 from ui.widgets.code_editor import CodeEditorWidget
 from ui.widgets.runtime_banner import RuntimeBanner
 from ui.widgets.search_replace_bar import SearchReplaceBar
-
-# Display label → CodeEditorWidget language.
-_SCRIPT_LANGUAGES: dict[str, str] = {"JavaScript": "javascript", "Python": "python"}
 
 _VERSION_CAPTURE_MS = 2000  # Debounce delay (ms) for version capture.
 _AUTO_SAVE_CAPTURE_MS = 500  # Aggressive capture interval when auto-save enabled.
@@ -42,6 +50,12 @@ _SETTINGS_KEY_AUTO_SAVE_DEFAULT = "scripting/auto_save_default"
 class _ScriptsMixin:
     """Mixin building and managing pre-request / test script editors."""
 
+    # Host flag: request editors want the inherited-scripts banner; folder
+    # editors do not (folders *are* the inherited chain for their descendants).
+    _inherited_banners_supported: bool = True
+    # "request" | "folder" — folder script panels omit live-response controls.
+    _script_output_host_kind: str = "request"
+
     # -- Individual tab builders ---------------------------------------
 
     def _build_pre_request_tab(self, parent_layout: QVBoxLayout) -> None:
@@ -54,18 +68,26 @@ class _ScriptsMixin:
         self._pre_request_edit.textChanged.connect(self._on_field_changed)  # type: ignore[attr-defined]
         self._pre_request_edit.textChanged.connect(self._schedule_version_capture)
 
-        self._pre_search_bar = SearchReplaceBar(self._pre_request_edit)
-
-        self._pre_lang_combo, self._pre_history_btn = self._build_script_header(
-            parent_layout,
-            history_type="pre_request",
-            search_bar=self._pre_search_bar,
-        )
+        self._ensure_script_language_timers()
+        self._pre_script_lang_auto = True
 
         # Runtime banner (hidden by default).
         self._pre_runtime_banner = RuntimeBanner()
         self._pre_runtime_banner.setVisible(False)
         self._pre_runtime_banner.download_completed.connect(self._on_deno_installed)
+        self._pre_runtime_banner.open_settings_clicked.connect(self._emit_open_scripting_settings)
+
+        if not hasattr(self, "_disabled_inherited"):
+            self._disabled_inherited: list[dict[str, int | str]] = []
+
+        if self._inherited_banners_supported:
+            self._pre_inherited_banner = InheritedScriptsBanner(script_type="pre_request")
+            self._pre_inherited_banner.setVisible(False)
+            self._pre_inherited_banner.view_chain_requested.connect(
+                partial(self._open_inherited_chain_drawer, "pre_request")
+            )
+        else:
+            self._pre_inherited_banner = None  # type: ignore[assignment]
 
         # Editor pane (banner + search bar + editor + status bar).
         editor_pane = QWidget()
@@ -73,21 +95,37 @@ class _ScriptsMixin:
         editor_layout.setContentsMargins(0, 0, 0, 0)
         editor_layout.setSpacing(0)
         editor_layout.addWidget(self._pre_runtime_banner)
+        if self._pre_inherited_banner is not None:
+            editor_layout.addWidget(self._pre_inherited_banner)
+
+        self._pre_search_bar = SearchReplaceBar(self._pre_request_edit, editor_pane)
         editor_layout.addWidget(self._pre_search_bar)
         editor_layout.addWidget(self._pre_request_edit, 1)
-        self._pre_status_label = self._build_status_bar(
+
+        self._pre_history_btn = self._build_script_header(
+            parent_layout,
+            history_type="pre_request",
+            search_bar=self._pre_search_bar,
+        )
+        self._build_script_status_bar(
             editor_layout,
             self._pre_request_edit,
-            self._pre_lang_combo,
+            "pre_request",
         )
 
-        # Connect text changes to banner re-check.
+        # Connect text and language changes to banner re-check.
         self._pre_request_edit.textChanged.connect(self._schedule_banner_check)
+        self._pre_request_edit.textChanged.connect(
+            lambda: self._on_script_text_for_auto_lang("pre_request"),
+        )
 
         # Output panel for inline script execution results.
         from ui.request.request_editor.scripts.output_panel import ScriptOutputPanel
 
-        self._pre_output_panel = ScriptOutputPanel(script_type="pre_request")
+        self._pre_output_panel = ScriptOutputPanel(
+            script_type="pre_request",
+            host_kind=self._script_output_host_kind,
+        )
 
         # Resizable splitter between editor and output.
         splitter = QSplitter(Qt.Orientation.Vertical)
@@ -114,18 +152,22 @@ class _ScriptsMixin:
         self._test_script_edit.textChanged.connect(self._on_field_changed)  # type: ignore[attr-defined]
         self._test_script_edit.textChanged.connect(self._schedule_version_capture)
 
-        self._test_search_bar = SearchReplaceBar(self._test_script_edit)
-
-        self._test_lang_combo, self._test_history_btn = self._build_script_header(
-            parent_layout,
-            history_type="test",
-            search_bar=self._test_search_bar,
-        )
+        self._test_script_lang_auto = True
 
         # Runtime banner (hidden by default).
         self._test_runtime_banner = RuntimeBanner()
         self._test_runtime_banner.setVisible(False)
         self._test_runtime_banner.download_completed.connect(self._on_deno_installed)
+        self._test_runtime_banner.open_settings_clicked.connect(self._emit_open_scripting_settings)
+
+        if self._inherited_banners_supported:
+            self._test_inherited_banner = InheritedScriptsBanner(script_type="test")
+            self._test_inherited_banner.setVisible(False)
+            self._test_inherited_banner.view_chain_requested.connect(
+                partial(self._open_inherited_chain_drawer, "test")
+            )
+        else:
+            self._test_inherited_banner = None  # type: ignore[assignment]
 
         # Editor pane (banner + search bar + editor + status bar).
         editor_pane = QWidget()
@@ -133,21 +175,37 @@ class _ScriptsMixin:
         editor_layout.setContentsMargins(0, 0, 0, 0)
         editor_layout.setSpacing(0)
         editor_layout.addWidget(self._test_runtime_banner)
+        if self._test_inherited_banner is not None:
+            editor_layout.addWidget(self._test_inherited_banner)
+
+        self._test_search_bar = SearchReplaceBar(self._test_script_edit, editor_pane)
         editor_layout.addWidget(self._test_search_bar)
         editor_layout.addWidget(self._test_script_edit, 1)
-        self._test_status_label = self._build_status_bar(
+
+        self._test_history_btn = self._build_script_header(
+            parent_layout,
+            history_type="test",
+            search_bar=self._test_search_bar,
+        )
+        self._build_script_status_bar(
             editor_layout,
             self._test_script_edit,
-            self._test_lang_combo,
+            "test",
         )
 
-        # Connect text changes to banner re-check.
+        # Connect text and language changes to banner re-check.
         self._test_script_edit.textChanged.connect(self._schedule_banner_check)
+        self._test_script_edit.textChanged.connect(
+            lambda: self._on_script_text_for_auto_lang("test"),
+        )
 
         # Output panel for inline script execution results.
         from ui.request.request_editor.scripts.output_panel import ScriptOutputPanel
 
-        self._test_output_panel = ScriptOutputPanel(script_type="test")
+        self._test_output_panel = ScriptOutputPanel(
+            script_type="test",
+            host_kind=self._script_output_host_kind,
+        )
 
         # Resizable splitter between editor and output.
         splitter = QSplitter(Qt.Orientation.Vertical)
@@ -159,6 +217,26 @@ class _ScriptsMixin:
         self._connect_script_splitter_vis_hooks()
         self._schedule_script_splitter_sizes(splitter)
         parent_layout.addWidget(splitter, 1)
+
+        self._test_script_edit.set_test_gutter_enabled(True)
+        self._test_script_edit.textChanged.connect(self._refresh_pm_test_gutter_markers)
+        self._test_script_edit.run_single_test_requested.connect(self._run_single_test)
+        self._test_script_edit.debug_single_test_requested.connect(
+            lambda n: self._run_single_test(n, debug=True)
+        )
+        self._refresh_pm_test_gutter_markers()
+
+    def _refresh_pm_test_gutter_markers(self) -> None:
+        """Update per-line ``pm.test`` markers in the post-response editor gutter."""
+        from services.scripting.engine import find_pm_tests, find_top_level_statement_lines
+
+        lang = self._test_script_edit.language
+        self._test_script_edit.set_pm_tests(
+            find_pm_tests(self._test_script_edit.toPlainText(), lang)
+        )
+        self._test_script_edit.set_top_level_lines(
+            find_top_level_statement_lines(self._test_script_edit.toPlainText(), lang)
+        )
 
     def _connect_script_splitter_vis_hooks(self) -> None:
         """Re-apply default split when the scripts UI becomes visible (tab has real height)."""
@@ -172,7 +250,10 @@ class _ScriptsMixin:
 
     def _on_script_splitter_context_shown(self, *_args: object) -> None:
         """Sub-tab or top-level section changed; refresh split when Scripts is shown."""
-        for sp in (getattr(self, "_pre_script_splitter", None), getattr(self, "_test_script_splitter", None)):
+        for sp in (
+            getattr(self, "_pre_script_splitter", None),
+            getattr(self, "_test_script_splitter", None),
+        ):
             if isinstance(sp, QSplitter):
                 self._schedule_script_splitter_sizes(sp)
 
@@ -192,12 +273,146 @@ class _ScriptsMixin:
             avail = h - handles
             if avail < 100:
                 return
-            # Slightly under half the pane to the output (index 1).
-            out_h = max(200, int(avail * 0.46))
+            # Default slightly over half to output so Run / debug output is usable
+            # without dragging the handle every time.
+            out_h = max(200, int(avail * 0.56))
             ed_h = max(120, avail - out_h)
             splitter.setSizes([ed_h, out_h])
 
         QTimer.singleShot(0, partial(try_apply, 0))
+
+    def _ensure_script_language_timers(self) -> None:
+        """Create debounce timers for automatic script language detection (once)."""
+        if hasattr(self, "_pre_lang_auto_timer"):
+            return
+        timer_parent = self._pre_request_edit
+        self._pre_lang_auto_timer = QTimer(timer_parent)
+        self._pre_lang_auto_timer.setSingleShot(True)
+        self._pre_lang_auto_timer.setInterval(400)
+        self._pre_lang_auto_timer.timeout.connect(
+            lambda: self._apply_auto_script_language("pre_request")
+        )
+        self._test_lang_auto_timer = QTimer(timer_parent)
+        self._test_lang_auto_timer.setSingleShot(True)
+        self._test_lang_auto_timer.setInterval(400)
+        self._test_lang_auto_timer.timeout.connect(lambda: self._apply_auto_script_language("test"))
+
+    def _script_lang_auto(self, script_type: Literal["pre_request", "test"]) -> bool:
+        """Return whether *script_type* uses automatic language detection."""
+        return (
+            self._pre_script_lang_auto
+            if script_type == "pre_request"
+            else self._test_script_lang_auto
+        )
+
+    def _set_script_lang_auto(
+        self, script_type: Literal["pre_request", "test"], value: bool
+    ) -> None:
+        """Enable or disable automatic language detection for *script_type*."""
+        if script_type == "pre_request":
+            self._pre_script_lang_auto = value
+        else:
+            self._test_script_lang_auto = value
+
+    def _sync_lang_menu_button_text(self, editor: CodeEditorWidget, btn: QToolButton) -> None:
+        """Refresh the status-bar language button label from *editor*."""
+        btn.setText(code_to_display(editor.language))
+
+    def _create_script_lang_toolbutton(
+        self,
+        editor: CodeEditorWidget,
+        script_type: Literal["pre_request", "test"],
+    ) -> QToolButton:
+        """Build a VS Code-style language picker (popup menu on the status bar)."""
+        btn = QToolButton()
+        btn.setObjectName("scriptLanguageLinkButton")
+        btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setToolTip("Select language mode")
+        self._sync_lang_menu_button_text(editor, btn)
+
+        menu = QMenu(btn)
+        act_js = QAction("JavaScript", menu)
+        act_js.setCheckable(True)
+        act_py = QAction("Python", menu)
+        act_py.setCheckable(True)
+        group = QActionGroup(menu)
+        group.setExclusive(True)
+        group.addAction(act_js)
+        group.addAction(act_py)
+        menu.addAction(act_js)
+        menu.addAction(act_py)
+        menu.addSeparator()
+        act_auto = QAction("Auto", menu)
+        menu.addAction(act_auto)
+
+        def sync_checks() -> None:
+            lang = editor.language
+            act_js.setChecked(lang == "javascript")
+            act_py.setChecked(lang == "python")
+
+        menu.aboutToShow.connect(sync_checks)
+
+        def pick_js() -> None:
+            self._set_script_lang_auto(script_type, False)
+            editor.set_language("javascript")
+            self._sync_lang_menu_button_text(editor, btn)
+            if script_type == "test":
+                self._refresh_pm_test_gutter_markers()
+            self._schedule_banner_check()
+            if not getattr(self, "_loading", False):
+                self._on_field_changed()  # type: ignore[attr-defined]
+
+        def pick_py() -> None:
+            self._set_script_lang_auto(script_type, False)
+            editor.set_language("python")
+            self._sync_lang_menu_button_text(editor, btn)
+            if script_type == "test":
+                self._refresh_pm_test_gutter_markers()
+            self._schedule_banner_check()
+            if not getattr(self, "_loading", False):
+                self._on_field_changed()  # type: ignore[attr-defined]
+
+        def pick_auto() -> None:
+            self._set_script_lang_auto(script_type, True)
+            self._apply_auto_script_language(script_type)
+
+        act_js.triggered.connect(pick_js)
+        act_py.triggered.connect(pick_py)
+        act_auto.triggered.connect(pick_auto)
+        btn.setMenu(menu)
+        return btn
+
+    def _on_script_text_for_auto_lang(self, script_type: Literal["pre_request", "test"]) -> None:
+        """Restart debounced auto language detection when script text changes."""
+        if getattr(self, "_loading", False):
+            return
+        if not self._script_lang_auto(script_type):
+            return
+        timer = (
+            self._pre_lang_auto_timer
+            if script_type == "pre_request"
+            else self._test_lang_auto_timer
+        )
+        timer.start()
+
+    def _apply_auto_script_language(self, script_type: Literal["pre_request", "test"]) -> None:
+        """Apply heuristics to *editor* when in automatic language mode."""
+        editor = self._pre_request_edit if script_type == "pre_request" else self._test_script_edit
+        btn = self._pre_lang_menu_btn if script_type == "pre_request" else self._test_lang_menu_btn
+        if not self._script_lang_auto(script_type):
+            return
+        text = editor.toPlainText()
+        want = detect_script_language(text, default=editor.language)
+        if want != editor.language:
+            editor.set_language(want)
+        self._sync_lang_menu_button_text(editor, btn)
+        if script_type == "test":
+            self._refresh_pm_test_gutter_markers()
+        self._schedule_banner_check()
+        if not getattr(self, "_loading", False):
+            self._on_field_changed()  # type: ignore[attr-defined]
 
     def _build_script_header(
         self,
@@ -205,22 +420,10 @@ class _ScriptsMixin:
         *,
         history_type: str,
         search_bar: SearchReplaceBar,
-    ) -> tuple[QComboBox, QPushButton]:
-        """Build language-selector, history, toolbar, and auto-save row."""
+    ) -> QPushButton:
+        """Build history row, editor toolbar, and auto-save toggle."""
         lang_row = QHBoxLayout()
         lang_row.setContentsMargins(0, 0, 0, 0)
-        lang_label = QLabel("Language")
-        lang_label.setObjectName("mutedLabel")
-        lang_row.addWidget(lang_label)
-
-        lang_combo = QComboBox()
-        lang_combo.addItems(list(_SCRIPT_LANGUAGES.keys()))
-        lang_combo.setCursor(Qt.CursorShape.PointingHandCursor)
-        lang_combo.setFixedWidth(120)
-        lang_combo.currentTextChanged.connect(
-            lambda name, ht=history_type: self._on_script_language_changed(name, ht),
-        )
-        lang_row.addWidget(lang_combo)
 
         history_btn = QPushButton("History")
         history_btn.setIcon(phi("clock-counter-clockwise", size=14))
@@ -233,7 +436,7 @@ class _ScriptsMixin:
 
         lang_row.addSpacing(8)
 
-        # -- Toolbar buttons (left of stretch so they stay near Language / History) --
+        # -- Toolbar buttons (left of stretch so they stay near History) --
         find_hint = QKeySequence(QKeySequence.StandardKey.Find).toString(
             QKeySequence.SequenceFormat.NativeText,
         )
@@ -269,6 +472,21 @@ class _ScriptsMixin:
             self._run_buttons: dict[str, QPushButton] = {}
         self._run_buttons[history_type] = run_btn
 
+        # -- Debug button (inline script debugger) --------------------
+        debug_btn = QPushButton()
+        debug_btn.setIcon(phi("bug"))
+        debug_btn.setFixedSize(28, 28)
+        debug_btn.setObjectName("iconButton")
+        debug_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        debug_btn.setToolTip("Debug script (breakpoints)")
+        debug_btn.clicked.connect(
+            lambda _checked=False, ht=history_type: self._debug_inline_script(ht),
+        )
+        lang_row.addWidget(debug_btn)
+        if not hasattr(self, "_debug_buttons"):
+            self._debug_buttons: dict[str, QPushButton] = {}
+        self._debug_buttons[history_type] = debug_btn
+
         # -- Auto-save toggle (right-aligned with toolbar) -------------
         if not hasattr(self, "_auto_save_checkboxes"):
             self._auto_save_checkboxes: list[QCheckBox] = []
@@ -286,6 +504,27 @@ class _ScriptsMixin:
 
         parent_layout.addLayout(lang_row)
 
+        # -- Debug step bar: full width under the toolbar row, hidden until
+        #    a pause (same band / margins as :class:`SearchReplaceBar`).
+        debug_bar = QWidget()
+        debug_bar.setObjectName("scriptDebugBar")
+        db_layout = QVBoxLayout(debug_bar)
+        db_layout.setContentsMargins(0, 4, 0, 4)
+        db_layout.setSpacing(0)
+        debug_controls = DebugControls()
+        debug_controls.hide()
+        debug_controls.step_requested.connect(
+            self.debug_step_requested.emit  # type: ignore[attr-defined, call-overload]
+        )
+        db_layout.addWidget(debug_controls)
+        if not hasattr(self, "_debug_controls"):
+            self._debug_controls: dict[str, DebugControls] = {}
+        self._debug_controls[history_type] = debug_controls
+        parent_layout.addWidget(debug_bar)
+        # While ``DebugControls`` is hidden, layout margins on this host still reserved ~8px.
+        # Hide the whole host until a send-pipeline pause shows the controls (and parent bar).
+        debug_bar.hide()
+
         # Shared debounce timer (created once)
         if not hasattr(self, "_version_capture_timer"):
             initial_ms = _AUTO_SAVE_CAPTURE_MS if self._auto_save_enabled else _VERSION_CAPTURE_MS
@@ -294,58 +533,64 @@ class _ScriptsMixin:
             self._version_capture_timer.setInterval(initial_ms)
             self._version_capture_timer.timeout.connect(self._capture_script_versions)
 
-        return lang_combo, history_btn
+        return history_btn
 
-    def _build_status_bar(
+    def _build_script_status_bar(
         self,
         parent_layout: QVBoxLayout,
         editor: CodeEditorWidget,
-        lang_combo: QComboBox,
-    ) -> QLabel:
-        """Build a status bar below *editor* showing Ln, Col, language, chars."""
-        label = QLabel()
-        label.setObjectName("mutedLabel")
-        parent_layout.addWidget(label)
+        script_type: Literal["pre_request", "test"],
+    ) -> None:
+        """Build a status strip: Ln/Col, language picker, char count."""
+        row = QWidget()
+        row.setObjectName("scriptEditorStatusBar")
+        h = QHBoxLayout(row)
+        h.setContentsMargins(4, 2, 4, 2)
+        h.setSpacing(6)
+
+        ln_lbl = QLabel()
+        ln_lbl.setObjectName("mutedLabel")
+        sep1 = QLabel("\u2502")
+        sep1.setObjectName("mutedLabel")
+        lang_btn = self._create_script_lang_toolbutton(editor, script_type)
+        sep2 = QLabel("\u2502")
+        sep2.setObjectName("mutedLabel")
+        chars_lbl = QLabel()
+        chars_lbl.setObjectName("mutedLabel")
+
+        h.addWidget(ln_lbl)
+        h.addWidget(sep1)
+        h.addWidget(lang_btn)
+        h.addWidget(sep2)
+        h.addWidget(chars_lbl)
+        h.addStretch()
+        parent_layout.addWidget(row)
+
+        if script_type == "pre_request":
+            self._pre_status_ln_lbl = ln_lbl
+            self._pre_status_chars_lbl = chars_lbl
+            self._pre_lang_menu_btn = lang_btn
+        else:
+            self._test_status_ln_lbl = ln_lbl
+            self._test_status_chars_lbl = chars_lbl
+            self._test_lang_menu_btn = lang_btn
 
         def _update(_line: int = 0, _col: int = 0) -> None:
             cur = editor.textCursor()
             ln = cur.blockNumber() + 1
             col = cur.positionInBlock() + 1
-            lang = lang_combo.currentText()
-            chars = len(editor.toPlainText())
-            label.setText(f"Ln {ln}, Col {col}  \u2502  {lang}  \u2502  {chars} chars")
+            ln_lbl.setText(f"Ln {ln}, Col {col}")
+            chars_lbl.setText(f"{len(editor.toPlainText())} chars")
+            self._sync_lang_menu_button_text(editor, lang_btn)
 
         editor.cursor_position_changed.connect(_update)
         editor.textChanged.connect(_update)
-        lang_combo.currentTextChanged.connect(lambda _: _update())
         _update()
-        return label
-
-    # -- Backward-compatible aliases -----------------------------------
 
     @property
-    def _script_lang_combo(self) -> QComboBox:  # type: ignore[override]
-        """Return the pre-request language combo for legacy callers."""
-        return self._pre_lang_combo
-
-    @property
-    def _history_btn(self) -> QPushButton:  # type: ignore[override]
+    def _history_btn(self) -> QPushButton:
         """Return the pre-request history button for legacy callers."""
         return self._pre_history_btn
-
-    # -- Language switching --------------------------------------------
-
-    def _on_script_language_changed(self, display_name: str, script_type: str) -> None:
-        """Update the matching editor when its language selector changes."""
-        lang = _SCRIPT_LANGUAGES.get(display_name, "javascript")
-        if script_type == "pre_request":
-            self._pre_request_edit.set_language(lang)
-        else:
-            self._test_script_edit.set_language(lang)
-        if not self._loading:  # type: ignore[attr-defined]
-            self._on_field_changed()  # type: ignore[attr-defined]
-
-    # -- Load / save / clear helpers -----------------------------------
 
     def _load_scripts(self, scripts: Any) -> None:
         """Populate script editors from stored data (dict, events list, JSON, or None)."""
@@ -359,64 +604,92 @@ class _ScriptsMixin:
                 # Treat entire string as pre-request script
                 self._pre_request_edit.setPlainText(scripts)
                 self._test_script_edit.setPlainText("")
+                self._pre_request_edit.set_language("javascript")
+                self._test_script_edit.set_language("javascript")
+                self._set_script_lang_auto("pre_request", True)
+                self._set_script_lang_auto("test", True)
+                self._sync_lang_menu_button_text(self._pre_request_edit, self._pre_lang_menu_btn)
+                self._sync_lang_menu_button_text(self._test_script_edit, self._test_lang_menu_btn)
+                self._disabled_inherited = []
                 return
+
+        if getattr(self, "_request_id", None) is not None and isinstance(scripts, dict):
+            self._disabled_inherited = normalize_disabled_inherited(
+                scripts.get("disabled_inherited")
+            )
+        else:
+            self._disabled_inherited = []
 
         events = _normalize_events(scripts)
 
         self._pre_request_edit.setPlainText(events.get("pre_request") or "")
         self._test_script_edit.setPlainText(events.get("test") or "")
 
-        # Languages (per-tab, with fallback to shared 'language' key)
-        fallback = "JavaScript"
+        # Languages (per-tab, with fallback to shared 'language' key) — stored codes win on load.
+        shared_code = "javascript"
         if isinstance(scripts, dict):
-            shared = scripts.get("language", "").lower()
-            for display, code in _SCRIPT_LANGUAGES.items():
-                if code == shared:
-                    fallback = display
-                    break
-
-        pre_display = fallback
-        test_display = fallback
+            shared_code = normalise_script_code(str(scripts.get("language", "") or ""))
+        pre_code = shared_code
+        test_code = shared_code
         if isinstance(scripts, dict):
-            for attr, key in (("pre_display", "pre_language"), ("test_display", "test_language")):
-                stored = scripts.get(key, "").lower()
-                if stored:
-                    for display, code in _SCRIPT_LANGUAGES.items():
-                        if code == stored:
-                            if attr == "pre_display":
-                                pre_display = display
-                            else:
-                                test_display = display
-                            break
-        self._pre_lang_combo.setCurrentText(pre_display)
-        self._test_lang_combo.setCurrentText(test_display)
+            pr = str(scripts.get("pre_language", "") or "").lower()
+            if pr:
+                pre_code = normalise_script_code(pr)
+            tr = str(scripts.get("test_language", "") or "").lower()
+            if tr:
+                test_code = normalise_script_code(tr)
+        self._pre_request_edit.set_language(pre_code)
+        self._test_script_edit.set_language(test_code)
+        self._set_script_lang_auto("pre_request", False)
+        self._set_script_lang_auto("test", False)
+        self._sync_lang_menu_button_text(self._pre_request_edit, self._pre_lang_menu_btn)
+        self._sync_lang_menu_button_text(self._test_script_edit, self._test_lang_menu_btn)
 
         # Restore per-entity auto-save preference
         self._restore_auto_save_state()
+        self._refresh_inherited_banners()
+        self._refresh_pm_test_gutter_markers()
 
-    def _get_scripts_data(self) -> dict[str, str | None] | None:
+    def _get_scripts_data(self) -> dict[str, str | int | list | bool | None] | None:
         """Build the scripts dict from the editor contents."""
         pre = self._pre_request_edit.toPlainText()
         test = self._test_script_edit.toPlainText()
-        if not pre and not test:
-            return None
+        has_body = bool(pre or test)
+        rid = getattr(self, "_request_id", None)
+        disabled: list[dict[str, int | str]] = []
+        if rid is not None:
+            disabled = normalize_disabled_inherited(self._disabled_inherited)
 
-        pre_lang = _SCRIPT_LANGUAGES.get(self._pre_lang_combo.currentText(), "javascript")
-        test_lang = _SCRIPT_LANGUAGES.get(self._test_lang_combo.currentText(), "javascript")
-        return {
+        if not has_body and not disabled:
+            return None
+        if not has_body and disabled:
+            return {"disabled_inherited": disabled}
+
+        pre_lang = self._pre_request_edit.language
+        test_lang = self._test_script_edit.language
+        data: dict[str, str | int | list | bool | None] = {
             "pre_request": pre or None,
             "test": test or None,
             "pre_language": pre_lang,
             "test_language": test_lang,
             "language": pre_lang,  # backward compat
         }
+        if disabled:
+            data["disabled_inherited"] = disabled
+        return data
 
     def _clear_scripts(self) -> None:
         """Reset both script editors and language selectors."""
+        self._disabled_inherited = []
         self._pre_request_edit.clear()
         self._test_script_edit.clear()
-        self._pre_lang_combo.setCurrentText("JavaScript")
-        self._test_lang_combo.setCurrentText("JavaScript")
+        self._test_script_edit.set_pm_tests([])
+        self._pre_request_edit.set_language("javascript")
+        self._test_script_edit.set_language("javascript")
+        self._set_script_lang_auto("pre_request", True)
+        self._set_script_lang_auto("test", True)
+        self._sync_lang_menu_button_text(self._pre_request_edit, self._pre_lang_menu_btn)
+        self._sync_lang_menu_button_text(self._test_script_edit, self._test_lang_menu_btn)
         # Reset auto-save to global default
         default_on = self._read_auto_save_global_default()
         self._auto_save_enabled = default_on
@@ -427,46 +700,340 @@ class _ScriptsMixin:
         self._version_capture_timer.setInterval(
             _AUTO_SAVE_CAPTURE_MS if default_on else _VERSION_CAPTURE_MS,
         )
+        if getattr(self, "_pre_inherited_banner", None) is not None:
+            self._pre_inherited_banner.set_inherited_info(0, "")
+        if getattr(self, "_test_inherited_banner", None) is not None:
+            self._test_inherited_banner.set_inherited_info(0, "")
+
+    @staticmethod
+    def _inherited_name_snippet(blocks: list[dict[str, object]], *, max_names: int = 4) -> str:
+        names: list[str] = []
+        for b in blocks:
+            n = str(b.get("name", "") or "")
+            if n and n not in names:
+                names.append(n)
+        if not names:
+            return ""
+        if len(names) <= max_names:
+            return ", ".join(names)
+        return ", ".join(names[: max_names - 1]) + f", and {len(names) - (max_names - 1)} more"
+
+    @staticmethod
+    def _inherited_blocks_for_type(
+        chain: list[dict[str, Any]], script_type: str
+    ) -> list[dict[str, Any]]:
+        """Build UI blocks: pre uses root\u2192leaf, test uses nearest\u2192root (execution order for inherited)."""
+        if not chain or len(chain) < 2:
+            return []
+        layers = list(chain[:-1])  # collections only
+        if script_type == "test":
+            layers.reverse()
+        st_key = "test" if script_type == "test" else "pre_request"
+        out: list[dict[str, Any]] = []
+        for c in layers:
+            ev = _normalize_events(c.get("scripts"))
+            code = (ev.get(st_key) or "").strip()
+            if not code:
+                continue
+            lang = str(ev.get("language", "javascript") or "javascript")
+            out.append(
+                {
+                    "collection_id": c["id"],
+                    "name": c.get("name", ""),
+                    "code": code,
+                    "language": lang,
+                }
+            )
+        return out
+
+    def _refresh_inherited_banners(self) -> None:
+        """Show or hide inherited-script banners for the current request (request tabs only)."""
+        pre_bnr = getattr(self, "_pre_inherited_banner", None)
+        test_bnr = getattr(self, "_test_inherited_banner", None)
+        if pre_bnr is None or test_bnr is None:
+            return
+        rid = getattr(self, "_request_id", None)
+        if rid is None:
+            pre_bnr.set_inherited_info(0, "")
+            test_bnr.set_inherited_info(0, "")
+            return
+        try:
+            chain = get_script_chain(rid)
+        except (TypeError, ValueError):
+            chain = []
+        pre_b = self._inherited_blocks_for_type(chain, "pre_request")
+        te_b = self._inherited_blocks_for_type(chain, "test")
+        pre_bnr.set_inherited_info(
+            len(pre_b),
+            self._inherited_name_snippet(pre_b),
+        )
+        test_bnr.set_inherited_info(
+            len(te_b),
+            self._inherited_name_snippet(te_b),
+        )
+
+    def _open_inherited_chain_drawer(self, script_type: str) -> None:
+        """Open the read-only chain dialog for the given script kind."""
+        rid = getattr(self, "_request_id", None)
+        if rid is None:
+            return
+        from ui.request.request_editor.scripts.inherited_chain_drawer import InheritedChainDrawer
+
+        try:
+            chain = get_script_chain(rid)
+        except (TypeError, ValueError):
+            return
+        blocks = self._inherited_blocks_for_type(chain, script_type)
+        if not blocks:
+            return
+        self._pending_inherited_source_open: tuple[int, str] | None = None
+
+        def _capture_edit_collection_source(collection_id: int) -> None:
+            self._pending_inherited_source_open = (collection_id, script_type)
+
+        dlg = InheritedChainDrawer(
+            cast(Any, cast(Any, self).window() or self),
+            script_type=script_type,
+            blocks=blocks,
+            disabled_inherited=list(self._disabled_inherited),
+            on_edit_collection_source=_capture_edit_collection_source,
+        )
+        dlg.disabled_inherited_changed.connect(self._on_inherited_disabled_list_changed)
+        dlg.exec()
+        pending = self._pending_inherited_source_open
+        self._pending_inherited_source_open = None
+        if pending is None:
+            return
+        pending_raw, script_kind = pending
+        try:
+            collection_id = int(pending_raw)
+        except (TypeError, ValueError):
+            return
+        if script_kind not in ("pre_request", "test"):
+            script_kind = None
+        # Prefer the dialog parent chain: ``self.window()`` on the request editor
+        # can be wrong in some WM / embedded layouts while the dialog was parented
+        # to the real main window explicitly.
+        host = self._folder_open_host_from_dialog(dlg)
+        # Defer one tick: opening / switching tabs immediately in the same call stack
+        # as ``QDialog.exec()`` returning is unreliable on some platforms.
+        if host is not None:
+            QTimer.singleShot(
+                0,
+                lambda h=host,
+                cid=collection_id,
+                sk=script_kind: _ScriptsMixin._call_open_folder_on_host(
+                    h, cid, focus_scripts_kind=sk
+                ),
+            )
+        else:
+            QTimer.singleShot(
+                0,
+                lambda ed=self,
+                cid=collection_id,
+                sk=script_kind: ed._open_inherited_source_collection_tab(
+                    cid, focus_scripts_kind=sk
+                ),
+            )
+
+    @staticmethod
+    def _folder_open_host_from_dialog(dialog: QWidget) -> QWidget | None:
+        """Find MainWindow (or any host) that implements ``_open_folder``."""
+        w = dialog.parentWidget()
+        while w is not None:
+            fn = getattr(w, "_open_folder", None)
+            if callable(fn):
+                return w
+            w = w.parentWidget()
+        return None
+
+    @staticmethod
+    def _call_open_folder_on_host(
+        host: QWidget,
+        collection_id: int,
+        *,
+        focus_scripts_kind: str | None = None,
+    ) -> None:
+        open_fn = getattr(host, "_open_folder", None)
+        if callable(open_fn):
+            open_fn(collection_id, focus_scripts_kind=focus_scripts_kind)  # type: ignore[misc]
+
+    def _open_inherited_source_collection_tab(
+        self,
+        collection_id: int,
+        *,
+        focus_scripts_kind: str | None = None,
+    ) -> None:
+        """Open the source collection folder tab (modal is already closed)."""
+        w = cast(Any, self).window()
+        if w is not None and hasattr(w, "_open_folder"):
+            w._open_folder(  # type: ignore[union-attr]
+                collection_id,
+                focus_scripts_kind=focus_scripts_kind,
+            )
+        else:
+            self.open_collection_requested.emit(collection_id)  # type: ignore[attr-defined]
+
+    def _on_inherited_disabled_list_changed(
+        self,
+        new_list: list[dict[str, int | str]] | list[object],
+    ) -> None:
+        """Persist locally and mark dirty; chain execution uses the same list on next send."""
+        self._disabled_inherited = normalize_disabled_inherited(new_list)  # type: ignore[arg-type]
+        if not self._loading:  # type: ignore[attr-defined]
+            self._on_field_changed()  # type: ignore[attr-defined]
+        self._refresh_inherited_banners()
 
     def _has_scripts_content(self) -> bool:
-        """Return whether either script editor has content."""
+        """Return whether either script editor has text or per-request disable entries."""
         return bool(
             self._pre_request_edit.toPlainText().strip()
             or self._test_script_edit.toPlainText().strip()
+            or (getattr(self, "_request_id", None) is not None and self._disabled_inherited)
         )
 
     # -- Inline script execution ----------------------------------------
 
-    def _run_inline_script(self, script_type: str) -> None:
+    def _run_inline_script(self, script_type: str, *, script_text: str | None = None) -> None:
         """Run the current script inline and display results."""
         from ui.request.request_editor.scripts.script_run_worker import build_inline_context
 
         if script_type == "pre_request":
             editor = self._pre_request_edit
-            lang_combo = self._pre_lang_combo
             panel = self._pre_output_panel
         else:
             editor = self._test_script_edit
-            lang_combo = self._test_lang_combo
             panel = self._test_output_panel
 
-        script = editor.toPlainText().strip()
+        script = (script_text if script_text is not None else editor.toPlainText()).strip()
         if not script:
             return
 
-        language = _SCRIPT_LANGUAGES.get(lang_combo.currentText(), "javascript")
+        language = editor.language
+        if script_type == "test" and hasattr(panel, "response_source_mode"):
+            mode = panel.response_source_mode()
+            if mode == "live":
+                main = cast(Any, self).window()
+                start_live = getattr(main, "run_post_response_script_with_live_response", None)
+                if callable(start_live):
+                    run_btn = self._run_buttons.get(script_type)
+                    debug_btn = (
+                        self._debug_buttons.get(script_type)
+                        if hasattr(self, "_debug_buttons")
+                        else None
+                    )
+                    start_live(
+                        editor=cast(Any, self),
+                        panel=panel,
+                        script=script,
+                        language=language,
+                        run_btn=run_btn,
+                        debug_btn=debug_btn,
+                    )
+                    return
+                panel.show_error("Could not run with live response in this context.")
+                return
+
         response_data = panel.get_response_data() if script_type == "test" else None
         context = build_inline_context(
             script_type=script_type,
             response_data=response_data,
         )
         run_btn = self._run_buttons.get(script_type)
+        debug_btn = (
+            self._debug_buttons.get(script_type) if hasattr(self, "_debug_buttons") else None
+        )
         panel.run_script(
             script=script,
             language=language,
             context=context,
             run_btn=run_btn,
+            debug_btn=debug_btn,
         )
+
+    def _debug_inline_script(self, script_type: str, *, script_text: str | None = None) -> None:
+        """Start an inline script debug session for the current editor."""
+        from services.scripting.debug import DebugProtocol
+        from ui.request.request_editor.scripts.script_run_worker import build_inline_context
+
+        if script_type == "pre_request":
+            editor = self._pre_request_edit
+            panel = self._pre_output_panel
+        else:
+            editor = self._test_script_edit
+            panel = self._test_output_panel
+
+        script = (script_text if script_text is not None else editor.toPlainText()).strip()
+        if not script:
+            return
+
+        language = editor.language
+        response_data = panel.get_response_data() if script_type == "test" else None
+        context = build_inline_context(
+            script_type=script_type,
+            response_data=response_data,
+        )
+        protocol = DebugProtocol()
+        protocol.set_breakpoints(set(editor.breakpoints))
+
+        main: Any = cast(Any, self).window()
+        if hasattr(main, "_debug_protocol"):
+            old = main._debug_protocol
+            if old is not None:
+                with contextlib.suppress(Exception):
+                    old.stop()
+            main._debug_protocol = protocol
+        if hasattr(main, "_clear_debug_breakpoint_listeners"):
+            main._clear_debug_breakpoint_listeners()
+
+        def _push_inline() -> None:
+            p = getattr(main, "_debug_protocol", None)
+            if p is not None and p is protocol:
+                p.update_breakpoints(set(editor.breakpoints))
+
+        main._debug_breakpoint_connections = []
+        editor.breakpoints_changed.connect(_push_inline)
+        main._debug_breakpoint_connections.append((editor, _push_inline))
+        run_btn = self._run_buttons.get(script_type)
+        debug_btn = (
+            self._debug_buttons.get(script_type) if hasattr(self, "_debug_buttons") else None
+        )
+        panel.run_script_debug(
+            script=script,
+            language=language,
+            context=context,
+            protocol=protocol,
+            script_type=script_type,
+            run_btn=run_btn,
+            debug_btn=debug_btn,
+        )
+
+    def _run_single_test(self, name: str, *, debug: bool = False) -> None:
+        """Run or debug only the named ``pm.test(…)`` block."""
+        user_src = self._test_script_edit.toPlainText()
+        language = self._test_script_edit.language
+        if language == "javascript":
+            wrapper = (
+                "(function(){\n"
+                f"  var __target={json.dumps(name)};\n"
+                "  var __orig=pm.test;\n"
+                "  pm.test = function(n, fn){ if (n===__target) return __orig.call(pm, n, fn); };\n"
+                "})();\n"
+            )
+        else:
+            wrapper = (
+                f"__target = {name!r}\n"
+                "__orig_test = pm.test\n"
+                "def __scoped_test(n, fn=None):\n"
+                "    if n == __target:\n"
+                "        return __orig_test(n, fn)\n"
+                "pm.test = __scoped_test\n"
+            )
+        full_script = wrapper + user_src
+        if debug:
+            self._debug_inline_script("test", script_text=full_script)
+        else:
+            self._run_inline_script("test", script_text=full_script)
 
     # -- Auto-save toggle -----------------------------------------------
 
@@ -572,10 +1139,7 @@ class _ScriptsMixin:
 
         pre = self._pre_request_edit.toPlainText()
         if pre.strip():
-            pre_lang = _SCRIPT_LANGUAGES.get(
-                self._pre_lang_combo.currentText(),
-                "javascript",
-            )
+            pre_lang = self._pre_request_edit.language
             ScriptVersionService.capture(
                 request_id=request_id,
                 collection_id=collection_id,
@@ -586,10 +1150,7 @@ class _ScriptsMixin:
 
         test = self._test_script_edit.toPlainText()
         if test.strip():
-            test_lang = _SCRIPT_LANGUAGES.get(
-                self._test_lang_combo.currentText(),
-                "javascript",
-            )
+            test_lang = self._test_script_edit.language
             ScriptVersionService.capture(
                 request_id=request_id,
                 collection_id=collection_id,
@@ -642,17 +1203,13 @@ class _ScriptsMixin:
         if request_id is None and collection_id is None:
             return
 
-        lang_combo = self._pre_lang_combo if script_type == "pre_request" else self._test_lang_combo
-
+        editor = self._pre_request_edit if script_type == "pre_request" else self._test_script_edit
         dlg = VersionHistoryDialog(
             request_id=request_id,
             collection_id=collection_id,
             current_pre=self._pre_request_edit.toPlainText(),
             current_test=self._test_script_edit.toPlainText(),
-            language=_SCRIPT_LANGUAGES.get(
-                lang_combo.currentText(),
-                "javascript",
-            ),
+            language=editor.language,
             initial_tab=0 if script_type == "pre_request" else 1,
             parent=self._pre_request_edit,
         )
@@ -682,17 +1239,28 @@ class _ScriptsMixin:
         self._banner_check_timer.start()
 
     def _update_runtime_banners(self) -> None:
-        """Show or hide the runtime banner for each script editor."""
-        deno_ok = DenoManager.is_available()
-        for editor, lang_combo, banner in (
-            (self._pre_request_edit, self._pre_lang_combo, self._pre_runtime_banner),
-            (self._test_script_edit, self._test_lang_combo, self._test_runtime_banner),
+        """Show or hide the runtime banner for each script editor.
+
+        JavaScript always runs in Deno; the banner is shown when no valid
+        Deno binary is available (PATH, managed download, or custom path).
+        Python editors are never given this Deno prompt.
+        """
+        for editor, banner in (
+            (self._pre_request_edit, self._pre_runtime_banner),
+            (self._test_script_edit, self._test_runtime_banner),
         ):
-            lang = _SCRIPT_LANGUAGES.get(lang_combo.currentText(), "javascript")
-            features = detect_advanced_features(editor.toPlainText(), lang)
-            banner.setVisible(bool(features) and not deno_ok)
+            lang = editor.language
+            if lang != "javascript":
+                banner.setVisible(False)
+                continue
+            dp = RuntimeSettings.deno_path()
+            st = RuntimeSettings.validate_deno(dp)
+            banner.setVisible(not st["available"])
+
+    def _emit_open_scripting_settings(self) -> None:
+        """Ask the main window to open Settings on the Scripting page."""
+        self.open_scripting_settings_requested.emit()  # type: ignore[attr-defined]
 
     def _on_deno_installed(self) -> None:
-        """Hide all runtime banners after Deno is successfully installed."""
-        self._pre_runtime_banner.setVisible(False)
-        self._test_runtime_banner.setVisible(False)
+        """Re-check Deno and hide the banners if the install succeeded."""
+        self._update_runtime_banners()

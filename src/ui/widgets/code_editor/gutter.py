@@ -4,8 +4,9 @@ Provides:
 
 * ``SyntaxError_`` — named-tuple for validation errors.
 * ``_FoldData`` — per-block user data for code folding state.
-* ``_LineNumberArea`` / ``_FoldGutterArea`` — gutter ``QWidget``
-  sub-classes that delegate painting back to the editor.
+* ``_LineNumberArea`` / ``_FoldGutterArea`` / breakpoint and test gutters —
+  left-to-right in the editor: line numbers, then icon columns, then fold marks
+  (JetBrains-style); see ``_PaintingMixin.resizeEvent`` in ``painting.py``.
 
 Also hosts shared constants and regexes used across the sub-package.
 """
@@ -15,7 +16,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, NamedTuple
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QEvent, QSize, Qt
 from PySide6.QtGui import QColor, QMouseEvent, QPaintEvent, QTextBlockUserData
 from PySide6.QtWidgets import QWidget
 
@@ -49,6 +50,7 @@ _FOLD_BADGE_RADIUS = 3  # corner radius of the badge pill
 _FOLD_BADGE_GAP = 6  # gap between end of line text and badge
 _WHITESPACE_DOT_RADIUS = 1.5  # px — small centered dot on selected spaces
 _BREAKPOINT_GUTTER_WIDTH = 14  # px — breakpoint indicator column
+_TEST_GUTTER_WIDTH = 16  # px — per-test run marker column
 
 # Regex for XML/HTML fold detection
 _XML_OPEN_TAG = re.compile(r"<(\w[\w.\-:]*)(?:\s[^>]*)?\s*>")
@@ -97,6 +99,7 @@ class _LineNumberArea(QWidget):
         """Initialise the line-number area."""
         super().__init__(editor)
         self._editor = editor
+        self.setMouseTracking(True)
 
     def sizeHint(self) -> QSize:
         """Return the preferred width based on digit count."""
@@ -105,6 +108,26 @@ class _LineNumberArea(QWidget):
     def paintEvent(self, event: QPaintEvent) -> None:
         """Delegate painting to the editor."""
         self._editor.paint_line_number_area(event)
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        """Toggle breakpoint for the clicked line when the breakpoint gutter is shown."""
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self._editor._show_breakpoint_gutter
+            and not self._editor._read_only
+        ):
+            self._editor.breakpoint_gutter_clicked(event.position().toPoint().y())
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        """Breakpoint hover preview while the debug gutter is active."""
+        self._editor._update_breakpoint_hover_for_gutter_y(float(event.position().y()))
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event: QEvent) -> None:
+        """Defer clearing hover so the cursor can move between gutter columns."""
+        self._editor._schedule_clear_breakpoint_hover_if_left_gutters()
+        super().leaveEvent(event)
 
 
 class _FoldGutterArea(QWidget):
@@ -127,14 +150,24 @@ class _FoldGutterArea(QWidget):
     def mousePressEvent(self, event: QMouseEvent) -> None:
         """Handle click on fold indicator."""
         self._editor.fold_gutter_clicked(event.position().toPoint().y())
+        super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         """Show hand cursor when hovering over a foldable line."""
         y = event.position().toPoint().y()
-        if self._editor.is_fold_line_at(y):
+        if self._editor.is_fold_line_at(y) or (
+            self._editor._show_breakpoint_gutter and not self._editor._read_only
+        ):
             self.setCursor(Qt.CursorShape.PointingHandCursor)
         else:
             self.setCursor(Qt.CursorShape.ArrowCursor)
+        self._editor._update_breakpoint_hover_for_gutter_y(float(y))
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event: QEvent) -> None:
+        """Defer clearing hover so the cursor can move between gutter columns."""
+        self._editor._schedule_clear_breakpoint_hover_if_left_gutters()
+        super().leaveEvent(event)
 
 
 class _BreakpointGutterArea(QWidget):
@@ -162,6 +195,67 @@ class _BreakpointGutterArea(QWidget):
     def mousePressEvent(self, event: QMouseEvent) -> None:
         """Toggle breakpoint on click."""
         self._editor.breakpoint_gutter_clicked(event.position().toPoint().y())
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        """Breakpoint hover preview."""
+        self._editor._update_breakpoint_hover_for_gutter_y(float(event.position().y()))
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event: QEvent) -> None:
+        """Defer clearing hover so the cursor can move between gutter columns."""
+        self._editor._schedule_clear_breakpoint_hover_if_left_gutters()
+        super().leaveEvent(event)
+
+
+class _TestGutterArea(QWidget):
+    """Gutter column that paints a run marker next to each ``pm.test`` call line.
+
+    For lines with a ``pm.test`` marker, the entire column width opens the
+    run/debug menu and does not toggle breakpoints.
+    """
+
+    def __init__(self, editor: CodeEditorWidget) -> None:
+        """Initialise the per-test gutter."""
+        super().__init__(editor)
+        self._editor = editor
+        self.setMouseTracking(True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def sizeHint(self) -> QSize:
+        """Preferred width from the parent editor."""
+        return QSize(self._editor.test_gutter_width(), 0)
+
+    def paintEvent(self, event: QPaintEvent) -> None:
+        """Delegate painting to the editor."""
+        self._editor.paint_test_gutter_area(event)
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        """Run/Debug menu on ``pm.test`` rows (full column width); breakpoint elsewhere."""
+        if event.button() != Qt.MouseButton.LeftButton:
+            return super().mousePressEvent(event)
+        yf = float(event.position().y())
+        if self._editor._line_has_pm_test_at_gutter_y(yf):
+            self._editor.test_gutter_clicked(yf, event.globalPosition().toPoint())
+        elif self._editor._show_breakpoint_gutter and not self._editor._read_only:
+            self._editor.breakpoint_gutter_clicked(int(yf))
+        return super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        """Hand cursor on ``pm.test`` rows or breakpoint-eligible rows; update hover preview."""
+        yf = float(event.position().y())
+        if self._editor._line_has_pm_test_at_gutter_y(yf) or (
+            self._editor._show_breakpoint_gutter and not self._editor._read_only
+        ):
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+        else:
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+        self._editor._update_breakpoint_hover_for_gutter_y(yf)
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event: QEvent) -> None:
+        """Defer clearing hover so the cursor can move between gutter columns."""
+        self._editor._schedule_clear_breakpoint_hover_if_left_gutters()
+        super().leaveEvent(event)
 
 
 # -- Minimap -----------------------------------------------------------
