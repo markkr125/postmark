@@ -279,7 +279,10 @@ Key signals to know (always-on summary):
   and `Previous Tab` (`Ctrl+Shift+Tab`, `Ctrl+PgUp`) so the wrapped deck
   keeps editor-style keyboard navigation even though it is no longer a
   native `QTabBar`. `CodeEditorWidget` uses `Ctrl+P` for parameter-info
-  hints when the script editor has focus.
+  hints when the script editor has focus.  Autocomplete, parameter-hint,
+  symbol-doc, and debug-hover popups are **app-wide singletons**
+  (`ui/widgets/code_editor/popup_registry.py`); ``CompletionPopup`` signals
+  are re-targeted to the active editor on each show.
 - `VariablePopup` uses **class-level callbacks**, not signals — wired once
   in `MainWindow.__init__`.
 

@@ -230,6 +230,7 @@ src/
     ├── widgets/                   # Reusable shared components
     │   ├── code_editor/           # CodeEditorWidget sub-package
     │   │   ├── editor_widget.py   # CodeEditorWidget (per-pm.test gutter, Shift+Enter)
+    │   │   ├── popup_registry.py  # Shared singleton Completion/ParameterHint/SymbolDoc/DebugValue popups
     │   │   ├── debug_hover_popup.py # DebugValuePopup — expandable hover for paused script locals
     │   │   ├── highlighter.py     # Syntax highlighting engine
     │   │   ├── folding.py         # Code folding logic

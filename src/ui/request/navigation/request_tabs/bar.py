@@ -6,8 +6,19 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QPoint, QRect, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QContextMenuEvent, QKeyEvent, QMouseEvent, QResizeEvent, QWheelEvent
+from PySide6.QtGui import (
+    QColor,
+    QContextMenuEvent,
+    QKeyEvent,
+    QMouseEvent,
+    QPainter,
+    QPaintEvent,
+    QResizeEvent,
+    QWheelEvent,
+)
 from PySide6.QtWidgets import QMenu, QSizePolicy, QTabBar, QWidget
+
+from ui.styling import theme as ui_theme
 
 from .labels import FolderTabLabel, TabLabel, layout_config
 from .layout import _PADDING_Y, _TabLayoutMixin
@@ -62,6 +73,7 @@ class RequestTabBar(_TabLayoutMixin, QWidget):
         self._scroll_y = 0
         self._content_height = 0
         self._layout_height = layout_config(False).tab_height + (_PADDING_Y * 2)
+        self._drop_indicator_rect: QRect | None = None
 
         self._scroll_release_timer = QTimer(self)
         self._scroll_release_timer.setSingleShot(True)
@@ -109,6 +121,70 @@ class RequestTabBar(_TabLayoutMixin, QWidget):
             if entry.button.geometry().contains(point):
                 return index
         return -1
+
+    def drop_target_index(self, point: QPoint, source_index: int) -> int:
+        """Return the insertion index for a drop at *point* during a drag.
+
+        Picks the nearest chip on the same row when the point falls in a
+        gap, then chooses left or right side of that chip based on the
+        point's x relative to the chip's horizontal centre.
+        """
+        if not self._entries:
+            return -1
+        candidates = []
+        for idx, entry in enumerate(self._entries):
+            geo = entry.button.geometry()
+            if geo.top() <= point.y() <= geo.bottom():
+                candidates.append((idx, geo))
+        if not candidates:
+            row_distance = [
+                (abs(entry.button.geometry().center().y() - point.y()), idx, entry.button.geometry())
+                for idx, entry in enumerate(self._entries)
+            ]
+            row_distance.sort()
+            _, idx, geo = row_distance[0]
+            return idx if point.x() <= geo.center().x() else idx + 1
+
+        nearest = min(candidates, key=lambda item: abs(item[1].center().x() - point.x()))
+        idx, geo = nearest
+        target = idx if point.x() <= geo.center().x() else idx + 1
+        if target > source_index:
+            target -= 1
+        return max(0, min(target, self.count() - 1))
+
+    def show_drop_indicator(self, point: QPoint, source_index: int) -> None:
+        """Update the drop indicator rect for the current drag position."""
+        if not self._entries:
+            self._drop_indicator_rect = None
+            self.update()
+            return
+        candidates = [
+            (idx, entry.button.geometry())
+            for idx, entry in enumerate(self._entries)
+            if entry.button.geometry().top() <= point.y() <= entry.button.geometry().bottom()
+        ]
+        if not candidates:
+            self._drop_indicator_rect = None
+            self.update()
+            return
+        nearest = min(candidates, key=lambda item: abs(item[1].center().x() - point.x()))
+        idx, geo = nearest
+        if point.x() <= geo.center().x():
+            x = geo.left() - 1
+        else:
+            x = geo.right() + 1
+        rect = QRect(x - 1, geo.top(), 3, geo.height())
+        if rect != self._drop_indicator_rect:
+            self._drop_indicator_rect = rect
+            self.update()
+        # Suppress unused-arg warning while keeping API symmetric.
+        _ = source_index
+
+    def hide_drop_indicator(self) -> None:
+        """Clear the drop indicator after a drag ends or is cancelled."""
+        if self._drop_indicator_rect is not None:
+            self._drop_indicator_rect = None
+            self.update()
 
     def tabToolTip(self, index: int) -> str:
         """Return the tooltip for the tab at the given index."""
@@ -307,6 +383,15 @@ class RequestTabBar(_TabLayoutMixin, QWidget):
             return None
         label = entry.label
         return label if isinstance(label, TabLabel) else None
+
+    def paintEvent(self, event: QPaintEvent) -> None:
+        """Draw the drop indicator on top of the deck during a drag."""
+        super().paintEvent(event)
+        if self._drop_indicator_rect is None:
+            return
+        painter = QPainter(self)
+        color = QColor(ui_theme.COLOR_ACCENT)
+        painter.fillRect(self._drop_indicator_rect, color)
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         """Reflow the tab chips whenever the deck width changes."""

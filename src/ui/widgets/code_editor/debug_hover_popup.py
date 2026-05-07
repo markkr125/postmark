@@ -38,10 +38,15 @@ class DebugValuePopup(QFrame):
     main window, or presses Escape in the editor), matching JetBrains debug hover.
     """
 
-    def __init__(self, parent: QWidget) -> None:
-        """Create a frameless tool window with stacked text and tree pages."""
+    def __init__(self, anchor: QWidget | None = None) -> None:
+        """Create a frameless tool window with stacked text and tree pages.
+
+        *anchor* is the widget used for click-outside event filtering and
+        screen placement. When the popup is shared across editors, pass
+        ``None`` here and call :meth:`set_anchor` before :meth:`show_value`.
+        """
         super().__init__(None)
-        self._anchor_widget = parent
+        self._anchor_widget: QWidget | None = anchor
         self._filter_hosts: list[QWidget] = []
         self.setWindowFlags(
             Qt.WindowType.Tool
@@ -82,6 +87,19 @@ class DebugValuePopup(QFrame):
         self._tree.setMaximumHeight(320)
         tree_layout.addWidget(self._tree)
         self._stack.addWidget(self._tree_page)
+
+    def set_anchor(self, anchor: QWidget) -> None:
+        """Set the editor used for click-outside detection on the next show.
+
+        If the popup is already visible for a different anchor, hide it so
+        the next ``show()`` re-fires :meth:`showEvent` and re-installs the
+        click filters on the new anchor's widget tree.
+        """
+        if self._anchor_widget is anchor:
+            return
+        if self.isVisible():
+            self.hide()
+        self._anchor_widget = anchor
 
     def _detach_click_filter(self) -> None:
         """Remove :meth:`installEventFilter` from every host we attached to."""

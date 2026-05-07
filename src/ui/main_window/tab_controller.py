@@ -687,6 +687,12 @@ class _TabControllerMixin:
         ctx.cancel_send()
         ctx.cleanup_thread()
 
+        from ui.widgets.code_editor import popup_registry
+
+        _shared_completion = popup_registry.completion_popup()
+        _shared_completion.clear_target()
+        _shared_completion.hide()
+
         if ctx.tab_type == "folder":
             # Folder tab cleanup
             folder_editor = ctx.folder_editor

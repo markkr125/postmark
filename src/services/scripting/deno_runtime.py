@@ -23,13 +23,16 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
-from services.scripting.js_runtime import (_build_js_context,
-                                           _detect_pm_require_specs,
-                                           _detect_required_modules,
-                                           _get_bootstrap, _get_polyfills,
-                                           _get_vendor_file,
-                                           _pm_require_imports_block,
-                                           _resolve_vendor_files)
+from services.scripting.js_runtime import (
+    _build_js_context,
+    _detect_pm_require_specs,
+    _detect_required_modules,
+    _get_bootstrap,
+    _get_polyfills,
+    _get_vendor_file,
+    _pm_require_imports_block,
+    _resolve_vendor_files,
+)
 from services.scripting.runtime_settings import RuntimeSettings
 
 # ESM: must be the first line of the bundle (before polyfills) so
@@ -297,8 +300,7 @@ def _ipc_subprocess(
     total = 0
 
     try:
-        from services.scripting.js_runtime import \
-            _MAX_TOTAL_SUBREQUESTS as _tmax
+        from services.scripting.js_runtime import _MAX_TOTAL_SUBREQUESTS as _tmax
 
         while True:
             line = proc.stdout.readline()

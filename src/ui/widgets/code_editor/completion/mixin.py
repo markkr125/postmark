@@ -13,14 +13,14 @@ from PySide6.QtCore import QPoint, QRect, Qt, QTimer
 from PySide6.QtGui import QKeyEvent, QMouseEvent, QTextCursor
 from PySide6.QtWidgets import QPlainTextEdit
 
-from ui.widgets.code_editor.completion.symbol_doc_popup import SymbolDocPopup
-
 _SYMBOL_HOVER_DELAY_MS = 400
 
 if TYPE_CHECKING:
     from ui.widgets.code_editor.completion.engine import CompletionEngine
     from ui.widgets.code_editor.completion.parameter_hint import ParameterHintPopup
     from ui.widgets.code_editor.completion.popup import CompletionPopup
+    from ui.widgets.code_editor.completion.symbol_doc_popup import SymbolDocPopup
+    from ui.widgets.code_editor.debug_hover_popup import DebugValuePopup
 
     _CompletionBase = QPlainTextEdit
 else:
@@ -30,15 +30,38 @@ else:
 class _CompletionMixin(_CompletionBase):
     """Mixin providing code completion trigger, filter, and accept logic."""
 
+    # -- Shared popup accessors (app-wide singletons; see popup_registry) ---
+
+    @property
+    def _completion_popup(self) -> CompletionPopup:
+        from ui.widgets.code_editor import popup_registry
+
+        return popup_registry.completion_popup()
+
+    @property
+    def _parameter_hint_popup(self) -> ParameterHintPopup:
+        from ui.widgets.code_editor import popup_registry
+
+        return popup_registry.parameter_hint_popup()
+
+    @property
+    def _symbol_doc_popup(self) -> SymbolDocPopup:
+        from ui.widgets.code_editor import popup_registry
+
+        return popup_registry.symbol_doc_popup()
+
+    @property
+    def _debug_popup(self) -> DebugValuePopup:
+        from ui.widgets.code_editor import popup_registry
+
+        return popup_registry.debug_value_popup()
+
     # -- Attribute stubs (set by CodeEditorWidget.__init__) -------------
-    _completion_popup: CompletionPopup
-    _symbol_doc_popup: SymbolDocPopup
     _symbol_hover_path: str | None
     _symbol_hover_global_pos: QPoint
     _symbol_hover_timer: QTimer
     _completion_engine: CompletionEngine
     _completion_prefix: str
-    _parameter_hint_popup: ParameterHintPopup
 
     if TYPE_CHECKING:
 
@@ -54,8 +77,7 @@ class _CompletionMixin(_CompletionBase):
     def _trigger_completion(self) -> None:
         """Compute and show completions at the current cursor position."""
         self._parameter_hint_popup.hide_hint()
-        if hasattr(self, "_symbol_doc_popup"):
-            self._symbol_doc_popup.hide_popup()  # type: ignore[attr-defined]
+        self._symbol_doc_popup.hide_popup()
         self._completion_engine.scan_assignments(self.toPlainText())
         cursor = self.textCursor()
         block_text = cursor.block().text()
@@ -72,6 +94,10 @@ class _CompletionMixin(_CompletionBase):
             return
 
         self._completion_prefix = prefix
+        self._completion_popup.set_target(
+            self._accept_completion,
+            self._on_completion_dismissed,
+        )
         self._completion_popup.set_items(items)
         self._position_completion_popup()
         self._completion_popup.show()
@@ -132,6 +158,7 @@ class _CompletionMixin(_CompletionBase):
     def _on_completion_dismissed(self) -> None:
         """Clean up when the completion popup is dismissed."""
         self._completion_prefix = ""
+        self._completion_popup.clear_target()
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         """Expand a collapsed fold when its ``...`` badge is clicked."""
@@ -157,20 +184,18 @@ class _CompletionMixin(_CompletionBase):
                     sym = self._completion_engine.resolve_symbol(path, self.toPlainText())
                     if sym is not None:
                         self._symbol_hover_global_pos = event.globalPosition().toPoint()
-                        self._symbol_doc_popup.show_for(  # type: ignore[attr-defined]
+                        self._symbol_doc_popup.show_for(
                             self._symbol_hover_global_pos,
                             sym._replace(origin=f"{sym.origin} (no source location)"),
                         )
                         event.accept()
                         return
-        dbg = getattr(self, "_debug_popup", None)
-        if dbg is not None and dbg.isVisible() and hasattr(self, "_hide_debug_value_popup"):
+        if self._debug_popup.isVisible() and hasattr(self, "_hide_debug_value_popup"):
             self._hide_debug_value_popup()  # type: ignore[attr-defined]
         if self._completion_popup.is_active():
             self._completion_popup.dismiss()
         self._parameter_hint_popup.hide_hint()
-        if hasattr(self, "_symbol_doc_popup"):
-            self._symbol_doc_popup.hide_popup()  # type: ignore[attr-defined]
+        self._symbol_doc_popup.hide_popup()
         if event.button() == Qt.MouseButton.LeftButton and self._fold_badge_rects:
             pos = event.position().toPoint()
             for start_line, rect in self._fold_badge_rects.items():
@@ -220,14 +245,14 @@ class _CompletionMixin(_CompletionBase):
         if self._symbol_hover_path is not None:
             self._symbol_hover_path = None
             self._symbol_hover_timer.stop()  # type: ignore[union-attr]
-            self._symbol_doc_popup.hide_popup()  # type: ignore[attr-defined]
+            self._symbol_doc_popup.hide_popup()
             self.set_symbol_link_range(None, None)  # type: ignore[attr-defined]
 
         # 2. Variable hover tracking.
         var_name = self._var_at_cursor(pos)  # type: ignore[attr-defined]
         if var_name:
             if var_name != self._var_hover_name:
-                if hasattr(self, "_debug_popup") and self._debug_popup.isVisible():
+                if self._debug_popup.isVisible():
                     self._hide_debug_value_popup()  # type: ignore[attr-defined]
                 self._var_hover_name = var_name
                 self._var_hover_global_pos = event.globalPosition().toPoint()
@@ -235,8 +260,7 @@ class _CompletionMixin(_CompletionBase):
 
                 self._var_hover_timer.start(VariablePopup.hover_delay_ms())  # type: ignore[union-attr]
         else:
-            dbg = getattr(self, "_debug_popup", None)
-            if dbg is not None and dbg.isVisible():
+            if self._debug_popup.isVisible():
                 # Sticky debug hover: micro-moves can leave the token hit-test without
                 # the pointer leaving the editor; keep the popup until click-away or Escape.
                 super().mouseMoveEvent(event)

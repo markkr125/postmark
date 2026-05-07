@@ -51,10 +51,6 @@ if TYPE_CHECKING:
 
 from ui.widgets.code_editor.completion.engine import CompletionEngine
 from ui.widgets.code_editor.completion.mixin import _CompletionMixin
-from ui.widgets.code_editor.completion.parameter_hint import ParameterHintPopup
-from ui.widgets.code_editor.completion.popup import CompletionPopup
-from ui.widgets.code_editor.completion.symbol_doc_popup import SymbolDocPopup
-from ui.widgets.code_editor.debug_hover_popup import DebugValuePopup
 from ui.widgets.code_editor.folding import _FoldingMixin
 from ui.widgets.code_editor.gutter import (
     _AUTO_CLOSE_PAIRS,
@@ -173,14 +169,9 @@ class CodeEditorWidget(_CompletionMixin, _PaintingMixin, _FoldingMixin, QPlainTe
         # Detected indent width for this document.
         self._detected_indent: int = _DEFAULT_INDENT_WIDTH
 
-        # Completion popup and engine
-        self._completion_popup = CompletionPopup(self)
+        # Completion engine (kept per-editor — holds language + variable map).
         self._completion_engine = CompletionEngine("javascript")
-        self._completion_popup.item_selected.connect(self._accept_completion)
-        self._completion_popup.dismissed.connect(self._on_completion_dismissed)
         self._completion_prefix: str = ""
-        self._parameter_hint_popup = ParameterHintPopup(self)
-        self._symbol_doc_popup = SymbolDocPopup(self)
         self._symbol_hover_path: str | None = None
         self._symbol_hover_global_pos = QPoint()
         self._symbol_hover_timer = QTimer(self)
@@ -199,7 +190,6 @@ class CodeEditorWidget(_CompletionMixin, _PaintingMixin, _FoldingMixin, QPlainTe
         self._debug_line: int | None = None
         self._debug_locals: dict[str, Any] = {}
         self._debug_root_values: dict[str, Any] = {}
-        self._debug_popup = DebugValuePopup(self)
         self._show_breakpoint_gutter = False
         self._breakpoint_hover_line: int | None = None
         # Per-test gutter (``pm.test`` line markers) — enabled by script hosts.
@@ -1230,6 +1220,7 @@ class CodeEditorWidget(_CompletionMixin, _PaintingMixin, _FoldingMixin, QPlainTe
 
     def _show_debug_value_popup(self, name: str, value: Any) -> None:
         """Show a styled popup for a paused-debug value (tree or text)."""
+        self._debug_popup.set_anchor(self)
         self._debug_popup.show_value(name, value, self._var_hover_global_pos)
 
     def _hide_debug_value_popup(self) -> None:

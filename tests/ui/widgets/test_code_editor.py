@@ -896,7 +896,6 @@ class TestDebugHoverInspect:
         """Dict snapshots open the tree page with top-level keys."""
         editor = CodeEditorWidget()
         qtbot.addWidget(editor)
-        qtbot.addWidget(editor._debug_popup)
         editor._var_hover_global_pos = QPoint(320, 240)
         editor._show_debug_value_popup("pm", {"status": "ok", "n": 1})
         qtbot.waitUntil(lambda: editor._debug_popup.isVisible(), timeout=2000)
@@ -915,7 +914,6 @@ class TestDebugHoverInspect:
 
         editor = CodeEditorWidget()
         qtbot.addWidget(editor)
-        qtbot.addWidget(editor._debug_popup)
         editor.set_debug_locals(
             {"pm": "Object", "response.code": 201},
             root_values={"pm": {"response.code": 201, "response.status": "Created"}},
@@ -938,7 +936,6 @@ class TestDebugHoverInspect:
 
         editor = CodeEditorWidget()
         qtbot.addWidget(editor)
-        qtbot.addWidget(editor._debug_popup)
         editor.set_debug_locals(
             {"pm": {"response": {"code": 500}}},
             root_values={"pm": {"response.code": 201}},

@@ -9,6 +9,8 @@ Styled via global QSS targeting ``objectName="completionPopup"``.
 
 from __future__ import annotations
 
+import contextlib
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QSize, Qt, Signal
@@ -138,8 +140,14 @@ class CompletionPopup(QFrame):
     dismissed = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
-        """Initialise the popup with frameless tool-window flags."""
+        """Initialise the popup with frameless tool-window flags.
+
+        When used as a singleton (``parent=None``), call :meth:`set_target`
+        before :meth:`show` so the popup's signals route to the active editor.
+        """
         super().__init__(parent)
+        self._target_select_slot: Callable[[str, str], None] | None = None
+        self._target_dismiss_slot: Callable[[], None] | None = None
         self.setWindowFlags(
             Qt.WindowType.Tool
             | Qt.WindowType.FramelessWindowHint
@@ -175,6 +183,33 @@ class CompletionPopup(QFrame):
         self._items: list[CompletionItem] = []
 
     # -- Public API ----------------------------------------------------
+
+    def set_target(
+        self,
+        select_slot: Callable[[str, str], None],
+        dismiss_slot: Callable[[], None],
+    ) -> None:
+        """Route ``item_selected`` and ``dismissed`` to *select_slot* / *dismiss_slot*.
+
+        Disconnects any previously routed slots first so only the active
+        editor receives signals.
+        """
+        self.clear_target()
+        self.item_selected.connect(select_slot)
+        self.dismissed.connect(dismiss_slot)
+        self._target_select_slot = select_slot
+        self._target_dismiss_slot = dismiss_slot
+
+    def clear_target(self) -> None:
+        """Disconnect the currently routed slots, if any."""
+        if self._target_select_slot is not None:
+            with contextlib.suppress(RuntimeError, TypeError):
+                self.item_selected.disconnect(self._target_select_slot)
+            self._target_select_slot = None
+        if self._target_dismiss_slot is not None:
+            with contextlib.suppress(RuntimeError, TypeError):
+                self.dismissed.disconnect(self._target_dismiss_slot)
+            self._target_dismiss_slot = None
 
     def set_items(self, items: list[CompletionItem]) -> None:
         """Populate the popup with completion items."""
