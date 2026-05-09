@@ -27,6 +27,7 @@ from ui.widgets.code_editor.gutter import (
     _XML_OPEN_TAG,
     _XML_SELF_CLOSE,
     SyntaxError_,
+    normalize_validation_severity,
     _FoldGutterArea,
     _LineNumberArea,
 )
@@ -136,6 +137,10 @@ class _FoldingMixin(_FoldingBase):
             folds = self._detect_bracket_folds(doc)
         elif self._language in ("xml", "html"):
             folds = self._detect_xml_folds(doc)
+        elif self._language in ("javascript", "typescript"):
+            folds = self._detect_js_folds(doc)
+        elif self._language == "python":
+            folds = self._detect_python_folds(doc)
         else:
             folds = {}
 
@@ -213,6 +218,130 @@ class _FoldingMixin(_FoldingBase):
                         stack.pop(i)
                         break
             block = block.next()
+        return folds
+
+    @staticmethod
+    def _detect_js_folds(doc: QTextDocument) -> dict[int, int]:
+        """Detect JS/TS fold regions from ``{`` / ``[`` pairs.
+
+        Honors single-quote, double-quote, template-literal strings and
+        line/block comments so braces inside strings or comments don't
+        skew the brace stack.
+        """
+        stack: list[int] = []
+        folds: dict[int, int] = {}
+        block = doc.begin()
+        in_block_comment = False
+        in_template = False
+        while block.isValid():
+            text = block.text()
+            i = 0
+            n = len(text)
+            in_str: str | None = None
+            escape = False
+            while i < n:
+                ch = text[i]
+                if in_block_comment:
+                    if ch == "*" and i + 1 < n and text[i + 1] == "/":
+                        in_block_comment = False
+                        i += 2
+                        continue
+                    i += 1
+                    continue
+                if in_template:
+                    if escape:
+                        escape = False
+                        i += 1
+                        continue
+                    if ch == "\\":
+                        escape = True
+                        i += 1
+                        continue
+                    if ch == "`":
+                        in_template = False
+                        i += 1
+                        continue
+                    if ch == "$" and i + 1 < n and text[i + 1] == "{":
+                        # Enter expression interpolation as normal code; track its `}`
+                        # by pushing a marker on stack scoped to the template.
+                        stack.append(block.blockNumber())
+                        i += 2
+                        continue
+                    i += 1
+                    continue
+                if in_str:
+                    if escape:
+                        escape = False
+                        i += 1
+                        continue
+                    if ch == "\\":
+                        escape = True
+                        i += 1
+                        continue
+                    if ch == in_str:
+                        in_str = None
+                    i += 1
+                    continue
+                if ch == "/" and i + 1 < n and text[i + 1] == "/":
+                    break  # rest of line is line-comment
+                if ch == "/" and i + 1 < n and text[i + 1] == "*":
+                    in_block_comment = True
+                    i += 2
+                    continue
+                if ch in ("'", '"'):
+                    in_str = ch
+                    i += 1
+                    continue
+                if ch == "`":
+                    in_template = True
+                    i += 1
+                    continue
+                if ch in ("{", "["):
+                    stack.append(block.blockNumber())
+                elif ch in ("}", "]") and stack:
+                    start = stack.pop()
+                    if block.blockNumber() > start:
+                        folds[start] = block.blockNumber()
+                i += 1
+            block = block.next()
+        return folds
+
+    @staticmethod
+    def _detect_python_folds(doc: QTextDocument) -> dict[int, int]:
+        """Detect Python fold regions by indentation.
+
+        A fold opens on a line whose successor is more deeply indented;
+        it closes on the last line still at or above the deeper indent
+        level. Blank lines and comment-only lines don't break a region.
+        """
+        # Collect (block_number, indent) for non-blank, non-comment-only lines.
+        rows: list[tuple[int, int]] = []
+        block = doc.begin()
+        while block.isValid():
+            text = block.text()
+            stripped = text.lstrip()
+            if stripped and not stripped.startswith("#"):
+                indent = len(text) - len(stripped)
+                rows.append((block.blockNumber(), indent))
+            block = block.next()
+
+        folds: dict[int, int] = {}
+        for idx, (line_no, indent) in enumerate(rows):
+            # Look for a successor with strictly greater indent.
+            if idx + 1 >= len(rows):
+                continue
+            next_indent = rows[idx + 1][1]
+            if next_indent <= indent:
+                continue
+            # Find the last line whose indent is still > parent indent.
+            end_line = rows[idx + 1][0]
+            for j in range(idx + 1, len(rows)):
+                if rows[j][1] > indent:
+                    end_line = rows[j][0]
+                else:
+                    break
+            if end_line > line_no:
+                folds[line_no] = end_line
         return folds
 
     # -- Fold interaction -----------------------------------------------
@@ -508,11 +637,15 @@ class _FoldingMixin(_FoldingBase):
 
             fmt = QTextCharFormat()
             fmt.setUnderlineStyle(QTextCharFormat.UnderlineStyle.WaveUnderline)
-            uline = (
-                p["editor_warning_underline"]
-                if error.severity == "warning"
-                else p["editor_error_underline"]
-            )
+            match normalize_validation_severity(error.severity):
+                case "warning":
+                    uline = p["editor_warning_underline"]
+                case "info":
+                    uline = p["editor_info_underline"]
+                case "hint":
+                    uline = p["editor_hint_underline"]
+                case _:
+                    uline = p["editor_error_underline"]
             fmt.setUnderlineColor(QColor(uline))
 
             sel = QTextEdit.ExtraSelection()
@@ -540,8 +673,33 @@ class _FoldingMixin(_FoldingBase):
         """Return current validation errors."""
         return list(self._errors)
 
+    def apply_validation_errors(self, errors: list[SyntaxError_]) -> None:
+        """Replace validation markers (e.g. from LSP ``publishDiagnostics``)."""
+        old_has_errors = bool(self._errors)
+        new_has_errors = bool(errors)
+        self._errors = errors
+        self.validation_changed.emit(errors)
+        if old_has_errors or new_has_errors:
+            self._highlight_matching_bracket()
+            self._line_number_area.update()
+
+    def _should_skip_script_validation(self) -> bool:
+        """When ``True``, skip :meth:`_validate_script` (e.g. LSP owns diagnostics)."""
+        return False
+
     def _validate(self) -> None:
         """Run syntax validation on the current content."""
+        # When an LSP adapter owns diagnostics for this language, leave
+        # ``_errors`` untouched — the adapter publishes its own list via
+        # :meth:`apply_validation_errors`. Clobbering with ``[]`` here
+        # races with diagnostics that arrive between language switch and
+        # the next ``_validate`` tick, blanking real errors.
+        if (
+            self._language in ("javascript", "typescript", "python")
+            and self._should_skip_script_validation()
+        ):
+            return
+
         text = self.toPlainText()
         errors: list[SyntaxError_] = []
 
@@ -561,7 +719,7 @@ class _FoldingMixin(_FoldingBase):
         elif self._language == "graphql" and text.strip():
             errors.extend(self._validate_graphql_braces(text))
 
-        elif self._language in ("javascript", "python") and text.strip():
+        elif self._language in ("javascript", "typescript", "python") and text.strip():
             errors.extend(self._validate_script(text))
 
         old_has_errors = bool(self._errors)

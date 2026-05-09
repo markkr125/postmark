@@ -116,7 +116,7 @@ test file still exceeds 600 lines, split by test class into separate files.
 
 ```
 tests/
-├── conftest.py                    # Root: configure_before_qapplication + _fresh_db + _reset_tab_settings (autouse) + qapp
+├── conftest.py                    # Root: configure_before_qapplication + _fresh_db + _reset_tab_settings + _disable_script_lsp_in_tests + _shutdown_lsp_clients (autouse) + qapp
 ├── esprima_test_util.py           # deno_and_esprima_available() for JS parse-dependent tests
 ├── unit/                          # Pure logic — no Qt widgets
 │   ├── database/                  # Repository layer tests
@@ -142,6 +142,10 @@ tests/
 │       ├── test_script_version_service.py
 │       ├── test_deno_manager.py
 │       ├── test_runtime_settings.py
+│       ├── lsp/                   # LSP transport / offset helpers
+│       │   ├── test_transport.py
+│       │   ├── test_qt_lsp_offsets.py
+│       │   └── fake_server.py     # JSON-RPC test double (not collected)
 │       └── http/                  # HTTP service tests
 │           ├── test_http_service.py
 │           ├── test_graphql_schema_service.py
@@ -216,6 +220,7 @@ tests/
         ├── test_response_viewer_tests.py
         ├── test_version_history.py
         ├── test_script_output_panel.py
+        ├── test_script_lsp_problems_tab.py
         ├── navigation/            # Tab and breadcrumb tests
         │   ├── test_breadcrumb_bar.py
         │   ├── test_request_tab_bar.py
@@ -253,10 +258,14 @@ When testing PySide6 widgets:
 
 1. Accept `qapp` and `qtbot` as fixtures.
 2. Create the widget and register it with `qtbot.addWidget(widget)`.
-3. Use `qtbot.waitSignal` to assert that a signal was emitted.
-4. Populate tree data via `set_collections(make_collection_dict(...))`.
-5. Assert tree state via `top_level_items(tree)`, `item.data(col, ROLE)`, etc.
-6. For signal-to-service integration, emit signals directly on the tree widget
+3. ``RequestEditorWidget`` does not build Body / Scripts heavy editors until those
+   tabs are shown — call ``_ensure_body_editors()`` / ``_ensure_scripts_editors()``
+   (or ``_tabs.setCurrentIndex`` for Body / Scripts) before touching body or script
+   widgets (e.g. ``_body_code_editor``, ``_pre_request_edit``).
+4. Use `qtbot.waitSignal` to assert that a signal was emitted.
+5. Populate tree data via `set_collections(make_collection_dict(...))`.
+6. Assert tree state via `top_level_items(tree)`, `item.data(col, ROLE)`, etc.
+7. For signal-to-service integration, emit signals directly on the tree widget
    and verify the DB changed via `CollectionService`.
 
 Shared helpers (`make_collection_dict`, `top_level_items`) live in

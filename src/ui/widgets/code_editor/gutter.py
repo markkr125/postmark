@@ -14,6 +14,7 @@ Also hosts shared constants and regexes used across the sub-package.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from typing import TYPE_CHECKING, NamedTuple
 
 from PySide6.QtCore import QEvent, QSize, Qt
@@ -60,8 +61,16 @@ _XML_SELF_CLOSE = re.compile(r"<\w[\w.\-:]*(?:\s[^>]*)?\s*/>")
 # Languages that support validation
 _VALIDATABLE_LANGUAGES = {"json", "xml", "graphql", "javascript", "python"}
 
-# Languages that support folding
-_FOLDABLE_LANGUAGES = {"json", "xml", "html", "graphql"}
+# Languages that support folding (also drives indent-guide painting).
+_FOLDABLE_LANGUAGES = {
+    "json",
+    "xml",
+    "html",
+    "graphql",
+    "javascript",
+    "typescript",
+    "python",
+}
 
 
 # -- Data structures ---------------------------------------------------
@@ -73,7 +82,32 @@ class SyntaxError_(NamedTuple):
     line: int
     column: int
     message: str
-    severity: str = "error"  # "error" | "warning"
+    severity: str = "error"  # "error" | "warning" | "info" | "hint"
+
+
+_VALIDATION_RANK: dict[str, int] = {"hint": 0, "info": 1, "warning": 2, "error": 3}
+
+
+def normalize_validation_severity(severity: str) -> str:
+    """Return editor validation severity; unknown values become ``error``.
+
+    Expected inputs match LSP diagnostic labels: ``error``, ``warning``,
+    ``info``, ``hint``.
+    """
+    key = (severity or "error").strip().lower()
+    return key if key in _VALIDATION_RANK else "error"
+
+
+def line_worst_validation_severity(errors: Iterable[SyntaxError_]) -> dict[int, str]:
+    """Map 1-based line numbers to the highest-precedence severity on that line."""
+    worst: dict[int, str] = {}
+    for err in errors:
+        line = err.line
+        sev = normalize_validation_severity(err.severity)
+        prev = worst.get(line)
+        if prev is None or _VALIDATION_RANK[sev] > _VALIDATION_RANK[prev]:
+            worst[line] = sev
+    return worst
 
 
 class _FoldData(QTextBlockUserData):

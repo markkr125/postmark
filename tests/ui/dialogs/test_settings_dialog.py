@@ -310,3 +310,17 @@ class TestSettingsDialogScripting:
         s = QSettings(_ORG, _APP)
         assert s.value("scripting/deno_path", "") in (d_path, str(d_path))
         assert s.value("scripting/python_path", "") in (py_path, str(py_path))
+
+    def test_apply_persists_lsp_enabled(self, qapp: QApplication, qtbot) -> None:
+        """Apply persists scripting/lsp_enabled via RuntimeSettings."""
+        from services.scripting.runtime_settings import RuntimeSettings
+
+        tm = ThemeManager(qapp)
+        dialog = SettingsDialog(tm)
+        qtbot.addWidget(dialog)
+        dialog._lsp_enabled_check.setChecked(False)
+        dialog._on_apply()
+        assert RuntimeSettings.lsp_enabled() is False
+        dialog._lsp_enabled_check.setChecked(True)
+        dialog._on_apply()
+        assert RuntimeSettings.lsp_enabled() is True

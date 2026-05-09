@@ -537,7 +537,7 @@ var pm = {
                 if (s.length === 0) {
                     throw new Error(
                         "pm.response.json(): response body is empty. " +
-                        "Set a JSON body in the Mock response section (Status / body) below the script editor, " +
+                        "Set a JSON body on the Mock response tab (Body field), " +
                         "or guard the call with `if (pm.response.text())` before parsing."
                     );
                 }
@@ -546,7 +546,7 @@ var pm = {
                 } catch (e) {
                     throw new Error(
                         "pm.response.json(): body is not valid JSON (" + (e && e.message ? e.message : "parse error") + "). " +
-                        "Check the Mock response body below the script editor."
+                        "Check the Mock response body on the Mock response tab."
                     );
                 }
             },

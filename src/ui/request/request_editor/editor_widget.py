@@ -7,28 +7,20 @@ Emits ``send_requested`` when the Send button is clicked,
 
 from __future__ import annotations
 
+import copy
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
-from PySide6.QtCore import QModelIndex, QPersistentModelIndex, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QKeySequence, QPalette, QShortcut
-from PySide6.QtWidgets import (
-    QComboBox,
-    QFileDialog,
-    QFrame,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QRadioButton,
-    QSizePolicy,
-    QStyledItemDelegate,
-    QStyleOptionViewItem,
-    QTabWidget,
-    QTextEdit,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtCore import (QModelIndex, QPersistentModelIndex, Qt, QTimer,
+                            Signal)
+from PySide6.QtGui import (QColor, QKeySequence, QPalette, QResizeEvent,
+                           QShortcut)
+from PySide6.QtWidgets import (QComboBox, QFileDialog, QFrame, QHBoxLayout,
+                               QLabel, QPushButton, QRadioButton, QSizePolicy,
+                               QStyledItemDelegate, QStyleOptionViewItem,
+                               QTabWidget, QTextEdit, QVBoxLayout, QWidget)
 
+from services.collection_service import RequestLoadDict
 from ui.request.request_editor.auth import _AuthMixin
 from ui.request.request_editor.body_search import _BodySearchMixin
 from ui.request.request_editor.graphql import _GraphQLMixin
@@ -36,10 +28,10 @@ from ui.request.request_editor.scripts import _ScriptsMixin
 from ui.styling.icons import phi
 from ui.styling.theme import method_color
 from ui.widgets.key_value_table import KeyValueTableWidget
+from ui.widgets.lazy_editor_placeholder import LazyEditorPlaceholder
 from ui.widgets.variable_line_edit import VariableLineEdit
 
 if TYPE_CHECKING:
-    from services.collection_service import RequestLoadDict
     from services.environment_service import VariableDetail
 
 # HTTP methods shown in the dropdown
@@ -53,6 +45,10 @@ _TAB_NAMES = ("Params", "Headers", "Body", "Auth", "Description", "Scripts")
 
 # Dot appended to tab label when the section has content
 _CONTENT_DOT = " \u2022"
+
+# Indices in ``self._tabs`` — Params=0, Headers=1, Body=2, Auth=3, Description=4, Scripts=5
+_TAB_INDEX_BODY = 2
+_TAB_INDEX_SCRIPTS = 5
 
 
 class _MethodColorDelegate(QStyledItemDelegate):
@@ -100,6 +96,11 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, _ScriptsM
         self._request_id: int | None = None
         self._is_dirty: bool = False
         self._loading: bool = False  # suppress signals during load_request
+
+        # Body / Scripts editors materialise on first visit (see ``_ensure_*``).
+        self._body_editor_materialized = False
+        self._scripts_editor_materialized = False
+        self._loaded_request_snapshot: dict[str, Any] | None = None
 
         # Debounce timer for request_changed
         self._debounce_timer = QTimer(self)
@@ -156,11 +157,12 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, _ScriptsM
         self._headers_table.data_changed.connect(self._on_field_changed)
         self._tabs.addTab(self._headers_table, "Headers")
 
-        # Body tab
+        # Body tab — heavy editors load on first visit (placeholder until then).
         self._body_tab = QWidget()
-        body_layout = QVBoxLayout(self._body_tab)
-        body_layout.setContentsMargins(0, 6, 0, 0)
-        self._build_body_tab(body_layout)
+        self._body_tab_layout = QVBoxLayout(self._body_tab)
+        self._body_tab_layout.setContentsMargins(0, 6, 0, 0)
+        self._body_placeholder = LazyEditorPlaceholder("Loading body editor\u2026")
+        self._body_tab_layout.addWidget(self._body_placeholder, 1)
         self._tabs.addTab(self._body_tab, "Body")
 
         # Auth tab
@@ -176,33 +178,11 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, _ScriptsM
         self._tabs.addTab(self._description_edit, "Description")
 
         self._scripts_tab = QWidget()
-        scripts_outer = QVBoxLayout(self._scripts_tab)
-        scripts_outer.setContentsMargins(0, 0, 0, 0)
-        scripts_outer.setSpacing(0)
-
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setObjectName("scriptSubTabsSep")
-        sep.setFixedHeight(1)
-        scripts_outer.addWidget(sep)
-
-        self._scripts_sub_tabs = QTabWidget()
-        self._scripts_sub_tabs.setObjectName("scriptSubTabs")
-        self._scripts_sub_tabs.tabBar().setCursor(Qt.CursorShape.PointingHandCursor)
-
-        self._pre_scripts_tab = QWidget()
-        pre_scripts_layout = QVBoxLayout(self._pre_scripts_tab)
-        pre_scripts_layout.setContentsMargins(0, 6, 0, 0)
-        self._build_pre_request_tab(pre_scripts_layout)
-        self._scripts_sub_tabs.addTab(self._pre_scripts_tab, "Pre-request")
-
-        self._test_scripts_tab = QWidget()
-        test_scripts_layout = QVBoxLayout(self._test_scripts_tab)
-        test_scripts_layout.setContentsMargins(0, 6, 0, 0)
-        self._build_test_script_tab(test_scripts_layout)
-        self._scripts_sub_tabs.addTab(self._test_scripts_tab, "Post-response")
-
-        scripts_outer.addWidget(self._scripts_sub_tabs, 1)
+        self._scripts_tab_layout = QVBoxLayout(self._scripts_tab)
+        self._scripts_tab_layout.setContentsMargins(0, 0, 0, 0)
+        self._scripts_tab_layout.setSpacing(0)
+        self._scripts_placeholder = LazyEditorPlaceholder("Loading scripts\u2026")
+        self._scripts_tab_layout.addWidget(self._scripts_placeholder, 1)
         self._tabs.addTab(self._scripts_tab, "Scripts")
 
         tab_header_h = self._tabs.tabBar().sizeHint().height()
@@ -227,6 +207,133 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, _ScriptsM
         self._body_replace_shortcut = QShortcut(QKeySequence("Ctrl+R"), self)
         self._body_replace_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         self._body_replace_shortcut.activated.connect(self._toggle_body_replace)
+
+        self._tabs.currentChanged.connect(self._on_request_section_tab_changed)
+
+        self._init_script_split_full_width_line()
+
+    # -- Lazy body / scripts materialisation ---------------------------
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        """Keep the Scripts full-width split line aligned on host resize."""
+        super().resizeEvent(event)
+        self._refresh_script_split_full_width_line()
+
+    def _on_request_section_tab_changed(self, index: int) -> None:
+        """Create heavy editors the first time Body or Scripts is selected."""
+        if index == _TAB_INDEX_BODY:
+            self._ensure_body_editors()
+        elif index == _TAB_INDEX_SCRIPTS:
+            self._ensure_scripts_editors()
+        self._refresh_script_split_full_width_line()
+
+    def _ensure_body_editors(self) -> None:
+        """Build body tab widgets (mode radios, stack, GraphQL + raw editors) once."""
+        if self._body_editor_materialized:
+            return
+        self._body_tab_layout.removeWidget(self._body_placeholder)
+        self._body_placeholder.hide()
+        self._body_placeholder.deleteLater()
+        self._build_body_tab(self._body_tab_layout)
+        self._body_editor_materialized = True
+        holding = self._loading
+        self._loading = True
+        try:
+            self._apply_loaded_body_from_snapshot()
+        finally:
+            self._loading = holding
+        self._sync_tab_indicators()
+
+    def _apply_loaded_body_from_snapshot(self) -> None:
+        """Populate body widgets from :attr:`_loaded_request_snapshot` after materialise."""
+        if self._loaded_request_snapshot is None:
+            return
+        data = self._loaded_request_snapshot
+        body_mode = data.get("body_mode") or "none"
+        btn = self._body_mode_buttons.get(body_mode)
+        if btn:
+            btn.setChecked(True)
+        self._load_body_content(cast(RequestLoadDict, data), body_mode)
+        body_options = data.get("body_options") or {}
+        raw_lang = (body_options.get("raw", {}) or {}).get("language", "text")
+        lang_map = {"json": "JSON", "xml": "XML", "html": "HTML", "text": "Text"}
+        self._raw_format_combo.setCurrentText(lang_map.get(raw_lang, "Text"))
+
+    def _ensure_scripts_editors(self) -> None:
+        """Build pre/post script editors, output panels, and gutter chrome once."""
+        if self._scripts_editor_materialized:
+            return
+        self._scripts_tab_layout.removeWidget(self._scripts_placeholder)
+        self._scripts_placeholder.hide()
+        self._scripts_placeholder.deleteLater()
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setObjectName("scriptSubTabsSep")
+        sep.setFixedHeight(1)
+        self._scripts_tab_layout.addWidget(sep)
+
+        self._scripts_sub_tabs = QTabWidget()
+        self._scripts_sub_tabs.setObjectName("scriptSubTabs")
+        self._scripts_sub_tabs.tabBar().setCursor(Qt.CursorShape.PointingHandCursor)
+
+        self._pre_scripts_tab = QWidget()
+        pre_scripts_layout = QVBoxLayout(self._pre_scripts_tab)
+        pre_scripts_layout.setContentsMargins(0, 6, 0, 0)
+        self._build_pre_request_tab(pre_scripts_layout)
+        self._scripts_sub_tabs.addTab(self._pre_scripts_tab, "Pre-request")
+
+        self._test_scripts_tab = QWidget()
+        test_scripts_layout = QVBoxLayout(self._test_scripts_tab)
+        test_scripts_layout.setContentsMargins(0, 6, 0, 0)
+        self._build_test_script_tab(test_scripts_layout)
+        self._scripts_sub_tabs.addTab(self._test_scripts_tab, "Post-response")
+
+        self._scripts_tab_layout.addWidget(self._scripts_sub_tabs, 1)
+        self._scripts_editor_materialized = True
+
+        holding = self._loading
+        self._loading = True
+        try:
+            if self._loaded_request_snapshot is not None:
+                self._load_scripts(self._loaded_request_snapshot.get("scripts"))
+        finally:
+            self._loading = holding
+        self._update_runtime_banners()
+        self._sync_tab_indicators()
+
+        self._wire_script_split_full_width_line()
+        QTimer.singleShot(0, self._refresh_script_split_full_width_line)
+        QTimer.singleShot(80, self._refresh_script_split_full_width_line)
+
+    @staticmethod
+    def _scripts_blob_has_content(scripts: Any) -> bool:
+        """Return True if stored scripts payload is non-empty (for tab-dot before materialise)."""
+        if not scripts:
+            return False
+        if isinstance(scripts, str) and scripts.strip():
+            return True
+        if isinstance(scripts, dict):
+            pre = (scripts.get("pre_request") or "").strip()
+            test = (scripts.get("test") or "").strip()
+            dis = scripts.get("disabled_inherited")
+            return bool(pre or test or dis)
+        return False
+
+    def _body_lazy_indicator_active(self) -> bool:
+        """Whether the Body tab should show a content dot (works before materialise)."""
+        if self._body_editor_materialized:
+            return not self._body_mode_buttons["none"].isChecked()
+        snap = self._loaded_request_snapshot
+        if not snap:
+            return False
+        return (snap.get("body_mode") or "none") != "none"
+
+    def _scripts_lazy_indicator_active(self) -> bool:
+        """Whether the Scripts tab should show a content dot (works before materialise)."""
+        if self._scripts_editor_materialized:
+            return self._has_scripts_content()
+        return self._scripts_blob_has_content((self._loaded_request_snapshot or {}).get("scripts"))
 
     # -- Init helpers (auth tab builder) --------------------------------
 
@@ -265,10 +372,11 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, _ScriptsM
             self._set_auth_variable_map(variables)
             self._params_table.set_variable_map(variables)
             self._headers_table.set_variable_map(variables)
-            self._body_form_table.set_variable_map(variables)
-            self._body_code_editor.set_variable_map(variables)
-            self._gql_query_editor.set_variable_map(variables)
-            self._gql_variables_editor.set_variable_map(variables)
+            if self._body_editor_materialized:
+                self._body_form_table.set_variable_map(variables)
+                self._body_code_editor.set_variable_map(variables)
+                self._gql_query_editor.set_variable_map(variables)
+                self._gql_variables_editor.set_variable_map(variables)
         finally:
             self._loading = False
 
@@ -283,6 +391,7 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, _ScriptsM
         try:
             self._request_id = request_id
             self._set_content_visible(True)
+            self._loaded_request_snapshot = dict(data)
 
             method = data.get("method", "GET").upper()
             idx = self._method_combo.findText(method)
@@ -294,31 +403,38 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, _ScriptsM
             self._load_key_value_data(self._params_table, data.get("request_parameters"))
             self._load_key_value_data(self._headers_table, data.get("headers"))
 
-            # Body mode
-            body_mode = data.get("body_mode") or "none"
-            btn = self._body_mode_buttons.get(body_mode)
-            if btn:
-                btn.setChecked(True)
+            if self._body_editor_materialized:
+                body_mode = data.get("body_mode") or "none"
+                btn = self._body_mode_buttons.get(body_mode)
+                if btn:
+                    btn.setChecked(True)
 
-            self._load_body_content(data, body_mode)
+                self._load_body_content(data, body_mode)
 
-            # Raw format sub-option
-            body_options = data.get("body_options") or {}
-            raw_lang = (body_options.get("raw", {}) or {}).get("language", "text")
-            lang_map = {"json": "JSON", "xml": "XML", "html": "HTML", "text": "Text"}
-            self._raw_format_combo.setCurrentText(lang_map.get(raw_lang, "Text"))
+                body_options = data.get("body_options") or {}
+                raw_lang = (body_options.get("raw", {}) or {}).get("language", "text")
+                lang_map = {"json": "JSON", "xml": "XML", "html": "HTML", "text": "Text"}
+                self._raw_format_combo.setCurrentText(lang_map.get(raw_lang, "Text"))
 
-            self._load_scripts(data.get("scripts"))
+            if self._scripts_editor_materialized:
+                self._load_scripts(data.get("scripts"))
 
             self._load_auth(data.get("auth"))
             self._description_edit.setPlainText(data.get("description") or "")
             self._set_dirty(False)
         finally:
             self._loading = False
+        idx_now = self._tabs.currentIndex()
+        if idx_now == _TAB_INDEX_BODY:
+            self._ensure_body_editors()
+        elif idx_now == _TAB_INDEX_SCRIPTS:
+            self._ensure_scripts_editors()
         self._sync_tab_indicators()
         # Script editors populate while ``_loading`` is True, so
         # ``_schedule_banner_check`` was skipped; refresh Deno prompt now.
         self._update_runtime_banners()
+        QTimer.singleShot(0, self._refresh_script_split_full_width_line)
+        QTimer.singleShot(80, self._refresh_script_split_full_width_line)
 
     def _load_body_content(self, data: RequestLoadDict, body_mode: str) -> None:
         """Load body content into the correct widget for *body_mode*."""
@@ -361,18 +477,34 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, _ScriptsM
 
     def get_request_data(self) -> dict:
         """Return the current editor state as a dict suitable for saving."""
-        body_mode = "none"
-        for mode, btn in self._body_mode_buttons.items():
-            if btn.isChecked():
-                body_mode = mode
-                break
+        body_mode: str
+        body_options: dict | None
+        body_text: str
+        if self._body_editor_materialized:
+            body_mode = "none"
+            for mode, btn in self._body_mode_buttons.items():
+                if btn.isChecked():
+                    body_mode = mode
+                    break
 
-        body_options: dict | None = None
-        if body_mode == "raw":
-            raw_format = self._raw_format_combo.currentText().lower()
-            body_options = {"raw": {"language": raw_format}}
+            body_options = None
+            if body_mode == "raw":
+                raw_format = self._raw_format_combo.currentText().lower()
+                body_options = {"raw": {"language": raw_format}}
 
-        body_text = self._serialize_body(body_mode)
+            body_text = self._serialize_body(body_mode)
+        else:
+            snap = self._loaded_request_snapshot or {}
+            body_mode = snap.get("body_mode") or "none"
+            body_options = snap.get("body_options")
+            body_text = snap.get("body") or ""
+
+        scripts_out: dict[str, Any] | None
+        if self._scripts_editor_materialized:
+            scripts_out = self._get_scripts_data()
+        else:
+            raw_scripts = (self._loaded_request_snapshot or {}).get("scripts")
+            scripts_out = copy.deepcopy(raw_scripts) if raw_scripts is not None else None
 
         return {
             "method": self._method_combo.currentText(),
@@ -383,7 +515,7 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, _ScriptsM
             "body_mode": body_mode,
             "body_options": body_options,
             "description": self._description_edit.toPlainText() or None,
-            "scripts": self._get_scripts_data(),
+            "scripts": scripts_out,
             "auth": self._get_auth_data(),
         }
 
@@ -414,23 +546,26 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, _ScriptsM
         self._loading = True
         try:
             self._request_id = None
+            self._loaded_request_snapshot = None
             self._set_content_visible(False)
             self._method_combo.setCurrentIndex(0)
             self._url_input.clear()
             self._params_table.set_data([])
             self._headers_table.set_data([])
-            self._body_code_editor.setPlainText("")
-            self._body_form_table.set_data([])
-            self._binary_file_label.setText("No file selected.")
-            self._gql_query_editor.setPlainText("")
-            self._gql_variables_editor.setPlainText("")
-            self._gql_schema = None
-            self._gql_schema_label.setText("No schema")
-            self._gql_schema_label.setToolTip("")
+            if self._body_editor_materialized:
+                self._body_code_editor.setPlainText("")
+                self._body_form_table.set_data([])
+                self._binary_file_label.setText("No file selected.")
+                self._gql_query_editor.setPlainText("")
+                self._gql_variables_editor.setPlainText("")
+                self._gql_schema = None
+                self._gql_schema_label.setText("No schema")
+                self._gql_schema_label.setToolTip("")
+                self._body_mode_buttons["none"].setChecked(True)
+                self._raw_format_combo.setCurrentText("Text")
+            if self._scripts_editor_materialized:
+                self._clear_scripts()
             self._description_edit.clear()
-            self._clear_scripts()
-            self._body_mode_buttons["none"].setChecked(True)
-            self._raw_format_combo.setCurrentText("Text")
             self._auth_type_combo.setCurrentText("Inherit auth from parent")
             self._bearer_token_input.clear()
             self._basic_username_input.clear()
@@ -443,6 +578,7 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, _ScriptsM
         finally:
             self._loading = False
         self._update_runtime_banners()
+        self._refresh_script_split_full_width_line()
 
     # -- Dirty tracking -----------------------------------------------
 
@@ -463,15 +599,13 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, _ScriptsM
 
     def _sync_tab_indicators(self) -> None:
         """Append a dot indicator to section tabs that contain data."""
-        if not hasattr(self, "_pre_request_edit"):
-            return
         has_content = [
             bool(self._params_table.get_data()),
             bool(self._headers_table.get_data()),
-            not self._body_mode_buttons.get("none", QRadioButton()).isChecked(),
+            self._body_lazy_indicator_active(),
             self._auth_type_combo.currentText() not in ("No Auth", "Inherit auth from parent"),
             bool(self._description_edit.toPlainText().strip()),
-            self._has_scripts_content(),
+            self._scripts_lazy_indicator_active(),
         ]
         for i, (name, active) in enumerate(zip(_TAB_NAMES, has_content, strict=True)):
             self._tabs.setTabText(i, name + _CONTENT_DOT if active else name)
@@ -484,6 +618,8 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, _ScriptsM
     def _on_body_mode_changed(self, checked: bool) -> None:
         """Switch body stack page and toggle raw format combo visibility."""
         if not checked:
+            return
+        if not self._body_editor_materialized:
             return
         if not hasattr(self, "_raw_format_combo"):
             return

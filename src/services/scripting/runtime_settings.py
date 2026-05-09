@@ -23,6 +23,7 @@ _SETTINGS_ORG = "Postmark"
 _SETTINGS_APP = "Postmark"
 _KEY_DENO = "scripting/deno_path"
 _KEY_PYTHON = "scripting/python_path"
+_KEY_LSP_ENABLED = "scripting/lsp_enabled"
 
 # Short timeouts; validation must not block the UI thread for long.
 _VALIDATE_DENO_TIMEOUT_S = 5.0
@@ -123,6 +124,21 @@ class RuntimeSettings:
         if custom:
             return custom
         return sys.executable
+
+    @staticmethod
+    def lsp_enabled() -> bool:
+        """Whether IDE-style language servers are enabled for script editors."""
+        s = _get_settings()
+        raw = s.value(_KEY_LSP_ENABLED, True)
+        if isinstance(raw, str):
+            return raw.lower() not in {"0", "false", "no", "off", ""}
+        return bool(raw)
+
+    @staticmethod
+    def set_lsp_enabled(enabled: bool) -> None:
+        """Persist script LSP toggle."""
+        s = _get_settings()
+        s.setValue(_KEY_LSP_ENABLED, enabled)
 
     @staticmethod
     def set_deno_path(path: str) -> None:

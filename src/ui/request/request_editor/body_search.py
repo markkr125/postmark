@@ -277,6 +277,9 @@ class _BodySearchMixin:
 
         Does nothing when the body mode is ``none`` (no body to search).
         """
+        ensure = getattr(self, "_ensure_body_editors", None)
+        if callable(ensure):
+            ensure()
         from PySide6.QtWidgets import QRadioButton
 
         if self._body_mode_buttons.get("none", QRadioButton()).isChecked():
@@ -291,6 +294,9 @@ class _BodySearchMixin:
 
     def _toggle_body_replace(self) -> None:
         """Open the search bar with the replace row visible."""
+        ensure = getattr(self, "_ensure_body_editors", None)
+        if callable(ensure):
+            ensure()
         from PySide6.QtWidgets import QRadioButton
 
         if self._body_mode_buttons.get("none", QRadioButton()).isChecked():
@@ -306,6 +312,8 @@ class _BodySearchMixin:
 
     def _close_body_search(self) -> None:
         """Hide the search bar, clear highlights and reset state."""
+        if not getattr(self, "_body_editor_materialized", True):
+            return
         self._body_search_bar.hide()
         self._body_search_input.clear()
         self._replace_input.clear()
@@ -331,6 +339,9 @@ class _BodySearchMixin:
 
     def _on_body_search_changed(self, text: str) -> None:
         """Re-search when the search input text changes."""
+        ensure = getattr(self, "_ensure_body_editors", None)
+        if callable(ensure):
+            ensure()
         self._body_code_editor.set_search_selections([])
         self._body_search_matches = []
         self._body_search_index = -1
@@ -371,6 +382,9 @@ class _BodySearchMixin:
 
     def _body_search_next(self) -> None:
         """Move to the next search match, wrapping around."""
+        ensure = getattr(self, "_ensure_body_editors", None)
+        if callable(ensure):
+            ensure()
         if not self._body_search_matches:
             return
         self._body_search_index = (self._body_search_index + 1) % len(self._body_search_matches)
@@ -378,6 +392,9 @@ class _BodySearchMixin:
 
     def _body_search_prev(self) -> None:
         """Move to the previous search match, wrapping around."""
+        ensure = getattr(self, "_ensure_body_editors", None)
+        if callable(ensure):
+            ensure()
         if not self._body_search_matches:
             return
         self._body_search_index = (self._body_search_index - 1) % len(self._body_search_matches)
@@ -385,6 +402,9 @@ class _BodySearchMixin:
 
     def _goto_body_match(self) -> None:
         """Scroll to the current match and update the counter label."""
+        ensure = getattr(self, "_ensure_body_editors", None)
+        if callable(ensure):
+            ensure()
         if self._body_search_index < 0 or self._body_search_index >= len(self._body_search_matches):
             return
         pos = self._body_search_matches[self._body_search_index]
@@ -401,6 +421,9 @@ class _BodySearchMixin:
 
     def _replace_one(self) -> None:
         """Replace the current match and re-search."""
+        ensure = getattr(self, "_ensure_body_editors", None)
+        if callable(ensure):
+            ensure()
         if not self._body_search_matches:
             return
         if self._body_search_index < 0:
@@ -419,6 +442,9 @@ class _BodySearchMixin:
 
     def _replace_all(self) -> None:
         """Replace every match at once and re-search."""
+        ensure = getattr(self, "_ensure_body_editors", None)
+        if callable(ensure):
+            ensure()
         if not self._body_search_matches:
             return
         needle = self._body_search_input.text()

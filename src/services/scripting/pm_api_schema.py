@@ -68,6 +68,7 @@ PM_SCHEMA: PmNode = {
         "test": {"kind": "function"},
         "expect": {"kind": "function"},
         "sendRequest": {"kind": "function"},
+        "require": {"kind": "function"},
     },
 }
 

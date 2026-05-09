@@ -11,14 +11,15 @@ from __future__ import annotations
 from typing import Any
 
 from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtGui import QResizeEvent
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QSplitter,
-    QTabWidget,
     QTableWidget,
+    QTabWidget,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -243,12 +244,21 @@ class FolderEditorWidget(_AuthMixin, _RunsMixin, _ScriptsMixin, QWidget):
         # Start in empty state
         self._set_content_visible(False)
 
+        self._init_script_split_full_width_line()
+        self._wire_script_split_full_width_line()
+        self._tabs.currentChanged.connect(self._refresh_script_split_full_width_line)
+
     # -- Visibility helpers -------------------------------------------
 
     def _set_content_visible(self, visible: bool) -> None:
         """Toggle between the editor content and the empty-state label."""
         self._tabs.setVisible(visible)
         self._empty_label.setVisible(not visible)
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        """Keep the Scripts full-width split line aligned on host resize."""
+        super().resizeEvent(event)
+        self._refresh_script_split_full_width_line()
 
     # -- Public properties --------------------------------------------
 
@@ -351,6 +361,8 @@ class FolderEditorWidget(_AuthMixin, _RunsMixin, _ScriptsMixin, QWidget):
         # Script editors populate while ``_loading`` is True, so the debounced
         # Deno banner check from ``textChanged`` was skipped; refresh now.
         self._update_runtime_banners()
+        QTimer.singleShot(0, self._refresh_script_split_full_width_line)
+        QTimer.singleShot(80, self._refresh_script_split_full_width_line)
 
     def get_collection_data(self) -> dict:
         """Return the current editor state as a dict suitable for saving."""
@@ -379,6 +391,7 @@ class FolderEditorWidget(_AuthMixin, _RunsMixin, _ScriptsMixin, QWidget):
         finally:
             self._loading = False
         self._update_runtime_banners()
+        self._refresh_script_split_full_width_line()
 
     def shutdown_runner(self) -> None:
         """Stop the collection runner thread before the widget is destroyed."""

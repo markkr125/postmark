@@ -120,6 +120,9 @@ class TestRequestSaveEndToEnd:
         if defaults:
             svc.update_request(req.id, **defaults)
         window._open_request(req.id, push_history=True)
+        rw = window.request_widget
+        rw._ensure_body_editors()
+        rw._ensure_scripts_editors()
         return req.id
 
     # -- URL -----------------------------------------------------------

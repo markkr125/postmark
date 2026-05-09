@@ -7,10 +7,11 @@ import json
 from functools import partial
 from typing import Any, Literal, cast
 
-from PySide6.QtCore import QSettings, Qt, QTimer
+from PySide6.QtCore import QPoint, QSettings, Qt, QTimer
 from PySide6.QtGui import QAction, QActionGroup, QKeySequence
 from PySide6.QtWidgets import (
     QCheckBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QMenu,
@@ -45,6 +46,10 @@ _BANNER_CHECK_MS = 800  # Debounce delay (ms) for runtime banner re-check.
 # QSettings keys.
 _SETTINGS_KEY_AUTO_SAVE_OVERRIDES = "scripts/auto_save_overrides"
 _SETTINGS_KEY_AUTO_SAVE_DEFAULT = "scripting/auto_save_default"
+
+# Full-width divider overlay (see ``_refresh_script_split_full_width_line``).
+_SCRIPT_SPLIT_FULL_WIDTH_LINE_HEIGHT = 1
+_SCRIPT_SPLIT_FULL_WIDTH_LINE_TOP_MARGIN = 5
 
 
 class _ScriptsMixin:
@@ -106,6 +111,7 @@ class _ScriptsMixin:
             parent_layout,
             history_type="pre_request",
             search_bar=self._pre_search_bar,
+            editor=self._pre_request_edit,
         )
         self._build_script_status_bar(
             editor_layout,
@@ -135,10 +141,13 @@ class _ScriptsMixin:
         # :meth:`_schedule_script_splitter_sizes` (stretch alone is not enough).
         splitter.setStretchFactor(0, 4)
         splitter.setStretchFactor(1, 5)
+        splitter.setObjectName("scriptEditorOutputSplitter")
         self._pre_script_splitter = splitter
         self._connect_script_splitter_vis_hooks()
         self._schedule_script_splitter_sizes(splitter)
         parent_layout.addWidget(splitter, 1)
+
+        self._pre_output_panel.bind_script_editor(self._pre_request_edit)
 
     def _build_test_script_tab(self, parent_layout: QVBoxLayout) -> None:
         """Build the Post-response Script tab contents."""
@@ -186,6 +195,7 @@ class _ScriptsMixin:
             parent_layout,
             history_type="test",
             search_bar=self._test_search_bar,
+            editor=self._test_script_edit,
         )
         self._build_script_status_bar(
             editor_layout,
@@ -213,10 +223,13 @@ class _ScriptsMixin:
         splitter.addWidget(self._test_output_panel)
         splitter.setStretchFactor(0, 4)
         splitter.setStretchFactor(1, 5)
+        splitter.setObjectName("scriptEditorOutputSplitter")
         self._test_script_splitter = splitter
         self._connect_script_splitter_vis_hooks()
         self._schedule_script_splitter_sizes(splitter)
         parent_layout.addWidget(splitter, 1)
+
+        self._test_output_panel.bind_script_editor(self._test_script_edit)
 
         self._test_script_edit.set_test_gutter_enabled(True)
         self._test_script_edit.textChanged.connect(self._refresh_pm_test_gutter_markers)
@@ -228,6 +241,8 @@ class _ScriptsMixin:
 
     def _refresh_pm_test_gutter_markers(self) -> None:
         """Update per-line ``pm.test`` markers in the post-response editor gutter."""
+        if not getattr(self, "_scripts_editor_materialized", True):
+            return
         from services.scripting.engine import find_pm_tests, find_top_level_statement_lines
 
         lang = self._test_script_edit.language
@@ -256,6 +271,9 @@ class _ScriptsMixin:
         ):
             if isinstance(sp, QSplitter):
                 self._schedule_script_splitter_sizes(sp)
+        # Sub-tab swap: layout and ``setSizes`` are deferred — immediate handle
+        # geometry can sit inside the editor until the stack repaints.
+        self._schedule_refresh_script_split_full_width_line()
 
     def _schedule_script_splitter_sizes(self, splitter: QSplitter) -> None:
         """Set initial editor/output heights — QSplitter needs explicit ``setSizes``."""
@@ -278,8 +296,102 @@ class _ScriptsMixin:
             out_h = max(200, int(avail * 0.56))
             ed_h = max(120, avail - out_h)
             splitter.setSizes([ed_h, out_h])
+            self._refresh_script_split_full_width_line()
 
         QTimer.singleShot(0, partial(try_apply, 0))
+
+    # -- Full-width script split line (editor chrome margins unchanged) --------
+
+    def _init_script_split_full_width_line(self) -> None:
+        """Create a non-layout child frame drawn across the host widget width."""
+        if getattr(self, "_script_split_full_width_line", None) is not None:
+            return
+        host = cast(QWidget, self)
+        line = QFrame(host)
+        line.setObjectName("scriptSplitFullWidthLine")
+        line.setFixedHeight(_SCRIPT_SPLIT_FULL_WIDTH_LINE_HEIGHT)
+        line.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        line.hide()
+        self._script_split_full_width_line = line
+
+    def _schedule_refresh_script_split_full_width_line(self) -> None:
+        """Reposition the overlay after the active splitter has a stable geometry."""
+        QTimer.singleShot(0, self._refresh_script_split_full_width_line)
+        QTimer.singleShot(50, self._refresh_script_split_full_width_line)
+
+    def _wire_script_split_full_width_line(self) -> None:
+        """Connect splitters once script UI exists (lazy request editor)."""
+        if getattr(self, "_script_split_full_width_line_wired", False):
+            return
+        self._script_split_full_width_line_wired = True
+        self._init_script_split_full_width_line()
+        for sp in (
+            getattr(self, "_pre_script_splitter", None),
+            getattr(self, "_test_script_splitter", None),
+        ):
+            if isinstance(sp, QSplitter):
+                sp.splitterMoved.connect(self._refresh_script_split_full_width_line)
+
+    def _script_split_full_width_line_should_show(self) -> bool:
+        """True when the Scripts section tab is active and editors exist."""
+        tabs = getattr(self, "_tabs", None)
+        scripts_tab = getattr(self, "_scripts_tab", None)
+        if tabs is None or scripts_tab is None:
+            return False
+        if tabs.currentIndex() != tabs.indexOf(scripts_tab):
+            return False
+        if not getattr(self, "_scripts_editor_materialized", True):
+            return False
+        sub = getattr(self, "_scripts_sub_tabs", None)
+        if sub is None:
+            return False
+        splitter = self._active_script_editor_output_splitter()
+        return splitter is not None and splitter.count() >= 2
+
+    def _active_script_editor_output_splitter(self) -> QSplitter | None:
+        """Return the visible Pre-request or Post-response editor/output splitter."""
+        sub = getattr(self, "_scripts_sub_tabs", None)
+        if sub is None:
+            return None
+        if sub.currentIndex() == 0:
+            sp = getattr(self, "_pre_script_splitter", None)
+        else:
+            sp = getattr(self, "_test_script_splitter", None)
+        return sp if isinstance(sp, QSplitter) else None
+
+    def _refresh_script_split_full_width_line(self, *_args: object) -> None:
+        """Show or hide the overlay and align it to the editor/output seam."""
+        line = getattr(self, "_script_split_full_width_line", None)
+        if line is None:
+            return
+        if not self._script_split_full_width_line_should_show():
+            line.hide()
+            return
+        splitter = self._active_script_editor_output_splitter()
+        if splitter is None or splitter.count() < 2:
+            line.hide()
+            return
+        if not splitter.isVisible():
+            line.hide()
+            return
+        top_pane = splitter.widget(0)
+        if top_pane is None or not top_pane.isVisible():
+            line.hide()
+            return
+        host = cast(QWidget, self)
+        host_w = host.width()
+        if host_w < 2:
+            line.hide()
+            return
+        # Seam: local point (w/2, height()) lies on the lower edge of the top
+        # pane (first row of the splitter handle band).  Avoid mapping the
+        # QSplitterHandle — its rect can lag QTabWidget sub-tab switches.
+        seam = top_pane.mapTo(host, QPoint(top_pane.width() // 2, top_pane.height()))
+        lh = line.height()
+        y = seam.y() - lh // 2 + _SCRIPT_SPLIT_FULL_WIDTH_LINE_TOP_MARGIN
+        line.setGeometry(0, y, host_w, lh)
+        line.show()
+        line.raise_()
 
     def _ensure_script_language_timers(self) -> None:
         """Create debounce timers for automatic script language detection (once)."""
@@ -436,8 +548,9 @@ class _ScriptsMixin:
         *,
         history_type: str,
         search_bar: SearchReplaceBar,
+        editor: CodeEditorWidget,
     ) -> None:
-        """Build editor toolbar (find/replace, run, debug) and auto-save toggle."""
+        """Build editor toolbar (find/replace, undo/redo, run, debug) and auto-save toggle."""
         lang_row = QHBoxLayout()
         lang_row.setContentsMargins(0, 0, 0, 0)
 
@@ -461,6 +574,35 @@ class _ScriptsMixin:
             btn.setToolTip(tip)
             btn.clicked.connect(slot)
             lang_row.addWidget(btn)
+
+        # -- Undo / Redo buttons --------------------------------------
+        undo_hint = QKeySequence(QKeySequence.StandardKey.Undo).toString(
+            QKeySequence.SequenceFormat.NativeText,
+        )
+        redo_hint = QKeySequence(QKeySequence.StandardKey.Redo).toString(
+            QKeySequence.SequenceFormat.NativeText,
+        )
+        undo_btn = QPushButton()
+        undo_btn.setIcon(phi("arrow-counter-clockwise"))
+        undo_btn.setFixedSize(28, 28)
+        undo_btn.setObjectName("iconButton")
+        undo_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        undo_btn.setToolTip(f"Undo ({undo_hint})")
+        undo_btn.setEnabled(False)
+        undo_btn.clicked.connect(editor.undo)
+        editor.undoAvailable.connect(undo_btn.setEnabled)
+        lang_row.addWidget(undo_btn)
+
+        redo_btn = QPushButton()
+        redo_btn.setIcon(phi("arrow-clockwise"))
+        redo_btn.setFixedSize(28, 28)
+        redo_btn.setObjectName("iconButton")
+        redo_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        redo_btn.setToolTip(f"Redo ({redo_hint})")
+        redo_btn.setEnabled(False)
+        redo_btn.clicked.connect(editor.redo)
+        editor.redoAvailable.connect(redo_btn.setEnabled)
+        lang_row.addWidget(redo_btn)
 
         # -- Run button ------------------------------------------------
         run_btn = QPushButton()
@@ -916,6 +1058,10 @@ class _ScriptsMixin:
         """Run the current script inline and display results."""
         from ui.request.request_editor.scripts.script_run_worker import build_inline_context
 
+        ensure_scripts = getattr(self, "_ensure_scripts_editors", None)
+        if callable(ensure_scripts):
+            ensure_scripts()
+
         if script_type == "pre_request":
             editor = self._pre_request_edit
             panel = self._pre_output_panel
@@ -974,6 +1120,10 @@ class _ScriptsMixin:
         from services.scripting.debug import DebugProtocol
         from ui.request.request_editor.scripts.script_run_worker import build_inline_context
 
+        ensure_scripts = getattr(self, "_ensure_scripts_editors", None)
+        if callable(ensure_scripts):
+            ensure_scripts()
+
         if script_type == "pre_request":
             editor = self._pre_request_edit
             panel = self._pre_output_panel
@@ -1028,6 +1178,10 @@ class _ScriptsMixin:
 
     def _run_single_test(self, name: str, *, debug: bool = False) -> None:
         """Run or debug only the named ``pm.test(…)`` block."""
+        ensure_scripts = getattr(self, "_ensure_scripts_editors", None)
+        if callable(ensure_scripts):
+            ensure_scripts()
+
         user_src = self._test_script_edit.toPlainText()
         language = self._test_script_edit.language
         if language in ("javascript", "typescript"):
@@ -1263,6 +1417,8 @@ class _ScriptsMixin:
         Deno binary is available (PATH, managed download, or custom path).
         Python editors are never given this Deno prompt.
         """
+        if not getattr(self, "_scripts_editor_materialized", True):
+            return
         for editor, banner in (
             (self._pre_request_edit, self._pre_runtime_banner),
             (self._test_script_edit, self._test_runtime_banner),

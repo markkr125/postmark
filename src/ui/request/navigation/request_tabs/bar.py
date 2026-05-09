@@ -138,7 +138,11 @@ class RequestTabBar(_TabLayoutMixin, QWidget):
                 candidates.append((idx, geo))
         if not candidates:
             row_distance = [
-                (abs(entry.button.geometry().center().y() - point.y()), idx, entry.button.geometry())
+                (
+                    abs(entry.button.geometry().center().y() - point.y()),
+                    idx,
+                    entry.button.geometry(),
+                )
                 for idx, entry in enumerate(self._entries)
             ]
             row_distance.sort()
@@ -169,10 +173,7 @@ class RequestTabBar(_TabLayoutMixin, QWidget):
             return
         nearest = min(candidates, key=lambda item: abs(item[1].center().x() - point.x()))
         idx, geo = nearest
-        if point.x() <= geo.center().x():
-            x = geo.left() - 1
-        else:
-            x = geo.right() + 1
+        x = geo.left() - 1 if point.x() <= geo.center().x() else geo.right() + 1
         rect = QRect(x - 1, geo.top(), 3, geo.height())
         if rect != self._drop_indicator_rect:
             self._drop_indicator_rect = rect

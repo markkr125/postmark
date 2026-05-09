@@ -99,8 +99,16 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   bootstrap and vendor file loaders.  JavaScript parse for the linter and
   gutter uses Esprima via :mod:`esprima_deno` (Deno subprocess;
   :file:`data/scripts/esprima_parse.mjs`); **TypeScript** skips Esprima lint until a TS parser exists.
-  `RuntimeSettings` (``scripting/deno_path``, ``scripting/python_path`` in
-  QSettings) resolves/validates executables.  TypedDicts (`ScriptInput`, `ScriptOutput`, `TestResult`,
+  `RuntimeSettings` (``scripting/deno_path``, ``scripting/python_path``,
+  ``scripting/lsp_enabled`` in QSettings) resolves/validates executables and
+  toggles IDE-style language servers for script editors.
+  ``CodeEditorWidget.notify_lsp_diagnostics`` / ``lsp_diagnostics_changed`` expose
+  ``textDocument/publishDiagnostics`` to the script **Problems** tab (see
+  ``ui/widgets/code_editor/lsp_integration.py`` ``EditorLspAdapter``).
+  Diagnostic severities ``error`` / ``warning`` / ``info`` / ``hint`` map through to
+  ``SyntaxError_`` and drive distinct wave underlines plus line-number gutter tint
+  (``gutter.normalize_validation_severity``, ``line_worst_validation_severity``).
+  TypedDicts (`ScriptInput`, `ScriptOutput`, `TestResult`,
   `ConsoleLog`, `ScriptEntry`) live in `services/scripting/__init__.py`.
   `find_pm_tests(source, language)` in `engine.py` locates `pm.test("name", …)`
   call sites (Python AST or JavaScript/TypeScript esprima when parseable, with regex fallback) for the
@@ -265,6 +273,11 @@ Key signals to know (always-on summary):
 - `NewItemPopup.new_request_clicked()` / `new_collection_clicked()` →
   emitted by the icon grid popup when tiles are clicked.
 - `RequestEditorWidget.send_requested()` → triggers HTTP send flow.
+- `RequestEditorWidget` lazy-loads the **Body** and **Scripts** heavy editors
+  when those tabs are first selected (or via `_ensure_body_editors()` /
+  `_ensure_scripts_editors()`). Until then, placeholders (`LazyEditorPlaceholder`)
+  are shown; `load_request` / `get_request_data` use `_loaded_request_snapshot`
+  when those sections are not materialised yet.
 - `ResponseViewerWidget.save_response_requested(dict)` → saves the current live response.
 - `ResponseViewerWidget.save_availability_changed(bool)` → refreshes right-sidebar saved-response affordances.
 - `SavedResponsesPanel` emits `save_current_requested`,
@@ -462,6 +475,8 @@ into `%Y-%m-%d %H:%M` strings for the UI.
   sidebar state.
 12. **Post-response inline Run defaults to live response mode** —
   In `RequestEditorWidget` Scripts → Post-response, `ScriptOutputPanel`
+  adds **Mock response** as a tab beside Output and Problems (status,
+  editable headers, JSON body editor with folding) and
   defaults to `response_source_mode() == "live"`.  Clicking Run delegates to
   `MainWindow.run_post_response_script_with_live_response()` with
   `editor` set to the **scripts host** (``RequestEditorWidget`` or
@@ -471,9 +486,9 @@ into `%Y-%m-%d %H:%M` strings for the UI.
   maps `HttpResponseDict` to test context fields (`code`, `status`, `headers`,
   `body`, `responseTime`, `responseSize`), then runs only the current
   post-response script in the inline output panel.  Switching to
-  `Manual mock response` keeps the existing offline inline worker path.
+  `Manual mock response` on that tab keeps the existing offline inline worker path.
   `ScriptOutputPanel(..., host_kind="folder")` (folder/collection scope) omits
-  the **Response source** (live) row but still shows **Mock response** (status
-  + body) for `pm.response` in inline runs.  For test panels, when the mock
-  body field is blank, `get_response_data()` uses ``"{}"`` as the default body
+  the **Response source** (live) row but still shows **Mock response** (status,
+  headers table, JSON body editor) on that tab for `pm.response` in inline runs.
+  For test panels, when the mock body field is blank, `get_response_data()` uses ``"{}"`` as the default body
   so `pm.response.json()` does not fail on first use.

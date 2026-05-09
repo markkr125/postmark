@@ -42,6 +42,7 @@ from ui.widgets.code_editor.gutter import (
     _MINIMAP_WIDTH,
     _WHITESPACE_DOT_RADIUS,
     SyntaxError_,
+    line_worst_validation_severity,
     _BreakpointGutterArea,
     _FoldGutterArea,
     _LineNumberArea,
@@ -391,8 +392,7 @@ class _PaintingMixin(_PaintingBase):
         painter = QPainter(self._line_number_area)
         painter.fillRect(event.rect(), QColor(p["editor_gutter_bg"]))
 
-        error_lines = {e.line for e in self._errors if e.severity == "error"}
-        warning_lines = {e.line for e in self._errors if e.severity == "warning"}
+        line_severity = line_worst_validation_severity(self._errors)
         diff_colors = self._diff_line_colors
 
         block = self.firstVisibleBlock()
@@ -406,31 +406,49 @@ class _PaintingMixin(_PaintingBase):
             if block.isVisible() and bottom >= event.rect().top():
                 number = str(block_number + 1)
                 line_num = block_number + 1
-                is_error = line_num in error_lines
-                is_warning = line_num in warning_lines and not is_error
+                sev = line_severity.get(line_num)
 
                 # Diff gutter stripe (3px on the left edge)
                 if block_number in diff_colors:
                     painter.fillRect(0, top, 3, bottom - top, diff_colors[block_number])
 
-                if is_error:
-                    painter.fillRect(
-                        0,
-                        top,
-                        width,
-                        bottom - top,
-                        QColor(p["editor_error_gutter_bg"]),
-                    )
-                    painter.setPen(QColor(p["editor_error_underline"]))
-                elif is_warning:
-                    painter.fillRect(
-                        0,
-                        top,
-                        width,
-                        bottom - top,
-                        QColor(p["editor_warning_gutter_bg"]),
-                    )
-                    painter.setPen(QColor(p["editor_warning_underline"]))
+                if sev is not None:
+                    if sev == "warning":
+                        painter.fillRect(
+                            0,
+                            top,
+                            width,
+                            bottom - top,
+                            QColor(p["editor_warning_gutter_bg"]),
+                        )
+                        painter.setPen(QColor(p["editor_warning_underline"]))
+                    elif sev == "info":
+                        painter.fillRect(
+                            0,
+                            top,
+                            width,
+                            bottom - top,
+                            QColor(p["editor_info_gutter_bg"]),
+                        )
+                        painter.setPen(QColor(p["editor_info_underline"]))
+                    elif sev == "hint":
+                        painter.fillRect(
+                            0,
+                            top,
+                            width,
+                            bottom - top,
+                            QColor(p["editor_hint_gutter_bg"]),
+                        )
+                        painter.setPen(QColor(p["editor_hint_underline"]))
+                    else:
+                        painter.fillRect(
+                            0,
+                            top,
+                            width,
+                            bottom - top,
+                            QColor(p["editor_error_gutter_bg"]),
+                        )
+                        painter.setPen(QColor(p["editor_error_underline"]))
                 else:
                     painter.setPen(QColor(p["editor_gutter_text"]))
 

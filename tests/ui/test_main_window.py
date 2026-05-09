@@ -128,6 +128,7 @@ class TestMainWindowNavigation:
         qtbot.addWidget(window)
 
         window._open_request(req.id, push_history=True)
+        window.request_widget._ensure_scripts_editors()
 
         pre = window.request_widget._pre_request_edit.toPlainText()
         test = window.request_widget._test_script_edit.toPlainText()
@@ -365,6 +366,7 @@ class TestMainWindowSendRequest:
         """Live post-response run stores context then starts send flow."""
         window = MainWindow()
         qtbot.addWidget(window)
+        window.request_widget._ensure_scripts_editors()
         panel = window.request_widget._test_output_panel
         run_btn = MagicMock()
         debug_btn = MagicMock()

@@ -80,7 +80,9 @@ Scripts has two sub-tabs:
 - **Post-response** — runs against a response context.
 
 Each sub-tab uses a vertical splitter between the code editor and the **Output**
-panel (`ScriptOutputPanel`). The default split gives the output band slightly
+panel (`ScriptOutputPanel`). The panel uses tabs: **Output** (console / debug),
+**Problems** (LSP diagnostics), and **Mock response** on post-response scripts only.
+The default split gives the output band slightly
 more than half of the tab height (you can drag the handle). During inline debug,
 the variable inspector grows with that output area; long lists scroll inside it.
 Variable names and values are selectable for copy (each cell is a label; the
@@ -94,15 +96,15 @@ after a short debounce; choosing JavaScript, TypeScript, or Python locks the mod
 pick **Auto** again. Saved requests store `pre_language` and `test_language`
 independently.
 
-Post-response inline output now uses a response-source selector:
+Post-response controls live on the **Mock response** tab:
 
 - `Use current response` (default): `Run` first sends the active request, then executes the current post-response script against the live response.
-- `Manual mock response`: expands status/body mock inputs and keeps the original offline inline run behavior.
+- `Manual mock response`: shows status, **Headers** key-value rows, and a full **CodeEditorWidget** JSON body (same folding and gutter chrome as other editors); keeps the original offline inline run behavior.
 
 **Folder / collection Scripts → Post-response** (same `ScriptOutputPanel` with
 `host_kind="folder"`) has **no** “Use current response” option (there is no
-single request tab to send), but the **Mock response** block (status + body)
-is always shown so `pm.response` is populated for inline Run/Debug (paste JSON
+single request tab to send), but the **Mock response** tab (status + headers + body)
+is always available so `pm.response` is populated for inline Run/Debug (paste JSON
 for `pm.response.json()`).  A blank mock body defaults to ``{}`` so
 `pm.response.json()` is valid without typing a body first.  Postman-style
 `pm.response.to.have.status(…)`, `header(…)`, and `jsonBody(…)` assertions are

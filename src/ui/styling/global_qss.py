@@ -6,16 +6,9 @@ application-wide Qt Style Sheet string from a ThemePalette.
 
 from __future__ import annotations
 
-from ui.styling.theme import (
-    BADGE_BORDER_RADIUS,
-    BADGE_FONT_SIZE,
-    BADGE_HEIGHT,
-    BADGE_MIN_WIDTH,
-    DARK_PALETTE,
-    LIGHT_PALETTE,
-    TREE_ROW_HEIGHT,
-    ThemePalette,
-)
+from ui.styling.theme import (BADGE_BORDER_RADIUS, BADGE_FONT_SIZE,
+                              BADGE_HEIGHT, BADGE_MIN_WIDTH, DARK_PALETTE,
+                              LIGHT_PALETTE, TREE_ROW_HEIGHT, ThemePalette)
 
 
 def build_global_qss(p: ThemePalette) -> str:
@@ -45,6 +38,19 @@ def build_global_qss(p: ThemePalette) -> str:
         border-bottom: 1px solid {p["border"]};
         margin-top: 0px;
         margin-bottom: 3px;
+    }}
+    QSplitter[objectName="scriptEditorOutputSplitter"]::handle:vertical {{
+        height: 4px;
+        background: transparent;
+        border: none;
+        margin-top: 0px;
+        margin-bottom: 0px;
+    }}
+    QFrame#scriptSplitFullWidthLine {{
+        background-color: {p["border"]};
+        border: none;
+        min-height: 1px;
+        max-height: 1px;
     }}
 
     /* ---- Labels ------------------------------------------------- */
@@ -292,6 +298,29 @@ def build_global_qss(p: ThemePalette) -> str:
         background: {p["border"]};
     }}
 
+    /* ---- Status bar --------------------------------------------- */
+    QStatusBar#appStatusBar {{
+        background: {p["bg_alt"]};
+        border-top: 1px solid {p["border"]};
+        min-height: 24px;
+        padding: 0px;
+    }}
+    QStatusBar#appStatusBar::item {{
+        border: none;
+    }}
+    QPushButton[objectName="statusBarButton"] {{
+        border: none;
+        background: transparent;
+        padding: 0px 6px;
+        margin: 0px;
+        color: {p["text_muted"]};
+        border-radius: 3px;
+    }}
+    QPushButton[objectName="statusBarButton"]:hover {{
+        background: {"rgba(255,255,255,0.08)" if p is DARK_PALETTE else "rgba(0,0,0,0.06)"};
+        color: {p["text"]};
+    }}
+
     /* ---- Tab bars (underline style) ----------------------------- */
     QTabWidget::pane {{
         border: none;
@@ -323,6 +352,25 @@ def build_global_qss(p: ThemePalette) -> str:
     QFrame#scriptSubTabsSep {{
         background: {p["border"]};
         border: none;
+    }}
+    QTabWidget#scriptOutputTabs::pane {{
+        border-top: 1px solid {p["border"]};
+        padding: 6px 0 0 0;
+        margin: 0px;
+    }}
+    QTabWidget#scriptOutputTabs > QTabBar {{
+        background: {p["bg_alt"]};
+    }}
+    QListWidget[objectName="scriptLspProblemsList"],
+    QFrame[objectName="scriptLspProblemsEmptyFrame"] {{
+        border: 1px solid {p["border"]};
+        background: {p["input_bg"]};
+        outline: none;
+    }}
+    QListWidget[objectName="scriptLspProblemsList"]::item {{
+        padding: 4px 8px;
+        font-family: monospace;
+        font-size: 11px;
     }}
     /* Tab overflow scroll buttons — input_bg box, 1px border,
        sharp corners, accent border on hover.  Keep for all QTabBars. */
@@ -475,7 +523,8 @@ def build_global_qss(p: ThemePalette) -> str:
         border: 1px solid {p["border"]};
         background-color: {p["input_bg"]};
     }}
-    QWidget[objectName="scriptOutputSection"] {{
+    QWidget[objectName="scriptOutputSection"],
+    QWidget[objectName="scriptMockResponseSection"] {{
         border-bottom: 1px solid {p["border"]};
     }}
     QWidget[objectName="scriptOutputInner"] {{

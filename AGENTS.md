@@ -175,7 +175,7 @@ src/
 │   │   ├── engine.py              # ScriptEngine + run_debug_chain + find_pm_tests + find_top_level_statement_lines (gutter)
 │   │   ├── context.py             # Context builders + normalize_events() + execute_sub_request() + globals persistence
 │   │   ├── deno_manager.py        # DenoManager — managed Deno download/cache; managed_deno_path() = cache only
-│   │   ├── runtime_settings.py   # RuntimeSettings + RuntimePathStatus — QSettings Deno/Python paths, validation
+│   │   ├── runtime_settings.py   # RuntimeSettings + RuntimePathStatus — QSettings Deno/Python paths, LSP toggle, validation
 │   │   ├── deno_runtime.py        # DenoRuntime — default JS run via deno run + data/scripts/deno_drain.mjs (sendRequest IPC)
 │   │   ├── esprima_deno.py        # Esprima parse via deno run data/scripts/esprima_parse.mjs (linter, gutter)
 │   │   ├── js_runtime.py          # JSRuntime (DenoRuntime) + bootstrap/vendor + pm.require literal detection / ESM import block for npm:/jsr:
@@ -187,6 +187,16 @@ src/
 │   │       ├── deno_scope.py      # CDP scope materialisation; deep expand pm/console; ``__pm_className__`` for CDP descriptions
 │   │       ├── deno_debug.py      # Deno --inspect-brk + CDP (Chrome DevTools Protocol) step-through
 │   │       └── py_debug.py        # Python settrace subprocess debug execution
+│   ├── lsp/                       # Language Server Protocol (Deno LSP, jedi-language-server)
+│   │   ├── transport.py           # LspTransport — JSON-RPC Content-Length + QThread reader
+│   │   ├── client.py              # LspClient — initialize, didOpen/Change/Close, requests
+│   │   ├── qt_lsp_offsets.py      # QTextDocument position ↔ LSP line/UTF-16 column
+│   │   ├── stubs_generator.py     # pm.d.ts / pm.pyi from pm_api_schema
+│   │   ├── server_registry.py     # LspRegistry — shared clients; shutdown on app quit
+│   │   └── servers/               # make_deno_client, make_jedi_client, workspace seed
+│   │       ├── _workspace.py
+│   │       ├── deno_client.py
+│   │       └── jedi_client.py
 │   ├── http/                      # HTTP request/response handling
 │   │   ├── http_service.py        # HttpService (httpx) + response TypedDicts
 │   │   ├── graphql_schema_service.py  # GraphQL introspection + schema parsing
@@ -230,6 +240,7 @@ src/
     ├── widgets/                   # Reusable shared components
     │   ├── code_editor/           # CodeEditorWidget sub-package
     │   │   ├── editor_widget.py   # CodeEditorWidget (per-pm.test gutter, Shift+Enter)
+    │   │   ├── lsp_integration.py # EditorLspAdapter — LSP sync + diagnostics; optional LSP for script modes
     │   │   ├── popup_registry.py  # Shared singleton Completion/ParameterHint/SymbolDoc/DebugValue popups
     │   │   ├── debug_hover_popup.py # DebugValuePopup — expandable hover for paused script locals
     │   │   ├── highlighter.py     # Syntax highlighting engine
@@ -247,6 +258,7 @@ src/
     │   │       ├── popup.py       # CompletionPopup — floating autocomplete widget
     │   │       └── symbol_doc_popup.py # SymbolDocPopup — Ctrl+hover / Ctrl+Q quick-doc tooltip
     │   ├── info_popup.py          # InfoPopup (QFrame) base + ClickableLabel
+    │   ├── lazy_editor_placeholder.py # LazyEditorPlaceholder — progress + caption until Body/Scripts editors mount
     │   ├── key_value_table.py     # Reusable key-value editor widget
     │   ├── search_replace_bar.py  # SearchReplaceBar — find/replace + go-to-line for CodeEditorWidget
     │   ├── deno_download_worker.py # DenoDownloadWorker — QThread background Deno download (banner + settings)
@@ -272,7 +284,7 @@ src/
     │   │   └── worker.py          # RunnerWorker (QThread), parse_data_file, env var substitution, scripts_enabled
     │   ├── import_dialog.py
     │   ├── save_request_dialog.py  # Save draft request to collection
-    │   └── settings_dialog.py     # Settings (theme + request-tab + Scripting: Deno/Python paths)
+    │   └── settings_dialog.py     # Settings (theme + request-tab + Scripting: LSP toggle, Deno/Python paths)
     ├── environments/              # Environment management widgets
     │   ├── environment_editor.py
     │   └── environment_selector.py
@@ -299,7 +311,9 @@ src/
         │   └── scripts/             # Scripts sub-package
         │       ├── script_language.py # codes: javascript | typescript | python; detect/heuristics, display, normalise
         │       ├── scripts_mixin.py # _ScriptsMixin — dual pre-request/test script editors
-        │       ├── output_panel.py  # ScriptOutputPanel — inline script execution results
+        │       ├── mock_response_tab.py # ScriptMockResponseTab — mock status + headers table + JSON CodeEditorWidget body (post-response)
+        │       ├── output_panel.py  # ScriptOutputPanel — Output | Problems [| Mock response] tabs + inline run results
+        │       ├── lsp_problems_tab.py # ScriptLspProblemsTab — LSP diagnostics list; ``problem_count_changed`` → tab title ``Problems (n)``
         │       ├── script_run_worker.py # ScriptRunWorker — background thread for inline runs
         │       ├── version_history.py # _show_version_history entry point
         │       └── version_history/ # Version history dialog sub-package
@@ -426,6 +440,7 @@ tests/
         ├── test_response_viewer_tests.py
         ├── test_version_history.py
         ├── test_script_output_panel.py
+        ├── test_script_lsp_problems_tab.py
         ├── navigation/            # Tab and breadcrumb tests
         │   ├── test_breadcrumb_bar.py
         │   ├── test_request_tab_bar.py

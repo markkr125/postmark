@@ -6,27 +6,18 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QSize, Qt, QThread, QTimer
-from PySide6.QtGui import QAction, QCloseEvent, QCursor, QGuiApplication, QKeySequence
+from PySide6.QtGui import (QAction, QCloseEvent, QCursor, QGuiApplication,
+                           QKeySequence)
 
 if TYPE_CHECKING:
     from services.scripting.debug import DebugProtocol
     from ui.request.http_worker import HttpSendWorker
 
-from PySide6.QtWidgets import (
-    QApplication,
-    QHBoxLayout,
-    QInputDialog,
-    QMainWindow,
-    QMessageBox,
-    QPushButton,
-    QSizePolicy,
-    QSplitter,
-    QStackedWidget,
-    QTabWidget,
-    QToolBar,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import (QApplication, QHBoxLayout, QInputDialog,
+                               QMainWindow, QMessageBox, QPushButton,
+                               QSizePolicy, QSplitter, QStackedWidget,
+                               QStatusBar, QTabWidget, QToolBar, QVBoxLayout,
+                               QWidget)
 
 from services.collection_service import CollectionService
 from ui.collections.collection_widget import CollectionWidget
@@ -411,6 +402,35 @@ class MainWindow(
         self._env_selector.refresh()
 
     # ------------------------------------------------------------------
+    # Status bar creation
+    # ------------------------------------------------------------------
+    def _create_status_bar(self) -> None:
+        """Build the bottom status bar with the sidebar collapse/expand button."""
+        status_bar = QStatusBar()
+        status_bar.setObjectName("appStatusBar")
+        status_bar.setSizeGripEnabled(False)
+        self.setStatusBar(status_bar)
+
+        self._sidebar_toggle_btn = QPushButton()
+        self._sidebar_toggle_btn.setObjectName("statusBarButton")
+        self._sidebar_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._sidebar_toggle_btn.setFlat(True)
+        self._sidebar_toggle_btn.setFixedSize(28, 22)
+        self._sidebar_toggle_btn.clicked.connect(self._toggle_sidebar)
+        status_bar.addWidget(self._sidebar_toggle_btn)
+
+        self._sync_sidebar_toggle_btn()
+
+    def _sync_sidebar_toggle_btn(self) -> None:
+        """Update the sidebar toggle button icon and tooltip to match state."""
+        hidden = self.collection_widget.isHidden()
+        icon_name = "caret-double-right" if hidden else "caret-double-left"
+        self._sidebar_toggle_btn.setIcon(phi(icon_name, size=14))
+        self._sidebar_toggle_btn.setToolTip(
+            "Expand sidebar" if hidden else "Collapse sidebar"
+        )
+
+    # ------------------------------------------------------------------
     # UI construction
     # ------------------------------------------------------------------
     def _setup_ui(self) -> None:
@@ -418,9 +438,11 @@ class MainWindow(
         # 1. Menu & toolbar
         self._create_menus()
         self._create_toolbar()
+        self._create_status_bar()
 
         # Hide them initially during loading
         self.menuBar().hide()
+        self.statusBar().hide()
         for tb in self.findChildren(QToolBar):
             tb.hide()
 
@@ -484,6 +506,7 @@ class MainWindow(
         self._loading_screen.stop_animation()
         self._main_stack.setCurrentIndex(1)
         self.menuBar().show()
+        self.statusBar().show()
         for tb in self.findChildren(QToolBar):
             tb.show()
 
@@ -513,6 +536,7 @@ class MainWindow(
     def _toggle_sidebar(self) -> None:
         """Show or hide the collection sidebar."""
         self.collection_widget.setHidden(not self.collection_widget.isHidden())
+        self._sync_sidebar_toggle_btn()
 
     def _toggle_bottom_panel(self) -> None:
         """Show or hide the bottom panel (History / Console)."""

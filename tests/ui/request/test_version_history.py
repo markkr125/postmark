@@ -267,6 +267,7 @@ class TestScriptsMixinVersionCapture:
         from ui.request.request_editor.editor_widget import RequestEditorWidget
 
         editor = RequestEditorWidget()
+        editor._ensure_scripts_editors()
         return editor
 
     def test_capture_scripts_now(self, qapp: Any) -> None:

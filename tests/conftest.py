@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tempfile
+from collections.abc import Generator
 from pathlib import Path
 
 import pytest
@@ -74,6 +75,26 @@ def _reset_tab_settings() -> None:
     settings.remove("tabs")
     settings.remove("scripts")
     settings.sync()
+
+
+@pytest.fixture(autouse=True)
+def _disable_script_lsp_in_tests() -> Generator[None, None, None]:
+    """Do not spawn Deno/jedi LSP servers unless a test enables ``scripting/lsp_enabled``."""
+    settings = QSettings("Postmark", "Postmark")
+    settings.setValue("scripting/lsp_enabled", False)
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _shutdown_lsp_clients() -> Generator[None, None, None]:
+    """Stop LSP subprocess threads after each test so Qt teardown stays clean."""
+    yield
+    from services.lsp.server_registry import LspRegistry, reset_registry_for_tests
+
+    inst = LspRegistry._instance
+    if inst is not None:
+        inst.shutdown()
+    reset_registry_for_tests()
 
 
 # ------------------------------------------------------------------

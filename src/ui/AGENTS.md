@@ -187,8 +187,8 @@ standard object names:
 | `consoleOutput` | `QTextEdit` | Dark console output area |
 | `importTabs` | `QTabWidget` | Box-style tabs in import dialog |
 | `codeEditor` | `QPlainTextEdit` | Syntax-highlighted code editor |
-| `gqlSplitter` | `QSplitter` | GraphQL query/variables splitter |
-| `rowDeleteButton` | `QPushButton` | Row delete button in key-value table |
+| `scriptEditorOutputSplitter` | `QSplitter` | Scripts tab: vertical editor/output split — handle chrome suppressed; full-width line from ``scriptSplitFullWidthLine`` |
+| `scriptSplitFullWidthLine` | `QFrame` | Non-layout 1px overlay on ``RequestEditorWidget`` / ``FolderEditorWidget`` — spans host width; aligned to ``scriptEditorOutputSplitter`` handle when Scripts tab shown |
 | `infoPopup` | `QFrame` | Response metadata popup container |
 | `infoPopupTitle` | `QLabel` | Popup title heading |
 | `infoPopupSeparator` | `QLabel` | Popup horizontal rule |
@@ -205,6 +205,10 @@ standard object names:
 | `saveButton` | `QPushButton` | Save action button |
 | `scriptHistoryLinkButton` | `QToolButton` | Script editor status strip: version history (accent underlined link) |
 | `scriptLanguageLinkButton` | `QToolButton` | Script editor status strip: language picker (accent underlined link) |
+| `scriptOutputTabs` | `QTabWidget` | Script panel: **Output**, **Problems (n)**, and (post-response only) **Mock response**; Problems title shows diagnostic count; ``::pane`` uses **6px** top padding under the tab bar |
+| `scriptMockResponseSection` | `QWidget` | Mock response tab page — bottom border matches Output page (global QSS) |
+| `scriptLspProblemsList` | `QListWidget` | Problems tab: severity **Phosphor** icons + tinted text; click jumps; context **Copy**; ``_ScriptProblemsItemDelegate`` — square **1px** accent border + light selection tint (no ``HighlightedText`` wash-out) |
+| `scriptLspProblemsEmptyFrame` | `QFrame` | Problems tab empty state — same border / ``input_bg`` as the list (global QSS) |
 | `sidebarSearch` | `QLineEdit` | Collection sidebar search input |
 | `sidebarSectionLabel` | `QLabel` | Sidebar section heading |
 | `sidebarToolButton` | `QToolButton` | Sidebar toolbar button |

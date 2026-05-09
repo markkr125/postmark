@@ -33,6 +33,8 @@ from PySide6.QtGui import (
     QFont,
     QHelpEvent,
     QKeyEvent,
+    QKeySequence,
+    QShortcut,
     QTextCharFormat,
     QTextCursor,
 )
@@ -48,6 +50,7 @@ from PySide6.QtWidgets import (
 if TYPE_CHECKING:
     from services.environment_service import VariableDetail
     from ui.styling.theme import ThemePalette
+    from ui.widgets.code_editor.lsp_integration import EditorLspAdapter
 
 from ui.widgets.code_editor.completion.engine import CompletionEngine
 from ui.widgets.code_editor.completion.mixin import _CompletionMixin
@@ -127,9 +130,14 @@ class CodeEditorWidget(_CompletionMixin, _PaintingMixin, _FoldingMixin, QPlainTe
     Signals:
         validation_changed: Emitted when validation errors change,
             carrying the list of ``SyntaxError_`` items.
+        lsp_diagnostics_changed: Emitted when the language server publishes
+            diagnostics for this editor's virtual document (list of
+            :class:`services.lsp.client.Diagnostic`). Empty when LSP detaches
+            or the buffer is swapped.
     """
 
     validation_changed = Signal(list)
+    lsp_diagnostics_changed = Signal(object)
     breakpoints_changed = Signal()
     diff_fold_toggled = Signal(int)
     cursor_position_changed = Signal(int, int)  # (1-based line, 1-based col)
@@ -168,6 +176,9 @@ class CodeEditorWidget(_CompletionMixin, _PaintingMixin, _FoldingMixin, QPlainTe
 
         # Detected indent width for this document.
         self._detected_indent: int = _DEFAULT_INDENT_WIDTH
+
+        # Optional language-server adapter for script modes (see :meth:`attach_lsp`).
+        self._lsp_adapter: EditorLspAdapter | None = None
 
         # Completion engine (kept per-editor — holds language + variable map).
         self._completion_engine = CompletionEngine("javascript")
@@ -253,7 +264,90 @@ class CodeEditorWidget(_CompletionMixin, _PaintingMixin, _FoldingMixin, QPlainTe
         if not read_only:
             self.document().contentsChanged.connect(self._on_contents_changed)
 
+        self._install_layout_independent_shortcuts()
+
         self._update_gutter_width()
+
+    def _install_layout_independent_shortcuts(self) -> None:
+        """Register Ctrl+Q / Ctrl+P / Ctrl+/ via :class:`QShortcut`.
+
+        ``QKeyEvent.key()`` follows the active keyboard layout, so a Hebrew
+        layout maps physical ``Q`` to ``Key_Slash`` and pressing Ctrl+Q
+        toggles the line comment instead of opening the quick-doc popup.
+        ``QShortcut`` matches against the portable ``Ctrl+Q`` sequence
+        regardless of layout.
+        """
+        ctx = Qt.ShortcutContext.WidgetShortcut
+        quick_doc_sc = QShortcut(QKeySequence("Ctrl+Q"), self)
+        quick_doc_sc.setContext(ctx)
+        quick_doc_sc.activated.connect(self._activate_quick_doc)
+
+        param_hint_sc = QShortcut(QKeySequence("Ctrl+P"), self)
+        param_hint_sc.setContext(ctx)
+        param_hint_sc.activated.connect(self.trigger_parameter_hint)
+
+        comment_sc = QShortcut(QKeySequence("Ctrl+/"), self)
+        comment_sc.setContext(ctx)
+        comment_sc.activated.connect(self._activate_line_comment_toggle)
+
+    def _activate_quick_doc(self) -> None:
+        """Show the quick-doc popup for the symbol at the text cursor."""
+        hit = self._ident_at_text_cursor()
+        if hit is None:
+            return
+        path, _start, _end = hit
+        adapter = getattr(self, "_lsp_adapter", None)
+        if adapter is not None:
+            future = adapter.request_hover()
+            if future is not None:
+                future.add_done_callback(
+                    lambda f, _path=path: self._on_lsp_hover_response(f, _path)
+                )
+                return
+        sym = self._completion_engine.resolve_symbol(path, self.toPlainText())
+        if sym is None:
+            return
+        cr = self.cursorRect()
+        gp = self.mapToGlobal(cr.bottomLeft())
+        self._symbol_hover_global_pos = gp
+        self._symbol_doc_popup.show_for(gp, sym)
+
+    def _on_lsp_hover_response(self, future: Any, path: str) -> None:
+        """Render LSP hover text or fall back to schema lookup."""
+        from ui.widgets.code_editor.completion.symbol_doc_popup import SymbolDoc
+
+        text: str | None = None
+        try:
+            text = future.result(timeout_s=0.0)
+        except Exception:
+            text = None
+        if not text:
+            sym = self._completion_engine.resolve_symbol(path, self.toPlainText())
+            if sym is None:
+                return
+            cr = self.cursorRect()
+            gp = self.mapToGlobal(cr.bottomLeft())
+            self._symbol_hover_global_pos = gp
+            self._symbol_doc_popup.show_for(gp, sym)
+            return
+        sym = SymbolDoc(
+            label=path,
+            kind="lsp",
+            type_str="",
+            doc=text.strip(),
+            signature="",
+            origin="LSP",
+        )
+        cr = self.cursorRect()
+        gp = self.mapToGlobal(cr.bottomLeft())
+        self._symbol_hover_global_pos = gp
+        self._symbol_doc_popup.show_for(gp, sym)
+
+    def _activate_line_comment_toggle(self) -> None:
+        """Toggle line comment unless the editor is read-only."""
+        if self._read_only:
+            return
+        self._toggle_line_comment()
 
     # -- Language -------------------------------------------------------
 
@@ -267,24 +361,173 @@ class CodeEditorWidget(_CompletionMixin, _PaintingMixin, _FoldingMixin, QPlainTe
         lang = language.lower()
         if lang == self._language:
             return
+        prev_lang = self._language
         self._language = lang
         self._highlighter.set_language(lang)
         self._completion_engine.set_language(lang)
-        self._errors = []
+        # Preserve LSP-published errors when swapping within a shared
+        # client family (JS ↔ TS). Without this guard the squiggles
+        # blink off for ~400ms while the new ``did_open`` round-trips.
+        adapter = getattr(self, "_lsp_adapter", None)
+        same_family = (
+            adapter is not None
+            and prev_lang in ("javascript", "typescript")
+            and lang in ("javascript", "typescript")
+        )
+        if not same_family:
+            # Use ``apply_validation_errors`` so the squiggle layer and
+            # gutter repaint immediately. Direct ``self._errors = []``
+            # leaves the prior paint state on screen until the next
+            # mouse / key event triggers a viewport update.
+            self.apply_validation_errors([])
         self._fold_regions = {}
         self._collapsed_folds = set()
         self._sorted_folds = []
         self._active_fold_start = -1
-        self.validation_changed.emit([])
         if not self._read_only:
             self._fold_timer.start()
             self._validate_timer.start()
         else:
             self._recompute_folds()
+        self._sync_script_lsp_attachment()
+
+    def _should_skip_script_validation(self) -> bool:
+        """Skip ``ScriptLinter`` only after the LSP handshake completes."""
+        adapter = getattr(self, "_lsp_adapter", None)
+        return adapter is not None and bool(getattr(adapter, "is_ready", False))
+
+    def _on_lsp_ready(self) -> None:
+        """No-op hook retained for adapter compatibility.
+
+        Legacy errors are cleared the first time the LSP publishes
+        diagnostics (an empty list on a clean file replaces any stale
+        legacy markers via :meth:`apply_validation_errors`). Eagerly
+        clearing here would race with diagnostics that arrived ahead of
+        the ``state_changed("ready")`` signal.
+        """
+
+    def attach_lsp(self, language: str) -> None:
+        """Attach to the shared language server for *language* (script modes only).
+
+        Reuses the existing adapter when the new language maps to the
+        same LSP client family (JS ↔ TS share the Deno server). Avoids
+        the detach + signal-reconnect round-trip that previously caused
+        a noticeable lag and dropped diagnostics on language toggle.
+        """
+        from services.scripting.runtime_settings import RuntimeSettings
+        from ui.widgets.code_editor.lsp_integration import EditorLspAdapter
+
+        prev = getattr(self, "_lsp_adapter", None)
+        if prev is not None and prev.can_swap_to(language) and prev.swap_language(language):
+            return
+        if prev is not None:
+            prev.detach()
+        self._lsp_adapter = None
+        if not RuntimeSettings.lsp_enabled():
+            self._validate_timer.start()
+            return
+        # Pre-spawn both shared LSP clients so the next language switch
+        # finds them already initialised (no subprocess + handshake lag).
+        from services.lsp.server_registry import LspRegistry as _Reg
+
+        _Reg.instance().warm()
+        adapter = EditorLspAdapter(self, parent=self)
+        if adapter.attach(language):
+            self._lsp_adapter = adapter
+        else:
+            adapter.detach()
+            self._validate_timer.start()
+
+    def detach_lsp(self) -> None:
+        """Disconnect from the language server and restore legacy validation."""
+        prev = getattr(self, "_lsp_adapter", None)
+        if prev is not None:
+            prev.detach()
+        self._lsp_adapter = None
+
+    def notify_lsp_diagnostics(self, diags: list[Any]) -> None:
+        """Emit :attr:`lsp_diagnostics_changed` for UI surfaces (e.g. Problems tab).
+
+        *diags* is a list of :class:`services.lsp.client.Diagnostic` instances.
+        """
+        self.lsp_diagnostics_changed.emit(list(diags))
+
+    def _sync_script_lsp_attachment(self) -> None:
+        """Start or stop LSP based on language mode and read-only state."""
+        if self._read_only or self.isReadOnly():
+            self.detach_lsp()
+            return
+        lang = self._language
+        if lang in ("javascript", "typescript", "python"):
+            self.attach_lsp(lang)
+        else:
+            self.detach_lsp()
+            self._validate_timer.start()
 
     def trigger_parameter_hint(self) -> None:
         """Show parameter-info for the call surrounding the cursor (used by Ctrl+P shortcuts)."""
+        adapter = getattr(self, "_lsp_adapter", None)
+        if adapter is not None:
+            future = adapter.request_signature()
+            if future is not None:
+                future.add_done_callback(self._on_lsp_signature_response)
+                return
         self._try_show_parameter_hint()
+
+    def _on_lsp_format_response(self, future: Any) -> None:
+        """Apply formatted text returned by the LSP."""
+        try:
+            new_text = future.result(timeout_s=0.0)
+        except Exception:
+            new_text = None
+        if not isinstance(new_text, str) or not new_text:
+            return
+        if new_text == self.toPlainText():
+            return
+        cursor_pos = self.textCursor().position()
+        self.setPlainText(new_text)
+        cur = self.textCursor()
+        cur.setPosition(min(cursor_pos, len(new_text)))
+        self.setTextCursor(cur)
+
+    def _on_lsp_signature_response(self, future: Any) -> None:
+        """Render LSP signature help or fall back to schema-driven hint."""
+        import html as _html
+
+        info: Any = None
+        try:
+            info = future.result(timeout_s=0.0)
+        except Exception:
+            info = None
+        if info is None or not getattr(info, "label", ""):
+            self._try_show_parameter_hint()
+            return
+        from ui.styling.theme import COLOR_ACCENT
+
+        params = list(getattr(info, "parameters", []) or [])
+        active = int(getattr(info, "active_parameter", 0) or 0)
+        label = str(info.label)
+        rendered: str
+        if 0 <= active < len(params) and params[active] and params[active] in label:
+            target = params[active]
+            idx = label.find(target)
+            rendered = (
+                _html.escape(label[:idx])
+                + f"<span style='color:{COLOR_ACCENT};font-weight:600;'>"
+                + _html.escape(target)
+                + "</span>"
+                + _html.escape(label[idx + len(target) :])
+            )
+        else:
+            rendered = _html.escape(label)
+        doc = getattr(info, "documentation", None)
+        if doc:
+            rendered += (
+                f"<br><span style='font-size:11px;opacity:0.8;'>{_html.escape(str(doc))}</span>"
+            )
+        cr = self.cursorRect()
+        gp = self.mapToGlobal(cr.topLeft())
+        self._parameter_hint_popup.show_hint(gp, rendered, cr.height())
 
     # -- Content helpers ------------------------------------------------
 
@@ -502,6 +745,13 @@ class CodeEditorWidget(_CompletionMixin, _PaintingMixin, _FoldingMixin, QPlainTe
         text = self.toPlainText()
         if not text.strip():
             return False
+
+        adapter = getattr(self, "_lsp_adapter", None)
+        if adapter is not None and self._language in ("javascript", "typescript", "python"):
+            future = adapter.request_format()
+            if future is not None:
+                future.add_done_callback(self._on_lsp_format_response)
+                return False
 
         if self._language == "json":
             try:

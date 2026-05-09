@@ -190,6 +190,16 @@ class _CompletionMixin(_CompletionBase):
                         )
                         event.accept()
                         return
+                adapter = getattr(self, "_lsp_adapter", None)
+                if adapter is not None:
+                    cur = self.textCursor()
+                    cur.setPosition(_start)
+                    self.setTextCursor(cur)
+                    future = adapter.request_definition()
+                    if future is not None:
+                        future.add_done_callback(self._on_lsp_definition_response)
+                        event.accept()
+                        return
         if self._debug_popup.isVisible() and hasattr(self, "_hide_debug_value_popup"):
             self._hide_debug_value_popup()  # type: ignore[attr-defined]
         if self._completion_popup.is_active():
@@ -203,6 +213,28 @@ class _CompletionMixin(_CompletionBase):
                     self.toggle_fold(start_line)
                     return
         super().mousePressEvent(event)
+
+    def _on_lsp_definition_response(self, future: object) -> None:
+        """Jump cursor to the LSP definition target when it lives in this document."""
+        from services.lsp.qt_lsp_offsets import lsp_to_qpos
+
+        adapter = getattr(self, "_lsp_adapter", None)
+        if adapter is None:
+            return
+        try:
+            locs = future.result(timeout_s=0.0)  # type: ignore[attr-defined]
+        except Exception:
+            return
+        if not locs:
+            return
+        loc = locs[0]
+        if str(getattr(loc, "uri", "")) != getattr(adapter, "_uri", ""):
+            return
+        target = lsp_to_qpos(self.document(), int(loc.line), int(loc.column))
+        cur = self.textCursor()
+        cur.setPosition(target)
+        self.setTextCursor(cur)
+        self.centerCursor()
 
     def keyReleaseEvent(self, event: QKeyEvent) -> None:
         """Clear the Ctrl+hover underline as soon as Ctrl is released."""

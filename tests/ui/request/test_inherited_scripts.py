@@ -136,6 +136,7 @@ class TestInheritedScriptsUI:
             },
             request_id=req.id,
         )
+        ed._ensure_scripts_editors()
         ed._disabled_inherited = [{"collection_id": coll.id, "script_type": "pre_request"}]
         data = ed.get_request_data()["scripts"]
         assert data is not None

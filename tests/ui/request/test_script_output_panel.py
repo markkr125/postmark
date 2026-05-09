@@ -15,10 +15,12 @@ from PySide6.QtWidgets import (
     QLabel,
     QLayout,
     QPushButton,
+    QTabWidget,
     QTreeWidget,
     QTreeWidgetItem,
 )
 
+from ui.widgets.code_editor import CodeEditorWidget
 from ui.request.request_editor.scripts.output_panel import ScriptOutputPanel
 from ui.widgets.debug_value_tree import debug_tree_cell_text
 from services.scripting.debug import DebugProtocol
@@ -229,6 +231,9 @@ class TestScriptOutputPanelConstruction:
         qtbot.addWidget(panel)
         assert not hasattr(panel, "_response_body_edit")
         assert not hasattr(panel, "_status_spin")
+        tabs = panel.findChild(QTabWidget, "scriptOutputTabs")
+        assert tabs is not None
+        assert tabs.count() == 2
         # Hidden variable inspector + idle hint + trailing stretch.
         assert panel._results_layout.count() == 3
 
@@ -236,7 +241,13 @@ class TestScriptOutputPanelConstruction:
         """Test panel includes response-source selector and mock inputs."""
         panel = ScriptOutputPanel(script_type="test")
         qtbot.addWidget(panel)
-        assert hasattr(panel, "_response_body_edit")
+        tabs = panel.findChild(QTabWidget, "scriptOutputTabs")
+        assert tabs is not None
+        assert tabs.count() == 3
+        assert tabs.tabText(0) == "Output"
+        assert tabs.tabText(1).startswith("Problems")
+        assert tabs.tabText(2) == "Mock response"
+        assert isinstance(panel._response_body_edit, CodeEditorWidget)
         assert hasattr(panel, "_status_spin")
         assert hasattr(panel, "_response_source_combo")
         assert panel.response_source_mode() == "live"
@@ -314,7 +325,7 @@ class TestScriptOutputPanelResults:
         assert panel._results_layout.count() == 5
 
     def test_elapsed_time_displayed(self, qtbot) -> None:
-        """Elapsed time is shown in the header."""
+        """Elapsed time is shown next to the output tab content (right-aligned)."""
         panel = ScriptOutputPanel(script_type="pre_request")
         qtbot.addWidget(panel)
         panel.show_results(_make_output(), 123.4)
@@ -377,6 +388,7 @@ class TestScriptOutputPanelResponseInput:
         data = panel.get_response_data()
         assert data["code"] == 200
         assert data["body"] == "{}"
+        assert data["headers"] == {}
         assert data["responseSize"] == 2
 
     def test_get_response_data_reads_user_input(self, qtbot) -> None:
@@ -385,10 +397,13 @@ class TestScriptOutputPanelResponseInput:
         qtbot.addWidget(panel)
         panel.set_response_source_mode("manual")
         panel._status_spin.setValue(404)
+        assert panel._mock_headers_table is not None
+        panel._mock_headers_table.set_data([{"key": "X-Test", "value": "alpha", "enabled": True}])
         panel._response_body_edit.setPlainText('{"error": "not found"}')
         data = panel.get_response_data()
         assert data["code"] == 404
         assert data["body"] == '{"error": "not found"}'
+        assert data["headers"] == {"X-Test": "alpha"}
 
     def test_response_source_toggle(self, qtbot) -> None:
         """Switching response source toggles hint vs manual mock editor."""

@@ -32,6 +32,8 @@ class TestRequestEditorWidget:
         """Loading a request hides the empty state and shows content."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
 
         editor.load_request(
             {
@@ -62,6 +64,8 @@ class TestRequestEditorWidget:
         """Clearing resets to the empty state."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
 
         editor.load_request({"name": "X", "method": "POST", "url": "http://x"})
         editor.clear_request()
@@ -74,6 +78,8 @@ class TestRequestEditorWidget:
         """Scripts dict populates the pre-request editor."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
 
         editor.load_request(
             {
@@ -108,6 +114,8 @@ class TestRequestEditorWidget:
         )
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
         editor.load_request(
             {
                 "name": "X",
@@ -131,6 +139,8 @@ class TestRequestEditorDirtyTracking:
         """Editor is not dirty immediately after loading a request."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
 
         editor.load_request({"name": "X", "method": "GET", "url": "http://x"})
         assert not editor.is_dirty
@@ -139,6 +149,8 @@ class TestRequestEditorDirtyTracking:
         """Editing the URL marks the editor as dirty."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
 
         editor.load_request({"name": "X", "method": "GET", "url": "http://x"})
         editor._url_input.setText("http://changed")
@@ -148,6 +160,8 @@ class TestRequestEditorDirtyTracking:
         """Editing the body marks the editor as dirty."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
 
         editor.load_request({"name": "X", "method": "GET", "url": "http://x"})
         editor._body_mode_buttons["raw"].setChecked(True)
@@ -158,6 +172,8 @@ class TestRequestEditorDirtyTracking:
         """Dirty state is tracked via the is_dirty flag."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
 
         editor.load_request({"name": "My Request", "method": "GET", "url": "http://x"})
         editor._url_input.setText("http://changed")
@@ -167,6 +183,8 @@ class TestRequestEditorDirtyTracking:
         """Clearing dirty state resets the flag."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
 
         editor.load_request({"name": "My Request", "method": "GET", "url": "http://x"})
         editor._url_input.setText("http://changed")
@@ -177,6 +195,8 @@ class TestRequestEditorDirtyTracking:
         """load_request stores the request_id."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
 
         editor.load_request({"name": "X", "method": "GET", "url": "http://x"}, request_id=42)
         assert editor.request_id == 42
@@ -185,6 +205,8 @@ class TestRequestEditorDirtyTracking:
         """clear_request resets the dirty flag."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
 
         editor.load_request({"name": "X", "method": "GET", "url": "http://x"})
         editor._url_input.setText("http://changed")
@@ -200,6 +222,8 @@ class TestRequestEditorBodyMode:
         """All body mode radio buttons are present."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
 
         assert "none" in editor._body_mode_buttons
         assert "raw" in editor._body_mode_buttons
@@ -209,6 +233,8 @@ class TestRequestEditorBodyMode:
         """Default body mode is 'none'."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
 
         assert editor._body_mode_buttons["none"].isChecked()
 
@@ -216,6 +242,8 @@ class TestRequestEditorBodyMode:
         """Raw format dropdown is visible when 'raw' mode is selected."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
 
         editor.load_request({"name": "X", "method": "POST", "url": "http://x"})
         editor._body_mode_buttons["raw"].setChecked(True)
@@ -225,6 +253,8 @@ class TestRequestEditorBodyMode:
         """Raw format dropdown is hidden when mode is not 'raw'."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
 
         editor.load_request({"name": "X", "method": "POST", "url": "http://x"})
         editor._body_mode_buttons["form-data"].setChecked(True)
@@ -234,6 +264,8 @@ class TestRequestEditorBodyMode:
         """Loading a request with body_mode sets the correct radio."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
 
         editor.load_request(
             {
@@ -252,6 +284,8 @@ class TestRequestEditorBodyMode:
         """get_request_data returns the current body mode."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
 
         editor.load_request({"name": "X", "method": "POST", "url": "http://x"})
         editor._body_mode_buttons["raw"].setChecked(True)
@@ -276,6 +310,8 @@ class TestRequestEditorDescription:
         """Loading a request with a description populates the field."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
         editor.load_request(
             {
                 "name": "Test",
@@ -290,6 +326,8 @@ class TestRequestEditorDescription:
         """get_request_data returns the description."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
         editor.load_request(
             {
                 "name": "Test",
@@ -305,6 +343,8 @@ class TestRequestEditorDescription:
         """Clearing the editor resets the description field."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
         editor.load_request(
             {
                 "name": "Test",
@@ -324,6 +364,8 @@ class TestRequestEditorDirtyChanged:
         """dirty_changed signal fires when dirty state transitions."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
         editor.load_request({"name": "X", "method": "GET", "url": "http://x"})
 
         signals: list[bool] = []
@@ -339,6 +381,8 @@ class TestRequestEditorDirtyChanged:
         """dirty_changed does not fire when dirty stays the same."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
         editor.load_request({"name": "X", "method": "GET", "url": "http://x"})
 
         signals: list[bool] = []
@@ -361,6 +405,8 @@ class TestRequestEditorTabIndicators:
         """All tabs show plain names after loading an empty request."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
         editor.load_request({"name": "X", "method": "GET", "url": "http://x"})
         for i, name in enumerate(("Params", "Headers", "Body", "Auth", "Description", "Scripts")):
             assert editor._tabs.tabText(i) == name
@@ -369,6 +415,8 @@ class TestRequestEditorTabIndicators:
         """Params tab gets a dot when parameters are present."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
         editor.load_request(
             {
                 "name": "X",
@@ -383,6 +431,8 @@ class TestRequestEditorTabIndicators:
         """Headers tab gets a dot when headers are present."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
         editor.load_request(
             {
                 "name": "X",
@@ -397,6 +447,8 @@ class TestRequestEditorTabIndicators:
         """Body tab gets a dot when body mode is not 'none'."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
         editor.load_request(
             {
                 "name": "X",
@@ -412,6 +464,8 @@ class TestRequestEditorTabIndicators:
         """Auth tab gets a dot when auth is configured."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
         editor.load_request(
             {
                 "name": "X",
@@ -426,6 +480,8 @@ class TestRequestEditorTabIndicators:
         """Description tab gets a dot when description is non-empty."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
         editor.load_request(
             {
                 "name": "X",
@@ -440,6 +496,8 @@ class TestRequestEditorTabIndicators:
         """Scripts tab gets a dot when scripts are present."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
         editor.load_request(
             {
                 "name": "X",
@@ -454,6 +512,8 @@ class TestRequestEditorTabIndicators:
         """Dot disappears when tab content is emptied."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
         editor.load_request(
             {
                 "name": "X",
@@ -482,6 +542,8 @@ class TestRequestEditorMethodComboColors:
 
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
         delegate = cast(QStyledItemDelegate, editor._method_combo.itemDelegate())
         model = editor._method_combo.model()
         for i in range(editor._method_combo.count()):
@@ -498,6 +560,8 @@ class TestRequestEditorMethodComboColors:
 
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
         for method in ("POST", "DELETE", "GET"):
             editor._method_combo.setCurrentText(method)
             color = method_color(method)
@@ -535,6 +599,7 @@ class TestRequestEditorVariableMap:
         """set_variable_map pushes the map to key-value tables."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
         m: dict[str, VariableDetail] = {
             "key": {"value": "value", "source": "collection", "source_id": 1}
         }
@@ -547,6 +612,7 @@ class TestRequestEditorVariableMap:
         """set_variable_map pushes the map to code editors."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
         m: dict[str, VariableDetail] = {
             "url": {"value": "https://api.test", "source": "environment", "source_id": 10}
         }
@@ -583,6 +649,7 @@ class TestRequestEditorStatusBar:
         """Both script editors have line/column labels and a language picker."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_scripts_editors()
         assert hasattr(editor, "_pre_status_ln_lbl")
         assert hasattr(editor, "_test_status_ln_lbl")
         assert hasattr(editor, "_pre_lang_menu_btn")
@@ -592,6 +659,7 @@ class TestRequestEditorStatusBar:
         """Status bar shows initial cursor position, language control, and char count."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_scripts_editors()
         assert "Ln 1" in editor._pre_status_ln_lbl.text()
         assert "Col 1" in editor._pre_status_ln_lbl.text()
         assert editor._pre_lang_menu_btn.text() == "JavaScript"
@@ -605,6 +673,7 @@ class TestRequestEditorScriptSearchBar:
         """Both script tabs have a search bar attached."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_scripts_editors()
         assert hasattr(editor, "_pre_search_bar")
         assert hasattr(editor, "_test_search_bar")
 
@@ -612,6 +681,7 @@ class TestRequestEditorScriptSearchBar:
         """Search bars are hidden by default."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_scripts_editors()
         assert editor._pre_search_bar.isHidden()
         assert editor._test_search_bar.isHidden()
 
@@ -619,6 +689,7 @@ class TestRequestEditorScriptSearchBar:
         """Toggling the search bar shows it."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_scripts_editors()
         editor._pre_search_bar.toggle_search()
         assert not editor._pre_search_bar.isHidden()
 
@@ -626,6 +697,7 @@ class TestRequestEditorScriptSearchBar:
         """Script editors have a non-zero minimum height."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_scripts_editors()
         assert editor._pre_request_edit.minimumHeight() >= 80
         assert editor._test_script_edit.minimumHeight() >= 80
 
@@ -633,6 +705,8 @@ class TestRequestEditorScriptSearchBar:
         """Post-response Run delegates to live-send pipeline in default mode."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
         editor.load_request({"name": "X", "method": "GET", "url": "https://x"})
         editor._test_script_edit.setPlainText("pm.test('ok', () => true)")
 
@@ -653,6 +727,8 @@ class TestRequestEditorScriptSearchBar:
         """Manual mode keeps existing inline script execution path."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
         editor.load_request({"name": "X", "method": "GET", "url": "https://x"})
         editor._test_script_edit.setPlainText("pm.test('ok', () => true)")
         editor._test_output_panel.set_response_source_mode("manual")
@@ -661,3 +737,37 @@ class TestRequestEditorScriptSearchBar:
         editor._test_output_panel.run_script = called  # type: ignore[method-assign]
         editor._run_inline_script("test")
         assert called.called
+
+    def test_body_editors_not_built_until_body_tab_shown(self, qapp: QApplication, qtbot) -> None:
+        """Heavy body widgets stay unloaded until the Body tab is selected."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor.load_request(
+            {
+                "name": "T",
+                "method": "POST",
+                "url": "http://x",
+                "body_mode": "raw",
+                "body": "{}",
+            }
+        )
+        assert not editor._body_editor_materialized
+        assert not hasattr(editor, "_body_code_editor")
+
+        editor._tabs.setCurrentIndex(2)
+        assert editor._body_editor_materialized
+        assert hasattr(editor, "_body_code_editor")
+
+    def test_scripts_editors_not_built_until_scripts_tab_shown(
+        self, qapp: QApplication, qtbot
+    ) -> None:
+        """Script editors stay unloaded until the Scripts tab is selected."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor.load_request({"name": "T", "method": "GET", "url": "http://x"})
+        assert not editor._scripts_editor_materialized
+        assert not hasattr(editor, "_pre_request_edit")
+
+        editor._tabs.setCurrentIndex(5)
+        assert editor._scripts_editor_materialized
+        assert hasattr(editor, "_pre_request_edit")

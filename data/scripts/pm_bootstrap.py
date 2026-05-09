@@ -359,7 +359,7 @@ class _PmResponse:
         if not body:
             raise ValueError(
                 "pm.response.json(): response body is empty. "
-                "Set a JSON body in the Mock response section below the script editor, "
+                "Set a JSON body on the Mock response tab (Body field), "
                 "or guard the call with `if pm.response.text():` before parsing."
             )
         try:
@@ -367,7 +367,7 @@ class _PmResponse:
         except json.JSONDecodeError as e:
             raise ValueError(
                 "pm.response.json(): body is not valid JSON "
-                f"({e.msg}). Check the Mock response body below the script editor."
+                f"({e.msg}). Check the Mock response body on the Mock response tab."
             ) from e
 
     def text(self) -> str:

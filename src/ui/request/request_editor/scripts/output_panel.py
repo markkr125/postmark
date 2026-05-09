@@ -1,9 +1,9 @@
 """Script output panel for inline script execution results.
 
 Displays console logs, test results, and errors from running a script
-in the editor without sending an actual HTTP request.  For post-response
-(test) scripts, provides response input fields so the user can supply
-a response body to test against.
+in the editor without sending an actual HTTP request.  Post-response
+scripts add a **Mock response** tab (status, headers table, JSON body
+editor; live vs manual on request tabs) beside Output and Problems.
 """
 
 from __future__ import annotations
@@ -12,24 +12,28 @@ import contextlib
 import html
 from typing import TYPE_CHECKING, Any, cast
 
+if TYPE_CHECKING:
+    from services.environment_service import VariableDetail
+
 from PySide6.QtCore import QObject, Qt, QThread, Slot
 from PySide6.QtWidgets import (
-    QComboBox,
     QHBoxLayout,
     QLabel,
-    QPlainTextEdit,
     QPushButton,
     QScrollArea,
     QSizePolicy,
-    QSpinBox,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from services.scripting.debug import DebugPauseInfo, DebugProtocol
 from ui.sidebar.debug_panel import DebugVariablesPanel
+from ui.request.request_editor.scripts.lsp_problems_tab import ScriptLspProblemsTab
+from ui.request.request_editor.scripts.mock_response_tab import ScriptMockResponseTab
 from ui.styling.icons import phi
 from ui.styling.theme import COLOR_ACCENT, COLOR_DANGER, COLOR_SUCCESS, COLOR_WARNING
+from ui.widgets.key_value_table import KeyValueTableWidget
 
 # Matches the send-pipeline QThread wait budget in tab_manager.
 _THREAD_WAIT_MS = 3000
@@ -46,8 +50,8 @@ _LOG_COLORS: dict[str, str] = {
 class ScriptOutputPanel(QWidget):
     """Panel displaying inline script execution results.
 
-    For test (post-response) scripts, also provides response input
-    fields (status code + body) so the user can supply a mock response.
+    Post-response panels add **Mock response**, **Output**, and **Problems**
+    tabs (mock tab: status, headers table, JSON body editor); pre-request panels show Output and Problems only.
     """
 
     def __init__(
@@ -59,12 +63,13 @@ class ScriptOutputPanel(QWidget):
     ) -> None:
         """Initialise the output panel.
 
-        *script_type*: ``"pre_request"`` or ``"test"``.  When
-        ``"test"``, response input fields are shown.
+        *script_type*: ``"pre_request"`` or ``"test"``.  When ``"test"``, a
+        **Mock response** tab holds status, headers, and body (and live vs
+        manual controls on request tabs).
 
         *host_kind*: ``"request"`` shows the **Response source** combo (live vs
         manual).  ``"folder"`` has **no** live path and no combo, but still shows
-        **Mock response** (status + body) for ``pm.response`` in inline runs.
+        **Mock response** (status + headers + body) for ``pm.response`` in inline runs.
         """
         super().__init__(parent)
         self.setSizePolicy(
@@ -73,6 +78,8 @@ class ScriptOutputPanel(QWidget):
         )
         self._script_type = script_type
         self._host_kind = host_kind
+        self._mock_response_tab: ScriptMockResponseTab | None = None
+        self._mock_headers_table: KeyValueTableWidget | None = None
         self._busy_buttons: list[QPushButton] = []
         self._worker_thread: QThread | None = None
         self._current_worker: QObject | None = None
@@ -87,11 +94,7 @@ class ScriptOutputPanel(QWidget):
         root.setContentsMargins(0, 4, 0, 0)
         root.setSpacing(4)
 
-        # 1. Response input section (test scripts only).
-        if self._script_type == "test":
-            self._build_response_input(root)
-
-        # 2. Output: header + scroll (placeholder, debugger, console — see _build_results_area).
+        # Tab strip: Output, Problems, and (post-response only) Mock response.
         self._build_output_section(root)
 
         # Visible before any run so users discover Run / Ctrl+Enter.
@@ -106,17 +109,50 @@ class ScriptOutputPanel(QWidget):
             self.setMinimumHeight(240)
 
     def _build_output_section(self, parent_layout: QVBoxLayout) -> None:
-        """Column: Output title, then scrollable body (placeholder, debugger, logs)."""
-        section = QWidget()
-        section.setObjectName("scriptOutputSection")
-        col = QVBoxLayout(section)
-        col.setContentsMargins(0, 0, 0, 0)
-        col.setSpacing(4)
+        """Tab strip: Output, Problems, and Mock response (post-response only)."""
+        tabs = QTabWidget()
+        tabs.setObjectName("scriptOutputTabs")
+        tabs.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        self._build_output_header(col)
+        output_page = QWidget()
+        output_page.setObjectName("scriptOutputSection")
+        col = QVBoxLayout(output_page)
+        col.setContentsMargins(0, 2, 0, 0)
+        col.setSpacing(2)
+
+        self._build_output_timing_row(col)
         self._build_results_area(col)
 
-        parent_layout.addWidget(section, 1)
+        tabs.addTab(output_page, "Output")
+
+        self._problems_tab = ScriptLspProblemsTab(tabs)
+        tabs.addTab(self._problems_tab, "Problems (0)")
+
+        if self._script_type == "test":
+            self._mock_response_tab = ScriptMockResponseTab(host_kind=self._host_kind, parent=tabs)
+            tabs.addTab(self._mock_response_tab, "Mock response")
+            self._response_source_combo = self._mock_response_tab.response_source_combo
+            self._live_response_hint = self._mock_response_tab.live_response_hint
+            self._manual_response_container = self._mock_response_tab.manual_response_container
+            self._status_spin = self._mock_response_tab.status_spin
+            self._mock_headers_table = self._mock_response_tab.headers_table
+            self._response_body_edit = self._mock_response_tab.response_body_edit
+
+        self._script_output_tabs = tabs
+        self._problems_tab.problem_count_changed.connect(self._update_problems_tab_label)
+        self._update_problems_tab_label(self._problems_tab.diagnostic_count())
+
+        parent_layout.addWidget(tabs, 1)
+
+    def _update_problems_tab_label(self, count: int) -> None:
+        """Keep the Problems tab title in sync with the LSP diagnostic count."""
+        tabs = getattr(self, "_script_output_tabs", None)
+        if tabs is None:
+            return
+        idx = tabs.indexOf(self._problems_tab)
+        if idx < 0:
+            return
+        tabs.setTabText(idx, f"Problems ({count})")
 
     def _build_debug_variables(self, parent_layout: QVBoxLayout) -> None:
         """Variable inspector (hidden until a debug session pauses)."""
@@ -138,6 +174,8 @@ class ScriptOutputPanel(QWidget):
         variable inspector here.
         """
         self._clear_result_rows()
+        self._elapsed_label.setText("")
+        self._timing_row.hide()
         pause: DebugPauseInfo = cast(DebugPauseInfo, info)
         self._debug_variables.update_pause(pause)
         self._debug_variables.setVisible(True)
@@ -147,141 +185,38 @@ class ScriptOutputPanel(QWidget):
         self._debug_variables.set_idle()
         self._debug_variables.hide()
 
-    def _build_response_input(self, parent_layout: QVBoxLayout) -> None:
-        """Build response controls for post-response scripts.
-
-        Request tabs: **Response source** (live vs manual) plus mock fields.
-        Folder/collection tabs: **Mock response** only (no live send for a collection).
-        """
-        self._response_source_combo = None
-        self._live_response_hint = None
-
-        if self._host_kind == "request":
-            source_row = QHBoxLayout()
-            source_row.setContentsMargins(0, 0, 0, 0)
-
-            source_lbl = QLabel("Response source")
-            source_lbl.setObjectName("mutedLabel")
-            source_lbl.setStyleSheet("font-weight: bold;")
-            source_row.addWidget(source_lbl)
-
-            self._response_source_combo = QComboBox()
-            self._response_source_combo.addItem("Use current response", "live")
-            self._response_source_combo.addItem("Manual mock response", "manual")
-            self._response_source_combo.setCursor(Qt.CursorShape.PointingHandCursor)
-            self._response_source_combo.setFixedWidth(190)
-            self._response_source_combo.currentIndexChanged.connect(
-                self._on_response_source_changed
-            )
-            source_row.addWidget(self._response_source_combo)
-            source_row.addStretch()
-            parent_layout.addLayout(source_row)
-
-            self._live_response_hint = QLabel(
-                "Run will send the current request and use that response."
-            )
-            self._live_response_hint.setObjectName("mutedLabel")
-            self._live_response_hint.setWordWrap(True)
-            parent_layout.addWidget(self._live_response_hint)
-        else:
-            mock_title = QLabel("Mock response")
-            mock_title.setObjectName("mutedLabel")
-            mock_title.setStyleSheet("font-weight: bold;")
-            parent_layout.addWidget(mock_title)
-            folder_hint = QLabel(
-                "Script runs use this as the HTTP response (pm.response). "
-                "There is no \u201ccurrent request\u201d for a collection."
-            )
-            folder_hint.setObjectName("mutedLabel")
-            folder_hint.setWordWrap(True)
-            parent_layout.addWidget(folder_hint)
-
-        self._manual_response_container = QWidget()
-        manual_col = QVBoxLayout(self._manual_response_container)
-        manual_col.setContentsMargins(0, 0, 0, 0)
-        manual_col.setSpacing(4)
-
-        header = QHBoxLayout()
-        header.setContentsMargins(0, 0, 0, 0)
-        status_lbl = QLabel("Status:")
-        status_lbl.setObjectName("mutedLabel")
-        header.addWidget(status_lbl)
-
-        self._status_spin = QSpinBox()
-        self._status_spin.setRange(100, 599)
-        self._status_spin.setValue(200)
-        self._status_spin.setFixedWidth(70)
-        self._status_spin.setToolTip("HTTP status code for the mock response")
-        header.addWidget(self._status_spin)
-        header.addStretch()
-        manual_col.addLayout(header)
-
-        self._response_body_edit = QPlainTextEdit()
-        self._response_body_edit.setPlaceholderText(
-            "Paste or type response body here\u2026 "
-            "Defaults to `{}` if blank — replace with your mock JSON to test pm.response.json()."
-        )
-        self._response_body_edit.setMaximumHeight(100)
-        self._response_body_edit.setMinimumHeight(40)
-        manual_col.addWidget(self._response_body_edit)
-        parent_layout.addWidget(self._manual_response_container)
-
-        if self._host_kind == "request":
-            self._on_response_source_changed()
-        else:
-            self._manual_response_container.setVisible(True)
-
-    def _on_response_source_changed(self) -> None:
-        """Show either live-response hint or manual mock editor."""
-        if self._response_source_combo is None or self._live_response_hint is None:
-            return
-        mode = self.response_source_mode()
-        self._live_response_hint.setVisible(mode == "live")
-        if self._manual_response_container is not None:
-            self._manual_response_container.setVisible(mode == "manual")
-
     def response_source_mode(self) -> str:
         """Return selected test response source: ``live`` or ``manual``."""
-        if self._script_type != "test" or self._response_source_combo is None:
+        if self._mock_response_tab is None:
             return "manual"
-        data = self._response_source_combo.currentData()
-        return "manual" if data == "manual" else "live"
+        return self._mock_response_tab.response_source_mode()
 
     def set_response_source_mode(self, mode: str) -> None:
         """Set response source mode for test scripts."""
-        if self._script_type != "test" or self._response_source_combo is None:
+        if self._mock_response_tab is None:
             return
-        target = "manual" if mode == "manual" else "live"
-        idx = self._response_source_combo.findData(target)
-        if idx >= 0:
-            self._response_source_combo.setCurrentIndex(idx)
+        self._mock_response_tab.set_response_source_mode(mode)
 
-    def _build_output_header(self, parent_layout: QVBoxLayout) -> None:
-        """Build the output results header row."""
-        header = QHBoxLayout()
-        header.setContentsMargins(0, 0, 0, 0)
+    def set_variable_map(self, variables: dict[str, VariableDetail]) -> None:
+        """Push resolved variables to mock headers/body editors (test panels only)."""
+        if self._mock_response_tab is None:
+            return
+        self._mock_response_tab.set_variable_map(variables)
 
-        lbl = QLabel("Output")
-        lbl.setObjectName("mutedLabel")
-        lbl.setStyleSheet("font-weight: bold;")
-        header.addWidget(lbl)
+    def _build_output_timing_row(self, parent_layout: QVBoxLayout) -> None:
+        """Right-aligned run timing — hidden until a run supplies elapsed ms."""
+        self._timing_row = QWidget()
+        row = QHBoxLayout(self._timing_row)
+        row.setContentsMargins(0, 0, 0, 0)
+
+        row.addStretch()
 
         self._elapsed_label = QLabel()
         self._elapsed_label.setObjectName("mutedLabel")
-        header.addWidget(self._elapsed_label)
+        row.addWidget(self._elapsed_label)
 
-        header.addStretch()
-
-        clear_btn = QPushButton()
-        clear_btn.setIcon(phi("eraser"))
-        clear_btn.setFixedSize(28, 28)
-        clear_btn.setObjectName("iconButton")
-        clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        clear_btn.setToolTip("Clear output")
-        clear_btn.clicked.connect(self.clear_results)
-        header.addWidget(clear_btn)
-
-        parent_layout.addLayout(header)
+        parent_layout.addWidget(self._timing_row)
+        self._timing_row.hide()
 
     def _build_results_area(self, parent_layout: QVBoxLayout) -> None:
         """Build the scrollable body: variable inspector, dynamic rows, stretch.
@@ -324,12 +259,12 @@ class ScriptOutputPanel(QWidget):
         elif self._host_kind == "request":
             msg = (
                 "Execute the script with the Run button or Ctrl+Enter — output and tests "
-                "appear here using the mock response above."
+                "use the mock body from the Mock response tab (when using manual mock)."
             )
         else:
             msg = (
                 "Execute the script with the Run button or Ctrl+Enter — output and tests "
-                "use the mock body above for pm.response."
+                "use the mock body from the Mock response tab for pm.response."
             )
         hint = QLabel(f"<span style='font-size:12px;'>{html.escape(msg)}</span>")
         hint.setObjectName("mutedLabel")
@@ -341,6 +276,11 @@ class ScriptOutputPanel(QWidget):
 
     if TYPE_CHECKING:
         from services.scripting import ScriptInput
+        from ui.widgets.code_editor.editor_widget import CodeEditorWidget
+
+    def bind_script_editor(self, editor: CodeEditorWidget) -> None:
+        """Wire language-server diagnostics into the Problems tab for *editor*."""
+        self._problems_tab.set_editor(editor)
 
     def run_script(
         self,
@@ -506,6 +446,7 @@ class ScriptOutputPanel(QWidget):
         """Populate the panel with *output* from a script run."""
         self._clear_result_rows()
         self._elapsed_label.setText(f"{elapsed_ms:.0f} ms")
+        self._timing_row.show()
 
         # 1. Console logs.
         logs = output.get("console_logs", [])
@@ -539,6 +480,7 @@ class ScriptOutputPanel(QWidget):
         """Display a single error message."""
         self._clear_result_rows()
         self._elapsed_label.setText("")
+        self._timing_row.hide()
 
         row = QLabel(f"<span style='color:{COLOR_DANGER};'>{html.escape(message)}</span>")
         row.setWordWrap(True)
@@ -550,6 +492,7 @@ class ScriptOutputPanel(QWidget):
         """Clear all result rows and restore the idle placeholder."""
         self._clear_result_rows()
         self._elapsed_label.setText("")
+        self._timing_row.hide()
         self._show_idle_hint()
 
     def get_response_data(self) -> dict[str, Any]:
@@ -558,7 +501,7 @@ class ScriptOutputPanel(QWidget):
         Only meaningful for ``script_type="test"`` panels.  Returns
         a dict suitable for the ``response`` field of ``ScriptInput``.
         """
-        if self._script_type != "test":
+        if self._script_type != "test" or self._mock_response_tab is None:
             return {
                 "code": 200,
                 "status": "OK",
@@ -567,18 +510,7 @@ class ScriptOutputPanel(QWidget):
                 "responseTime": 0,
                 "responseSize": 0,
             }
-        body = self._response_body_edit.toPlainText()
-        if not body.strip():
-            body = "{}"  # Sensible default so pm.response.json() does not throw on first debug
-        code = self._status_spin.value()
-        return {
-            "code": code,
-            "status": f"{code}",
-            "headers": [],
-            "body": body,
-            "responseTime": 0,
-            "responseSize": len(body.encode("utf-8")),
-        }
+        return self._mock_response_tab.get_response_data()
 
     # -- Internal helpers ----------------------------------------------
 

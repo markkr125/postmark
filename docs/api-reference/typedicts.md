@@ -325,7 +325,7 @@ Every field is a hex colour string.
 | Console | 2 | `console_bg`, `console_text` |
 | Timing phases | 7 | `timing_prepare`, `timing_dns`, `timing_tcp`, `timing_tls` |
 | Variable highlight | 3 | `variable_highlight`, `variable_unresolved_highlight` |
-| Code editor | 18 | `editor_bracket_match`, `editor_string`, `editor_keyword` |
+| Code editor | 22 | `editor_bracket_match`, `editor_string`, `editor_keyword` |
 
 See `src/ui/styling/theme.py` for the full field list.
 

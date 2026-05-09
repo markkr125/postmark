@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "target": "esnext",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": false,
+    "allowJs": true,
+    "checkJs": true,
+    "lib": ["esnext"],
+    "types": []
+  },
+  "include": ["**/*.ts", "**/*.js", "stubs/pm.d.ts"]
+}

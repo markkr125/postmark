@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QApplication
 
 from database.database import init_db
 from qt_app_init import configure_before_qapplication
+from services.lsp.server_registry import LspRegistry
 from ui.main_window import MainWindow
 from ui.styling.icons import load_font
 from ui.styling.tab_settings_manager import TabSettingsManager
@@ -27,6 +28,8 @@ if __name__ == "__main__":
 
     # Load the Phosphor icon font (must happen after QApplication)
     load_font()
+
+    app.aboutToQuit.connect(lambda: LspRegistry.instance().shutdown())
 
     # Initialise the database before any widget accesses it
     init_db()

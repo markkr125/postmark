@@ -16,6 +16,7 @@ class TestRequestEditorBinary:
         qtbot.addWidget(editor)
 
         editor.load_request({"name": "X", "method": "POST", "url": "http://x"})
+        editor._ensure_body_editors()
         editor._body_mode_buttons["binary"].setChecked(True)
 
         assert editor._body_stack.currentIndex() == 3
@@ -24,6 +25,7 @@ class TestRequestEditorBinary:
         """The binary file select button is present."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
 
         assert hasattr(editor, "_binary_file_btn")
         assert editor._binary_file_btn.text() == "Select File"
@@ -32,6 +34,7 @@ class TestRequestEditorBinary:
         """The binary file label starts with 'No file selected.'."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
 
         assert editor._binary_file_label.text() == "No file selected."
 
@@ -49,6 +52,7 @@ class TestRequestEditorBinary:
                 "body": "/path/to/file.png",
             }
         )
+        editor._ensure_body_editors()
 
         assert editor._body_mode_buttons["binary"].isChecked()
         assert editor._binary_file_label.text() == "/path/to/file.png"
@@ -67,6 +71,7 @@ class TestRequestEditorBinary:
                 "body": "",
             }
         )
+        editor._ensure_body_editors()
 
         assert editor._binary_file_label.text() == "No file selected."
 
@@ -84,6 +89,7 @@ class TestRequestEditorBinary:
                 "body": "/path/to/data.bin",
             }
         )
+        editor._ensure_body_editors()
 
         data = editor.get_request_data()
         assert data["body_mode"] == "binary"
@@ -95,6 +101,7 @@ class TestRequestEditorBinary:
         qtbot.addWidget(editor)
 
         editor.load_request({"name": "X", "method": "POST", "url": "http://x"})
+        editor._ensure_body_editors()
         editor._body_mode_buttons["binary"].setChecked(True)
 
         data = editor.get_request_data()
@@ -115,6 +122,7 @@ class TestRequestEditorBinary:
                 "body": "/path/to/file.png",
             }
         )
+        editor._ensure_body_editors()
         editor.clear_request()
 
         assert editor._binary_file_label.text() == "No file selected."
@@ -133,6 +141,7 @@ class TestRequestEditorBinary:
                 "body": "",
             }
         )
+        editor._ensure_body_editors()
         assert not editor.is_dirty
 
         # Simulate what _on_select_binary_file does
@@ -155,6 +164,7 @@ class TestRequestEditorBinary:
                 "body": path,
             }
         )
+        editor._ensure_body_editors()
 
         data = editor.get_request_data()
         assert data["body_mode"] == "binary"
@@ -164,6 +174,7 @@ class TestRequestEditorBinary:
         """The binary radio button is in the body mode group."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
 
         assert "binary" in editor._body_mode_buttons
         btn = editor._body_mode_buttons["binary"]
@@ -183,6 +194,7 @@ class TestRequestEditorBinary:
                 "body": "/file.bin",
             }
         )
+        editor._ensure_body_editors()
         assert editor._body_stack.currentIndex() == 3
 
         editor._body_mode_buttons["raw"].setChecked(True)

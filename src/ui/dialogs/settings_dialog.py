@@ -303,6 +303,10 @@ class SettingsDialog(QDialog):
         self._enable_scripts_check.setChecked(bool(enabled))
         layout.addWidget(self._enable_scripts_check)
 
+        self._lsp_enabled_check = QCheckBox("Enable language server (LSP) for scripts")
+        self._lsp_enabled_check.setChecked(RuntimeSettings.lsp_enabled())
+        layout.addWidget(self._lsp_enabled_check)
+
         note = QLabel(
             "When disabled, pre-request and test scripts are skipped\n"
             "for both single requests and collection runs."
@@ -470,6 +474,7 @@ class SettingsDialog(QDialog):
 
         settings = QSettings(_ORG, _APP)
         settings.setValue("scripting/enabled", self._enable_scripts_check.isChecked())
+        RuntimeSettings.set_lsp_enabled(self._lsp_enabled_check.isChecked())
         settings.setValue(
             "scripting/auto_save_default",
             self._auto_save_default_check.isChecked(),
