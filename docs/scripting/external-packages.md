@@ -178,6 +178,77 @@ Python path (per script run):
 4. The user script's `pm.require("pkg")` returns
    `importlib.import_module("pkg")`.
 
+## Private package registries
+
+`pm.require("npm:…")`, `pm.require("jsr:…")` and Python `pm.require(…)` can
+be routed through your own private mirrors. Configure them from **Settings →
+Scripting → Private package registries**. Postman gates this functionality
+behind their Enterprise plan ($49/user/month) and supports npm + JSR only.
+Postmark ships the same plumbing **for free**, with PyPI included.
+
+### Where credentials are stored
+
+By default secrets go into the OS keychain via the
+[`keyring`](https://pypi.org/project/keyring/) library — macOS Keychain,
+GNOME Keyring / KWallet, or Windows Credential Manager. When keyring is
+unavailable Postmark falls back to a Fernet-encrypted JSON blob under the
+per-user config dir (`~/.config/postmark/scripting_secrets.enc` on Linux,
+the platform-equivalent elsewhere), with a key derived from the machine ID.
+The Settings page shows which backend is active and surfaces a "less safe"
+warning on the file fallback. **Tokens never appear in `QSettings`.**
+
+### npm scoped registries
+
+Each row in the registries table maps a single `@scope` to a registry URL
+plus optional authentication. The runtime emits a per-execution `.npmrc`
+into the Deno bundle working directory **whenever a script triggers
+network mode** — i.e. the bundle contains a literal
+`pm.require("npm:…")` or `pm.require("jsr:…")` specifier that Postmark
+detects statically. Scripts with no `pm.require` install (pure
+`pm.test` / variable manipulation) run with networking disabled and no
+`.npmrc` is written. The file is chmod `0600` and Deno reads it from the
+project root per the
+[Deno private NPM registries](https://docs.deno.com/runtime/manual/node/private_registries/)
+docs:
+
+```
+@mycompany:registry=https://npm.mycorp.io/
+//npm.mycorp.io/:_authToken=<resolved from secret store>
+```
+
+Token auth emits `_authToken=` (the modern key used by Verdaccio, Nexus,
+Cloudsmith, Artifactory, GitHub Packages). Basic auth emits
+`_auth=<base64(user:password)>`. The "Override default npm registry"
+line edit adds a `registry=…` line that replaces `registry.npmjs.org` for
+any unscoped specifier.
+
+Environment-variable expansion inside `.npmrc` is unreliable on Deno
+(see [supabase/cli#4927](https://github.com/supabase/cli/issues/4927));
+Postmark resolves tokens itself before writing the file rather than
+relying on `${NPM_TOKEN}` placeholders.
+
+### JSR private registries
+
+JSR.io [does not host private packages](https://github.com/jsr-io/jsr/issues/203).
+Enterprises run JSR through an npm-compatible upstream proxy
+(Cloudsmith, Artifactory). Add the proxy as a scope-mapped row with **JSR**
+selected in the *Type* column; the on-disk `.npmrc` format is identical
+because both go through the same Deno npm machinery.
+
+### Private PyPI (Pyodide runtime)
+
+Set **Primary index URL** to replace the public PyPI mirror — Postmark
+calls `micropip.set_index_urls([…])` before the first `pm.require`
+install. Use **Extra index URL** sparingly: pip docs warn that
+`--extra-index-url` enables dependency-confusion attacks, and we surface
+the same warning in the dialog. Authentication is URL-embedded
+(`https://user:token@pypi.mycorp.io/simple/`) since `micropip` has no
+`.netrc` parsing.
+
+The RestrictedPython subprocess runtime (no Pyodide) has no install
+path at all — private PyPI applies only when Pyodide is the active Python
+runtime.
+
 ## Adding a new vendored library (JS)
 
 Use this recipe when adding a new `lodash`-class library that should be

@@ -59,7 +59,20 @@ and managed download.
 |------|----------|
 | Appearance | Style (Fusion / Native), colour scheme (Auto / Light / Dark) |
 | Tabs | Tab limit, close policies, activate-on-close, wrap mode |
-| Scripting | Deno executable path, validation, managed download; Python path |
+| Scripting | Deno executable path, validation, managed download; Python path; LSP toggle; auto-save default; **Private package registries** (npm / JSR scope-mapped + default-npm override + PyPI primary/extra index with embedded auth) |
+
+### Private package registries (Scripting page)
+
+Sub-section of the Scripting page. See
+[docs/scripting/external-packages.md](../scripting/external-packages.md#private-package-registries)
+for the full reference. Auth tokens live in the OS keychain via the
+[`keyring`](https://pypi.org/project/keyring/) library by default, with a
+Fernet-encrypted file fallback (machine-id-derived key) when keyring is
+unavailable — the dialog surfaces a "less safe" warning in that case.
+Per-row "Auth…" buttons open a `SecretEntryDialog`
+([`src/ui/dialogs/secret_entry_dialog.py`](../../src/ui/dialogs/secret_entry_dialog.py))
+that supports Token / Basic / None modes; no token ever lands in
+`QSettings`.
 
 ## Collection runner (inline)
 

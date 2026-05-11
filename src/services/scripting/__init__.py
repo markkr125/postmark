@@ -23,6 +23,7 @@ class TestResult(TypedDict):
     error: str | None
     duration_ms: float
     source_name: NotRequired[str]
+    skipped: NotRequired[bool]
 
 
 class ConsoleLog(TypedDict):
@@ -44,6 +45,8 @@ class ScriptInput(TypedDict):
     global_vars: NotRequired[dict[str, str]]
     info: dict[str, Any]
     iteration_data: NotRequired[dict[str, Any]]
+    original_request: NotRequired[dict[str, Any]]
+    execution_location: NotRequired[dict[str, Any]]
 
 
 class ScriptOutput(TypedDict):

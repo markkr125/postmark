@@ -141,6 +141,29 @@ Messages beyond the limit are silently dropped.
 - Persist data outside of variables.
 - Run longer than the timeout allows.
 
+## Credential storage (private package registries)
+
+When the user configures a private npm / JSR / PyPI registry, auth tokens
+go through `services.scripting.secret_store`:
+
+| Backend | When chosen | Risk profile |
+|---------|-------------|--------------|
+| `KeyringSecretStore` (OS keychain) | Default — `keyring` importable AND its backend passes a write/read self-test | Token protected by the OS user account (Keychain unlock, GNOME Keyring session, Credential Manager) |
+| `EncryptedFileSecretStore` (Fernet) | Fallback when keyring fails or is missing | Token decryptable by anyone with disk + login access to this machine (machine-id-derived key). Dialog surfaces a "less safe" warning. |
+| `NoopSecretStore` | Both `keyring` and `cryptography` are missing | Secrets silently dropped; registries resolve anonymously |
+
+Generated `.npmrc` files are chmod `0600` so other Unix users on the same
+host cannot read them. Tokens are resolved into the file at spawn time
+(see `services.scripting.deno_runtime._build_npmrc_text`) rather than
+left as `${NPM_TOKEN}` placeholders, because Deno's env-var expansion in
+`.npmrc` is documented as unreliable
+([supabase/cli#4927](https://github.com/supabase/cli/issues/4927)).
+
+PyPI tokens are embedded in the index URL
+(`https://user:token@pypi.mycorp.io/simple/`) and passed to
+`micropip.set_index_urls(…)`; they live only in the Pyodide subprocess
+memory for the lifetime of one script run.
+
 ## For Contributors
 
 ### Adding Sandbox Tests

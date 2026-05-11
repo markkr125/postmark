@@ -148,6 +148,7 @@ class _ScriptsMixin:
         parent_layout.addWidget(splitter, 1)
 
         self._pre_output_panel.bind_script_editor(self._pre_request_edit)
+        self._refresh_snippets_button("pre_request")
 
     def _build_test_script_tab(self, parent_layout: QVBoxLayout) -> None:
         """Build the Post-response Script tab contents."""
@@ -238,6 +239,7 @@ class _ScriptsMixin:
             lambda n: self._run_single_test(n, debug=True)
         )
         self._refresh_pm_test_gutter_markers()
+        self._refresh_snippets_button("test")
 
     def _refresh_pm_test_gutter_markers(self) -> None:
         """Update per-line ``pm.test`` markers in the post-response editor gutter."""
@@ -480,6 +482,7 @@ class _ScriptsMixin:
             self._schedule_banner_check()
             if not getattr(self, "_loading", False):
                 self._on_field_changed()  # type: ignore[attr-defined]
+            self._refresh_snippets_button(script_type)
 
         def pick_ts() -> None:
             self._set_script_lang_auto(script_type, False)
@@ -490,6 +493,7 @@ class _ScriptsMixin:
             self._schedule_banner_check()
             if not getattr(self, "_loading", False):
                 self._on_field_changed()  # type: ignore[attr-defined]
+            self._refresh_snippets_button(script_type)
 
         def pick_py() -> None:
             self._set_script_lang_auto(script_type, False)
@@ -500,6 +504,7 @@ class _ScriptsMixin:
             self._schedule_banner_check()
             if not getattr(self, "_loading", False):
                 self._on_field_changed()  # type: ignore[attr-defined]
+            self._refresh_snippets_button(script_type)
 
         def pick_auto() -> None:
             self._set_script_lang_auto(script_type, True)
@@ -541,6 +546,7 @@ class _ScriptsMixin:
         self._schedule_banner_check()
         if not getattr(self, "_loading", False):
             self._on_field_changed()  # type: ignore[attr-defined]
+        self._refresh_snippets_button(script_type)
 
     def _build_script_header(
         self,
@@ -550,11 +556,37 @@ class _ScriptsMixin:
         search_bar: SearchReplaceBar,
         editor: CodeEditorWidget,
     ) -> None:
-        """Build editor toolbar (find/replace, undo/redo, run, debug) and auto-save toggle."""
+        """Build editor toolbar (find/replace, redo/undo, run current/all, debug, save)."""
         lang_row = QHBoxLayout()
         lang_row.setContentsMargins(0, 0, 0, 0)
 
-        # -- Toolbar buttons (left; stretch keeps auto-save right-aligned) --
+        def _make_icon_btn(
+            icon: str, tip: str, slot: Any, *, enabled: bool = True
+        ) -> QPushButton:
+            b = QPushButton()
+            b.setIcon(phi(icon))
+            b.setFixedSize(28, 28)
+            b.setObjectName("iconButton")
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setToolTip(tip)
+            b.setEnabled(enabled)
+            b.clicked.connect(slot)
+            return b
+
+        def _add_separator() -> None:
+            # Plain (non-VLine) frame so the colour comes from QSS
+            # (``background: {p["border"]}``) instead of Qt's hard-coded
+            # palette mid-tone (which paints VLine near-black in light themes).
+            sep = QFrame()
+            sep.setObjectName("scriptToolbarSeparator")
+            sep.setFrameShape(QFrame.Shape.NoFrame)
+            sep.setFixedWidth(1)
+            sep.setMinimumHeight(18)
+            lang_row.addSpacing(4)
+            lang_row.addWidget(sep)
+            lang_row.addSpacing(4)
+
+        # -- Group 1: Find / Replace / Go to Line -----------------------
         find_hint = QKeySequence(QKeySequence.StandardKey.Find).toString(
             QKeySequence.SequenceFormat.NativeText,
         )
@@ -566,52 +598,35 @@ class _ScriptsMixin:
             ("swap", f"Find & Replace ({replace_hint})", search_bar.toggle_replace),
             ("list-numbers", "Go to Line (Ctrl+G)", search_bar.goto_line),
         ):
-            btn = QPushButton()
-            btn.setIcon(phi(icon))
-            btn.setFixedSize(28, 28)
-            btn.setObjectName("iconButton")
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setToolTip(tip)
-            btn.clicked.connect(slot)
-            lang_row.addWidget(btn)
+            lang_row.addWidget(_make_icon_btn(icon, tip, slot))
 
-        # -- Undo / Redo buttons --------------------------------------
+        _add_separator()
+
+        # -- Group 2: Redo / Undo (order per UX spec) -------------------
         undo_hint = QKeySequence(QKeySequence.StandardKey.Undo).toString(
             QKeySequence.SequenceFormat.NativeText,
         )
         redo_hint = QKeySequence(QKeySequence.StandardKey.Redo).toString(
             QKeySequence.SequenceFormat.NativeText,
         )
-        undo_btn = QPushButton()
-        undo_btn.setIcon(phi("arrow-counter-clockwise"))
-        undo_btn.setFixedSize(28, 28)
-        undo_btn.setObjectName("iconButton")
-        undo_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        undo_btn.setToolTip(f"Undo ({undo_hint})")
-        undo_btn.setEnabled(False)
-        undo_btn.clicked.connect(editor.undo)
-        editor.undoAvailable.connect(undo_btn.setEnabled)
-        lang_row.addWidget(undo_btn)
-
-        redo_btn = QPushButton()
-        redo_btn.setIcon(phi("arrow-clockwise"))
-        redo_btn.setFixedSize(28, 28)
-        redo_btn.setObjectName("iconButton")
-        redo_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        redo_btn.setToolTip(f"Redo ({redo_hint})")
-        redo_btn.setEnabled(False)
-        redo_btn.clicked.connect(editor.redo)
+        redo_btn = _make_icon_btn(
+            "arrow-clockwise", f"Redo ({redo_hint})", editor.redo, enabled=False
+        )
         editor.redoAvailable.connect(redo_btn.setEnabled)
         lang_row.addWidget(redo_btn)
 
-        # -- Run button ------------------------------------------------
-        run_btn = QPushButton()
-        run_btn.setIcon(phi("play"))
-        run_btn.setFixedSize(28, 28)
-        run_btn.setObjectName("iconButton")
-        run_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        run_btn.setToolTip("Run script (Ctrl+Enter)")
-        run_btn.clicked.connect(
+        undo_btn = _make_icon_btn(
+            "arrow-counter-clockwise", f"Undo ({undo_hint})", editor.undo, enabled=False
+        )
+        editor.undoAvailable.connect(undo_btn.setEnabled)
+        lang_row.addWidget(undo_btn)
+
+        _add_separator()
+
+        # -- Group 3: Run current / Run all (inherited) / Debug ---------
+        run_btn = _make_icon_btn(
+            "play",
+            "Run current script (Ctrl+Enter)",
             lambda _checked=False, ht=history_type: self._run_inline_script(ht),
         )
         lang_row.addWidget(run_btn)
@@ -619,14 +634,20 @@ class _ScriptsMixin:
             self._run_buttons: dict[str, QPushButton] = {}
         self._run_buttons[history_type] = run_btn
 
-        # -- Debug button (inline script debugger) --------------------
-        debug_btn = QPushButton()
-        debug_btn.setIcon(phi("bug"))
-        debug_btn.setFixedSize(28, 28)
-        debug_btn.setObjectName("iconButton")
-        debug_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        debug_btn.setToolTip("Debug script (breakpoints)")
-        debug_btn.clicked.connect(
+        run_all_btn = _make_icon_btn(
+            "stack-simple",
+            "Run all (inherited + current)",
+            lambda _checked=False, ht=history_type: self._run_all_inline_script(ht),
+        )
+        run_all_btn.hide()  # shown by ``_refresh_run_all_buttons`` when inheritance exists
+        lang_row.addWidget(run_all_btn)
+        if not hasattr(self, "_run_all_buttons"):
+            self._run_all_buttons: dict[str, QPushButton] = {}
+        self._run_all_buttons[history_type] = run_all_btn
+
+        debug_btn = _make_icon_btn(
+            "bug",
+            "Debug script (breakpoints)",
             lambda _checked=False, ht=history_type: self._debug_inline_script(ht),
         )
         lang_row.addWidget(debug_btn)
@@ -634,10 +655,22 @@ class _ScriptsMixin:
             self._debug_buttons: dict[str, QPushButton] = {}
         self._debug_buttons[history_type] = debug_btn
 
-        # -- Auto-save toggle (right-aligned with toolbar) -------------
+        _add_separator()
+
+        # -- Group 4: Save + Auto-save toggle ---------------------------
         if not hasattr(self, "_auto_save_checkboxes"):
             self._auto_save_checkboxes: list[QCheckBox] = []
             self._auto_save_enabled = True
+        if not hasattr(self, "_save_buttons"):
+            self._save_buttons: dict[str, QPushButton] = {}
+
+        save_btn = _make_icon_btn(
+            "floppy-disk",
+            "Save script (Ctrl+S)",
+            lambda: cast(Any, self).save_requested.emit(),  # type: ignore[attr-defined]
+        )
+        self._save_buttons[history_type] = save_btn
+        lang_row.addWidget(save_btn)
 
         auto_save_cb = QCheckBox("Auto-save")
         auto_save_cb.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -646,6 +679,8 @@ class _ScriptsMixin:
         auto_save_cb.toggled.connect(self._on_auto_save_toggled)
         self._auto_save_checkboxes.append(auto_save_cb)
         lang_row.addWidget(auto_save_cb)
+
+        self._sync_save_buttons_for_auto_save()
 
         lang_row.addStretch()
 
@@ -709,6 +744,19 @@ class _ScriptsMixin:
         hist_btn.clicked.connect(
             lambda _checked=False, ht=script_type: self._open_version_history(ht),
         )
+        # Snippets sits after History (Postman-style). Gated by has_snippets so
+        # languages without a JSON file stay disabled with a clear tooltip.
+        sep_snip = QLabel("\u2502")
+        sep_snip.setObjectName("mutedLabel")
+        snip_btn = QToolButton()
+        snip_btn.setObjectName("scriptHistoryLinkButton")
+        snip_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        snip_btn.setText("Snippets")
+        snip_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        snip_btn.setToolTip("Insert a code snippet")
+        snip_btn.clicked.connect(
+            lambda _checked=False, ht=script_type: self._open_snippets(ht),
+        )
         sep2 = QLabel("\u2502")
         sep2.setObjectName("mutedLabel")
         chars_lbl = QLabel()
@@ -719,6 +767,8 @@ class _ScriptsMixin:
         h.addWidget(lang_btn)
         h.addWidget(sep_hist)
         h.addWidget(hist_btn)
+        h.addWidget(sep_snip)
+        h.addWidget(snip_btn)
         h.addWidget(sep2)
         h.addWidget(chars_lbl)
         h.addStretch()
@@ -729,11 +779,13 @@ class _ScriptsMixin:
             self._pre_status_chars_lbl = chars_lbl
             self._pre_lang_menu_btn = lang_btn
             self._pre_history_btn = hist_btn
+            self._pre_snippets_btn = snip_btn
         else:
             self._test_status_ln_lbl = ln_lbl
             self._test_status_chars_lbl = chars_lbl
             self._test_lang_menu_btn = lang_btn
             self._test_history_btn = hist_btn
+            self._test_snippets_btn = snip_btn
 
         def _update(_line: int = 0, _col: int = 0) -> None:
             cur = editor.textCursor()
@@ -771,6 +823,8 @@ class _ScriptsMixin:
                 self._sync_lang_menu_button_text(self._pre_request_edit, self._pre_lang_menu_btn)
                 self._sync_lang_menu_button_text(self._test_script_edit, self._test_lang_menu_btn)
                 self._disabled_inherited = []
+                self._refresh_snippets_button("pre_request")
+                self._refresh_snippets_button("test")
                 return
 
         if getattr(self, "_request_id", None) is not None and isinstance(scripts, dict):
@@ -804,6 +858,8 @@ class _ScriptsMixin:
         self._set_script_lang_auto("test", False)
         self._sync_lang_menu_button_text(self._pre_request_edit, self._pre_lang_menu_btn)
         self._sync_lang_menu_button_text(self._test_script_edit, self._test_lang_menu_btn)
+        self._refresh_snippets_button("pre_request")
+        self._refresh_snippets_button("test")
 
         # Restore per-entity auto-save preference
         self._restore_auto_save_state()
@@ -850,6 +906,8 @@ class _ScriptsMixin:
         self._set_script_lang_auto("test", True)
         self._sync_lang_menu_button_text(self._pre_request_edit, self._pre_lang_menu_btn)
         self._sync_lang_menu_button_text(self._test_script_edit, self._test_lang_menu_btn)
+        self._refresh_snippets_button("pre_request")
+        self._refresh_snippets_button("test")
         # Reset auto-save to global default
         default_on = self._read_auto_save_global_default()
         self._auto_save_enabled = default_on
@@ -916,6 +974,7 @@ class _ScriptsMixin:
         if rid is None:
             pre_bnr.set_inherited_info(0, "")
             test_bnr.set_inherited_info(0, "")
+            self._sync_run_all_buttons(pre_count=0, test_count=0)
             return
         try:
             chain = get_script_chain(rid)
@@ -931,6 +990,19 @@ class _ScriptsMixin:
             len(te_b),
             self._inherited_name_snippet(te_b),
         )
+        self._sync_run_all_buttons(pre_count=len(pre_b), test_count=len(te_b))
+
+    def _sync_run_all_buttons(self, *, pre_count: int, test_count: int) -> None:
+        """Show the Run-all toolbar button only when inherited scripts exist."""
+        run_all = getattr(self, "_run_all_buttons", None)
+        if not run_all:
+            return
+        pre_btn = run_all.get("pre_request")
+        if pre_btn is not None:
+            pre_btn.setVisible(pre_count > 0)
+        test_btn = run_all.get("test")
+        if test_btn is not None:
+            test_btn.setVisible(test_count > 0)
 
     def _open_inherited_chain_drawer(self, script_type: str) -> None:
         """Open the read-only chain dialog for the given script kind."""
@@ -1115,6 +1187,92 @@ class _ScriptsMixin:
             debug_btn=debug_btn,
         )
 
+    def _run_all_inline_script(self, script_type: str) -> None:
+        """Run the inherited chain plus the current editor inline.
+
+        Order matches the runtime pipeline: pre-request top-down
+        (collection → folder → request), test bottom-up (request →
+        folder → collection). When no inheritance exists (draft tab or
+        request without parents), falls back to :meth:`_run_inline_script`.
+        """
+        from services.scripting import ScriptEntry
+        from ui.request.request_editor.scripts.script_run_worker import build_inline_context
+
+        ensure_scripts = getattr(self, "_ensure_scripts_editors", None)
+        if callable(ensure_scripts):
+            ensure_scripts()
+
+        if script_type == "pre_request":
+            editor = self._pre_request_edit
+            panel = self._pre_output_panel
+        else:
+            editor = self._test_script_edit
+            panel = self._test_output_panel
+
+        rid = getattr(self, "_request_id", None)
+        blocks: list[dict[str, Any]] = []
+        if rid is not None:
+            try:
+                chain = get_script_chain(rid)
+            except (TypeError, ValueError):
+                chain = []
+            blocks = self._inherited_blocks_for_type(chain, script_type)
+
+        current_code = editor.toPlainText()
+        current_lang = editor.language
+        current_entry: ScriptEntry | None = None
+        if current_code.strip():
+            current_entry = {
+                "code": current_code,
+                "language": current_lang,
+                "source_name": "(current)",
+            }
+
+        entries: list[ScriptEntry] = []
+        if script_type == "test":
+            # Test execution order: request → nearest folder → … → collection.
+            if current_entry is not None:
+                entries.append(current_entry)
+            entries.extend(
+                {
+                    "code": b["code"],
+                    "language": b["language"],
+                    "source_name": b["name"],
+                }
+                for b in blocks
+            )
+        else:
+            entries.extend(
+                {
+                    "code": b["code"],
+                    "language": b["language"],
+                    "source_name": b["name"],
+                }
+                for b in blocks
+            )
+            if current_entry is not None:
+                entries.append(current_entry)
+
+        if not entries:
+            return
+
+        response_data = panel.get_response_data() if script_type == "test" else None
+        context = build_inline_context(
+            script_type=script_type,
+            response_data=response_data,
+        )
+        run_btn = self._run_buttons.get(script_type)
+        debug_btn = (
+            self._debug_buttons.get(script_type) if hasattr(self, "_debug_buttons") else None
+        )
+        panel.run_script_chain(
+            chain=entries,
+            script_type=script_type,
+            context=context,
+            run_btn=run_btn,
+            debug_btn=debug_btn,
+        )
+
     def _debug_inline_script(self, script_type: str, *, script_text: str | None = None) -> None:
         """Start an inline script debug session for the current editor."""
         from services.scripting.debug import DebugProtocol
@@ -1131,8 +1289,13 @@ class _ScriptsMixin:
             editor = self._test_script_edit
             panel = self._test_output_panel
 
-        script = (script_text if script_text is not None else editor.toPlainText()).strip()
-        if not script:
+        # Do NOT ``.strip()`` here: editor breakpoints are 0-based block
+        # indices on the *unmodified* document, and the bundle's debug
+        # ``setBreakpointByUrl`` mapping is ``u0 + editor_line``. Stripping
+        # leading blank/comment lines shifts every line in the bundle and
+        # breakpoints land on the wrong source positions.
+        script = script_text if script_text is not None else editor.toPlainText()
+        if not script.strip():
             return
 
         language = editor.language
@@ -1280,6 +1443,7 @@ class _ScriptsMixin:
                 cb.blockSignals(True)
                 cb.setChecked(checked)
                 cb.blockSignals(False)
+        self._sync_save_buttons_for_auto_save()
         interval = _AUTO_SAVE_CAPTURE_MS if checked else _VERSION_CAPTURE_MS
         self._version_capture_timer.setInterval(interval)
         if checked:
@@ -1293,6 +1457,23 @@ class _ScriptsMixin:
             else:
                 overrides[key] = checked
             self._write_auto_save_overrides(overrides)
+
+    def _sync_save_buttons_for_auto_save(self) -> None:
+        """Reflect the auto-save state on every Save toolbar button.
+
+        Save is disabled while Auto-save is on (the auto-save timer is the
+        actual persistence path); tooltip explains the disabled state.
+        """
+        save_buttons = getattr(self, "_save_buttons", None)
+        if not save_buttons:
+            return
+        if self._auto_save_enabled:
+            tip = "Save disabled — Auto-save is on (versions captured automatically)"
+        else:
+            tip = "Save script (Ctrl+S)"
+        for btn in save_buttons.values():
+            btn.setEnabled(not self._auto_save_enabled)
+            btn.setToolTip(tip)
 
     # -- Version capture -----------------------------------------------
 
@@ -1365,6 +1546,48 @@ class _ScriptsMixin:
         return True
 
     # -- Version history dialog ----------------------------------------
+
+    def _refresh_snippets_button(self, script_type: Literal["pre_request", "test"]) -> None:
+        """Enable Snippets when a JSON file exists for the editor language."""
+        from ui.widgets.snippets.loader import has_snippets
+
+        if script_type == "pre_request":
+            editor = self._pre_request_edit
+            btn = getattr(self, "_pre_snippets_btn", None)
+        else:
+            editor = self._test_script_edit
+            btn = getattr(self, "_test_snippets_btn", None)
+        if btn is None:
+            return
+        enabled = has_snippets(editor.language)
+        btn.setEnabled(enabled)
+        btn.setToolTip("Insert a code snippet" if enabled else f"No snippets for {editor.language}")
+        btn.setCursor(Qt.CursorShape.PointingHandCursor if enabled else Qt.CursorShape.ArrowCursor)
+
+    def _open_snippets(self, script_type: str) -> None:
+        """Show the snippets popover under the per-tab Snippets control.
+
+        ``QTextCursor.insertText`` replaces any selection when inserting.
+        """
+        from ui.widgets.snippets.loader import has_snippets
+        from ui.widgets.snippets.popup import SnippetsPopup
+
+        if script_type == "pre_request":
+            editor = self._pre_request_edit
+            anchor = self._pre_snippets_btn
+        else:
+            editor = self._test_script_edit
+            anchor = self._test_snippets_btn
+        language = editor.language
+        if not has_snippets(language):
+            return
+
+        def _insert(body: str) -> None:
+            cur = editor.textCursor()
+            cur.insertText(body)
+            editor.setFocus()
+
+        SnippetsPopup.instance().show_for(anchor, language, script_type, _insert)
 
     def _open_version_history(self, script_type: str = "pre_request") -> None:
         """Open the version history dialog for the current request."""

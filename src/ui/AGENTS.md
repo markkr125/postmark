@@ -238,6 +238,9 @@ standard object names:
 | `completionPopup` | `QFrame` | Code editor autocomplete popup container |
 | `completionPopupList` | `QListWidget` | Completion item list inside popup |
 | `completionPopupDoc` | `QLabel` | Selected-item doc/signature label |
+| `snippetsPopup` | `QFrame` | Script snippet palette (search + list) |
+| `snippetsSearch` | `QLineEdit` | Filter field inside the snippet palette |
+| `snippetsList` | `QListWidget` | Grouped snippet rows inside the palette |
 | `parameterHintPopup` | `QFrame` | Code editor parameter-info tooltip (`Ctrl+P` when cursor is inside a call, also after typing `(`) |
 | `parameterHintPopupLabel` | `QLabel` | Rich-text signature inside the parameter hint |
 | `symbolDocPopup` | `QFrame` | Code editor quick-doc tooltip (`Ctrl+Q`, `Ctrl+hover`, `Ctrl+click` on `pm.*`) |

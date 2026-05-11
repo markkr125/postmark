@@ -6,18 +6,28 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QSize, Qt, QThread, QTimer
-from PySide6.QtGui import (QAction, QCloseEvent, QCursor, QGuiApplication,
-                           QKeySequence)
+from PySide6.QtGui import QAction, QCloseEvent, QCursor, QGuiApplication, QKeySequence
 
 if TYPE_CHECKING:
     from services.scripting.debug import DebugProtocol
     from ui.request.http_worker import HttpSendWorker
 
-from PySide6.QtWidgets import (QApplication, QHBoxLayout, QInputDialog,
-                               QMainWindow, QMessageBox, QPushButton,
-                               QSizePolicy, QSplitter, QStackedWidget,
-                               QStatusBar, QTabWidget, QToolBar, QVBoxLayout,
-                               QWidget)
+from PySide6.QtWidgets import (
+    QApplication,
+    QHBoxLayout,
+    QInputDialog,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QSizePolicy,
+    QSplitter,
+    QStackedWidget,
+    QStatusBar,
+    QTabWidget,
+    QToolBar,
+    QVBoxLayout,
+    QWidget,
+)
 
 from services.collection_service import CollectionService
 from ui.collections.collection_widget import CollectionWidget
@@ -346,6 +356,9 @@ class MainWindow(
         self.request_widget.open_scripting_settings_requested.connect(
             self._on_open_scripting_settings
         )
+        self.request_widget.scripts_tab_active_changed.connect(
+            self._on_editor_scripts_tab_changed
+        )
 
         return wrapper
 
@@ -426,9 +439,7 @@ class MainWindow(
         hidden = self.collection_widget.isHidden()
         icon_name = "caret-double-right" if hidden else "caret-double-left"
         self._sidebar_toggle_btn.setIcon(phi(icon_name, size=14))
-        self._sidebar_toggle_btn.setToolTip(
-            "Expand sidebar" if hidden else "Collapse sidebar"
-        )
+        self._sidebar_toggle_btn.setToolTip("Expand sidebar" if hidden else "Collapse sidebar")
 
     # ------------------------------------------------------------------
     # UI construction

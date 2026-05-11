@@ -1,6 +1,11 @@
 # JavaScript API Reference
 
-Complete reference for the `pm` object available in JavaScript scripts.
+Complete reference for the `pm` object available in JavaScript and
+TypeScript scripts. Postmark's surface tracks the official Postman
+sandbox API — see [Postman API parity](postman-parity.md) for the full
+matrix and migration notes.
+
+> Inserted at the cursor by the [Snippets](snippets.md) palette.
 
 ## `pm.info`
 
@@ -22,23 +27,52 @@ console.log("Running: " + pm.info.requestName);
 The current HTTP request.  **Mutable in pre-request scripts** — changes
 are applied before sending.  **Frozen in test scripts.**
 
-| Property | Type | Mutable | Description |
-|----------|------|---------|-------------|
-| `url` | `string` | pre-request | Full request URL |
-| `method` | `string` | pre-request | HTTP method |
-| `headers` | `HeaderList` | pre-request | Request headers |
-| `body` | `string` | pre-request | Request body text |
+| Property | Type           | Mutable     | Description                                                            |
+|----------|----------------|-------------|------------------------------------------------------------------------|
+| `url`    | `Url`          | pre-request | Wrapped Postman `Url` object (see below). String-coerces to full URL.  |
+| `method` | `string`       | pre-request | HTTP method.                                                            |
+| `headers`| `HeaderList`   | pre-request | Request headers (see below).                                            |
+| `body`   | `RequestBody`  | pre-request | Discriminated union — `mode/raw/urlencoded/formdata/graphql/file`.      |
 
-### HeaderList Methods
+### `Url` (`pm.request.url`)
 
-| Method | Description |
-|--------|-------------|
-| `headers.get(name)` | Get header value (case-insensitive) |
-| `headers.has(name)` | Check if header exists |
-| `headers.toObject()` | Convert to `{key: value}` object |
-| `headers.add({key, value})` | Add header (pre-request only) |
-| `headers.remove(name)` | Remove header (pre-request only) |
-| `headers.upsert({key, value})` | Add or update header (pre-request only) |
+| Member             | Description                                                                            |
+|--------------------|----------------------------------------------------------------------------------------|
+| `toString()`       | Full URL string. The object string-coerces to this in template literals.                |
+| `getHost()`        | Hostname (no port).                                                                     |
+| `getPath()`        | Pathname.                                                                               |
+| `getQueryString()` | Raw query string (no leading `?`).                                                      |
+| `protocol`         | Scheme without trailing `:`.                                                             |
+| `host`             | Same as `getHost()`.                                                                     |
+| `port`             | String port (or empty when default).                                                     |
+| `path`             | Same as `getPath()`.                                                                     |
+| `query`            | Mutable `HeaderList` of query params. `query.add({key, value})`, `query.toObject()`, … |
+
+```javascript
+const u = pm.request.url;
+console.log(u.getHost());                           // "api.example.com"
+u.query.upsert({ key: "page", value: "2" });
+console.log(u.toString());                          // includes ?page=2
+```
+
+### `HeaderList` Methods
+
+Used for `pm.request.headers`, `pm.response.headers`, plus
+`body.urlencoded` and `body.formdata`. Case-insensitive lookups; ordered
+iteration; mutation gated by source (response headers raise on writes).
+
+| Method                       | Description                                                                  |
+|------------------------------|------------------------------------------------------------------------------|
+| `get(name)`                  | Case-insensitive value lookup.                                                |
+| `has(name)`                  | Case-insensitive presence check.                                              |
+| `find(name)`                 | Returns `{key, value}` (or `undefined`).                                      |
+| `idx(n)`                     | Entry at index `n`.                                                           |
+| `each(fn)`                   | Iterate `(entry) => void` in insertion order.                                 |
+| `all()`                      | `[{key, value}, …]`.                                                          |
+| `toObject()`                 | `{key: value}` (last-write-wins on duplicates).                               |
+| `add({key, value})`          | Append (mutable only). Response headers raise.                                |
+| `remove(name)`               | Remove all entries with that case-insensitive name (mutable only).            |
+| `upsert({key, value})`       | Update existing or append (mutable only).                                     |
 
 ```javascript
 // Pre-request: add auth header
@@ -48,29 +82,57 @@ pm.request.headers.upsert({
 });
 ```
 
+### `RequestBody` (`pm.request.body`)
+
+| Member        | Description                                                                |
+|---------------|----------------------------------------------------------------------------|
+| `mode`        | `"raw" \| "urlencoded" \| "formdata" \| "graphql" \| "file" \| ""`.         |
+| `raw`         | String body for `mode === "raw"`.                                          |
+| `urlencoded`  | Mutable `HeaderList` of form fields.                                       |
+| `formdata`    | Mutable `HeaderList` of multipart fields.                                  |
+| `graphql`     | `{query, variables, operationName}` object (or `null`).                     |
+| `file`        | File spec object (or `null`).                                              |
+| `toString()`  | Returns `raw` (so string concatenation still works).                        |
+
+```javascript
+if (pm.request.body.mode === "urlencoded") {
+    pm.request.body.urlencoded.upsert({ key: "page", value: "2" });
+}
+```
+
 ## `pm.response`
 
 The HTTP response (available in test scripts only; `null` in
 pre-request).
 
-| Property | Type | Description |
-|----------|------|-------------|
-| `code` | `number` | HTTP status code |
-| `status` | `string` | Status text |
-| `headers` | `HeaderList` | Response headers (read-only) |
-| `responseTime` | `number` | Elapsed time in ms |
-| `responseSize` | `number` | Response size in bytes |
-| `body` | `string` | Raw response body |
+| Property              | Type             | Description                                                                  |
+|-----------------------|------------------|------------------------------------------------------------------------------|
+| `code`                | `number`         | HTTP status code.                                                             |
+| `status`              | `string`         | Status text from host (may differ from canonical reason — see `reason()`).    |
+| `headers`             | `HeaderList`     | Response headers (read-only).                                                 |
+| `responseTime`        | `number`         | Elapsed time in ms.                                                           |
+| `responseSize`        | `number`         | Response size in bytes.                                                       |
+| `body`                | `string`         | Raw response body.                                                            |
+| `cookies`             | `pm.cookies`-shape| Cookies parsed from this response's `Set-Cookie` headers.                    |
+| `originalRequest`     | `Request`        | Wrapped (immutable) request that produced this response.                      |
 
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `json()` | `object` | Parse body as JSON |
-| `text()` | `string` | Body as string |
+| Method                | Returns          | Description                                                                  |
+|-----------------------|------------------|------------------------------------------------------------------------------|
+| `json()`              | `object`         | Parse body as JSON. (`reviver` parameter is ignored.)                         |
+| `text()`              | `string`         | Body as string.                                                               |
+| `reason()`            | `string`         | Canonical HTTP reason phrase for `code` (e.g. `200 → "OK"`).                  |
+| `mime()`              | `{type, charset}`| Parse `Content-Type` into a `{type, charset}` object.                         |
+| `dataURI()`           | `string`         | Body encoded as `data:<mime>;base64,<...>`.                                  |
+| `size()`              | `number`         | `responseSize` if known, otherwise `body.length`.                            |
 
 ```javascript
 pm.test("Response is JSON", function() {
-    var data = pm.response.json();
+    const data = pm.response.json();
     pm.expect(data).to.be.an("object");
+});
+
+pm.test("Reason phrase", function() {
+    pm.expect(pm.response.reason()).to.equal("OK");
 });
 ```
 
@@ -110,9 +172,30 @@ Same methods as `pm.variables`.
 Register a named test assertion.  `fn` is called immediately — if it
 throws, the test is marked as failed.
 
+The callback receives a context object with a `.skip()` method. Calling
+`ctx.skip()` short-circuits the body and records the test as skipped.
+
 ```javascript
 pm.test("Status code is 200", function() {
     pm.expect(pm.response.code).to.equal(200);
+});
+
+pm.test("Skip when no token", function(ctx) {
+    if (!pm.environment.get("token")) {
+        ctx.skip();
+    }
+    pm.expect(pm.environment.get("token")).to.have.lengthOf.above(0);
+});
+```
+
+### `pm.test.skip(name, fn)`
+
+Record a named test as skipped without invoking `fn`. Use to keep a WIP
+test in the file without it failing.
+
+```javascript
+pm.test.skip("Body schema (WIP)", function() {
+    // Will not run; recorded as { skipped: true, passed: true }.
 });
 ```
 
@@ -149,9 +232,11 @@ pm.expect(404).to.not.equal(200);
 | `.least(n)` | Greater than or equal (`>=`) |
 | `.most(n)` | Less than or equal (`<=`) |
 | `.match(regex)` | RegExp test |
-| `.status(code)` | HTTP status code assertion |
+| `.status(code|reason)` | HTTP status code assertion. Accepts numeric (`201`) or canonical reason phrase (`"Created"`). |
 | `.header(name, [val])` | Response header assertion |
-| `.jsonBody(path, [val])` | JSONPath dot-notation assertion |
+| `.body(string|RegExp)` | Response body equals string OR regex matches. |
+| `.oneOf([...])` | Value is `===` to one of the items in the array. |
+| `.jsonBody(path, [val])` | Lodash-style path assertion. Supports dot + bracket: `a.b[0].c`. |
 
 ### Boolean/Existence Properties
 
@@ -209,12 +294,14 @@ pm.sendRequest("https://api.example.com/token", function(err, response) {
 
 ## `pm.cookies`
 
-Cookie jar parsed from response `Set-Cookie` headers.
+Cookie jar parsed from response `Set-Cookie` headers. `pm.response.cookies`
+is an alias to the same object.
 
 | Method | Returns | Description |
 |--------|---------|-------------|
 | `get(name)` | `string \| undefined` | Get cookie value by name |
 | `getAll()` | `[{name, value}]` | All parsed cookies |
+| `jar()` | `CookieJar` | See below |
 
 ```javascript
 pm.test("Session cookie set", function() {
@@ -222,14 +309,33 @@ pm.test("Session cookie set", function() {
 });
 ```
 
+### `pm.cookies.jar()`
+
+Returns a Postman-style `CookieJar`. **Read-only in v1** — read paths
+work; mutation methods raise a documented error pending host-side
+cookie storage.
+
+| Method                          | Behaviour                                                                              |
+|---------------------------------|----------------------------------------------------------------------------------------|
+| `get(url, name[, callback])`    | Returns the cookie value parsed from this response's `Set-Cookie`. Optional callback fires. |
+| `getAll(url[, callback])`       | Returns all known cookies for this response.                                            |
+| `set(...)`                      | Throws `Error("pm.cookies.jar().set is not yet supported in postmark")`.                |
+| `unset(...)`                    | Throws with the analogous error.                                                         |
+| `clear(...)`                    | Throws with the analogous error.                                                         |
+
+The `url` argument is currently ignored — there is no host-side cookie
+jar to scope by domain/path. Reads return cookies parsed from this
+response only.
+
 ## `pm.execution`
 
 Runner flow control — available in both pre-request and test scripts.
 
-| Method | Description |
-|--------|-------------|
-| `setNextRequest(name)` | Override the next request in the collection runner |
-| `skipRequest()` | Skip the current request's HTTP send |
+| Member                                | Description                                                                  |
+|---------------------------------------|------------------------------------------------------------------------------|
+| `setNextRequest(name)`                | Override the next request in the collection runner.                          |
+| `skipRequest()`                       | Skip the current request's HTTP send.                                         |
+| `location.current`                    | Folder/collection path of the current request (string).                       |
 
 `setNextRequest(name)` sets the next request to execute by name.  Pass
 `null` to stop the runner after the current request.  Only effective
@@ -413,6 +519,58 @@ var uuid = require("uuid");
 
 var id = uuid.v4();
 pm.variables.set("request_id", id);
+```
+
+## `pm.require(spec)`
+
+Postman-style module loader. Bare specifiers map to bundled vendor
+modules (`crypto-js`, `lodash`, `moment`, `chai`, `tv4`, `ajv`,
+`xml2js`, `csv-parse/lib/sync`, `cheerio`, `atob`, `btoa`, `uuid`).
+
+```javascript
+const _ = pm.require("lodash");
+const tv4 = pm.require("tv4");
+```
+
+JS scripts running under Deno can additionally use `npm:` and `jsr:`
+prefixed specifiers — these are resolved through Deno's import system
+during the bundle build.
+
+The companion global `require()` works for the same vendor names if
+your script prefers Node-style.
+
+## `pm.visualizer.set(template, data, options)` — not supported
+
+Always throws:
+
+```text
+pm.visualizer.set is not supported in postmark —
+see data/snippets/README.md (Out of scope) for the rationale.
+```
+
+The explicit raise (rather than a no-op) makes it obvious to users that
+the call did nothing and prompts them to remove or replace it.
+
+## Legacy v1 globals
+
+These exist as top-level names (no `pm.` prefix) for compatibility with
+very old Postman scripts. New code should use the modern `pm.*` API.
+
+| Global             | Type                                  | Maps to                                                |
+|--------------------|---------------------------------------|---------------------------------------------------------|
+| `responseBody`     | `string`                              | `pm.response.body`.                                     |
+| `responseCode`     | `{code, name}` object                 | `{code: pm.response.code, name: pm.response.reason()}`. |
+| `responseHeaders`  | `{key: value}` object                 | `pm.response.headers.toObject()`.                       |
+| `tests`            | `{}` mutable object                   | Postman v1 — assignments here are picked up by old runners. |
+| `xml2Json(xml)`    | `function(string) -> object \| null`  | XML → object via `pm.require("xml2js")` internally.     |
+| `postman.*`        | object                                | `setEnvironmentVariable` / `getEnvironmentVariable` / `clearEnvironmentVariable` / `setGlobalVariable` / `getGlobalVariable` / `clearGlobalVariable` / `setNextRequest`. |
+
+```javascript
+// Legacy v1 — works, but prefer the pm.* form below.
+postman.setEnvironmentVariable("token", responseBody);
+
+// Modern equivalent:
+pm.environment.set("token", pm.response.text());
 ```
 
 ## `console`

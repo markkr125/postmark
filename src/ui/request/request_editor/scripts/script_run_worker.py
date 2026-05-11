@@ -134,6 +134,54 @@ class ScriptRunWorker(QObject):
             self.error.emit(str(exc))
 
 
+class ScriptChainRunWorker(QObject):
+    """Run a pre-request or test script chain on a background thread.
+
+    Mirrors :class:`ScriptRunWorker` but dispatches to
+    :meth:`ScriptEngine.run_pre_request_scripts` /
+    :meth:`run_test_scripts` so inherited + current scripts execute as a
+    merged chain — same semantics as the live Send path.
+    """
+
+    finished = Signal(object, float)
+    error = Signal(str)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._chain: list[ScriptEntry] = []
+        self._script_type: str = "pre_request"
+        self._context: ScriptInput | None = None
+
+    def set_params(
+        self,
+        *,
+        chain: list[ScriptEntry],
+        script_type: str,
+        context: ScriptInput,
+    ) -> None:
+        """Configure chain + context. Call before ``moveToThread()``."""
+        self._chain = list(chain)
+        self._script_type = script_type
+        self._context = context
+
+    @Slot()
+    def run(self) -> None:
+        """Execute the chain and emit merged results."""
+        if self._context is None:
+            self.error.emit("No script context configured")
+            return
+        start = time.perf_counter()
+        try:
+            if self._script_type == "test":
+                result = ScriptEngine.run_test_scripts(self._chain, self._context)
+            else:
+                result = ScriptEngine.run_pre_request_scripts(self._chain, self._context)
+            elapsed = (time.perf_counter() - start) * 1000.0
+            self.finished.emit(result, elapsed)
+        except Exception as exc:
+            self.error.emit(str(exc))
+
+
 class ScriptDebugWorker(QObject):
     """Run a single script on a background thread with :class:`DebugProtocol`.
 

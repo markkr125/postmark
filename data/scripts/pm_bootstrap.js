@@ -108,6 +108,13 @@ function __makeVariableScope(initial, scopeName, changesKey) {
             for (var i = 0; i < k.length; i++) copy[k[i]] = store[k[i]];
             return copy;
         },
+        clear: function () {
+            var k = Object.keys(store);
+            for (var i = 0; i < k.length; i++) {
+                delete store[k[i]];
+                __pm_state[targetChanges][k[i]] = "";
+            }
+        },
         replaceIn: function (template) {
             return template.replace(/\{\{(.+?)\}\}/g, function (m, key) {
                 return store.hasOwnProperty(key) ? store[key] : m;
@@ -147,6 +154,33 @@ function __makeHeaderList(headerArray, mutable) {
                 result[headers[i].key] = headers[i].value;
             }
             return result;
+        },
+        each: function (fn) {
+            for (var i = 0; i < headers.length; i++) {
+                fn({ key: headers[i].key, value: headers[i].value });
+            }
+        },
+        all: function () {
+            var out = [];
+            for (var i = 0; i < headers.length; i++) {
+                out.push({ key: headers[i].key, value: headers[i].value });
+            }
+            return out;
+        },
+        find: function (name) {
+            var lower = name.toLowerCase();
+            for (var i = 0; i < headers.length; i++) {
+                if (headers[i].key.toLowerCase() === lower) {
+                    return { key: headers[i].key, value: headers[i].value };
+                }
+            }
+            return undefined;
+        },
+        idx: function (n) {
+            if (typeof n !== "number" || n < 0 || n >= headers.length) {
+                return undefined;
+            }
+            return { key: headers[n].key, value: headers[n].value };
         },
     };
 
@@ -433,11 +467,68 @@ __Expectation.prototype.match = function (re) {
 };
 __Expectation.prototype.matches = __Expectation.prototype.match;
 
+// HTTP status code to canonical reason phrase (used by ``.status("Created")``;
+// referenced from ``data/snippets/javascript.json`` test snippets).
+var __HTTP_REASON = {
+    100: "Continue",
+    101: "Switching Protocols",
+    200: "OK",
+    201: "Created",
+    202: "Accepted",
+    203: "Non-Authoritative Information",
+    204: "No Content",
+    205: "Reset Content",
+    206: "Partial Content",
+    300: "Multiple Choices",
+    301: "Moved Permanently",
+    302: "Found",
+    303: "See Other",
+    304: "Not Modified",
+    307: "Temporary Redirect",
+    308: "Permanent Redirect",
+    400: "Bad Request",
+    401: "Unauthorized",
+    402: "Payment Required",
+    403: "Forbidden",
+    404: "Not Found",
+    405: "Method Not Allowed",
+    406: "Not Acceptable",
+    408: "Request Timeout",
+    409: "Conflict",
+    410: "Gone",
+    411: "Length Required",
+    412: "Precondition Failed",
+    413: "Payload Too Large",
+    414: "URI Too Long",
+    415: "Unsupported Media Type",
+    422: "Unprocessable Entity",
+    429: "Too Many Requests",
+    500: "Internal Server Error",
+    501: "Not Implemented",
+    502: "Bad Gateway",
+    503: "Service Unavailable",
+    504: "Gateway Timeout",
+};
+
 // HTTP-specific assertions
 __Expectation.prototype.status = function (code) {
     var actual = this._value;
     if (actual && typeof actual === "object" && "code" in actual)
         actual = actual.code;
+    if (typeof code === "string") {
+        var reason = __HTTP_REASON[actual] || "";
+        return this._assert(
+            reason.toLowerCase() === code.toLowerCase(),
+            "expected status " +
+                actual +
+                " (" +
+                reason +
+                ")" +
+                (this._not ? " not " : " ") +
+                "to be " +
+                JSON.stringify(code)
+        );
+    }
     return this._assert(
         actual === code,
         "expected status " +
@@ -473,6 +564,61 @@ __Expectation.prototype.header = function (name, value) {
     return this._assert(false, "expected a response object with headers");
 };
 
+__Expectation.prototype.body = function (expected) {
+    var resp = this._value;
+    var actual = "";
+    if (resp && typeof resp === "object") {
+        if (typeof resp.text === "function") {
+            actual = resp.text();
+        } else if (typeof resp.body === "string") {
+            actual = resp.body;
+        }
+    } else if (typeof resp === "string") {
+        actual = resp;
+    }
+    var preview =
+        actual.length > 80 ? actual.slice(0, 77) + "..." : actual;
+    if (expected instanceof RegExp) {
+        return this._assert(
+            expected.test(actual),
+            "expected body to match " +
+                String(expected) +
+                " but got " +
+                JSON.stringify(preview)
+        );
+    }
+    return this._assert(
+        actual === expected,
+        "expected body to equal " +
+            JSON.stringify(expected) +
+            " but got " +
+            JSON.stringify(preview)
+    );
+};
+
+// Strict ``===`` membership (not deep-equal Chai semantics).
+__Expectation.prototype.oneOf = function (allowed) {
+    var actual = this._value;
+    if (!Array.isArray(allowed)) {
+        return this._assert(false, "oneOf expects an array argument");
+    }
+    var ok = false;
+    for (var i = 0; i < allowed.length; i++) {
+        if (allowed[i] === actual) {
+            ok = true;
+            break;
+        }
+    }
+    return this._assert(
+        ok,
+        "expected " +
+            JSON.stringify(actual) +
+            (this._not ? " not " : " ") +
+            "to be one of " +
+            JSON.stringify(allowed)
+    );
+};
+
 __Expectation.prototype.jsonBody = function (path, value) {
     var resp = this._value;
     var body = resp;
@@ -480,14 +626,22 @@ __Expectation.prototype.jsonBody = function (path, value) {
         body =
             typeof resp.body === "string" ? JSON.parse(resp.body) : resp.body;
     }
-    var parts = path.split(".");
-    var cur = body;
-    for (var i = 0; i < parts.length; i++) {
-        if (cur == null) {
-            cur = undefined;
-            break;
+    // Lodash-style path: ``a.b[0].c`` → ["a", "b", 0, "c"].
+    var tokens = [];
+    var chunks = path.split(".");
+    for (var ci = 0; ci < chunks.length; ci++) {
+        var bracketParts = chunks[ci].split(/[\[\]]+/);
+        for (var bi = 0; bi < bracketParts.length; bi++) {
+            var tok = bracketParts[bi];
+            if (tok === "") continue;
+            if (/^-?\d+$/.test(tok)) tokens.push(parseInt(tok, 10));
+            else tokens.push(tok);
         }
-        cur = cur[parts[i]];
+    }
+    var cur = body;
+    for (var i = 0; i < tokens.length; i++) {
+        if (cur == null) { cur = undefined; break; }
+        cur = cur[tokens[i]];
     }
     if (arguments.length === 2) {
         return this._assert(
@@ -506,6 +660,225 @@ __Expectation.prototype.jsonBody = function (path, value) {
     );
 };
 
+// -- Inline sendRequest IPC + response wrapper -----------------------
+//
+// ``writeSync`` / ``readSync`` are imported at the top of the bundled
+// Deno script (see ``deno_runtime._NODE_FS_IMPORT``). They give
+// ``pm.sendRequest`` a synchronous IPC channel to the host: the spec
+// is written to stdout as a JSON line, the host fetches the URL, and
+// writes the response back as a JSON line on stdin. With this in
+// place, ``await pm.sendRequest(...)`` matches Postman's modern API.
+//
+// The drain pass (``deno_drain.mjs``) is now mostly a no-op for
+// ``sendRequest`` — kept only as a safety net for legacy code that
+// still pushes to ``__pm_state._send_queue`` manually.
+
+function __pm_inline_ipc_send(spec) {
+    if (typeof writeSync !== "function" || typeof readSync !== "function") {
+        return {
+            error: "pm.sendRequest unavailable: no IPC channel",
+            body: "",
+        };
+    }
+    var enc = new TextEncoder();
+    var line =
+        JSON.stringify({
+            __ipc__: "sendRequest",
+            spec: spec,
+            callbackIndex: 0,
+        }) + "\n";
+    try {
+        writeSync(1, enc.encode(line));
+    } catch (_e) {
+        return { error: "pm.sendRequest write failed", body: "" };
+    }
+    var parts = [];
+    var u8 = new Uint8Array(1);
+    while (true) {
+        var n;
+        try {
+            n = readSync(0, u8);
+        } catch (_e) {
+            return { error: "pm.sendRequest read failed", body: "" };
+        }
+        if (n === 0 || n == null) {
+            return { error: "pm.sendRequest read closed", body: "" };
+        }
+        if (u8[0] === 10) break; // \n
+        if (u8[0] === 13) continue; // \r
+        parts.push(String.fromCharCode(u8[0]));
+    }
+    var raw = parts.join("");
+    try {
+        return JSON.parse(raw);
+    } catch (_e) {
+        return { error: "pm.sendRequest bad json", body: "" };
+    }
+}
+
+// -- URL factory (Postman ``pm.request.url`` shape) -------------------
+
+function __pm_makeUrl(rawUrl) {
+    var s = String(rawUrl || "");
+    var parsed = null;
+    try {
+        parsed = new URL(s);
+    } catch (_e) {
+        parsed = null;
+    }
+    var queryItems = [];
+    if (parsed && parsed.searchParams) {
+        parsed.searchParams.forEach(function (v, k) {
+            queryItems.push({ key: k, value: v });
+        });
+    }
+    var query = __makeHeaderList(queryItems, true);
+    return {
+        toString: function () {
+            return parsed ? parsed.toString() : s;
+        },
+        getHost: function () {
+            return parsed ? parsed.host : "";
+        },
+        getPath: function () {
+            return parsed ? parsed.pathname : "";
+        },
+        getQueryString: function () {
+            return parsed ? parsed.search.replace(/^\?/, "") : "";
+        },
+        protocol: parsed ? parsed.protocol.replace(/:$/, "") : "",
+        host: parsed ? parsed.hostname : "",
+        port: parsed ? parsed.port : "",
+        path: parsed ? parsed.pathname : "",
+        query: query,
+        _isPostmarkUrl: true,
+    };
+}
+
+// -- Cookie helpers (``pm.cookies`` / ``pm.response.cookies``) --------
+
+function __pm_parseCookieHeaders(headerArray) {
+    var cookies = {};
+    if (!headerArray) {
+        return cookies;
+    }
+    for (var i = 0; i < headerArray.length; i++) {
+        if ((headerArray[i].key || "").toLowerCase() === "set-cookie") {
+            var raw = headerArray[i].value || "";
+            var eqIdx = raw.indexOf("=");
+            if (eqIdx > 0) {
+                var cName = raw.substring(0, eqIdx).trim();
+                var rest = raw.substring(eqIdx + 1);
+                var semiIdx = rest.indexOf(";");
+                var cVal =
+                    semiIdx >= 0
+                        ? rest.substring(0, semiIdx).trim()
+                        : rest.trim();
+                cookies[cName] = cVal;
+            }
+        }
+    }
+    return cookies;
+}
+
+function __pm_makeCookiesApi(cookies) {
+    return {
+        get: function (name) {
+            return cookies.hasOwnProperty(name) ? cookies[name] : undefined;
+        },
+        getAll: function () {
+            var result = [];
+            var keys = Object.keys(cookies);
+            for (var i = 0; i < keys.length; i++) {
+                result.push({
+                    name: keys[i],
+                    value: cookies[keys[i]],
+                });
+            }
+            return result;
+        },
+    };
+}
+
+function __pm_wrap_response(raw) {
+    if (!raw || typeof raw !== "object") {
+        return null;
+    }
+    var obj = {
+        code: raw.status_code || raw.code || 0,
+        status: raw.status || "",
+        headers: __makeHeaderList(raw.headers, false),
+        responseTime: raw.response_time || raw.responseTime || 0,
+        responseSize: raw.response_size || raw.responseSize || 0,
+        body: typeof raw.body === "string" ? raw.body : raw.body || "",
+        error: raw.error || null,
+    };
+    obj.json = function () {
+        var s = typeof obj.body === "string" ? obj.body : "";
+        if (s.length === 0) {
+            throw new Error(
+                "response.json(): response body is empty"
+            );
+        }
+        try {
+            return JSON.parse(s);
+        } catch (e) {
+            throw new Error(
+                "response.json(): body is not valid JSON (" +
+                    (e && e.message ? e.message : "parse error") +
+                    ")"
+            );
+        }
+    };
+    obj.text = function () {
+        return typeof obj.body === "string" ? obj.body : String(obj.body);
+    };
+    obj.reason = function () {
+        return __HTTP_REASON[obj.code] || "";
+    };
+    obj.mime = function () {
+        var ct =
+            obj.headers && obj.headers.get
+                ? obj.headers.get("Content-Type") || ""
+                : "";
+        var sep = ct.indexOf(";");
+        return {
+            type: sep >= 0 ? ct.slice(0, sep).trim() : ct.trim(),
+            charset: (function () {
+                var m = /charset=([^;]+)/i.exec(ct);
+                return m ? m[1].trim() : "";
+            })(),
+        };
+    };
+    obj.dataURI = function () {
+        var ct =
+            obj.headers && obj.headers.get
+                ? obj.headers.get("Content-Type") || "application/octet-stream"
+                : "application/octet-stream";
+        var raw = typeof obj.body === "string" ? obj.body : "";
+        return (
+            "data:" +
+            ct +
+            ";base64," +
+            (typeof btoa !== "undefined"
+                ? btoa(unescape(encodeURIComponent(raw)))
+                : "")
+        );
+    };
+    obj.size = function () {
+        return (
+            obj.responseSize ||
+            (typeof obj.body === "string" ? obj.body.length : 0)
+        );
+    };
+    Object.defineProperty(obj, "to", {
+        get: function () {
+            return new __Expectation(obj);
+        },
+    });
+    return obj;
+}
+
 // -- pm object --------------------------------------------------------
 
 var pm = {
@@ -513,60 +886,80 @@ var pm = {
 
     request: (function () {
         var req = __pm_context.request || {};
-        var obj = {
-            url: req.url || "",
+        var bodyVal = req.body;
+        var bodyObj;
+        if (!bodyVal || typeof bodyVal === "string") {
+            var rawStr = typeof bodyVal === "string" ? bodyVal : "";
+            bodyObj = {
+                mode: rawStr ? "raw" : "",
+                raw: rawStr,
+                urlencoded: __makeHeaderList([], true),
+                formdata: __makeHeaderList([], true),
+                graphql: null,
+                file: null,
+                toString: function () {
+                    return this.raw || "";
+                },
+            };
+        } else if (typeof bodyVal === "object") {
+            var mode = bodyVal.mode || "raw";
+            bodyObj = {
+                mode: mode,
+                raw: bodyVal.raw || "",
+                urlencoded: __makeHeaderList(bodyVal.urlencoded || [], true),
+                formdata: __makeHeaderList(bodyVal.formdata || [], true),
+                graphql: bodyVal.graphql || null,
+                file: bodyVal.file || null,
+                toString: function () {
+                    return typeof this.raw === "string" ? this.raw : "";
+                },
+            };
+        } else {
+            bodyObj = {
+                mode: "",
+                raw: "",
+                urlencoded: __makeHeaderList([], true),
+                formdata: __makeHeaderList([], true),
+                graphql: null,
+                file: null,
+                toString: function () {
+                    return "";
+                },
+            };
+        }
+        return {
+            url: __pm_makeUrl(req.url || ""),
             method: req.method || "GET",
             headers: __makeHeaderList(req.headers, __pm_context.is_pre_request),
-            body: req.body || "",
+            body: bodyObj,
         };
-        return obj;
     })(),
 
     response: (function () {
         var res = __pm_context.response;
         if (!res) return null;
-        var obj = {
-            code: res.status_code || res.code || 0,
-            status: res.status || "",
-            headers: __makeHeaderList(res.headers, false),
-            responseTime: res.response_time || res.responseTime || 0,
-            responseSize: res.response_size || res.responseSize || 0,
-            body: res.body || "",
-            json: function () {
-                var s = typeof obj.body === "string" ? obj.body : "";
-                if (s.length === 0) {
-                    throw new Error(
-                        "pm.response.json(): response body is empty. " +
-                        "Set a JSON body on the Mock response tab (Body field), " +
-                        "or guard the call with `if (pm.response.text())` before parsing."
-                    );
-                }
-                try {
-                    return JSON.parse(s);
-                } catch (e) {
-                    throw new Error(
-                        "pm.response.json(): body is not valid JSON (" + (e && e.message ? e.message : "parse error") + "). " +
-                        "Check the Mock response body on the Mock response tab."
-                    );
-                }
-            },
-            text: function () {
-                return typeof obj.body === "string" ? obj.body : String(obj.body);
-            },
-        };
-
-        // Postman-style: pm.response.to.have.status(N), .to.have.header, .to.have.jsonBody
-        // Fresh __Expectation per access so .not does not leak across chains.
-        Object.defineProperty(obj, "to", {
-            get: function () {
-                return new __Expectation(obj);
-            },
-        });
-
+        var obj = __pm_wrap_response(res);
+        obj.cookies = __pm_makeCookiesApi(__pm_parseCookieHeaders(res.headers || []));
+        var ori = __pm_context.original_request;
+        if (ori) {
+            var ob =
+                typeof ori.body === "object" &&
+                ori.body !== null &&
+                typeof ori.body.toString === "function"
+                    ? ori.body.toString()
+                    : String(ori.body || "");
+            obj.originalRequest = {
+                url: __pm_makeUrl(ori.url || ""),
+                method: String(ori.method || "GET"),
+                headers: __makeHeaderList(ori.headers, false),
+                body: ob,
+            };
+        } else {
+            obj.originalRequest = null;
+        }
         return obj;
     })(),
 
-    variables: __makeVariableScope(__pm_context.variables, "variables"),
     environment: __makeVariableScope(
         __pm_context.environment_vars,
         "environment"
@@ -577,18 +970,47 @@ var pm = {
     ),
     globals: __makeVariableScope(__pm_context.global_vars, "globals", "global_variable_changes"),
 
-    test: function (name, fn) {
-        var start = Date.now();
-        var result = { name: name, passed: true, error: null, duration_ms: 0 };
-        try {
-            fn();
-        } catch (e) {
-            result.passed = false;
-            result.error = e.message || String(e);
-        }
-        result.duration_ms = Date.now() - start;
-        __pm_state.test_results.push(result);
-    },
+    test: (function () {
+        var fnTest = function (name, fn) {
+            var start = Date.now();
+            var result = {
+                name: name,
+                passed: true,
+                error: null,
+                duration_ms: 0,
+                skipped: false,
+            };
+            var didSkip = false;
+            var skipFn = function () {
+                didSkip = true;
+            };
+            try {
+                if (typeof fn !== "function") {
+                    throw new Error("pm.test callback must be a function");
+                }
+                fn.call({ skip: skipFn }, skipFn);
+            } catch (e) {
+                result.passed = false;
+                result.error = e.message || String(e);
+            }
+            result.duration_ms = Date.now() - start;
+            if (didSkip) {
+                result.passed = true;
+                result.skipped = true;
+            }
+            __pm_state.test_results.push(result);
+        };
+        fnTest.skip = function (name, _fn) {
+            __pm_state.test_results.push({
+                name: String(name),
+                passed: true,
+                skipped: true,
+                duration_ms: 0,
+                error: null,
+            });
+        };
+        return fnTest;
+    })(),
 
     expect: function (value) {
         return new __Expectation(value);
@@ -598,11 +1020,23 @@ var pm = {
         if (typeof specifier !== "string" || specifier.length === 0) {
             throw new Error("pm.require: specifier must be a non-empty string");
         }
+        if (
+            typeof __pm_builtins !== "undefined" &&
+            Object.prototype.hasOwnProperty.call(__pm_builtins, specifier)
+        ) {
+            var builtin = __pm_builtins[specifier];
+            if (builtin === undefined) {
+                throw new Error(
+                    "pm.require: built-in '" + specifier + "' is not bundled"
+                );
+            }
+            return builtin;
+        }
         if (specifier.indexOf("npm:") !== 0 && specifier.indexOf("jsr:") !== 0) {
             throw new Error(
-                "pm.require: specifier must start with 'npm:' or 'jsr:' (got '" +
+                "pm.require: unknown package '" +
                     specifier +
-                    "')"
+                    "' (use a built-in name, npm:, or jsr:)"
             );
         }
         var registry = globalThis.__pm_require_modules || {};
@@ -625,73 +1059,97 @@ var pm = {
         );
     },
 
+    visualizer: {
+        set: function (_template, _data, _options) {
+            throw new Error(
+                "pm.visualizer.set is not supported in postmark — see data/snippets/README.md"
+            );
+        },
+    },
+
     sendRequest: function (spec, callback) {
+        // Postman-API parity: synchronous-IPC fetch during user script
+        // execution. Returns a resolved Promise so ``await`` works; also
+        // fires the optional callback for the legacy form. Without the
+        // inline IPC, ``await`` would never resolve because the queue
+        // drain runs after the user script body has already finished.
         if (__pm_state.send_request_count >= 10) {
             throw new Error("pm.sendRequest rate limit exceeded (max 10)");
         }
         __pm_state.send_request_count++;
-        var idx = __pm_callbacks.length;
-        __pm_callbacks.push(callback || null);
         var reqSpec =
             typeof spec === "string" ? { url: spec, method: "GET" } : spec;
-        __pm_state._send_queue.push({
-            spec: reqSpec,
-            callbackIndex: idx,
+        __pm_state.console_logs.push({
+            level: "log",
+            message:
+                '[Script] pm.sendRequest("' +
+                (reqSpec.method || "GET") +
+                " " +
+                (reqSpec.url && reqSpec.url.toString
+                    ? reqSpec.url.toString()
+                    : String(reqSpec.url || "")) +
+                '")',
+            timestamp: Date.now() / 1000,
         });
+        var raw = __pm_inline_ipc_send(reqSpec);
+        var wrapped = __pm_wrap_response(raw);
+        if (typeof callback === "function") {
+            try {
+                callback(raw && raw.error ? raw.error : null, wrapped);
+            } catch (e) {
+                __pm_state.console_logs.push({
+                    level: "error",
+                    message:
+                        "[Script] sendRequest callback error: " +
+                        (e && e.message ? e.message : String(e)),
+                    timestamp: Date.now() / 1000,
+                });
+            }
+        }
+        return Promise.resolve(wrapped);
     },
 
     cookies: (function () {
-        var cookies = {};
-        if (__pm_context.response) {
-            var hdrs = __pm_context.response.headers || [];
-            for (var i = 0; i < hdrs.length; i++) {
-                if (
-                    (hdrs[i].key || "").toLowerCase() === "set-cookie"
-                ) {
-                    var raw = hdrs[i].value || "";
-                    var eqIdx = raw.indexOf("=");
-                    if (eqIdx > 0) {
-                        var cName = raw.substring(0, eqIdx).trim();
-                        var rest = raw.substring(eqIdx + 1);
-                        var semiIdx = rest.indexOf(";");
-                        var cVal =
-                            semiIdx >= 0
-                                ? rest.substring(0, semiIdx).trim()
-                                : rest.trim();
-                        cookies[cName] = cVal;
-                    }
-                }
-            }
-        }
-        return {
-            get: function (name) {
-                return cookies.hasOwnProperty(name)
-                    ? cookies[name]
-                    : undefined;
-            },
-            getAll: function () {
-                var result = [];
-                var keys = Object.keys(cookies);
-                for (var i = 0; i < keys.length; i++) {
-                    result.push({
-                        name: keys[i],
-                        value: cookies[keys[i]],
-                    });
-                }
-                return result;
-            },
+        var hdrs = __pm_context.response ? __pm_context.response.headers || [] : [];
+        var api = __pm_makeCookiesApi(__pm_parseCookieHeaders(hdrs));
+        api.jar = function () {
+            return {
+                getAll: function (_url) {
+                    return [];
+                },
+                set: function () {
+                    throw new Error(
+                        "pm.cookies.jar mutation is not yet supported in postmark"
+                    );
+                },
+                unset: function () {
+                    throw new Error(
+                        "pm.cookies.jar mutation is not yet supported in postmark"
+                    );
+                },
+                clear: function () {
+                    throw new Error(
+                        "pm.cookies.jar mutation is not yet supported in postmark"
+                    );
+                },
+            };
         };
+        return api;
     })(),
 
-    execution: {
-        setNextRequest: function (name) {
-            __pm_state.next_request =
-                name === null || name === undefined ? null : String(name);
-        },
-        skipRequest: function () {
-            __pm_state.skip_request = true;
-        },
-    },
+    execution: (function () {
+        var loc = __pm_context.execution_location || { current: "" };
+        return {
+            setNextRequest: function (name) {
+                __pm_state.next_request =
+                    name === null || name === undefined ? null : String(name);
+            },
+            skipRequest: function () {
+                __pm_state.skip_request = true;
+            },
+            location: loc,
+        };
+    })(),
 
     iterationData: (function () {
         var data = __pm_context.iteration_data || {};
@@ -712,9 +1170,81 @@ var pm = {
             },
         };
     })(),
-};
 
-// -- sendRequest callback fulfillment ---------------------------------
+    variables: (function () {
+        var local = {};
+        return {
+            get: function (k) {
+                if (Object.prototype.hasOwnProperty.call(local, k)) {
+                    return local[k];
+                }
+                var it = __pm_context.iteration_data || {};
+                if (Object.prototype.hasOwnProperty.call(it, k)) {
+                    return it[k];
+                }
+                var env = __pm_context.environment_vars || {};
+                if (Object.prototype.hasOwnProperty.call(env, k)) {
+                    return env[k];
+                }
+                var coll = __pm_context.collection_vars || {};
+                if (Object.prototype.hasOwnProperty.call(coll, k)) {
+                    return coll[k];
+                }
+                var glob = __pm_context.global_vars || {};
+                if (Object.prototype.hasOwnProperty.call(glob, k)) {
+                    return glob[k];
+                }
+                return undefined;
+            },
+            set: function (k, v) {
+                var strVal = String(v);
+                local[k] = strVal;
+                __pm_state.variable_changes[k] = strVal;
+            },
+            unset: function (k) {
+                delete local[k];
+            },
+            has: function (k) {
+                return this.get(k) !== undefined;
+            },
+            toObject: function () {
+                var out = {};
+                var glob = __pm_context.global_vars || {};
+                Object.keys(glob).forEach(function (key) {
+                    out[key] = glob[key];
+                });
+                var coll = __pm_context.collection_vars || {};
+                Object.keys(coll).forEach(function (key) {
+                    out[key] = coll[key];
+                });
+                var env = __pm_context.environment_vars || {};
+                Object.keys(env).forEach(function (key) {
+                    out[key] = env[key];
+                });
+                var it = __pm_context.iteration_data || {};
+                Object.keys(it).forEach(function (key) {
+                    out[key] = it[key];
+                });
+                Object.keys(local).forEach(function (key) {
+                    out[key] = local[key];
+                });
+                return out;
+            },
+            replaceIn: function (template) {
+                var self = this;
+                return template.replace(/\{\{(.+?)\}\}/g, function (m, key) {
+                    var v = self.get(key);
+                    return v !== undefined ? v : m;
+                });
+            },
+            clear: function () {
+                Object.keys(local).forEach(function (key) {
+                    delete local[key];
+                });
+            },
+        };
+    })(),
+};
 
 function __pm_fulfill_send(index, resp) {
     var cb = __pm_callbacks[index];
@@ -826,12 +1356,22 @@ if (!__pm_context.is_pre_request) {
 } else {
     // In pre-request context, track request mutations
     __pm_state.request_mutations = {
-        url: pm.request.url,
+        url:
+            typeof pm.request.url === "string"
+                ? pm.request.url
+                : pm.request.url && pm.request.url.toString
+                    ? pm.request.url.toString()
+                    : "",
         method: pm.request.method,
         headers: pm.request.headers._toArray
             ? pm.request.headers._toArray()
             : [],
-        body: pm.request.body,
+        body:
+            typeof pm.request.body === "string"
+                ? pm.request.body
+                : pm.request.body && pm.request.body.toString
+                    ? pm.request.body.toString()
+                    : "",
     };
 }
 
@@ -841,4 +1381,24 @@ if (!__pm_context.is_pre_request) {
 if (typeof globalThis !== "undefined") {
     globalThis.__pm_state = __pm_state;
     globalThis.pm = pm;
+    globalThis.postman = postman;
+    globalThis.responseBody = pm.response ? pm.response.text() : undefined;
+    globalThis.responseCode = pm.response
+        ? { code: pm.response.code, name: pm.response.reason() }
+        : undefined;
+    globalThis.responseHeaders = pm.response ? pm.response.headers.toObject() : {};
+    globalThis.tests = {};
+    globalThis.xml2Json = function (xml) {
+        var x = __pm_builtins.xml2js;
+        if (!x || typeof x.parseString !== "function") {
+            return null;
+        }
+        var out = null;
+        x.parseString(String(xml), function (err, r) {
+            if (!err) {
+                out = r;
+            }
+        });
+        return out;
+    };
 }

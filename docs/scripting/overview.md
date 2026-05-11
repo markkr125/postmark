@@ -62,9 +62,11 @@ makes it available in every downstream script.
 JavaScript is the default because most existing Postman collections use
 it.  Python is opt-in via the language selector in the Scripts tab.
 
-Both languages provide the same `pm.*` API surface (with Pythonic naming
-in the Python variant — `pm.collection_variables` instead of
-`pm.collectionVariables`).
+Both languages provide the same `pm.*` API surface. Python additionally
+exposes the Postman camelCase aliases (`pm.collectionVariables` is the
+same scope as `pm.collection_variables`, etc.) so JS scripts pasted into
+a Python tab translate cleanly. See
+[Postman API parity](postman-parity.md) for the full matrix.
 
 ## Quick Start
 
@@ -164,9 +166,30 @@ for the full list.
 - **Collection/Folder-level:** Stored in `CollectionModel.events` JSON
   column.  Supports both Postman array format and internal dict format.
 
+## In-editor snippet palette
+
+The script editor's bottom status bar exposes a **Snippets** button next
+to **History**. Click it to open a searchable popover of ready-made
+`pm.*` snippets — categorised, context-filtered (`Tests` only on
+post-response, `Request setup` only on pre-request), and inserted
+verbatim at the cursor.
+
+See [Snippets](snippets.md) for the user guide, JSON schema, and
+how to add new categories or languages.
+
+## Postman compatibility
+
+Postmark's `pm.*` surface tracks the official Postman sandbox. Pasted
+Postman scripts are expected to run unmodified — the
+[Postman API parity](postman-parity.md) page lists every member, what
+works on each runtime, and which behaviours are intentionally not
+shipped.
+
 ## Related Pages
 
-- [External packages](external-packages.md) — `pm.require`, npm/jsr/PyPI, vendored allowlist
+- [Postman API parity](postman-parity.md) — full matrix of `pm.*` surface vs Postman SDK
+- [Snippets](snippets.md) — in-editor snippet palette and authoring guide
+- [External packages](external-packages.md) — `pm.require`, npm/jsr/PyPI, vendored allowlist, **private registries** (Settings → Scripting → Private package registries)
 - [JavaScript API Reference](javascript-api.md)
 - [Python API Reference](python-api.md)
 - [Examples](examples.md)

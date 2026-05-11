@@ -52,6 +52,116 @@ _SUBPROCESS_TIMEOUT = 10.0
 _PM_REQUIRE_NETWORK_HOSTS = ("registry.npmjs.org", "jsr.io", "deno.land")
 
 
+def _registry_host(url: str) -> str:
+    """Extract ``hostname[:port]`` from a registry URL for ``--allow-net``."""
+    from urllib.parse import urlparse
+
+    try:
+        parsed = urlparse(url)
+    except (ValueError, TypeError):
+        return ""
+    host = parsed.hostname or ""
+    if parsed.port:
+        host = f"{host}:{parsed.port}"
+    return host
+
+
+def _npmrc_auth_host(url: str) -> str:
+    """Return the ``host[:port]/path-prefix`` segment for an ``.npmrc`` auth line.
+
+    Strips any embedded ``user:password@`` so the emitted line is
+    ``//host[:port]/...:_authToken=…`` not ``//user:pw@host/...:_authToken=…``
+    (which Deno's npm-rc parser rejects). Path prefix is preserved because
+    ``.npmrc`` allows scoping auth to a sub-path on the same host.
+    """
+    from urllib.parse import urlparse
+
+    try:
+        parsed = urlparse(url)
+    except (ValueError, TypeError):
+        return ""
+    netloc = parsed.hostname or ""
+    if not netloc:
+        return ""
+    if parsed.port:
+        netloc = f"{netloc}:{parsed.port}"
+    # Preserve the path prefix (e.g. ``/registry/``) — drop the trailing
+    # slash so the ``/`` in the auth line template doesn't double up.
+    path = (parsed.path or "").rstrip("/")
+    return f"{netloc}{path}" if path else netloc
+
+
+def _build_npmrc_text() -> tuple[str, list[str]]:
+    """Resolve configured private registries into ``.npmrc`` lines + extra hosts.
+
+    Returns ``("", [])`` when no registries are configured. Otherwise returns
+    a string suitable for writing to ``<workdir>/.npmrc`` and a list of extra
+    ``hostname[:port]`` entries to append to ``--allow-net``.
+
+    Tokens are resolved via :mod:`services.scripting.secret_store` and written
+    *as plain text* into the generated ``.npmrc`` (Deno's env-var expansion
+    in ``.npmrc`` is documented as unreliable — `supabase/cli#4927` — so we
+    do the expansion ourselves and rely on ``chmod 0600`` for protection).
+    """
+    from services.scripting.runtime_settings import RuntimeSettings
+    from services.scripting.secret_store import get_default_store
+
+    entries = RuntimeSettings.get_registries()
+    default_url, default_auth_ref, default_auth_kind = (
+        RuntimeSettings.get_default_npm_registry()
+    )
+    if not entries and not default_url:
+        return "", []
+
+    store = get_default_store()
+    lines: list[str] = []
+    hosts: set[str] = set()
+
+    if default_url:
+        lines.append(f"registry={default_url}")
+        host = _registry_host(default_url)
+        if host:
+            hosts.add(host)
+            if default_auth_ref and default_auth_kind != "none":
+                token = store.get(default_auth_ref) or ""
+                auth_host = _npmrc_auth_host(default_url)
+                if token and auth_host:
+                    if default_auth_kind == "basic":
+                        # ``_auth=<base64(user:password)>`` for legacy basic-auth
+                        # registries (Nexus default realm, older Verdaccio).
+                        lines.append(f"//{auth_host}/:_auth={token}")
+                    else:
+                        # ``_authToken=`` for modern bearer-token registries
+                        # (Verdaccio, Cloudsmith, Artifactory, GitHub Packages).
+                        lines.append(f"//{auth_host}/:_authToken={token}")
+
+    for entry in entries:
+        scope = entry.get("scope", "")
+        url = entry.get("url", "")
+        if not scope or not url:
+            continue
+        lines.append(f"{scope}:registry={url}")
+        host = _registry_host(url)
+        if host:
+            hosts.add(host)
+        auth_kind = entry.get("auth_kind", "none")
+        auth_ref = entry.get("auth_ref", "")
+        if auth_kind == "none" or not auth_ref:
+            continue
+        token_or_basic = store.get(auth_ref) or ""
+        if not token_or_basic:
+            continue
+        auth_host = _npmrc_auth_host(url)
+        if not auth_host:
+            continue
+        if auth_kind == "basic":
+            lines.append(f"//{auth_host}/:_auth={token_or_basic}")
+        else:
+            lines.append(f"//{auth_host}/:_authToken={token_or_basic}")
+
+    return ("\n".join(lines) + "\n" if lines else "", sorted(hosts))
+
+
 def _postmark_deno_user_cache_dir() -> Path:
     """Return (and create) the per-user Deno cache directory for Postmark."""
     system = platform.system()
@@ -91,7 +201,21 @@ def deno_ipc_argv_and_env(
     except ValueError:
         needs_net = True
     if needs_net:
-        args.append(f"--allow-net={','.join(_PM_REQUIRE_NETWORK_HOSTS)}")
+        # Drop a per-execution ``.npmrc`` into the bundle workdir so Deno
+        # picks up private-registry configuration (scope mappings + auth
+        # tokens). Tokens are resolved via the secret store and written in
+        # plain text; ``chmod 0600`` keeps the file out of other users'
+        # reach. Extra registry hostnames are added to ``--allow-net``.
+        npmrc_text, extra_hosts = _build_npmrc_text()
+        if npmrc_text:
+            npmrc_path = wdir / ".npmrc"
+            npmrc_path.write_text(npmrc_text, encoding="utf-8")
+            with contextlib.suppress(OSError):
+                os.chmod(npmrc_path, 0o600)
+        all_hosts = list(_PM_REQUIRE_NETWORK_HOSTS) + [
+            h for h in extra_hosts if h not in _PM_REQUIRE_NETWORK_HOSTS
+        ]
+        args.append(f"--allow-net={','.join(all_hosts)}")
         args.append("--node-modules-dir=auto")
     args.append("--allow-env")
     if inspect_brk:
@@ -186,8 +310,12 @@ _DEBUG_BASELINE = (
 # ``HEAD`` must not end with ``\\n``: ``"\\n".join(parts)`` inserts one newline
 # between ``HEAD`` and the user tail; a trailing ``\\n`` on ``HEAD`` would add a
 # blank line and break ``user_script_first_line_0_in_debug_bundle`` / breakpoints.
-_DEBUG_USER_SCRIPT_HEAD = "\n// -- user script --\nfunction __pm_debugUserScript() {"
-_DEBUG_USER_SCRIPT_TAIL = "\n}\n__pm_debugUserScript();\n;\n"
+# Wrapper is ``async`` because user scripts may use top-level ``await
+# pm.sendRequest(...)`` (Postman-API parity). The outer call is itself
+# awaited so the drain code that follows runs **after** the user script
+# resolves, otherwise pm.test results queued post-await would be missed.
+_DEBUG_USER_SCRIPT_HEAD = "\n// -- user script --\nasync function __pm_debugUserScript() {"
+_DEBUG_USER_SCRIPT_TAIL = "\n}\nawait __pm_debugUserScript();\n;\n"
 
 
 def build_debug_bundle_text(user_script: str, context: ScriptInput) -> str:

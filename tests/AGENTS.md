@@ -134,6 +134,7 @@ tests/
 │       ├── test_js_debug.py
 │       ├── test_py_debug.py
 │       ├── test_script_engine.py
+│       ├── test_pm_api_schema_drift.py  # pm_api_schema paths resolve in Deno JS
 │       ├── test_pyodide_runtime.py
 │       ├── test_script_sandbox.py
 │       ├── test_script_service.py
@@ -142,6 +143,9 @@ tests/
 │       ├── test_script_version_service.py
 │       ├── test_deno_manager.py
 │       ├── test_runtime_settings.py
+│       ├── test_secret_store.py     # SecretStore backends: keyring / encrypted-file / noop; default-store self-test fallback
+│       ├── test_deno_runtime_registries.py  # _build_npmrc_text + deno_ipc_argv_and_env private-registry plumbing
+│       ├── test_pyodide_private_pypi.py     # _pypi_index_hosts + _resolve_pypi_index_urls auth embedding
 │       ├── lsp/                   # LSP transport / offset helpers
 │       │   ├── test_transport.py
 │       │   ├── test_qt_lsp_offsets.py
@@ -179,6 +183,7 @@ tests/
     │   ├── test_variable_popup.py
     │   ├── test_variable_popup_local.py
     │   ├── test_search_replace_bar.py
+    │   ├── test_snippets_popup.py   # Snippet JSON (Tests / Pre-request) + SnippetsPopup
     │   └── test_runtime_banner.py
    ├── sidebar/                   # Sidebar widget tests
    │   ├── test_sidebar.py

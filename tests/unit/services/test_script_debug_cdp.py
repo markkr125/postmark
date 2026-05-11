@@ -489,6 +489,70 @@ class TestCdpBreakEditorLines:
         assert _cdp_break_editor_lines({2, 0}, {5, 7}, 0) == [0, 2]
 
 
+class TestSourceMapDecode:
+    """Source-map reverse mapping for ``.ts`` debug bundles (Deno transpile)."""
+
+    def test_vlq_decode_basic(self) -> None:
+        from services.scripting.debug.deno_debug import _vlq_decode
+
+        # "AAAA" → four zero VLQs at columns 0,1,2,3
+        v, i = _vlq_decode("A", 0)
+        assert v == 0 and i == 1
+        # "C" = 1 << 1 = 2 (positive)
+        v, i = _vlq_decode("C", 0)
+        assert v == 1 and i == 1
+        # "D" = (1 << 1) | 1 → -1 (sign bit set)
+        v, i = _vlq_decode("D", 0)
+        assert v == -1 and i == 1
+
+    def test_build_source_map_round_trip(self) -> None:
+        from services.scripting.debug.deno_debug import _build_source_map
+
+        # Hand-crafted: src lines 0,1,2 each map to one gen line in order.
+        # Mapping segment shape: gen_col, src_idx, src_line, src_col.
+        # "AAAA" = [0,0,0,0]; "AACA" = [0,0,1,0]; "AACA" = [0,0,1,0] (relative).
+        mappings = "AAAA;AACA;AACA"
+        src_to_gen, gen_to_src = _build_source_map(mappings)
+        assert gen_to_src[0] == 0
+        assert gen_to_src[1] == 1
+        assert gen_to_src[2] == 2
+        assert src_to_gen[0] == [0]
+        assert src_to_gen[1] == [1]
+        assert src_to_gen[2] == [2]
+
+    def test_decode_inline_source_map_data_url(self) -> None:
+        import base64
+        import json
+
+        from services.scripting.debug.deno_debug import _decode_inline_source_map
+
+        sm = {"version": 3, "sources": ["x.ts"], "mappings": "AAAA"}
+        b64 = base64.b64encode(json.dumps(sm).encode()).decode()
+        url = f"data:application/json;base64,{b64}"
+        decoded = _decode_inline_source_map(url)
+        assert decoded == sm
+
+    def test_decode_inline_source_map_rejects_non_data_url(self) -> None:
+        from services.scripting.debug.deno_debug import _decode_inline_source_map
+
+        assert _decode_inline_source_map("file:///x.ts.map") is None
+        assert _decode_inline_source_map("") is None
+
+    def test_src_to_gen_line_passthrough_when_no_map(self) -> None:
+        from services.scripting.debug.deno_debug import _src_to_gen_line
+
+        assert _src_to_gen_line(None, 42) == 42
+        assert _src_to_gen_line({}, 42) == 42
+        assert _src_to_gen_line({42: [17]}, 42) == 17
+
+    def test_gen_to_src_line_passthrough_when_no_map(self) -> None:
+        from services.scripting.debug.deno_debug import _gen_to_src_line
+
+        assert _gen_to_src_line(None, 42) == 42
+        assert _gen_to_src_line({}, 42) == 42
+        assert _gen_to_src_line({17: 42}, 17) == 42
+
+
 class _RecordingCdp:
     """Minimal CDP stand-in for :func:`_process_one_paused` tests."""
 

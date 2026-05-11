@@ -7,23 +7,46 @@ application names match ``src/ui/styling/theme_manager`` (``Postmark``).
 
 from __future__ import annotations
 
+import json
+import logging
 import os
 import platform
 import shutil
 import subprocess
 import sys
-from typing import TYPE_CHECKING, TypedDict
+import uuid
+from typing import TYPE_CHECKING, Literal, TypedDict, cast
 
 if TYPE_CHECKING:
     from PySide6.QtCore import QSettings
 
 from services.scripting.deno_manager import DenoManager
 
+logger = logging.getLogger(__name__)
+
 _SETTINGS_ORG = "Postmark"
 _SETTINGS_APP = "Postmark"
 _KEY_DENO = "scripting/deno_path"
 _KEY_PYTHON = "scripting/python_path"
 _KEY_LSP_ENABLED = "scripting/lsp_enabled"
+# Private package registries (npm + JSR share `.npmrc` mechanics).
+_KEY_REGISTRIES = "scripting/registries/entries"
+_KEY_DEFAULT_NPM = "scripting/registries/default_npm"
+_KEY_DEFAULT_NPM_AUTH_REF = "scripting/registries/default_npm_auth_ref"
+_KEY_DEFAULT_NPM_AUTH_KIND = "scripting/registries/default_npm_auth_kind"
+_KEY_PYPI_INDEX = "scripting/pypi/index_url"
+_KEY_PYPI_EXTRA_INDEX = "scripting/pypi/extra_index_url"
+_KEY_PYPI_AUTH_REF = "scripting/pypi/auth_ref"
+_KEY_PYPI_AUTH_KIND = "scripting/pypi/auth_kind"
+# N-index list (top = primary, then extras), JSON-encoded ``list[PyPIIndex]``.
+# Supersedes the legacy single-primary + single-extra keys above.
+_KEY_PYPI_INDEXES = "scripting/pypi/indexes"
+
+# Registry entry fields. ``auth_kind`` matches the keys an ``.npmrc`` line
+# accepts: ``token`` -> ``_authToken=…``; ``basic`` -> ``_auth=<base64>``;
+# ``none`` -> no auth line.
+_AUTH_KINDS = ("token", "basic", "none")
+_REGISTRY_KINDS = ("npm", "jsr")
 
 # Short timeouts; validation must not block the UI thread for long.
 _VALIDATE_DENO_TIMEOUT_S = 5.0
@@ -39,6 +62,67 @@ class RuntimePathStatus(TypedDict):
     available: bool
     version: str
     error: str
+
+
+class RegistryEntry(TypedDict):
+    """One row in :meth:`RuntimeSettings.get_registries`.
+
+    ``id`` is a stable per-row surrogate identifier (UUID4 hex) assigned at
+    row creation. It anchors the ``auth_ref`` so renaming ``scope`` or
+    swapping ``url`` does not orphan the stored secret. Legacy entries
+    persisted before this field was introduced are auto-migrated at read
+    time (see :meth:`get_registries`).
+
+    ``scope`` is an npm-style scope (``@mycompany``). ``url`` is the registry
+    base URL. ``kind`` distinguishes ``"npm"`` from ``"jsr"`` so the UI can
+    label them; the on-disk ``.npmrc`` shape is the same for both since JSR
+    private mirrors run through npm-compatible upstream proxies.
+    ``auth_kind`` matches the keys an ``.npmrc`` line accepts. ``auth_ref``
+    is the opaque reference into the :mod:`secret_store` keyed by the same
+    string regardless of backend; canonical form is
+    ``f"registry:{id}"``.
+    """
+
+    id: str
+    scope: str
+    url: str
+    kind: Literal["npm", "jsr"]
+    auth_kind: Literal["token", "basic", "none"]
+    auth_ref: str
+
+
+class PyPIConfig(TypedDict):
+    """Legacy single-primary + single-extra PyPI shape.
+
+    Kept so callers that already round-trip via :meth:`get_pypi_config` keep
+    working. New code should prefer :meth:`get_pypi_indexes` which exposes
+    the underlying N-index list (pip/micropip both support any number of
+    index URLs in priority order). ``auth_kind`` matches the scoped-row
+    semantics — see :class:`PyPIIndex` for the canonical per-row shape.
+    """
+
+    index_url: str
+    extra_index_url: str
+    auth_ref: str
+    auth_kind: Literal["token", "basic", "none"]
+
+
+class PyPIIndex(TypedDict):
+    """One row in :meth:`RuntimeSettings.get_pypi_indexes`.
+
+    pip / micropip support **any number** of index URLs in priority order
+    (top = primary, then extras). Each row carries its own auth so a user
+    can mix, for example, a token-authed primary mirror with a public
+    fallback. ``id`` is a stable UUID4 hex so renaming/reordering can't
+    orphan secrets in the OS keychain.
+
+    The canonical ``auth_ref`` is ``f"pypi:{id}"``.
+    """
+
+    id: str
+    url: str
+    auth_kind: Literal["token", "basic", "none"]
+    auth_ref: str
 
 
 def _get_settings() -> QSettings:
@@ -164,6 +248,257 @@ class RuntimeSettings:
         s = _get_settings()
         s.remove(_KEY_PYTHON)
 
+    # ------------------------------------------------------------------
+    # Private package registries
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def get_registries() -> list[RegistryEntry]:
+        """Return the list of configured private registries.
+
+        Stored as a JSON-encoded list in QSettings. Malformed entries are
+        silently dropped so a corrupted settings file cannot crash startup.
+        """
+        s = _get_settings()
+        raw = s.value(_KEY_REGISTRIES, "")
+        if not isinstance(raw, str) or not raw.strip():
+            return []
+        try:
+            parsed = json.loads(raw)
+        except (json.JSONDecodeError, ValueError) as exc:
+            logger.warning("Malformed %s: %s — dropping", _KEY_REGISTRIES, exc)
+            return []
+        if not isinstance(parsed, list):
+            return []
+        out: list[RegistryEntry] = []
+        migrated = False
+        for raw_entry in parsed:
+            if not isinstance(raw_entry, dict):
+                continue
+            scope = str(raw_entry.get("scope") or "").strip()
+            url = str(raw_entry.get("url") or "").strip()
+            if not scope or not url:
+                continue
+            kind = raw_entry.get("kind", "npm")
+            if kind not in _REGISTRY_KINDS:
+                kind = "npm"
+            auth_kind = raw_entry.get("auth_kind", "none")
+            if auth_kind not in _AUTH_KINDS:
+                auth_kind = "none"
+            auth_ref = str(raw_entry.get("auth_ref") or "").strip()
+            # Migrate legacy entries (pre-``id`` field): assign a fresh UUID
+            # so future scope renames don't orphan the keychain entry. The
+            # previous behaviour keyed ``auth_ref`` off the scope itself,
+            # which silently leaked secrets whenever a row was renamed.
+            stored_id = str(raw_entry.get("id") or "").strip()
+            if stored_id:
+                row_id = stored_id
+            else:
+                row_id = uuid.uuid4().hex
+                migrated = True
+            out.append(
+                {
+                    "id": row_id,
+                    "scope": scope,
+                    "url": url,
+                    "kind": kind,
+                    "auth_kind": auth_kind,
+                    "auth_ref": auth_ref,
+                }
+            )
+        # Persist the migration on first read so the freshly-assigned
+        # UUIDs stick. Without this, every call to ``get_registries``
+        # would mint different IDs in memory while QSettings stays
+        # legacy — and any ``auth_ref`` saved against an unpersisted
+        # UUID would orphan its secret on the next read (Bug P4).
+        if migrated:
+            s.setValue(_KEY_REGISTRIES, json.dumps(list(out)))
+        return out
+
+    @staticmethod
+    def set_registries(entries: list[RegistryEntry]) -> None:
+        """Persist *entries* as a JSON blob. Pass ``[]`` to clear."""
+        s = _get_settings()
+        s.setValue(_KEY_REGISTRIES, json.dumps(list(entries)))
+
+    @staticmethod
+    def get_default_npm_registry() -> tuple[str, str, str]:
+        """Return ``(url, auth_ref, auth_kind)`` for the default-npm override.
+
+        Empty strings on all three when nothing is configured. ``auth_kind``
+        matches scoped-row semantics (``"token"`` / ``"basic"`` / ``"none"``).
+        """
+        s = _get_settings()
+        url = str(s.value(_KEY_DEFAULT_NPM, "") or "").strip()
+        auth_ref = str(s.value(_KEY_DEFAULT_NPM_AUTH_REF, "") or "").strip()
+        auth_kind = str(s.value(_KEY_DEFAULT_NPM_AUTH_KIND, "") or "").strip()
+        if auth_kind not in _AUTH_KINDS:
+            # ``""`` falls back to ``token`` to match the previous behaviour
+            # while a saved entry without an explicit kind exists.
+            auth_kind = "token" if auth_ref else "none"
+        return url, auth_ref, auth_kind
+
+    @staticmethod
+    def set_default_npm_registry(
+        url: str, auth_ref: str = "", auth_kind: str = ""
+    ) -> None:
+        """Persist the default-npm override; pass empty *url* to clear all three keys."""
+        s = _get_settings()
+        url = (url or "").strip()
+        if url:
+            s.setValue(_KEY_DEFAULT_NPM, url)
+            s.setValue(_KEY_DEFAULT_NPM_AUTH_REF, (auth_ref or "").strip())
+            kind = (auth_kind or "").strip()
+            if kind not in _AUTH_KINDS:
+                kind = "token" if (auth_ref or "").strip() else "none"
+            s.setValue(_KEY_DEFAULT_NPM_AUTH_KIND, kind)
+        else:
+            s.remove(_KEY_DEFAULT_NPM)
+            s.remove(_KEY_DEFAULT_NPM_AUTH_REF)
+            s.remove(_KEY_DEFAULT_NPM_AUTH_KIND)
+
+    @staticmethod
+    def get_pypi_config() -> PyPIConfig:
+        """Return the configured PyPI overrides (empty strings when unset)."""
+        s = _get_settings()
+        auth_ref = str(s.value(_KEY_PYPI_AUTH_REF, "") or "").strip()
+        auth_kind = str(s.value(_KEY_PYPI_AUTH_KIND, "") or "").strip()
+        if auth_kind not in _AUTH_KINDS:
+            # ``""`` falls back to ``token`` to match the previous behaviour
+            # while a saved entry without an explicit kind exists.
+            auth_kind = "token" if auth_ref else "none"
+        return {
+            "index_url": str(s.value(_KEY_PYPI_INDEX, "") or "").strip(),
+            "extra_index_url": str(s.value(_KEY_PYPI_EXTRA_INDEX, "") or "").strip(),
+            "auth_ref": auth_ref,
+            "auth_kind": cast(
+                "Literal['token', 'basic', 'none']", auth_kind
+            ),
+        }
+
+    @staticmethod
+    def set_pypi_config(cfg: PyPIConfig) -> None:
+        """Persist the PyPI overrides; empty strings remove the corresponding key."""
+        s = _get_settings()
+        for key, val in (
+            (_KEY_PYPI_INDEX, cfg.get("index_url", "")),
+            (_KEY_PYPI_EXTRA_INDEX, cfg.get("extra_index_url", "")),
+            (_KEY_PYPI_AUTH_REF, cfg.get("auth_ref", "")),
+        ):
+            if (val or "").strip():
+                s.setValue(key, val)
+            else:
+                s.remove(key)
+        auth_kind = cfg.get("auth_kind", "")
+        if auth_kind in _AUTH_KINDS and cfg.get("auth_ref", "").strip():
+            s.setValue(_KEY_PYPI_AUTH_KIND, auth_kind)
+        else:
+            s.remove(_KEY_PYPI_AUTH_KIND)
+
+    # -- N-index PyPI list --------------------------------------------
+
+    @staticmethod
+    def get_pypi_indexes() -> list[PyPIIndex]:
+        """Return the configured PyPI index URLs in priority order.
+
+        Top row = primary (replaces public PyPI); subsequent rows are
+        extras. Legacy single-primary + single-extra settings (the old
+        ``scripting/pypi/index_url`` + ``extra_index_url`` keys) are
+        migrated to the list shape on first read, with the migration
+        persisted so freshly-minted UUIDs stick across calls (mirrors the
+        legacy-``id`` migration on :meth:`get_registries`).
+        """
+        s = _get_settings()
+        raw = s.value(_KEY_PYPI_INDEXES, "")
+        out: list[PyPIIndex] = []
+        if isinstance(raw, str) and raw.strip():
+            try:
+                parsed = json.loads(raw)
+            except (json.JSONDecodeError, ValueError):
+                parsed = []
+            if isinstance(parsed, list):
+                for entry in parsed:
+                    if not isinstance(entry, dict):
+                        continue
+                    url = str(entry.get("url") or "").strip()
+                    if not url:
+                        continue
+                    auth_kind = entry.get("auth_kind", "none")
+                    if auth_kind not in _AUTH_KINDS:
+                        auth_kind = "none"
+                    out.append(
+                        {
+                            "id": str(entry.get("id") or "").strip() or uuid.uuid4().hex,
+                            "url": url,
+                            "auth_kind": auth_kind,
+                            "auth_ref": str(entry.get("auth_ref") or "").strip(),
+                        }
+                    )
+        if out:
+            return out
+
+        # Fall back to the legacy single-primary + single-extra keys.
+        legacy = RuntimeSettings.get_pypi_config()
+        migrated: list[PyPIIndex] = []
+        if legacy["index_url"]:
+            migrated.append(
+                {
+                    "id": uuid.uuid4().hex,
+                    "url": legacy["index_url"],
+                    "auth_kind": legacy.get("auth_kind") or "none",
+                    "auth_ref": legacy.get("auth_ref") or "",
+                }
+            )
+        if legacy["extra_index_url"]:
+            # Extras inherit the single shared legacy auth_ref by design
+            # (the old UI had no per-extra auth slot). The user can split
+            # them later from the new table.
+            migrated.append(
+                {
+                    "id": uuid.uuid4().hex,
+                    "url": legacy["extra_index_url"],
+                    "auth_kind": legacy.get("auth_kind") or "none",
+                    "auth_ref": legacy.get("auth_ref") or "",
+                }
+            )
+        if migrated:
+            s.setValue(_KEY_PYPI_INDEXES, json.dumps(list(migrated)))
+        return migrated
+
+    @staticmethod
+    def set_pypi_indexes(indexes: list[PyPIIndex]) -> None:
+        """Persist the N-index list. Pass ``[]`` to clear all rows.
+
+        Also clears the legacy keys so they don't shadow the list on
+        subsequent reads.
+        """
+        s = _get_settings()
+        clean: list[PyPIIndex] = []
+        for entry in indexes:
+            if not entry.get("url"):
+                continue
+            clean.append(
+                {
+                    "id": entry.get("id") or uuid.uuid4().hex,
+                    "url": entry["url"].strip(),
+                    "auth_kind": entry.get("auth_kind", "none"),
+                    "auth_ref": entry.get("auth_ref", ""),
+                }
+            )
+        if clean:
+            s.setValue(_KEY_PYPI_INDEXES, json.dumps(list(clean)))
+        else:
+            s.remove(_KEY_PYPI_INDEXES)
+        # Legacy keys are no longer authoritative — clear them so the
+        # next ``get_pypi_indexes`` doesn't try to migrate stale data.
+        for key in (
+            _KEY_PYPI_INDEX,
+            _KEY_PYPI_EXTRA_INDEX,
+            _KEY_PYPI_AUTH_REF,
+            _KEY_PYPI_AUTH_KIND,
+        ):
+            s.remove(key)
+
     @staticmethod
     def validate_deno(path: str | None) -> RuntimePathStatus:
         """Run ``deno --version`` and report availability."""
@@ -254,4 +589,10 @@ class RuntimeSettings:
         return {"path": p, "available": True, "version": first, "error": ""}
 
 
-__all__ = ["RuntimePathStatus", "RuntimeSettings"]
+__all__ = [
+    "PyPIConfig",
+    "PyPIIndex",
+    "RegistryEntry",
+    "RuntimePathStatus",
+    "RuntimeSettings",
+]

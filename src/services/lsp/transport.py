@@ -245,15 +245,20 @@ class LspTransport(QObject):
         self.server_exited.emit(code)
 
     def stop(self, timeout_s: float = 2.0) -> None:
-        """Terminate subprocess and join helper threads."""
+        """Terminate subprocess and join helper threads.
+
+        The reader / stderr threads block on ``read(...)`` of the
+        subprocess pipes; setting ``_running = False`` does not unblock
+        them. The subprocess **must** be terminated first so its
+        stdout / stderr close and the blocked reads return EOF, letting
+        the threads exit before we ``wait`` on them. Otherwise the
+        ``QThread`` is still running when the transport drops its
+        reference, producing ``QThread: Destroyed while thread '' is
+        still running`` and an abort at app shutdown.
+        """
         self._running = False
         if self._reader is not None:
             self._reader.stop()
-            self._reader.wait(int(timeout_s * 1000))
-            self._reader = None
-        if self._stderr_thread is not None:
-            self._stderr_thread.wait(int(timeout_s * 1000))
-            self._stderr_thread = None
         if self._proc is not None and self._test_read_fn is None:
             try:
                 self._proc.terminate()
@@ -262,6 +267,12 @@ class LspTransport(QObject):
                 with contextlib.suppress(Exception):
                     self._proc.kill()
             self._proc = None
+        if self._reader is not None:
+            self._reader.wait(int(timeout_s * 1000))
+            self._reader = None
+        if self._stderr_thread is not None:
+            self._stderr_thread.wait(int(timeout_s * 1000))
+            self._stderr_thread = None
 
     def send_request(self, method: str, params: dict[str, Any]) -> LspFuture:
         """Send a request and return a future for the ``result`` object."""

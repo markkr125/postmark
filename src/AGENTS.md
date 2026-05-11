@@ -101,7 +101,13 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   :file:`data/scripts/esprima_parse.mjs`); **TypeScript** skips Esprima lint until a TS parser exists.
   `RuntimeSettings` (``scripting/deno_path``, ``scripting/python_path``,
   ``scripting/lsp_enabled`` in QSettings) resolves/validates executables and
-  toggles IDE-style language servers for script editors.
+  toggles IDE-style language servers for script editors. Private package
+  registries (`scripting/registries/entries` JSON list, `scripting/pypi/*`)
+  are read by :func:`services.scripting.deno_runtime._build_npmrc_text` and
+  :func:`services.scripting.pyodide_runtime._resolve_pypi_index_urls` — see
+  [docs/scripting/external-packages.md](../docs/scripting/external-packages.md).
+  Tokens live in :mod:`services.scripting.secret_store` (OS keychain
+  preferred, encrypted-file fallback) and never appear in `QSettings`.
   ``CodeEditorWidget.notify_lsp_diagnostics`` / ``lsp_diagnostics_changed`` expose
   ``textDocument/publishDiagnostics`` to the script **Problems** tab (see
   ``ui/widgets/code_editor/lsp_integration.py`` ``EditorLspAdapter``).
@@ -166,9 +172,20 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   mouse press outside the popup on the editor or main window or Escape in the editor;
   the editor does not dismiss it when ``_var_at_cursor`` flickers off the token).
   :func:`deno_runtime.build_debug_bundle_text`
-  wraps the user script in ``function __pm_debugUserScript() { … }`` so
-  ``const``/``let`` bind under a ``local`` CDP scope instead of sharing the
-  bundle ``module`` record with polyfills.  While paused in
+  wraps the user script in ``async function __pm_debugUserScript() { … }``
+  so ``const``/``let`` bind under a ``local`` CDP scope instead of sharing
+  the bundle ``module`` record with polyfills.  The wrapper **must** be
+  ``async`` because user scripts may use top-level ``await pm.sendRequest(…)``
+  (Postman API parity); a sync wrapper would make ``await`` a parse error and
+  no breakpoints could fire.  The call site is ``await __pm_debugUserScript();``
+  so the trailing drain code (which queues ``__done__``) runs **after** the
+  user script's awaits resolve — without the outer ``await``, ``pm.test``
+  results queued post-await would race the drain and be lost.  Adding any
+  new debug-bundle wrapper for a future language must follow the same
+  rule: if user code can ``await`` (or ``async`` block, etc.), the wrapper
+  must allow it AND the drain hook must wait for it.  See the comment
+  above ``_DEBUG_USER_SCRIPT_HEAD`` in
+  :file:`src/services/scripting/deno_runtime.py`.  While paused in
   ``__pm_debugUserScript`` or ``__denoIpcDrain``, the ``module`` scope is
   skipped entirely; otherwise ``module`` property names starting with ``__``
   are dropped.  Collected scope types include ``module``, ``local``, ``block``,
@@ -193,6 +210,41 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   line range call ``checkpoint`` so breakpoints inside nested callbacks (e.g.
   ``pm.test`` bodies) work.  Changing breakpoints while a Deno session is
   paused does not push new CDP breakpoints until the next debug run.
+
+## Snippets (script editors)
+
+Declarative **script snippets** (Postman-style one-click insert) live under
+`data/snippets/` as JSON files named after ``CodeEditorWidget.language`` (with
+TypeScript resolving to ``javascript.json``).  ``ui/widgets/snippets/loader.py``
+loads and caches them; ``ui/widgets/snippets/popup.py`` implements the searchable
+popover.  The **Snippets** control in the script status bar is built in
+``ui/request/request_editor/scripts/scripts_mixin.py`` (``_build_script_status_bar``).
+Authoring guide: ``data/snippets/README.md``.
+
+Shipped JSON includes **Workflows**, **Variables**, **Tests** (e.g. status code or reason
+phrase, ``to.have.body``, ``to.be.oneOf`` / ``one_of``), and **Pre-request helpers**.
+Assertion helpers live in ``data/scripts/pm_bootstrap.js`` and ``data/scripts/pm_bootstrap.py``;
+the RestrictedPython subprocess path mirrors the same expectations in
+``services/scripting/_py_sandbox.py`` (keep Python snippet bodies on the injected
+stdlib shims documented in that module and in ``data/snippets/README.md``).
+
+**Postman API parity:** ``src/services/scripting/pm_api_schema.py`` is the linter /
+schema source of truth; ``tests/unit/services/test_pm_api_schema_drift.py`` probes
+that every schema path exists on the live ``pm`` / ``postman`` objects inside
+``data/scripts/pm_bootstrap.js``. Both Python runtimes
+(``data/scripts/pm_bootstrap.py`` for Pyodide and
+``src/services/scripting/_py_sandbox.py`` for RestrictedPython) now mirror the JS
+surface: ``HeaderList``, ``Url``, discriminated ``RequestBody``, resolved
+``pm.variables``, ``pm.test.skip``, ``pm.execution.location``, response helpers
+(``originalRequest`` / ``cookies`` / ``reason`` / ``mime`` / ``dataURI`` / ``size``),
+``pm.cookies.jar()``, bare-name ``pm.require``, legacy globals (``responseBody``,
+``responseCode``, ``responseHeaders``, ``tests``, ``xml2Json``), the ``postman``
+v1 shim, and a ``pm.visualizer.set`` stub that raises a documented error. Python
+keeps ``snake_case`` attributes and adds ``camelCase`` aliases
+(``pm.collectionVariables`` etc.) so Postman scripts pasted unchanged into a
+Python tab still resolve. **Note:** Python ``pm.send_request`` is synchronous —
+pyodide / RestrictedPython have no event loop, so no ``await``. New Python
+parity coverage lives in ``tests/unit/services/test_pm_python_parity.py``.
 
 ## The dict interchange schema
 

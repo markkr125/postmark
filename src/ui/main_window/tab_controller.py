@@ -224,6 +224,7 @@ class _TabControllerMixin:
         editor.dirty_changed.connect(self._sync_save_btn)
         editor.dirty_changed.connect(self._on_editor_dirty_changed)
         editor.request_changed.connect(lambda _: self._schedule_sidebar_snippet_refresh())
+        editor.scripts_tab_active_changed.connect(self._on_editor_scripts_tab_changed)
         viewer.save_response_requested.connect(self._on_save_response)
         viewer.save_availability_changed.connect(lambda _enabled: self._refresh_sidebar())
 
@@ -311,6 +312,23 @@ class _TabControllerMixin:
                 self._tab_bar.update_tab(idx, is_dirty=dirty)
                 break
 
+    def _on_editor_scripts_tab_changed(self, scripts_active: bool) -> None:
+        """Hide the response area while the active editor's Scripts tab is open.
+
+        Gated on ``sender is active editor`` so a Scripts-tab toggle on a
+        background tab doesn't affect the currently visible response area.
+        Folder tabs already hide the response area unconditionally; leave
+        that path alone.
+        """
+        sender_fn = cast(Any, getattr(self, "sender", None))
+        sender = sender_fn() if callable(sender_fn) else None
+        if sender is not self.request_widget:
+            return
+        ctx = self._current_tab_context()
+        if ctx is not None and ctx.tab_type == "folder":
+            return
+        self._response_area.setVisible(not scripts_active)
+
     def _on_tab_changed(self, index: int) -> None:
         """Switch the stacked widgets when the active tab changes.
 
@@ -342,7 +360,9 @@ class _TabControllerMixin:
             self._response_stack.setCurrentWidget(ctx.response_viewer)
             self.request_widget = ctx.editor
             self.response_widget = ctx.response_viewer
-            self._response_area.show()
+            # Response area defaults to visible, but the Scripts section tab
+            # gives its Output/Problems/Mock panel the full bottom row.
+            self._response_area.setVisible(not ctx.editor.is_scripts_tab_active())
             self._save_btn.setVisible(True)
             self._sync_save_btn(ctx.editor.is_dirty)
         else:
@@ -618,6 +638,7 @@ class _TabControllerMixin:
         editor.dirty_changed.connect(self._sync_save_btn)
         editor.dirty_changed.connect(self._on_editor_dirty_changed)
         editor.request_changed.connect(lambda _: self._schedule_sidebar_snippet_refresh())
+        editor.scripts_tab_active_changed.connect(self._on_editor_scripts_tab_changed)
         viewer.save_response_requested.connect(self._on_save_response)
         viewer.save_availability_changed.connect(lambda _enabled: self._refresh_sidebar())
 

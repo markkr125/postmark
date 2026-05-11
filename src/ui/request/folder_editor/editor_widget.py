@@ -80,6 +80,7 @@ class FolderEditorWidget(_AuthMixin, _RunsMixin, _ScriptsMixin, QWidget):
 
         # -- Tabbed area --
         self._tabs = QTabWidget()
+        self._tabs.tabBar().setCursor(Qt.CursorShape.PointingHandCursor)
 
         # ---- Overview tab ----
         self._overview_tab = QWidget()

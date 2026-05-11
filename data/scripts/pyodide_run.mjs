@@ -141,10 +141,18 @@ async function main() {
   }
 
   const pmReq = Array.isArray(inp.pm_require) ? inp.pm_require : [];
+  const pypiIndexes = Array.isArray(inp.pypi_index_urls) ? inp.pypi_index_urls : [];
   if (pmReq.length > 0) {
     try {
       await pyodide.loadPackage("micropip");
       const micropip = pyodide.pyimport("micropip");
+      if (pypiIndexes.length > 0) {
+        // Route ``micropip.install`` through the configured private PyPI
+        // index(es) before any package fetch. Auth is embedded in the URL
+        // (e.g. ``https://user:token@pypi.mycorp.io/simple/``) — that's the
+        // only format ``micropip`` honours since it has no .netrc parsing.
+        micropip.set_index_urls(pypiIndexes);
+      }
       for (const spec of pmReq) {
         await micropip.install(spec);
       }

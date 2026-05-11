@@ -6,9 +6,16 @@ application-wide Qt Style Sheet string from a ThemePalette.
 
 from __future__ import annotations
 
-from ui.styling.theme import (BADGE_BORDER_RADIUS, BADGE_FONT_SIZE,
-                              BADGE_HEIGHT, BADGE_MIN_WIDTH, DARK_PALETTE,
-                              LIGHT_PALETTE, TREE_ROW_HEIGHT, ThemePalette)
+from ui.styling.theme import (
+    BADGE_BORDER_RADIUS,
+    BADGE_FONT_SIZE,
+    BADGE_HEIGHT,
+    BADGE_MIN_WIDTH,
+    DARK_PALETTE,
+    LIGHT_PALETTE,
+    TREE_ROW_HEIGHT,
+    ThemePalette,
+)
 
 
 def build_global_qss(p: ThemePalette) -> str:
@@ -74,6 +81,14 @@ def build_global_qss(p: ThemePalette) -> str:
     QLabel[objectName="sectionLabel"] {{
         color: {p["text"]};
         font-size: 12px;
+        font-weight: bold;
+        /* Sub-section anchor: thin bottom border + breathing space above so
+           the label visually separates from the previous field instead of
+           reading as just-another-line of muted body text. */
+        padding-top: 8px;
+        padding-bottom: 4px;
+        border-bottom: 1px solid {p["border"]};
+        margin-bottom: 2px;
     }}
     QLabel[objectName="panelTitle"] {{
         font-weight: bold;
@@ -158,8 +173,14 @@ def build_global_qss(p: ThemePalette) -> str:
         opacity: 0.85;
     }}
     QPushButton[objectName="primaryButton"]:disabled {{
-        background: {p["bg_alt"]};
-        color: {p["text_muted"]};
+        /* Keep the button visibly the primary action — just dim it.
+           Previous rule used ``bg_alt`` + ``text_muted`` which faded the
+           button into the dialog background and looked broken. The
+           hard-coded rgba values mirror the accent hue at ~40% opacity;
+           Qt's stylesheet engine cannot derive ``rgba(p["accent"], 0.4)``
+           from a hex string at runtime. */
+        background: {"rgba(79, 193, 255, 0.40)" if p is DARK_PALETTE else "rgba(52, 152, 219, 0.40)"};
+        color: {p["bg"]};
     }}
     QPushButton[objectName="dangerButton"] {{
         background: {p["danger"]};
@@ -223,6 +244,17 @@ def build_global_qss(p: ThemePalette) -> str:
     QPushButton[objectName="iconButton"]:checked {{
         background: {"rgba(255,255,255,0.12)" if p is DARK_PALETTE else "rgba(0,0,0,0.10)"};
         border-color: {p["accent"]};
+    }}
+    QPushButton[objectName="iconButton"]:disabled {{
+        border-color: {"rgba(255,255,255,0.08)" if p is DARK_PALETTE else "rgba(0,0,0,0.06)"};
+        background: {"rgba(255,255,255,0.02)" if p is DARK_PALETTE else "rgba(0,0,0,0.02)"};
+        color: {p["text_muted"]};
+    }}
+    QFrame[objectName="scriptToolbarSeparator"] {{
+        background: {p["border"]};
+        border: none;
+        max-width: 1px;
+        min-width: 1px;
     }}
     QPushButton[objectName="iconDangerButton"] {{
         border: 1px solid {p["border"]};
@@ -1003,6 +1035,35 @@ def build_global_qss(p: ThemePalette) -> str:
         font-size: 11px;
         padding: 2px 8px;
         border-bottom: 1px solid {p["border"]};
+    }}
+
+    /* ---- Script snippets palette (pre/post script editors) ------ */
+    QFrame[objectName="snippetsPopup"] {{
+        background: {p["bg"]};
+        border: 1px solid {p["border"]};
+        border-radius: 4px;
+    }}
+    QLineEdit[objectName="snippetsSearch"] {{
+        background: {p["input_bg"]};
+        border: 1px solid {p["border"]};
+        border-radius: 3px;
+        padding: 4px 8px;
+        font-size: 12px;
+    }}
+    QListWidget[objectName="snippetsList"] {{
+        background: transparent;
+        border: none;
+        outline: none;
+        font-size: 12px;
+    }}
+    QListWidget[objectName="snippetsList"]::item {{
+        padding: 1px 4px;
+    }}
+    QListWidget[objectName="snippetsList"]::item:selected {{
+        background: {p["selected_bg"]};
+    }}
+    QListWidget[objectName="snippetsList"]::item:hover {{
+        background: {p["hover_bg"]};
     }}
 
     /* ---- Parameter hint (code editor call signatures) ----------- */

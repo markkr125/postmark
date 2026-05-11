@@ -102,8 +102,9 @@ def debug_execute(
 
     try:
         assert proc.stdin is not None
-        proc.stdin.write(payload.encode())
-        proc.stdin.flush()
+        with contextlib.suppress(BrokenPipeError, OSError):
+            proc.stdin.write(payload.encode())
+            proc.stdin.flush()
 
         result = _debug_ipc_loop(proc, protocol, script_type, source_name)
         if result is not None:
@@ -138,6 +139,12 @@ def debug_execute(
     finally:
         timer.cancel()
         protocol.finish()
+        # Close stdin explicitly (suppress) before ``proc`` is finalised so the
+        # ``BufferedWriter``'s ``__del__`` does not try to flush queued bytes
+        # into a closed pipe and raise "Exception ignored in: <_io.BufferedWriter>".
+        if proc.stdin is not None:
+            with contextlib.suppress(BrokenPipeError, OSError, ValueError):
+                proc.stdin.close()
         with contextlib.suppress(subprocess.TimeoutExpired):
             proc.wait(timeout=5)
         if proc.poll() is None:
@@ -192,13 +199,22 @@ def _debug_ipc_loop(
                 "breakpoints": sorted(protocol.breakpoints),
             }
 
-            proc.stdin.write(json.dumps(cmd).encode() + b"\n")
-            proc.stdin.flush()
+            # Sandbox may have died (timeout, abort, crash) between read and
+            # write — tolerate the broken pipe and let the read loop terminate
+            # naturally on the next empty ``readline``.
+            try:
+                proc.stdin.write(json.dumps(cmd).encode() + b"\n")
+                proc.stdin.flush()
+            except (BrokenPipeError, OSError):
+                return None
 
         elif data.get("__ipc__") == "sendRequest":
             resp = execute_sub_request(data.get("spec", {}))
-            proc.stdin.write(json.dumps(resp).encode() + b"\n")
-            proc.stdin.flush()
+            try:
+                proc.stdin.write(json.dumps(resp).encode() + b"\n")
+                proc.stdin.flush()
+            except (BrokenPipeError, OSError):
+                return None
 
 
 def _kill_proc(proc: subprocess.Popen[bytes]) -> None:

@@ -571,26 +571,35 @@ class TestFindPmTests:
 class TestFindTopLevelStatementLines:
     """Tests for :func:`services.scripting.engine.find_top_level_statement_lines`."""
 
-    def test_python_module_body_lines_zero_based(self) -> None:
+    def test_python_includes_nested_statement_lines(self) -> None:
+        """Recursive walk: nested statements (function bodies, ``try`` bodies)
+        are reachable too — both runtimes pause inside callbacks."""
         from services.scripting.engine import find_top_level_statement_lines
 
         src = "a = 1\ndef f():\n    x = 2\n"
         lines = find_top_level_statement_lines(src, "python")
-        assert lines == {0, 1}
+        assert lines == {0, 1, 2}
+
+    def test_python_breakpoints_inside_try_render_reachable(self) -> None:
+        """Regression: ``try``-wrapped script must not mute every body line."""
+        from services.scripting.engine import find_top_level_statement_lines
+
+        src = "try:\n    x = 1\n    y = 2\nexcept Exception as e:\n    print(e)\n"
+        lines = find_top_level_statement_lines(src, "python")
+        # ``try``, both body assigns, ``except`` header, and the print body.
+        assert {0, 1, 2, 3, 4} <= lines
 
     @pytest.mark.skipif(
         not deno_and_esprima_available(),
         reason="Deno + Esprima required for JS top-level line scan",
     )
-    def test_javascript_top_level_only(self) -> None:
-        """Esprima path: only the ``pm.test`` statement is a checkpoint line."""
+    def test_javascript_includes_callback_statement_lines(self) -> None:
+        """Esprima walk: statements inside ``pm.test`` callbacks are reachable."""
         from services.scripting.engine import find_top_level_statement_lines
 
         src = "pm.test('x', function() {\n  var y = 1;\n});\n"
         lines = find_top_level_statement_lines(src, "javascript")
-        assert lines
-        assert 0 in lines
-        assert 1 not in lines
+        assert {0, 1} <= lines
 
     def test_unsupported_or_empty_returns_empty(self) -> None:
         from services.scripting.engine import find_top_level_statement_lines
@@ -767,3 +776,49 @@ pm.test("path", function() { pm.response.to.have.jsonBody("a.b", 1); });
         result = JSRuntime.execute(script, ctx)
         assert len(result["test_results"]) == 2
         assert all(r["passed"] for r in result["test_results"])
+
+    def test_pm_response_to_have_status_reason_string_js(self) -> None:
+        """``pm.response.to.have.status("Created")`` matches HTTP 201 in JS."""
+        from services.scripting.js_runtime import JSRuntime
+
+        ctx = _make_context(
+            response={"status_code": 201, "body": "{}", "headers": []},
+        )
+        script = 'pm.test("s", function() { pm.response.to.have.status("Created"); });'
+        result = JSRuntime.execute(script, ctx)
+        assert result["test_results"][0]["passed"] is True
+
+    def test_pm_response_to_have_body_js(self) -> None:
+        """``pm.response.to.have.body`` compares response text in JS."""
+        from services.scripting.js_runtime import JSRuntime
+
+        ctx = _make_context(
+            response={"status_code": 200, "body": "hello", "headers": []},
+        )
+        script = 'pm.test("b", function() { pm.response.to.have.body("hello"); });'
+        result = JSRuntime.execute(script, ctx)
+        assert result["test_results"][0]["passed"] is True
+
+    def test_pm_expect_one_of_js(self) -> None:
+        """``pm.expect(x).to.be.oneOf`` uses strict ``===`` membership in JS."""
+        from services.scripting.js_runtime import JSRuntime
+
+        ctx = _make_context(
+            response={"status_code": 200, "body": "{}", "headers": []},
+        )
+        ok = 'pm.test("o", function() { pm.expect(201).to.be.oneOf([201, 202]); });'
+        bad = 'pm.test("f", function() { pm.expect(500).to.be.oneOf([201, 202]); });'
+        assert JSRuntime.execute(ok, ctx)["test_results"][0]["passed"] is True
+        assert JSRuntime.execute(bad, ctx)["test_results"][0]["passed"] is False
+
+    def test_pm_response_to_have_body_regex_js(self) -> None:
+        """``pm.response.to.have.body`` accepts a ``RegExp`` in JS."""
+        from services.scripting.js_runtime import JSRuntime
+
+        ctx = _make_context(
+            response={"status_code": 200, "body": "hello world", "headers": []},
+        )
+        ok = 'pm.test("r", function() { pm.response.to.have.body(/world$/); });'
+        bad = 'pm.test("f", function() { pm.response.to.have.body(/^nope/); });'
+        assert JSRuntime.execute(ok, ctx)["test_results"][0]["passed"] is True
+        assert JSRuntime.execute(bad, ctx)["test_results"][0]["passed"] is False

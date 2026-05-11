@@ -140,6 +140,8 @@ docs/                              # Project documentation (see docs/README.md)
 ├── ui-reference/                  # Widget classes, styling, navigation
 ├── guides/                        # How-to guides (import parser, auth, widget, tests, signals)
 └── contributing/                  # Coding conventions, testing, updating docs
+data/
+└── snippets/                      # Script editor snippet JSON (javascript, python; see README.md)
 src/
 ├── main.py                        # Entry point — configure_before_qapplication + QApplication + init_db()
 ├── qt_app_init.py                 # Hi-DPI bootstrap (before first QApplication; tests + app)
@@ -175,12 +177,13 @@ src/
 │   │   ├── engine.py              # ScriptEngine + run_debug_chain + find_pm_tests + find_top_level_statement_lines (gutter)
 │   │   ├── context.py             # Context builders + normalize_events() + execute_sub_request() + globals persistence
 │   │   ├── deno_manager.py        # DenoManager — managed Deno download/cache; managed_deno_path() = cache only
-│   │   ├── runtime_settings.py   # RuntimeSettings + RuntimePathStatus — QSettings Deno/Python paths, LSP toggle, validation
-│   │   ├── deno_runtime.py        # DenoRuntime — default JS run via deno run + data/scripts/deno_drain.mjs (sendRequest IPC)
+│   │   ├── runtime_settings.py   # RuntimeSettings + RuntimePathStatus + RegistryEntry + PyPIConfig — QSettings Deno/Python paths, LSP toggle, validation, private package registries (npm/JSR scope-mapped, default-npm with auth_kind, PyPI index URLs)
+│   │   ├── secret_store.py        # SecretStore (Protocol) + KeyringSecretStore / EncryptedFileSecretStore / NoopSecretStore + get_default_store() (keyring self-test fallback) + backend_status() — token storage for private package registries
+│   │   ├── deno_runtime.py        # DenoRuntime — default JS run via deno run + data/scripts/deno_drain.mjs (sendRequest IPC); _build_npmrc_text() resolves private-registry tokens into a chmod-0600 .npmrc when ``pm.require("npm:…")``/``("jsr:…")`` literals trigger network mode
 │   │   ├── esprima_deno.py        # Esprima parse via deno run data/scripts/esprima_parse.mjs (linter, gutter)
 │   │   ├── js_runtime.py          # JSRuntime (DenoRuntime) + bootstrap/vendor + pm.require literal detection / ESM import block for npm:/jsr:
 │   │   ├── py_runtime.py          # PyRuntime — Pyodide (Deno) when vendor present, else RestrictedPython subprocess
-│   │   ├── pyodide_runtime.py     # PyodideRuntime — data/scripts/pyodide_run.mjs + vendor_pyodide + micropip / pm.require
+│   │   ├── pyodide_runtime.py     # PyodideRuntime — data/scripts/pyodide_run.mjs + vendor_pyodide + micropip / pm.require; _resolve_pypi_index_urls() embeds auth into private PyPI index URLs (micropip.set_index_urls)
 │   │   └── debug/                 # Debug sub-package (step-through debugging)
 │   │       ├── protocol.py        # DebugProtocol state machine + DebugPauseInfo
 │   │       ├── js_debug.py        # JS: inject_checkpoints, locals readers; debug_execute → deno_debug
@@ -264,6 +267,9 @@ src/
     │   ├── deno_download_worker.py # DenoDownloadWorker — QThread background Deno download (banner + settings)
     │   ├── debug_value_tree.py    # Debug tree helpers (CLASSNAME_KEY, attach_selectable_cell_widgets, debug_tree_cell_text, fill_tree_item, populate_debug_tree, source_dot_icon, make_debug_value_tree)
     │   ├── runtime_banner.py      # RuntimeBanner — Deno install/configure prompt for JS editors
+    │   ├── snippets/              # Script snippet palette (loader + SnippetsPopup)
+    │   │   ├── loader.py          # load_snippets / has_snippets — data/snippets/*.json
+    │   │   └── popup.py           # SnippetsPopup — search + grouped list; singleton
     │   ├── variable_line_edit.py  # VariableLineEdit — QLineEdit with {{var}} highlighting + hover popup
     │   └── variable_popup.py      # VariablePopup — singleton hover popup for variable details
     ├── collections/               # Collection sidebar
@@ -357,6 +363,7 @@ tests/
 │       ├── test_script_debug.py
 │       ├── test_script_debug_cdp.py
 │       ├── test_script_engine.py
+│       ├── test_pm_api_schema_drift.py
 │       ├── test_script_linter.py
 │       ├── test_script_sandbox.py
 │       ├── test_script_service.py

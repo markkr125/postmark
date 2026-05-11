@@ -47,6 +47,11 @@ _SKIP_MODULE_FOR_FUNCTION: frozenset[str] = frozenset(
 _SCOPE_EXPAND_BINDING_NAMES: frozenset[str] = frozenset({"pm", "console"})
 _SCOPE_OBJECT_RECURSE_MAX: int = 3
 
+# Scope types whose object bindings should always be deep-expanded so the
+# debug panel shows the full shape of user locals (e.g. the ``response``
+# returned from ``await pm.sendRequest(...)``) instead of just ``"Object"``.
+_USER_OWNED_SCOPE_TYPES: frozenset[str] = frozenset({"local", "block", "closure"})
+
 # Must match ``ui.widgets.debug_value_tree.CLASSNAME_KEY`` (no services → ui import).
 _PM_CLASSNAME_KEY: str = "__pm_className__"
 
@@ -156,8 +161,20 @@ def _fetch_own_properties_nested(
     return out
 
 
-def _fetch_scope_vars(c: _CdpClient, scope_obj_id: str) -> dict[str, Any]:
-    """Call ``Runtime.getProperties`` for one scope object; return flat name→value."""
+def _fetch_scope_vars(
+    c: _CdpClient,
+    scope_obj_id: str,
+    scope_type: str = "",
+) -> dict[str, Any]:
+    """Call ``Runtime.getProperties`` for one scope object; return flat name→value.
+
+    For user-owned scope types (``local`` / ``block`` / ``closure``) every
+    plain-object binding is deep-expanded so the debug panel shows the
+    object's properties instead of CDP's bare ``"Object"`` description. For
+    the ``module`` scope only the named ``_SCOPE_EXPAND_BINDING_NAMES``
+    (``pm`` / ``console``) get expanded — expanding everything would walk
+    polyfills + vendor libs.
+    """
     out: dict[str, Any] = {}
     try:
         res = c.req(
@@ -176,6 +193,7 @@ def _fetch_scope_vars(c: _CdpClient, scope_obj_id: str) -> dict[str, Any]:
     props = res.get("result")
     if not isinstance(props, list):
         return out
+    expand_all_objects = scope_type in _USER_OWNED_SCOPE_TYPES
     for p in props[:_SCOPE_MAX_PROPS]:
         if not isinstance(p, dict):
             continue
@@ -189,12 +207,10 @@ def _fetch_scope_vars(c: _CdpClient, scope_obj_id: str) -> dict[str, Any]:
         if not isinstance(val_obj, dict):
             out[name] = str(val_obj)
             continue
-        if (
-            name in _SCOPE_EXPAND_BINDING_NAMES
-            and val_obj.get("type") == "object"
-            and isinstance(val_obj.get("objectId"), str)
-        ):
-            oid = val_obj["objectId"]
+        is_object = val_obj.get("type") == "object"
+        oid = val_obj.get("objectId")
+        named_expand = name in _SCOPE_EXPAND_BINDING_NAMES
+        if is_object and isinstance(oid, str) and (named_expand or expand_all_objects):
             expanded = _fetch_own_properties_nested(
                 c,
                 oid,
@@ -246,7 +262,7 @@ def _collect_call_frame_scopes(
         oid = obj.get("objectId") if isinstance(obj, dict) else None
         if not isinstance(oid, str) or not oid:
             continue
-        vars_ = _fetch_scope_vars(c, oid)
+        vars_ = _fetch_scope_vars(c, oid, scope_type=str(stype) if stype else "")
         if stype == "module":
             vars_ = _filter_module_scope_keys(vars_)
         if not vars_:

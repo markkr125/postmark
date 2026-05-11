@@ -532,15 +532,23 @@ def find_pm_tests(source: str, language: str) -> list[dict[str, Any]]:
 
 
 def find_top_level_statement_lines(source: str, language: str) -> set[int]:
-    """Return 0-based line numbers of top-level statements the step-debugger can pause on.
+    """Return 0-based line numbers the step-debugger can pause on.
 
-    The JS and Python debuggers only invoke :meth:`DebugProtocol.checkpoint` at
-    boundaries between top-level statements (not inside nested functions or
-    ``pm.test`` callbacks).  The code editor uses this set to show breakpoints
-    on non-checkpoint lines with a muted style.
+    Walks the full AST (Python) or Esprima tree (JS/TS) recursively so
+    breakpoints inside ``try``/``if``/``for``/``while``/``with``/function
+    bodies / ``pm.test`` callbacks are still considered reachable. The code
+    editor renders breakpoints on lines outside this set with a muted style.
 
-    An **empty** set means the UI should not apply unreachable styling: parse
-    failure, empty source, or an unsupported *language* string.
+    Originally collected only ``tree.body`` (the script's top-level
+    statements) on the assumption that ``DebugProtocol.checkpoint`` only
+    fires at top-level boundaries. That stopped being true once V8's
+    ``Debugger.setBreakpointByUrl`` and Python's ``sys.settrace`` started
+    pausing at any executable line, but the function wasn't updated — so
+    every breakpoint inside a wrapping ``try:`` rendered as unreachable
+    even though it fired correctly.
+
+    An **empty** set means the UI should not apply unreachable styling:
+    parse failure, empty source, or an unsupported *language* string.
     """
     if not source or not source.strip():
         return set()
@@ -550,7 +558,22 @@ def find_top_level_statement_lines(source: str, language: str) -> set[int]:
             tree = ast.parse(source)
         except SyntaxError:
             return set()
-        return {n.lineno - 1 for n in tree.body if getattr(n, "lineno", 0) > 0}
+        out: set[int] = set()
+        # ``ast.stmt`` covers regular statements (assign, return, try, …);
+        # ``ExceptHandler`` and ``match_case`` carry their own lineno but are
+        # not ``stmt`` subclasses — settrace still fires line events for them
+        # so their headers should render reachable too.
+        keep_nodes: tuple[type, ...] = (ast.stmt, ast.ExceptHandler)
+        match_case = getattr(ast, "match_case", None)
+        if match_case is not None:
+            keep_nodes = (*keep_nodes, match_case)
+        for node in ast.walk(tree):
+            if not isinstance(node, keep_nodes):
+                continue
+            line1 = getattr(node, "lineno", 0)
+            if line1 > 0:
+                out.add(line1 - 1)
+        return out
     if lang in ("javascript", "typescript"):
         result = ScriptLinter._esprima_parse_result(source)
         if not result or not result.get("ok") or result.get("tree") is None:
@@ -558,16 +581,28 @@ def find_top_level_statement_lines(source: str, language: str) -> set[int]:
         tree = result["tree"]
         if not isinstance(tree, dict):
             return set()
-        body = tree.get("body")
-        if not isinstance(body, list):
-            return set()
-        out: set[int] = set()
-        for node in body:
+        out_js: set[int] = set()
+
+        def _walk_js(node: Any) -> None:
+            if isinstance(node, list):
+                for item in node:
+                    _walk_js(item)
+                return
             if not isinstance(node, dict):
-                continue
-            loc = (node.get("loc") or {}).get("start") or {}
-            line1 = int(loc.get("line", 0))
-            if line1 > 0:
-                out.add(line1 - 1)
-        return out
+                return
+            node_type = node.get("type")
+            if isinstance(node_type, str) and (
+                node_type.endswith("Statement")
+                or node_type.endswith("Declaration")
+            ):
+                loc = (node.get("loc") or {}).get("start") or {}
+                line1 = int(loc.get("line", 0))
+                if line1 > 0:
+                    out_js.add(line1 - 1)
+            for value in node.values():
+                if isinstance(value, (dict, list)):
+                    _walk_js(value)
+
+        _walk_js(tree.get("body"))
+        return out_js
     return set()

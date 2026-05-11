@@ -738,6 +738,28 @@ class TestRequestEditorScriptSearchBar:
         editor._run_inline_script("test")
         assert called.called
 
+    def test_debug_inline_preserves_leading_whitespace_for_breakpoint_lines(
+        self, qapp: QApplication, qtbot
+    ) -> None:
+        """Debug must NOT strip leading lines: breakpoints are 0-based on the unmodified document."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
+        editor.load_request({"name": "X", "method": "GET", "url": "https://x"})
+        editor._test_output_panel.set_response_source_mode("manual")
+        src = "\n\n// blank lines above\npm.test('foo', () => true);\n"
+        editor._test_script_edit.setPlainText(src)
+
+        captured: dict[str, object] = {}
+
+        def _capture(**kwargs: object) -> None:
+            captured.update(kwargs)
+
+        editor._test_output_panel.run_script_debug = _capture  # type: ignore[method-assign]
+        editor._debug_inline_script("test")
+        assert captured.get("script") == src
+
     def test_body_editors_not_built_until_body_tab_shown(self, qapp: QApplication, qtbot) -> None:
         """Heavy body widgets stay unloaded until the Body tab is selected."""
         editor = RequestEditorWidget()

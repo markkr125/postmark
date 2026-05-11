@@ -321,6 +321,47 @@ class ScriptOutputPanel(QWidget):
         self._current_worker = worker
         thread.start()
 
+    def run_script_chain(
+        self,
+        *,
+        chain: list[Any],
+        script_type: str,
+        context: ScriptInput,
+        run_btn: QPushButton | None = None,
+        debug_btn: QPushButton | None = None,
+    ) -> None:
+        """Run an inherited script chain (collection→folder→request) inline.
+
+        Uses :class:`~services.scripting.ScriptEngine` chain execution so
+        variable changes propagate between scripts in the same way they do
+        during a real Send. ``script_type`` is ``"pre_request"`` or ``"test"``
+        — the engine handles the order; this method just dispatches.
+        """
+        from ui.request.request_editor.scripts.script_run_worker import (
+            ScriptChainRunWorker,
+        )
+
+        if self._worker_thread is not None and self._worker_thread.isRunning():
+            return
+
+        self._busy_buttons = [b for b in (run_btn, debug_btn) if b is not None]
+        for b in self._busy_buttons:
+            b.setEnabled(False)
+
+        thread = QThread()
+        worker = ScriptChainRunWorker()
+        worker.set_params(chain=chain, script_type=script_type, context=context)
+        worker.moveToThread(thread)
+
+        worker.finished.connect(self._on_worker_finished)
+        worker.error.connect(self._on_worker_error)
+        thread.finished.connect(self._on_thread_finished)
+        thread.started.connect(worker.run)
+
+        self._worker_thread = thread
+        self._current_worker = worker
+        thread.start()
+
     def run_script_debug(
         self,
         *,

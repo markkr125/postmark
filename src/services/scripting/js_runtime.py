@@ -249,7 +249,7 @@ def _build_js_context(context: ScriptInput) -> dict[str, Any]:
             "response_size": response_size,
         }
 
-    return {
+    out: dict[str, Any] = {
         "request": {
             "url": req.get("url", ""),
             "method": req.get("method", "GET"),
@@ -265,6 +265,21 @@ def _build_js_context(context: ScriptInput) -> dict[str, Any]:
         "is_pre_request": resp is None,
         "iteration_data": context.get("iteration_data", {}),
     }
+    if resp_data is not None:
+        out["original_request"] = {
+            "url": req.get("url", ""),
+            "method": req.get("method", "GET"),
+            "headers": header_list,
+            "body": req.get("body", ""),
+        }
+    loc = context.get("execution_location")
+    if isinstance(loc, dict):
+        out["execution_location"] = loc
+    else:
+        info = context.get("info", {})
+        folder = str(info.get("folderName", "") or info.get("folderPath", "") or "")
+        out["execution_location"] = {"current": folder}
+    return out
 
 
 # Hard cap on total sub-requests (Deno :mod:`deno_runtime` + :mod:`deno_debug` IPC).

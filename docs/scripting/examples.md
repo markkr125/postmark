@@ -481,3 +481,161 @@ pm.test("CSV has expected columns", check_csv)
 | `tv4.validate(obj, schema)` | `pm.expect` assertion chains |
 | `xml2js.parseString(...)` | `re_search()` on raw text |
 | `csvParse(text)` | `str.split()` on lines/commas |
+
+## Postman parity recipes
+
+Recipes that exercise the parity surface added in the latest round —
+see [Postman API parity](postman-parity.md) for the full matrix.
+
+### Reason phrase + MIME inspection
+
+```javascript
+pm.test("Reason and MIME", function () {
+    pm.expect(pm.response.reason()).to.equal("OK");
+    pm.expect(pm.response.mime().type).to.equal("application/json");
+});
+```
+
+```python
+def reason_mime():
+    pm.expect(pm.response.reason()).to.equal("OK")
+    pm.expect(pm.response.mime()["type"]).to.equal("application/json")
+pm.test("Reason and MIME", reason_mime)
+```
+
+### Resolved variables (read-through scopes)
+
+```javascript
+pm.environment.set("base", "https://api.example.com");
+console.log(pm.variables.get("base"));   // resolves through env
+```
+
+```python
+pm.environment.set("base", "https://api.example.com")
+print(pm.variables.get("base"))           # same
+```
+
+### Skipping tests
+
+```javascript
+pm.test("Conditional", function (ctx) {
+    if (!pm.environment.get("token")) ctx.skip();
+    pm.expect(pm.environment.get("token")).to.have.lengthOf.above(0);
+});
+pm.test.skip("WIP — coming next sprint", function () { /* ... */ });
+```
+
+```python
+def conditional(ctx):
+    if not pm.environment.get("token"):
+        ctx.skip()
+    pm.expect(pm.environment.get("token")).to.have.length_of.above(0)
+pm.test("Conditional", conditional)
+
+pm.test.skip("WIP — coming next sprint", lambda: None)
+```
+
+### URL surgery in pre-request
+
+```javascript
+pm.request.url.query.upsert({ key: "page", value: "2" });
+pm.request.url.query.add({ key: "limit", value: "50" });
+console.log(pm.request.url.toString());
+```
+
+```python
+pm.request.url.query.upsert({"key": "page", "value": "2"})
+pm.request.url.query.add({"key": "limit", "value": "50"})
+print(pm.request.url.toString())
+```
+
+### Inspecting `originalRequest`
+
+```javascript
+pm.test("Original host", function () {
+    pm.expect(pm.response.originalRequest.url.getHost())
+      .to.equal("api.example.com");
+});
+```
+
+### Status assertion by canonical name
+
+```javascript
+pm.test("Created", function () {
+    pm.response.to.have.status("Created");   // accepts 201 OR "Created"
+});
+```
+
+### Body assertion by RegExp / oneOf
+
+```javascript
+pm.test("Body shape", function () {
+    pm.expect(pm.response).to.have.body(/"id"\s*:\s*\d+/);
+    pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]);
+});
+```
+
+### Lodash-style JSON path
+
+```javascript
+pm.test("Deep path", function () {
+    pm.expect(pm.response).to.have.jsonBody("items[0].user.name", "alice");
+});
+```
+
+## Private package registries
+
+See [external-packages.md → Private package registries](external-packages.md#private-package-registries)
+for the configuration walkthrough. Once a private mirror is configured
+from **Settings → Scripting → Private package registries**, the `pm.require`
+calls below resolve through it transparently.
+
+### Importing from a private @scope (npm)
+
+```javascript
+// Settings:
+//   Private package registries → Add row
+//     scope = "@mycompany"
+//     URL   = "https://npm.mycorp.io/"
+//     Auth  = Token (your CI read-only token)
+//
+// Public packages still come from registry.npmjs.org.
+const lodash = pm.require("npm:lodash@4.17.21");
+const internal = pm.require("npm:@mycompany/auth-helpers@2.4.0");
+
+pm.test("internal helpers wired", function () {
+    pm.expect(typeof internal.signRequest).to.equal("function");
+});
+```
+
+### Routing JSR through a private upstream
+
+```javascript
+// Cloudsmith / Artifactory / Verdaccio expose JSR packages over
+// npm-compatible HTTP. Add the proxy as a scope row with Type = JSR.
+const stdAssert = pm.require("jsr:@std/assert@0.220.1");
+
+pm.test("std/assert resolved through proxy", function () {
+    pm.expect(typeof stdAssert.assertEquals).to.equal("function");
+});
+```
+
+### Importing from a private PyPI (Python / Pyodide)
+
+```python
+# Settings:
+#   Private package registries → Python (PyPI) index — Pyodide runtime
+#     Primary index URL = "https://pypi.mycorp.io/simple/"
+#     Auth = Token  (embedded into the URL micropip uses)
+#
+internal_sdk = pm.require("internal-sdk==1.2.0")
+
+def check_handshake():
+    client = internal_sdk.Client(base_url=pm.environment.get("api"))
+    pm.expect(client.ping()).to.equal("pong")
+
+pm.test("internal handshake", check_handshake)
+```
+
+> Private-PyPI applies to the **Pyodide** Python runtime only — the
+> RestrictedPython subprocess fallback has no install step.

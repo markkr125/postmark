@@ -211,3 +211,263 @@ def test_is_executable_rejects_dir() -> None:
     """_is_executable_file is false for directories and missing paths."""
     assert _is_executable_file("/") is False
     assert _is_executable_file("notafile") is False
+
+
+class TestPrivateRegistries:
+    """Round-trip + corruption tolerance for :meth:`get_registries`."""
+
+    def test_registries_round_trip(self) -> None:
+        mem = _MemoryQSettings()
+        with patch("services.scripting.runtime_settings._get_settings", return_value=mem):
+            assert RuntimeSettings.get_registries() == []
+            entries = [
+                {
+                    "id": "row-mc",
+                    "scope": "@mycompany",
+                    "url": "https://npm.mycorp.io/",
+                    "kind": "npm",
+                    "auth_kind": "token",
+                    "auth_ref": "registry:row-mc",
+                },
+                {
+                    "id": "row-std",
+                    "scope": "@std",
+                    "url": "https://jsr.mycorp.io/",
+                    "kind": "jsr",
+                    "auth_kind": "none",
+                    "auth_ref": "",
+                },
+            ]
+            RuntimeSettings.set_registries(entries)
+            assert RuntimeSettings.get_registries() == entries
+
+    def test_registries_corrupt_json_returns_empty(self) -> None:
+        mem = _MemoryQSettings()
+        mem.setValue("scripting/registries/entries", "{not json")
+        with patch("services.scripting.runtime_settings._get_settings", return_value=mem):
+            assert RuntimeSettings.get_registries() == []
+
+    def test_registries_drops_malformed_entries(self) -> None:
+        """Entries missing ``scope`` or ``url`` are silently filtered."""
+        mem = _MemoryQSettings()
+        import json
+
+        mem.setValue(
+            "scripting/registries/entries",
+            json.dumps(
+                [
+                    {"scope": "@ok", "url": "https://ok/", "kind": "npm"},
+                    {"scope": "", "url": "https://no-scope/"},
+                    {"scope": "@no-url"},
+                    "not-a-dict",
+                ]
+            ),
+        )
+        with patch("services.scripting.runtime_settings._get_settings", return_value=mem):
+            result = RuntimeSettings.get_registries()
+        assert len(result) == 1
+        assert result[0]["scope"] == "@ok"
+        assert result[0]["auth_kind"] == "none"
+
+    def test_registries_unknown_kind_or_auth_kind_falls_back(self) -> None:
+        mem = _MemoryQSettings()
+        import json
+
+        mem.setValue(
+            "scripting/registries/entries",
+            json.dumps(
+                [
+                    {
+                        "scope": "@ok",
+                        "url": "https://ok/",
+                        "kind": "deno-mart",
+                        "auth_kind": "ssh-key",
+                    }
+                ]
+            ),
+        )
+        with patch("services.scripting.runtime_settings._get_settings", return_value=mem):
+            result = RuntimeSettings.get_registries()
+        assert result[0]["kind"] == "npm"
+        assert result[0]["auth_kind"] == "none"
+
+    def test_default_npm_registry_round_trip(self) -> None:
+        mem = _MemoryQSettings()
+        with patch("services.scripting.runtime_settings._get_settings", return_value=mem):
+            assert RuntimeSettings.get_default_npm_registry() == ("", "", "none")
+            RuntimeSettings.set_default_npm_registry(
+                "https://mirror.mycorp.io/", "npm:__default__", "token"
+            )
+            assert RuntimeSettings.get_default_npm_registry() == (
+                "https://mirror.mycorp.io/",
+                "npm:__default__",
+                "token",
+            )
+            # Switching to basic auth survives a round trip.
+            RuntimeSettings.set_default_npm_registry(
+                "https://mirror.mycorp.io/", "npm:__default__", "basic"
+            )
+            assert RuntimeSettings.get_default_npm_registry()[2] == "basic"
+            # Empty URL clears all three keys.
+            RuntimeSettings.set_default_npm_registry("", "leftover", "token")
+            assert RuntimeSettings.get_default_npm_registry() == ("", "", "none")
+
+    def test_default_npm_legacy_auth_kind_defaults_to_token(self) -> None:
+        """Entries persisted before ``auth_kind`` was introduced keep working."""
+        mem = _MemoryQSettings()
+        mem.setValue("scripting/registries/default_npm", "https://mirror.mycorp.io/")
+        mem.setValue("scripting/registries/default_npm_auth_ref", "npm:__default__")
+        # No ``default_npm_auth_kind`` — simulating a settings file from
+        # before the audit fix.
+        with patch("services.scripting.runtime_settings._get_settings", return_value=mem):
+            url, ref, kind = RuntimeSettings.get_default_npm_registry()
+        assert url == "https://mirror.mycorp.io/"
+        assert ref == "npm:__default__"
+        assert kind == "token"
+
+    def test_pypi_config_round_trip(self) -> None:
+        mem = _MemoryQSettings()
+        with patch("services.scripting.runtime_settings._get_settings", return_value=mem):
+            assert RuntimeSettings.get_pypi_config() == {
+                "index_url": "",
+                "extra_index_url": "",
+                "auth_ref": "",
+                "auth_kind": "none",
+            }
+            RuntimeSettings.set_pypi_config(
+                {
+                    "index_url": "https://pypi.mycorp.io/simple/",
+                    "extra_index_url": "",
+                    "auth_ref": "pypi:default",
+                    "auth_kind": "basic",
+                }
+            )
+            cfg = RuntimeSettings.get_pypi_config()
+            assert cfg["index_url"] == "https://pypi.mycorp.io/simple/"
+            assert cfg["auth_ref"] == "pypi:default"
+            assert cfg["auth_kind"] == "basic"
+            # Empty values remove keys.
+            RuntimeSettings.set_pypi_config(
+                {
+                    "index_url": "",
+                    "extra_index_url": "",
+                    "auth_ref": "",
+                    "auth_kind": "none",
+                }
+            )
+            assert RuntimeSettings.get_pypi_config() == {
+                "index_url": "",
+                "extra_index_url": "",
+                "auth_ref": "",
+                "auth_kind": "none",
+            }
+
+    def test_legacy_id_migration_is_persisted(self) -> None:
+        """P4 fix: a legacy entry without ``id`` gets a UUID *and* the new
+        ID is written back to QSettings so subsequent reads return the
+        same ID. Without persistence, auth saved against a freshly-minted
+        ID would orphan its secret on the next ``get_registries`` call."""
+        import json as _json
+
+        mem = _MemoryQSettings()
+        # Seed pre-``id`` storage.
+        mem.setValue(
+            "scripting/registries/entries",
+            _json.dumps(
+                [
+                    {
+                        "scope": "@legacy",
+                        "url": "https://npm.legacy/",
+                        "kind": "npm",
+                        "auth_kind": "none",
+                        "auth_ref": "",
+                    }
+                ]
+            ),
+        )
+        with patch("services.scripting.runtime_settings._get_settings", return_value=mem):
+            first_read = RuntimeSettings.get_registries()
+            second_read = RuntimeSettings.get_registries()
+        assert first_read[0]["id"]
+        assert first_read[0]["id"] == second_read[0]["id"], (
+            "Migration UUID drifted across reads — would orphan secrets"
+        )
+
+    def test_pypi_indexes_round_trip(self) -> None:
+        """N-index list round-trips through QSettings as JSON."""
+        mem = _MemoryQSettings()
+        with patch("services.scripting.runtime_settings._get_settings", return_value=mem):
+            assert RuntimeSettings.get_pypi_indexes() == []
+            indexes = [
+                {
+                    "id": "row-primary",
+                    "url": "https://pypi.mycorp.io/simple/",
+                    "auth_kind": "token",
+                    "auth_ref": "pypi:row-primary",
+                },
+                {
+                    "id": "row-extra",
+                    "url": "https://pypi.backup.io/simple/",
+                    "auth_kind": "none",
+                    "auth_ref": "",
+                },
+            ]
+            RuntimeSettings.set_pypi_indexes(indexes)
+            assert RuntimeSettings.get_pypi_indexes() == indexes
+            # Order preserved across reads.
+            assert RuntimeSettings.get_pypi_indexes()[0]["url"] == indexes[0]["url"]
+            # Clearing wipes the JSON key.
+            RuntimeSettings.set_pypi_indexes([])
+            assert RuntimeSettings.get_pypi_indexes() == []
+
+    def test_pypi_indexes_migrate_from_legacy_config(self) -> None:
+        """Legacy single-primary + single-extra keys migrate to the list shape
+        on first read; the migration is persisted so IDs stay stable."""
+        mem = _MemoryQSettings()
+        mem.setValue("scripting/pypi/index_url", "https://pypi.mycorp.io/simple/")
+        mem.setValue("scripting/pypi/extra_index_url", "https://pypi.public/simple/")
+        mem.setValue("scripting/pypi/auth_ref", "pypi:legacy")
+        mem.setValue("scripting/pypi/auth_kind", "token")
+        with patch("services.scripting.runtime_settings._get_settings", return_value=mem):
+            first = RuntimeSettings.get_pypi_indexes()
+        assert len(first) == 2
+        assert first[0]["url"] == "https://pypi.mycorp.io/simple/"
+        assert first[1]["url"] == "https://pypi.public/simple/"
+        assert first[0]["auth_kind"] == "token"
+        # Persisted: re-read returns the same IDs.
+        with patch("services.scripting.runtime_settings._get_settings", return_value=mem):
+            second = RuntimeSettings.get_pypi_indexes()
+        assert [e["id"] for e in first] == [e["id"] for e in second]
+
+    def test_set_pypi_indexes_clears_legacy_keys(self) -> None:
+        """Persisting the new list also wipes the legacy single-pair keys so
+        they don't shadow the list on subsequent reads."""
+        mem = _MemoryQSettings()
+        mem.setValue("scripting/pypi/index_url", "https://old.example/")
+        mem.setValue("scripting/pypi/auth_ref", "pypi:legacy")
+        with patch("services.scripting.runtime_settings._get_settings", return_value=mem):
+            RuntimeSettings.set_pypi_indexes(
+                [
+                    {
+                        "id": "new-row",
+                        "url": "https://new.example/",
+                        "auth_kind": "none",
+                        "auth_ref": "",
+                    }
+                ]
+            )
+            assert RuntimeSettings.get_pypi_indexes()[0]["url"] == "https://new.example/"
+        assert "scripting/pypi/index_url" not in mem._d
+        assert "scripting/pypi/auth_ref" not in mem._d
+
+    def test_pypi_legacy_auth_kind_defaults_to_token(self) -> None:
+        """PyPI configs persisted before ``auth_kind`` was introduced
+        keep working with implicit ``token`` semantics."""
+        mem = _MemoryQSettings()
+        mem.setValue("scripting/pypi/index_url", "https://pypi.mycorp.io/simple/")
+        mem.setValue("scripting/pypi/auth_ref", "pypi:default")
+        # No ``auth_kind`` key — simulates settings from before B2 fix.
+        with patch("services.scripting.runtime_settings._get_settings", return_value=mem):
+            cfg = RuntimeSettings.get_pypi_config()
+        assert cfg["auth_ref"] == "pypi:default"
+        assert cfg["auth_kind"] == "token"

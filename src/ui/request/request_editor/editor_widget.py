@@ -11,14 +11,24 @@ import copy
 import json
 from typing import TYPE_CHECKING, Any, cast
 
-from PySide6.QtCore import (QModelIndex, QPersistentModelIndex, Qt, QTimer,
-                            Signal)
-from PySide6.QtGui import (QColor, QKeySequence, QPalette, QResizeEvent,
-                           QShortcut)
-from PySide6.QtWidgets import (QComboBox, QFileDialog, QFrame, QHBoxLayout,
-                               QLabel, QPushButton, QRadioButton, QSizePolicy,
-                               QStyledItemDelegate, QStyleOptionViewItem,
-                               QTabWidget, QTextEdit, QVBoxLayout, QWidget)
+from PySide6.QtCore import QModelIndex, QPersistentModelIndex, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QKeySequence, QPalette, QResizeEvent, QShortcut
+from PySide6.QtWidgets import (
+    QComboBox,
+    QFileDialog,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QRadioButton,
+    QSizePolicy,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
+    QTabWidget,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 from services.collection_service import RequestLoadDict
 from ui.request.request_editor.auth import _AuthMixin
@@ -88,6 +98,12 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, _ScriptsM
     request_changed = Signal(dict)
     open_collection_requested = Signal(int)
     open_scripting_settings_requested = Signal()
+    # Emitted whenever the section tab (Params/Headers/Body/Auth/Description/
+    # Scripts) changes; payload is ``True`` when Scripts becomes active.
+    # The main window uses this to hide the response area while the user is
+    # focused on the script editor — gives the script's Output/Problems/Mock
+    # response panel the full bottom row.
+    scripts_tab_active_changed = Signal(bool)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Initialise the request editor layout."""
@@ -179,7 +195,10 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, _ScriptsM
 
         self._scripts_tab = QWidget()
         self._scripts_tab_layout = QVBoxLayout(self._scripts_tab)
-        self._scripts_tab_layout.setContentsMargins(0, 0, 0, 0)
+        # 6px bottom margin so the script Output/Problems/Mock-response panel
+        # doesn't sit flush against the request-editor frame when the response
+        # area is hidden (Scripts tab takes the full bottom row).
+        self._scripts_tab_layout.setContentsMargins(0, 0, 0, 6)
         self._scripts_tab_layout.setSpacing(0)
         self._scripts_placeholder = LazyEditorPlaceholder("Loading scripts\u2026")
         self._scripts_tab_layout.addWidget(self._scripts_placeholder, 1)
@@ -226,6 +245,11 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, _ScriptsM
         elif index == _TAB_INDEX_SCRIPTS:
             self._ensure_scripts_editors()
         self._refresh_script_split_full_width_line()
+        self.scripts_tab_active_changed.emit(index == _TAB_INDEX_SCRIPTS)
+
+    def is_scripts_tab_active(self) -> bool:
+        """Return ``True`` when the Scripts section tab is currently selected."""
+        return self._tabs.currentIndex() == _TAB_INDEX_SCRIPTS
 
     def _ensure_body_editors(self) -> None:
         """Build body tab widgets (mode radios, stack, GraphQL + raw editors) once."""

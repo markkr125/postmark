@@ -159,6 +159,42 @@ pm.test("b", lambda: pm.response.to.have.status(200))
         )
         assert result["test_results"][0]["passed"] is True
 
+    def test_pm_response_to_have_status_reason_string(self) -> None:
+        """``pm.response.to.have.status("Created")`` matches HTTP 201."""
+        script = 'pm.test("s", lambda: pm.response.to.have.status("Created"))'
+        result = PyRuntime.execute_restricted(
+            script,
+            _make_context(response={"body": "{}", "code": 201, "status_code": 201}),
+        )
+        assert result["test_results"][0]["passed"] is True
+
+    def test_pm_response_to_have_body(self) -> None:
+        """``pm.response.to.have.body`` compares raw response text."""
+        script = 'pm.test("b", lambda: pm.response.to.have.body("hello"))'
+        result = PyRuntime.execute_restricted(
+            script,
+            _make_context(response={"body": "hello", "code": 200, "status_code": 200}),
+        )
+        assert result["test_results"][0]["passed"] is True
+
+    def test_pm_expect_one_of(self) -> None:
+        """``pm.expect(x).to.be.oneOf`` uses strict list membership."""
+        ok = 'pm.test("o", lambda: pm.expect(201).to.be.oneOf([201, 202]))'
+        bad = 'pm.test("f", lambda: pm.expect(500).to.be.oneOf([201, 202]))'
+        r_ok = PyRuntime.execute_restricted(ok, _make_context())
+        r_bad = PyRuntime.execute_restricted(bad, _make_context())
+        assert r_ok["test_results"][0]["passed"] is True
+        assert r_bad["test_results"][0]["passed"] is False
+
+    def test_pm_response_to_have_body_regex(self) -> None:
+        """``pm.response.to.have.body`` accepts a ``re_compile`` pattern."""
+        script = 'pm.test("r", lambda: pm.response.to.have.body(re_compile(r"world$")))'
+        result = PyRuntime.execute_restricted(
+            script,
+            _make_context(response={"body": "hello world", "code": 200, "status_code": 200}),
+        )
+        assert result["test_results"][0]["passed"] is True
+
     def test_safe_stdlib_available(self):
         script = """
 pm.test("json", lambda: pm.expect(json_loads('{"a": 1}')).to.eql({"a": 1}))

@@ -57,8 +57,40 @@ def _postmark_pyodide_user_cache_dir() -> Path:
     return p
 
 
-def _deno_argv_and_env(deno: Path, *, needs_net: bool) -> tuple[list[str], dict[str, str]]:
-    """Build ``deno run`` argv + env for :file:`pyodide_run.mjs`."""
+def _pypi_index_hosts(urls: list[str]) -> list[str]:
+    """Extract ``host[:port]`` entries from PyPI index URLs."""
+    from urllib.parse import urlparse
+
+    out: list[str] = []
+    for url in urls:
+        if not url:
+            continue
+        try:
+            parsed = urlparse(url)
+        except (ValueError, TypeError):
+            continue
+        host = parsed.hostname or ""
+        if not host:
+            continue
+        if parsed.port:
+            host = f"{host}:{parsed.port}"
+        if host not in out:
+            out.append(host)
+    return out
+
+
+def _deno_argv_and_env(
+    deno: Path,
+    *,
+    needs_net: bool,
+    extra_hosts: list[str] | None = None,
+) -> tuple[list[str], dict[str, str]]:
+    """Build ``deno run`` argv + env for :file:`pyodide_run.mjs`.
+
+    *extra_hosts* lets private PyPI registries be added to the ``--allow-net``
+    list without exposing the public PyPI host when the user's config replaces
+    it.
+    """
     cache = _postmark_pyodide_user_cache_dir()
     read_parts: list[str] = [str(_SCRIPTS_DIR), str(_REPO_ROOT), str(cache)]
     read_paths = ",".join(read_parts)
@@ -71,7 +103,10 @@ def _deno_argv_and_env(deno: Path, *, needs_net: bool) -> tuple[list[str], dict[
         f"--allow-write={cache}",
     ]
     if needs_net:
-        args.append(f"--allow-net={','.join(_PYPI_AND_CDN_HOSTS)}")
+        hosts = list(_PYPI_AND_CDN_HOSTS) + [
+            h for h in (extra_hosts or []) if h not in _PYPI_AND_CDN_HOSTS
+        ]
+        args.append(f"--allow-net={','.join(hosts)}")
     args.append("--allow-env")
     args.append(str(_PYODIDE_ENTRY))
     env = {
@@ -80,6 +115,75 @@ def _deno_argv_and_env(deno: Path, *, needs_net: bool) -> tuple[list[str], dict[
         "PM_PYODIDE_CACHE": str(cache / "pkgs"),
     }
     return args, env
+
+
+def _resolve_pypi_index_urls() -> list[str]:
+    """Build the ordered ``micropip.set_index_urls`` argument from settings.
+
+    Iterates every configured PyPI index in priority order. Each row carries
+    its own ``auth_kind`` / ``auth_ref`` (mixed auth across rows is
+    supported — e.g. a token-authed corporate primary mirror with a
+    public PyPI fallback as the extra).
+
+    Auth is embedded via ``https://user:password@host/`` because that's the
+    only format ``micropip`` honours (it has no ``.netrc`` parsing). For
+    ``auth_kind == "basic"`` the secret is the base64 of
+    ``user:password`` (matching the ``.npmrc`` ``_auth=`` convention);
+    embedding the blob raw produces ``https://<base64>@host`` which
+    ``urlparse`` reads as username-only and the server gets a malformed
+    Basic header — we decode the blob back to ``user:password`` here so
+    micropip can re-encode it correctly for the Authorization header.
+
+    Pre-embedded credentials in the URL itself are left untouched so a
+    user who wants to bypass our secret store can paste ``https://u:p@host/``
+    directly.
+    """
+    import base64 as _base64
+    from urllib.parse import quote
+
+    from services.scripting.runtime_settings import RuntimeSettings
+    from services.scripting.secret_store import get_default_store
+
+    indexes = RuntimeSettings.get_pypi_indexes()
+    if not indexes:
+        return []
+
+    store = get_default_store()
+    out: list[str] = []
+    for row in indexes:
+        url = row.get("url", "")
+        if not url:
+            continue
+        kind = row.get("auth_kind", "none")
+        ref = row.get("auth_ref", "")
+        secret = store.get(ref) if (ref and kind != "none") else ""
+        secret = secret or ""
+
+        creds_segment = ""
+        if secret:
+            if kind == "basic":
+                try:
+                    decoded = _base64.b64decode(secret, validate=False).decode("utf-8")
+                except (UnicodeDecodeError, ValueError):
+                    decoded = ""
+                if ":" in decoded:
+                    user, _, password = decoded.partition(":")
+                    creds_segment = (
+                        f"{quote(user, safe='')}:{quote(password, safe='')}"
+                    )
+            else:
+                creds_segment = quote(secret, safe="")
+
+        if not creds_segment or "://" not in url:
+            out.append(url)
+            continue
+        scheme, rest = url.split("://", 1)
+        host_part = rest.split("/", 1)[0]
+        if "@" in host_part:  # pre-embedded creds win
+            out.append(url)
+        else:
+            out.append(f"{scheme}://{creds_segment}@{rest}")
+    return out
 
 
 class PyodideRuntime:
@@ -110,11 +214,18 @@ class PyodideRuntime:
             )
 
         needs_net = bool(specs)
-        argv, env = _deno_argv_and_env(Path(st["path"]), needs_net=needs_net)
+        pypi_index_urls = _resolve_pypi_index_urls() if needs_net else []
+        extra_hosts = _pypi_index_hosts(pypi_index_urls)
+        argv, env = _deno_argv_and_env(
+            Path(st["path"]),
+            needs_net=needs_net,
+            extra_hosts=extra_hosts,
+        )
         payload = {
             "user_script": script,
             "context": dict(context),
             "pm_require": specs,
+            "pypi_index_urls": pypi_index_urls,
         }
         line = (json.dumps(payload, default=str) + "\n").encode("utf-8")
 

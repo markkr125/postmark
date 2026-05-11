@@ -44,6 +44,7 @@ PM_SCHEMA: PmNode = {
             "children": {
                 "get": {"kind": "function"},
                 "getAll": {"kind": "function"},
+                "jar": {"kind": "function"},
             },
         },
         "iterationData": {
@@ -59,12 +60,19 @@ PM_SCHEMA: PmNode = {
             "children": {
                 "setNextRequest": {"kind": "function"},
                 "skipRequest": {"kind": "function"},
+                "location": {"kind": "namespace", "children": {}},
             },
         },
         "variables": _SCOPE,
         "environment": _SCOPE,
         "collectionVariables": _SCOPE,
         "globals": _SCOPE,
+        "visualizer": {
+            "kind": "namespace",
+            "children": {
+                "set": {"kind": "function"},
+            },
+        },
         "test": {"kind": "function"},
         "expect": {"kind": "function"},
         "sendRequest": {"kind": "function"},

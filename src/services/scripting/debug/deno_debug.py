@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import json
 import logging
@@ -59,6 +60,103 @@ def _cdp_break_editor_lines(
         return sorted(g0s)
     editor_bps = {b for b in breakpoints if 0 <= b < n_user_lines}
     return sorted(g0s | editor_bps)
+
+
+# ---------------------------------------------------------------------------
+# Source map (Deno transpile) — reverse mapping for ``.ts`` debug bundles.
+#
+# When ``language="typescript"`` the bundle lands as ``bundle.ts``. Deno
+# transpiles ``.ts`` → JS internally; V8's inspector script is the transpiled
+# JS, not the on-disk source. Line counts collapse (Deno strips comments and
+# blank lines) so editor-line ``N`` no longer matches generated-line ``N``.
+# ``Debugger.setBreakpointByUrl`` in V8 looks up by URL but uses the
+# *transpiled* line space, so a raw ``u0+N`` lookup either falls past
+# ``endLine`` (silently empty ``locations``) or lands on the wrong statement.
+#
+# Fix: read the inline source map Deno emits (data URL on the
+# ``Debugger.scriptParsed`` event), VLQ-decode it, and build two maps:
+#   * ``src_to_gen``: bundle (source) line → set of generated lines
+#   * ``gen_to_src``: generated line → bundle (source) line
+# Then translate breakpoints before ``setBreakpointByUrl`` and translate
+# ``Debugger.paused`` lines back when invoking ``protocol.checkpoint``.
+# ---------------------------------------------------------------------------
+
+_VLQ_B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+
+
+def _vlq_decode(s: str, i: int) -> tuple[int, int]:
+    """Decode a single Base64 VLQ value starting at ``s[i]``; return (value, next_i)."""
+    result = 0
+    shift = 0
+    while True:
+        v = _VLQ_B64.index(s[i])
+        i += 1
+        result |= (v & 31) << shift
+        shift += 5
+        if not (v & 32):
+            break
+    sign = result & 1
+    result >>= 1
+    return (-result if sign else result, i)
+
+
+def _build_source_map(mappings: str) -> tuple[dict[int, list[int]], dict[int, int]]:
+    """Decode a source-map ``mappings`` string into ``src→[gen]`` and ``gen→src`` maps."""
+    src_to_gen: dict[int, list[int]] = {}
+    gen_to_src: dict[int, int] = {}
+    src_line = 0
+    src_col = 0
+    src_idx = 0
+    for gen_line, segs in enumerate(mappings.split(";")):
+        if not segs:
+            continue
+        gen_col = 0
+        for seg in segs.split(","):
+            if not seg:
+                continue
+            i = 0
+            d, i = _vlq_decode(seg, i)
+            gen_col += d
+            if i < len(seg):
+                d, i = _vlq_decode(seg, i)
+                src_idx += d
+                d, i = _vlq_decode(seg, i)
+                src_line += d
+                d, i = _vlq_decode(seg, i)
+                src_col += d
+                src_to_gen.setdefault(src_line, []).append(gen_line)
+                gen_to_src.setdefault(gen_line, src_line)
+    return src_to_gen, gen_to_src
+
+
+def _decode_inline_source_map(source_map_url: str) -> dict[str, Any] | None:
+    """Decode a ``data:application/json;base64,…`` source map URL into a dict."""
+    if not source_map_url.startswith("data:"):
+        return None
+    if "base64," not in source_map_url:
+        return None
+    b64 = source_map_url.split("base64,", 1)[1]
+    try:
+        raw = base64.b64decode(b64)
+        decoded: Any = json.loads(raw.decode("utf-8"))
+    except (ValueError, json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    return decoded if isinstance(decoded, dict) else None
+
+
+def _src_to_gen_line(src_to_gen: dict[int, list[int]] | None, src_line: int) -> int:
+    """Return the first generated line for *src_line*, or *src_line* itself when no map."""
+    if not src_to_gen:
+        return src_line
+    gens = src_to_gen.get(src_line)
+    return gens[0] if gens else src_line
+
+
+def _gen_to_src_line(gen_to_src: dict[int, int] | None, gen_line: int) -> int:
+    """Return the source line for *gen_line*, or *gen_line* itself when no map."""
+    if not gen_to_src:
+        return gen_line
+    return gen_to_src.get(gen_line, gen_line)
 
 
 def _e() -> ScriptOutput:
@@ -179,12 +277,20 @@ def _stdout_ipc(
 
 
 class _Cdp:
-    """WebSocket-backed CDP client (request/response + queued ``Debugger.paused``)."""
+    """WebSocket-backed CDP client (request/response + queued ``Debugger.paused``).
+
+    Also collects ``Debugger.scriptParsed`` events received while waiting for
+    request responses so the source-map lookup (used to translate transpiled
+    ``.ts`` line numbers) can find the bundle's entry even if its parsed
+    event arrives during the early ``Runtime.enable``/``Debugger.enable``
+    handshake.
+    """
 
     def __init__(self, ws: object, q: list[dict[str, Any]]) -> None:
         self._ws: Any = ws
         self._i = 0
         self.q = q
+        self.script_parsed: list[dict[str, Any]] = []
 
     def _n(self) -> int:
         self._i += 1
@@ -211,8 +317,11 @@ class _Cdp:
                 if m.get("error"):
                     raise OSError(str(m.get("error")))
                 return m.get("result")
-            if m.get("method") == "Debugger.paused":
+            method_name = m.get("method")
+            if method_name == "Debugger.paused":
                 self.q.append(m)
+            elif method_name == "Debugger.scriptParsed":
+                self.script_parsed.append(m)
 
 
 def debug_execute(
@@ -300,16 +409,63 @@ def debug_execute(
         return _err("Deno debugger WebSocket URL not found.", (time.monotonic() - t0) * 1000)
     q: list[dict[str, Any]] = []
     stopped = False
+    src_to_gen: dict[int, list[int]] | None = None
+    gen_to_src: dict[int, int] | None = None
     try:
         with connect(ws_s) as wsc:  # type: ignore[union-attr, arg-type, abstract-overlap]
             c = _Cdp(wsc, q)
             c.req("Runtime.enable", {})
             c.req("Debugger.enable", {})
+            # Find our bundle's ``Debugger.scriptParsed`` event (collected by
+            # ``_Cdp`` during the ``enable`` handshake) and decode its inline
+            # source map. Deno emits a source map only when it transpiles
+            # (``.ts``); a ``.mjs`` bundle has no source map and we keep 1:1
+            # line mapping.
+            sp_deadline = time.monotonic() + 1.0
+            while (
+                src_to_gen is None
+                and time.monotonic() < sp_deadline
+            ):
+                bundle_event = next(
+                    (
+                        e
+                        for e in c.script_parsed
+                        if (e.get("params") or {}).get("url") == furl
+                    ),
+                    None,
+                )
+                if bundle_event is None:
+                    # Drain a few more events to give Deno time to emit ours.
+                    with contextlib.suppress(
+                        ConnectionClosed,
+                        ConnectionClosedError,
+                        ConnectionClosedOK,
+                    ):
+                        try:
+                            raw = wsc.recv(0.1)  # type: ignore[union-attr, arg-type, attr-defined]
+                        except TimeoutError:
+                            continue
+                    try:
+                        m_drain = json.loads(str(raw))
+                    except json.JSONDecodeError:
+                        continue
+                    if isinstance(m_drain, dict):
+                        if m_drain.get("method") == "Debugger.paused":
+                            q.append(m_drain)
+                        elif m_drain.get("method") == "Debugger.scriptParsed":
+                            c.script_parsed.append(m_drain)
+                    continue
+                p_sp = bundle_event.get("params") or {}
+                sm_url = p_sp.get("sourceMapURL") or ""
+                sm_data = _decode_inline_source_map(sm_url) if sm_url else None
+                if sm_data and isinstance(sm_data.get("mappings"), str):
+                    src_to_gen, gen_to_src = _build_source_map(sm_data["mappings"])
+                break
             for gln in cdp_break_lines:
                 c.req(
                     "Debugger.setBreakpointByUrl",
                     {
-                        "lineNumber": u0 + gln,
+                        "lineNumber": _src_to_gen_line(src_to_gen, u0 + gln),
                         "url": furl,
                         "columnNumber": 0,
                     },
@@ -317,7 +473,9 @@ def debug_execute(
             c.req("Runtime.runIfWaitingForDebugger", {})
             while q and not stopped:
                 m0 = q.pop(0)
-                r = _process_one_paused(m0, c, protocol, u0, n_user_lines, source_name, script_type)
+                r = _process_one_paused(
+                    m0, c, protocol, u0, n_user_lines, source_name, script_type, gen_to_src
+                )
                 if r is False:
                     stopped = True
             if not stopped and not done_e.is_set():
@@ -341,7 +499,7 @@ def debug_execute(
                     if not isinstance(jm, dict) or jm.get("method") != "Debugger.paused":
                         continue
                     r2 = _process_one_paused(
-                        jm, c, protocol, u0, n_user_lines, source_name, script_type
+                        jm, c, protocol, u0, n_user_lines, source_name, script_type, gen_to_src
                     )
                     if r2 is False:
                         stopped = True
@@ -389,11 +547,16 @@ def _process_one_paused(
     n_user_lines: int,
     source_name: str,
     script_type: str,
+    gen_to_src: dict[int, int] | None = None,
 ) -> bool:
     """Run checkpoint for one ``Debugger.paused``; return ``False`` to stop, ``True`` to continue."""
     if protocol.is_stopped:
         return False
-    fl = _line_paused(m)
+    fl_raw = _line_paused(m)
+    # When the bundle is transpiled (``.ts``), V8 reports ``lineNumber`` in
+    # the *generated* (transpiled) line space. Translate back to bundle source
+    # space via the source map before computing the editor-relative line.
+    fl = _gen_to_src_line(gen_to_src, fl_raw) if fl_raw >= 0 else fl_raw
     if fl < 0 or fl < u0:
         with contextlib.suppress(OSError, TypeError, json.JSONDecodeError, KeyError):
             c.req("Debugger.resume", {})

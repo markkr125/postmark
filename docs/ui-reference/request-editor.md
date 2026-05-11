@@ -90,7 +90,7 @@ tree item text in those columns is cleared so only one layer is painted).
 Long values start collapsed with an arrow to expand the full text.
 
 Below the editor, a **status strip** shows cursor line/column, a **language**
-control (VS Code-style: underlined accent link; click to choose JavaScript, TypeScript, Python, or **Auto**), a **History** link (same link styling; opens script version history), and a
+control (VS Code-style: underlined accent link; click to choose JavaScript, TypeScript, Python, or **Auto**), a **History** link (same link styling; opens script version history), **Snippets** (same link styling; opens a searchable palette of `pm.*` boilerplate from `data/snippets/`), and a
 character count. In **Auto** mode the language is inferred from the script text
 after a short debounce; choosing JavaScript, TypeScript, or Python locks the mode until you
 pick **Auto** again. Saved requests store `pre_language` and `test_language`
