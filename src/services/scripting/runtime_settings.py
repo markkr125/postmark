@@ -339,9 +339,7 @@ class RuntimeSettings:
         return url, auth_ref, auth_kind
 
     @staticmethod
-    def set_default_npm_registry(
-        url: str, auth_ref: str = "", auth_kind: str = ""
-    ) -> None:
+    def set_default_npm_registry(url: str, auth_ref: str = "", auth_kind: str = "") -> None:
         """Persist the default-npm override; pass empty *url* to clear all three keys."""
         s = _get_settings()
         url = (url or "").strip()
@@ -371,9 +369,7 @@ class RuntimeSettings:
             "index_url": str(s.value(_KEY_PYPI_INDEX, "") or "").strip(),
             "extra_index_url": str(s.value(_KEY_PYPI_EXTRA_INDEX, "") or "").strip(),
             "auth_ref": auth_ref,
-            "auth_kind": cast(
-                "Literal['token', 'basic', 'none']", auth_kind
-            ),
+            "auth_kind": cast("Literal['token', 'basic', 'none']", auth_kind),
         }
 
     @staticmethod

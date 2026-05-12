@@ -462,7 +462,8 @@ def test_pm_response_body_is_public_attribute() -> None:
 
 def test_pm_response_is_dict_subclass_for_isinstance_check() -> None:
     """Postman scripts ported to Python often gate on ``isinstance(response, dict)``;
-    the wrapped response must satisfy it so ``response.get(...)`` is reached."""
+    the wrapped response must satisfy it so ``response.get(...)`` is reached.
+    """
     from services.scripting._py_sandbox import _PmResponse
 
     r = _PmResponse({"code": 201, "status": "Created", "body": "ok", "headers": {}})

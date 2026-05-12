@@ -103,15 +103,11 @@ class TestKeyringBackend:
         store = KeyringSecretStore()
         store.put("ref", "secret-val")
         assert store.get("ref") == "secret-val"
-        fake.set_password.assert_called_once_with(
-            "postmark-scripting", "ref", "secret-val"
-        )
+        fake.set_password.assert_called_once_with("postmark-scripting", "ref", "secret-val")
         store.delete("ref")
         fake.delete_password.assert_called_once_with("postmark-scripting", "ref")
 
-    def test_delete_swallows_missing_entry(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_delete_swallows_missing_entry(self, monkeypatch: pytest.MonkeyPatch) -> None:
         fake = MagicMock()
         fake.delete_password.side_effect = Exception("missing")
         monkeypatch.setattr("services.scripting.secret_store._keyring_lib", fake)
@@ -120,9 +116,7 @@ class TestKeyringBackend:
         # No exception escapes.
         store.delete("ref")
 
-    def test_get_returns_none_when_keyring_missing(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_get_returns_none_when_keyring_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr("services.scripting.secret_store._keyring_lib", None)
         monkeypatch.setattr("services.scripting.secret_store._KEYRING_AVAILABLE", False)
         store = KeyringSecretStore()
@@ -132,9 +126,7 @@ class TestKeyringBackend:
 class TestDefaultStoreSelection:
     """`get_default_store` picks the strongest backend that actually works."""
 
-    def test_keyring_self_test_pass_picks_keyring(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_keyring_self_test_pass_picks_keyring(self, monkeypatch: pytest.MonkeyPatch) -> None:
         reset_default_store()
         fake = MagicMock()
         fake.get_password.return_value = "ok"
@@ -156,18 +148,14 @@ class TestDefaultStoreSelection:
         monkeypatch.setattr("services.scripting.secret_store._KEYRING_AVAILABLE", True)
         monkeypatch.setattr("services.scripting.secret_store._CRYPTO_AVAILABLE", True)
         # Redirect the encrypted-file backend at a tmp dir.
-        monkeypatch.setattr(
-            "services.scripting.secret_store._user_config_dir", lambda: tmp_path
-        )
+        monkeypatch.setattr("services.scripting.secret_store._user_config_dir", lambda: tmp_path)
         try:
             store = get_default_store()
             assert store.backend_id == "encrypted_file"
         finally:
             reset_default_store()
 
-    def test_neither_available_falls_back_to_noop(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_neither_available_falls_back_to_noop(self, monkeypatch: pytest.MonkeyPatch) -> None:
         reset_default_store()
         monkeypatch.setattr("services.scripting.secret_store._KEYRING_AVAILABLE", False)
         monkeypatch.setattr("services.scripting.secret_store._CRYPTO_AVAILABLE", False)

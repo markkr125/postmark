@@ -205,7 +205,7 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, _ScriptsM
         self._tabs.addTab(self._scripts_tab, "Scripts")
 
         tab_header_h = self._tabs.tabBar().sizeHint().height()
-        self._tabs.setMinimumHeight(tab_header_h + 4)
+        self._tabs.setMinimumHeight(tab_header_h)
         self._tabs.tabBar().setCursor(Qt.CursorShape.PointingHandCursor)
 
         root.addWidget(self._tabs, 1)

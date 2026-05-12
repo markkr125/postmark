@@ -88,9 +88,7 @@ class TestResolvePypiIndexUrls:
 
     def test_auth_token_embedded_in_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
         store = _MemoryStore({"pypi:row1": "tok123"})
-        monkeypatch.setattr(
-            "services.scripting.secret_store.get_default_store", lambda: store
-        )
+        monkeypatch.setattr("services.scripting.secret_store.get_default_store", lambda: store)
         self._stub_indexes(
             monkeypatch,
             [
@@ -117,9 +115,7 @@ class TestResolvePypiIndexUrls:
                 "pypi:secondary": basic_blob,
             }
         )
-        monkeypatch.setattr(
-            "services.scripting.secret_store.get_default_store", lambda: store
-        )
+        monkeypatch.setattr("services.scripting.secret_store.get_default_store", lambda: store)
         self._stub_indexes(
             monkeypatch,
             [
@@ -149,17 +145,13 @@ class TestResolvePypiIndexUrls:
         assert "user:p%40ss@pypi.backup.io" in urls[1]
         assert urls[2] == "https://pypi.org/simple/"
 
-    def test_basic_auth_decodes_base64_blob(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_basic_auth_decodes_base64_blob(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Audit-flagged B1: base64 ``user:password`` blob must be decoded."""
         import base64 as _b64
 
         secret = _b64.b64encode(b"user:p@ss/wd").decode()
         store = _MemoryStore({"pypi:row1": secret})
-        monkeypatch.setattr(
-            "services.scripting.secret_store.get_default_store", lambda: store
-        )
+        monkeypatch.setattr("services.scripting.secret_store.get_default_store", lambda: store)
         self._stub_indexes(
             monkeypatch,
             [
@@ -178,14 +170,10 @@ class TestResolvePypiIndexUrls:
         assert unquote(parsed.username or "") == "user"
         assert unquote(parsed.password or "") == "p@ss/wd"
 
-    def test_basic_auth_invalid_blob_skips_auth(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_basic_auth_invalid_blob_skips_auth(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A corrupt base64 blob should not crash; URL goes through without auth."""
         store = _MemoryStore({"pypi:row1": "not-valid-base64!@#"})
-        monkeypatch.setattr(
-            "services.scripting.secret_store.get_default_store", lambda: store
-        )
+        monkeypatch.setattr("services.scripting.secret_store.get_default_store", lambda: store)
         self._stub_indexes(
             monkeypatch,
             [
@@ -199,9 +187,7 @@ class TestResolvePypiIndexUrls:
         )
         assert _resolve_pypi_index_urls() == ["https://pypi.mycorp.io/simple/"]
 
-    def test_auth_kind_none_skips_secret_lookup(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_auth_kind_none_skips_secret_lookup(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """When ``auth_kind == 'none'`` the secret store must not be consulted."""
 
         def _boom() -> None:  # pragma: no cover - asserts store stays untouched
@@ -219,9 +205,7 @@ class TestResolvePypiIndexUrls:
             def delete(self, r):
                 _boom()
 
-        monkeypatch.setattr(
-            "services.scripting.secret_store.get_default_store", _BoomStore
-        )
+        monkeypatch.setattr("services.scripting.secret_store.get_default_store", _BoomStore)
         self._stub_indexes(
             monkeypatch,
             [
@@ -235,14 +219,10 @@ class TestResolvePypiIndexUrls:
         )
         assert _resolve_pypi_index_urls() == ["https://pypi.mycorp.io/simple/"]
 
-    def test_existing_url_credentials_preserved(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_existing_url_credentials_preserved(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """If the user pre-embedded credentials, don't double them up."""
         store = _MemoryStore({"pypi:row1": "ignored-token"})
-        monkeypatch.setattr(
-            "services.scripting.secret_store.get_default_store", lambda: store
-        )
+        monkeypatch.setattr("services.scripting.secret_store.get_default_store", lambda: store)
         self._stub_indexes(
             monkeypatch,
             [

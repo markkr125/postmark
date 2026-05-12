@@ -29,7 +29,8 @@ from typing import Any
 from urllib.parse import quote, urlencode
 
 try:
-    from RestrictedPython import compile_restricted, safe_globals  # type: ignore[import-untyped]
+    from RestrictedPython import (  # type: ignore[import-untyped]
+        compile_restricted, safe_globals)
 
     _HAS_RESTRICTED = True
 except ImportError:
@@ -472,7 +473,7 @@ class _HeaderList:
                     v = str(entry.get("value") or "")
                     if k:
                         self._items.append((k, v))
-                elif isinstance(entry, (list, tuple)) and len(entry) >= 2:
+                elif isinstance(entry, list | tuple) and len(entry) >= 2:
                     self._items.append((str(entry[0]), str(entry[1])))
         self._mutable = mutable
 
@@ -509,7 +510,7 @@ class _HeaderList:
     def to_object(self) -> dict[str, str]:
         return {k: v for k, v in self._items}
 
-    def toObject(self) -> dict[str, str]:  # noqa: N802
+    def toObject(self) -> dict[str, str]:
         return self.to_object()
 
     def __pm_debug__(self) -> dict[str, str]:
@@ -586,19 +587,19 @@ class _PmUrl:
                 query_items.append({"key": k, "value": v})
         self.query = _HeaderList(query_items, mutable=True)
 
-    def toString(self) -> str:  # noqa: N802
+    def toString(self) -> str:
         return self._raw
 
     def __str__(self) -> str:
         return self._raw
 
-    def getHost(self) -> str:  # noqa: N802
+    def getHost(self) -> str:
         return (self._parsed.hostname or "") if self._parsed else ""
 
-    def getPath(self) -> str:  # noqa: N802
+    def getPath(self) -> str:
         return (self._parsed.path or "") if self._parsed else ""
 
-    def getQueryString(self) -> str:  # noqa: N802
+    def getQueryString(self) -> str:
         return (self._parsed.query or "") if self._parsed else ""
 
     @property
@@ -690,7 +691,7 @@ class _PmCookies:
         """Return all cookies as list of ``{name, value}`` dicts."""
         return [{"name": k, "value": v} for k, v in self._cookies.items()]
 
-    def getAll(self) -> list[dict[str, str]]:  # noqa: N802
+    def getAll(self) -> list[dict[str, str]]:
         return self.get_all()
 
     def __pm_debug__(self) -> dict[str, str]:
@@ -707,7 +708,7 @@ class _PmCookies:
                     callback(None, value)
                 return value
 
-            def getAll(self_inner, _url: str, callback: Any = None) -> list[dict[str, str]]:  # noqa: N802
+            def getAll(self_inner, _url: str, callback: Any = None) -> list[dict[str, str]]:
                 values = outer.get_all()
                 if callback:
                     callback(None, values)
@@ -839,7 +840,7 @@ class _PmResponse(dict):  # type: ignore[type-arg]
         charset = m.group(1).strip() if m else ""
         return {"type": primary, "charset": charset}
 
-    def dataURI(self) -> str:  # noqa: N802
+    def dataURI(self) -> str:
         import base64
 
         ct = self.headers.get("Content-Type") or "application/octet-stream"
@@ -850,11 +851,11 @@ class _PmResponse(dict):  # type: ignore[type-arg]
         return self.response_size or (len(self._body) if self._body else 0)
 
     @property
-    def responseTime(self) -> float:  # noqa: N802
+    def responseTime(self) -> float:
         return self.response_time
 
     @property
-    def responseSize(self) -> int:  # noqa: N802
+    def responseSize(self) -> int:
         return self.response_size
 
     @property
@@ -928,10 +929,10 @@ class _PmExecution:
         self._skip = True
 
     # Postman camelCase aliases.
-    def setNextRequest(self, name: str | None = None) -> None:  # noqa: N802
+    def setNextRequest(self, name: str | None = None) -> None:
         self.set_next_request(name)
 
-    def skipRequest(self) -> None:  # noqa: N802
+    def skipRequest(self) -> None:
         self.skip_request()
 
 
@@ -1007,7 +1008,7 @@ class _ResolvedVariables:
         out.update(self._local)
         return out
 
-    def toObject(self) -> dict[str, Any]:  # noqa: N802
+    def toObject(self) -> dict[str, Any]:
         return self.to_object()
 
     def to_dict(self) -> dict[str, Any]:
@@ -1022,11 +1023,11 @@ class _ResolvedVariables:
 
         return re.sub(r"\{\{(.+?)\}\}", _repl, template)
 
-    def replaceIn(self, template: str) -> str:  # noqa: N802
+    def replaceIn(self, template: str) -> str:
         return self.replace_in(template)
 
 
-class _SkipTest(Exception):  # noqa: N818
+class _SkipTest(Exception):
     """Raised by inline ``ctx.skip()`` to short-circuit a ``pm.test`` body."""
 
 
@@ -1068,13 +1069,15 @@ class _PmTestCallable:
         self._owner._test_results.append(result)
 
     def skip(self, name: str, _fn: Any = None) -> None:
-        self._owner._test_results.append({
-            "name": str(name),
-            "passed": True,
-            "skipped": True,
-            "error": None,
-            "duration_ms": 0.0,
-        })
+        self._owner._test_results.append(
+            {
+                "name": str(name),
+                "passed": True,
+                "skipped": True,
+                "error": None,
+                "duration_ms": 0.0,
+            }
+        )
 
 
 class _PmVisualizer:
@@ -1088,10 +1091,22 @@ class _PmVisualizer:
         raise RuntimeError(msg)
 
 
-_PM_BUILTIN_MODULE_NAMES: frozenset[str] = frozenset({
-    "tv4", "xml2js", "crypto-js", "chai", "lodash", "moment",
-    "cheerio", "csv-parse/lib/sync", "ajv", "atob", "btoa", "uuid",
-})
+_PM_BUILTIN_MODULE_NAMES: frozenset[str] = frozenset(
+    {
+        "tv4",
+        "xml2js",
+        "crypto-js",
+        "chai",
+        "lodash",
+        "moment",
+        "cheerio",
+        "csv-parse/lib/sync",
+        "ajv",
+        "atob",
+        "btoa",
+        "uuid",
+    }
+)
 
 
 class _Pm:
@@ -1102,12 +1117,11 @@ class _Pm:
         resp = context.get("response")
         self._is_pre_request: bool = resp is None
         self.request = _PmRequest(
-            context.get("request", {}), is_pre_request=self._is_pre_request,
+            context.get("request", {}),
+            is_pre_request=self._is_pre_request,
         )
         original_req = context.get("original_request") or context.get("request") or {}
-        self.response: _PmResponse | None = (
-            _PmResponse(resp, original_req) if resp else None
-        )
+        self.response: _PmResponse | None = _PmResponse(resp, original_req) if resp else None
         self.cookies = _PmCookies(resp)
         self.environment = _VariableScope(context.get("environment_vars", {}))
         self.collection_variables = _VariableScope(context.get("collection_vars", {}))
@@ -1124,14 +1138,14 @@ class _Pm:
         return _Expectation(value)
 
     @property
-    def collectionVariables(self) -> _VariableScope:  # noqa: N802
+    def collectionVariables(self) -> _VariableScope:
         return self.collection_variables
 
     @property
-    def iterationData(self) -> _PmIterationData:  # noqa: N802
+    def iterationData(self) -> _PmIterationData:
         return self.iteration_data
 
-    def sendRequest(self, spec: Any, callback: Any = None) -> Any:  # noqa: N802
+    def sendRequest(self, spec: Any, callback: Any = None) -> Any:
         return self.send_request(spec, callback)
 
     def require(self, spec: str) -> Any:
@@ -1150,9 +1164,7 @@ class _Pm:
             except Exception as e:
                 last_err = e
                 continue
-        msg = (
-            f"pm.require({spec!r}): could not import (tried {candidates}): {last_err}"
-        )
+        msg = f"pm.require({spec!r}): could not import (tried {candidates}): {last_err}"
         raise RuntimeError(msg) from last_err
 
     def send_request(self, spec: Any, callback: Any = None) -> _PmResponse:
@@ -1186,10 +1198,7 @@ def _serialize_request_mutations(req: _PmRequest) -> dict[str, Any]:
     url_val = req.url
     url_str = url_val.toString() if hasattr(url_val, "toString") else str(url_val)
     body_val = req.body
-    if hasattr(body_val, "raw"):
-        body_str = str(body_val.raw or "")
-    else:
-        body_str = str(body_val or "")
+    body_str = str(body_val.raw or "") if hasattr(body_val, "raw") else str(body_val or "")
     headers_val = req.headers
     if hasattr(headers_val, "to_object"):
         headers_dict: dict[str, str] = headers_val.to_object()
@@ -1304,7 +1313,7 @@ def _serialize_debug_value(
     if depth > _DEBUG_VAR_MAX_DEPTH:
         return f"<truncated {type(value).__name__}>"
 
-    if value is None or isinstance(value, (bool, int, float)):
+    if value is None or isinstance(value, bool | int | float):
         return value
     if isinstance(value, str):
         return value if len(value) <= _DEBUG_VAR_MAX_STR else value[:_DEBUG_VAR_MAX_STR] + "…"
@@ -1331,7 +1340,7 @@ def _serialize_debug_value(
             except Exception:
                 out[str(k)] = "<error>"
         return out
-    if isinstance(value, (list, tuple, set, frozenset)):
+    if isinstance(value, list | tuple | set | frozenset):
         items = list(value)
         out_l: list[Any] = []
         for i, item in enumerate(items):
@@ -1679,4 +1688,5 @@ _SAFE_STDLIB: dict[str, Any] = {
 
 
 if __name__ == "__main__":
+    main()
     main()

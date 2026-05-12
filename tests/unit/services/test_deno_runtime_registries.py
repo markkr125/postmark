@@ -8,10 +8,7 @@ from __future__ import annotations
 
 import stat
 import sys
-import tempfile
 from pathlib import Path
-from typing import Any
-from unittest.mock import patch
 
 import pytest
 
@@ -67,9 +64,7 @@ class TestBuildNpmrcText:
 
     def test_scoped_registry_with_token(self, monkeypatch: pytest.MonkeyPatch) -> None:
         store = _MemoryStore({"npm:@mycompany": "tok-abc"})
-        monkeypatch.setattr(
-            "services.scripting.secret_store.get_default_store", lambda: store
-        )
+        monkeypatch.setattr("services.scripting.secret_store.get_default_store", lambda: store)
         monkeypatch.setattr(
             "services.scripting.runtime_settings.RuntimeSettings.get_registries",
             staticmethod(
@@ -92,9 +87,7 @@ class TestBuildNpmrcText:
     def test_scoped_registry_basic_auth(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """``auth_kind=basic`` emits ``_auth=`` (base64) rather than ``_authToken=``."""
         store = _MemoryStore({"npm:@mycompany": "dXNlcjpwYXNz"})
-        monkeypatch.setattr(
-            "services.scripting.secret_store.get_default_store", lambda: store
-        )
+        monkeypatch.setattr("services.scripting.secret_store.get_default_store", lambda: store)
         monkeypatch.setattr(
             "services.scripting.runtime_settings.RuntimeSettings.get_registries",
             staticmethod(
@@ -116,9 +109,7 @@ class TestBuildNpmrcText:
     def test_scoped_registry_no_auth_kind(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A scope with ``auth_kind=none`` writes only the registry line, no token."""
         store = _MemoryStore({})
-        monkeypatch.setattr(
-            "services.scripting.secret_store.get_default_store", lambda: store
-        )
+        monkeypatch.setattr("services.scripting.secret_store.get_default_store", lambda: store)
         monkeypatch.setattr(
             "services.scripting.runtime_settings.RuntimeSettings.get_registries",
             staticmethod(
@@ -140,14 +131,10 @@ class TestBuildNpmrcText:
 
     def test_default_npm_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
         store = _MemoryStore({"npm:__default__": "tok-default"})
-        monkeypatch.setattr(
-            "services.scripting.secret_store.get_default_store", lambda: store
-        )
+        monkeypatch.setattr("services.scripting.secret_store.get_default_store", lambda: store)
         monkeypatch.setattr(
             "services.scripting.runtime_settings.RuntimeSettings.get_default_npm_registry",
-            staticmethod(
-                lambda: ("https://npm.mirror.io/", "npm:__default__", "token")
-            ),
+            staticmethod(lambda: ("https://npm.mirror.io/", "npm:__default__", "token")),
         )
         text, hosts = _build_npmrc_text()
         # First non-blank line should be the default override.
@@ -160,16 +147,13 @@ class TestBuildNpmrcText:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Audit-flagged bug: Basic auth on the default registry must emit
-        ``_auth=`` (legacy base64), not ``_authToken=`` (bearer)."""
+        ``_auth=`` (legacy base64), not ``_authToken=`` (bearer).
+        """
         store = _MemoryStore({"npm:__default__": "dXNlcjpwYXNz"})
-        monkeypatch.setattr(
-            "services.scripting.secret_store.get_default_store", lambda: store
-        )
+        monkeypatch.setattr("services.scripting.secret_store.get_default_store", lambda: store)
         monkeypatch.setattr(
             "services.scripting.runtime_settings.RuntimeSettings.get_default_npm_registry",
-            staticmethod(
-                lambda: ("https://npm.mirror.io/", "npm:__default__", "basic")
-            ),
+            staticmethod(lambda: ("https://npm.mirror.io/", "npm:__default__", "basic")),
         )
         text, _ = _build_npmrc_text()
         assert "//npm.mirror.io/:_auth=dXNlcjpwYXNz" in text
@@ -179,11 +163,10 @@ class TestBuildNpmrcText:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Audit-flagged B5: ``urlparse`` strips ``user:pass@`` from the auth
-        line so Deno doesn't reject ``//baked:in@host/:_authToken=…``."""
+        line so Deno doesn't reject ``//baked:in@host/:_authToken=…``.
+        """
         store = _MemoryStore({"npm:@mycompany": "tok-xyz"})
-        monkeypatch.setattr(
-            "services.scripting.secret_store.get_default_store", lambda: store
-        )
+        monkeypatch.setattr("services.scripting.secret_store.get_default_store", lambda: store)
         monkeypatch.setattr(
             "services.scripting.runtime_settings.RuntimeSettings.get_registries",
             staticmethod(
@@ -209,13 +192,9 @@ class TestBuildNpmrcText:
         # Host list for --allow-net also drops the creds.
         assert hosts == ["npm.mycorp.io"]
 
-    def test_url_with_port_preserved_in_auth_line(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_url_with_port_preserved_in_auth_line(self, monkeypatch: pytest.MonkeyPatch) -> None:
         store = _MemoryStore({"npm:@local": "tok"})
-        monkeypatch.setattr(
-            "services.scripting.secret_store.get_default_store", lambda: store
-        )
+        monkeypatch.setattr("services.scripting.secret_store.get_default_store", lambda: store)
         monkeypatch.setattr(
             "services.scripting.runtime_settings.RuntimeSettings.get_registries",
             staticmethod(
@@ -238,14 +217,10 @@ class TestBuildNpmrcText:
     ) -> None:
         """A default registry override with no auth emits only ``registry=…``."""
         store = _MemoryStore({"npm:__default__": "ignored"})
-        monkeypatch.setattr(
-            "services.scripting.secret_store.get_default_store", lambda: store
-        )
+        monkeypatch.setattr("services.scripting.secret_store.get_default_store", lambda: store)
         monkeypatch.setattr(
             "services.scripting.runtime_settings.RuntimeSettings.get_default_npm_registry",
-            staticmethod(
-                lambda: ("https://npm.mirror.io/", "npm:__default__", "none")
-            ),
+            staticmethod(lambda: ("https://npm.mirror.io/", "npm:__default__", "none")),
         )
         text, _ = _build_npmrc_text()
         assert "registry=https://npm.mirror.io/" in text
@@ -253,9 +228,7 @@ class TestBuildNpmrcText:
 
     def test_port_propagates_to_allow_net(self, monkeypatch: pytest.MonkeyPatch) -> None:
         store = _MemoryStore({})
-        monkeypatch.setattr(
-            "services.scripting.secret_store.get_default_store", lambda: store
-        )
+        monkeypatch.setattr("services.scripting.secret_store.get_default_store", lambda: store)
         monkeypatch.setattr(
             "services.scripting.runtime_settings.RuntimeSettings.get_registries",
             staticmethod(
@@ -298,9 +271,7 @@ class TestDenoArgvWithRegistries:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         store = _MemoryStore({"npm:@mycompany": "tok-xyz"})
-        monkeypatch.setattr(
-            "services.scripting.secret_store.get_default_store", lambda: store
-        )
+        monkeypatch.setattr("services.scripting.secret_store.get_default_store", lambda: store)
         monkeypatch.setattr(
             "services.scripting.runtime_settings.RuntimeSettings.get_registries",
             staticmethod(
@@ -341,9 +312,7 @@ class TestDenoArgvWithRegistries:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         store = _MemoryStore({})
-        monkeypatch.setattr(
-            "services.scripting.secret_store.get_default_store", lambda: store
-        )
+        monkeypatch.setattr("services.scripting.secret_store.get_default_store", lambda: store)
         monkeypatch.setattr(
             "services.scripting.runtime_settings.RuntimeSettings.get_default_npm_registry",
             staticmethod(lambda: ("https://npm.mirror.io/", "", "none")),

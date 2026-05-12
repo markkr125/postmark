@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import QSize, Qt, QThread, QTimer
+from PySide6.QtCore import QEvent, QObject, QPoint, QSize, Qt, QThread, QTimer
 from PySide6.QtGui import QAction, QCloseEvent, QCursor, QGuiApplication, QKeySequence
 
 if TYPE_CHECKING:
@@ -306,6 +306,7 @@ class MainWindow(
         for editors, and the default (single) editor.
         """
         wrapper = QWidget()
+        self._request_area = wrapper
         layout = QVBoxLayout(wrapper)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -511,6 +512,43 @@ class MainWindow(
         self._bottom_panel.addTab(self._console_panel, "Console")
         self._bottom_panel.hide()
         self._right_splitter.addWidget(self._bottom_panel)
+
+        # Track chrome geometry so the request/response splitter handle can be
+        # dragged up to the section-tabs strip but not past it. The tab bar can
+        # wrap to multiple rows as tabs are added, so the floor is recomputed
+        # from live widget positions rather than a fixed height.
+        self._tab_bar.installEventFilter(self)
+        self._editor_stack.installEventFilter(self)
+        self._editor_stack.currentChanged.connect(
+            lambda _i: QTimer.singleShot(0, self._update_request_area_min)
+        )
+        QTimer.singleShot(0, self._update_request_area_min)
+
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:
+        """Recompute request_area's min when chrome geometry changes (tab wrap, etc.)."""
+        if event.type() in (QEvent.Type.Resize, QEvent.Type.Show, QEvent.Type.LayoutRequest):
+            if obj is self._tab_bar or obj is self._editor_stack:
+                QTimer.singleShot(0, self._update_request_area_min)
+        return bool(super().eventFilter(obj, event))
+
+    def _update_request_area_min(self) -> None:
+        """Clamp request_area's min to the section-tabs-strip bottom (in wrapper coords)."""
+        from ui.request.request_editor import RequestEditorWidget as _REW
+
+        if not hasattr(self, "_request_area") or self._request_area is None:
+            return
+        current = self._editor_stack.currentWidget() if hasattr(self, "_editor_stack") else None
+        if not isinstance(current, _REW):
+            self._request_area.setMinimumHeight(0)
+            return
+        bar = current._tabs.tabBar()  # noqa: SLF001 -- internal coordination
+        if bar is None or not bar.isVisible():
+            self._request_area.setMinimumHeight(0)
+            return
+        bottom = bar.mapTo(self._request_area, QPoint(0, bar.height())).y()
+        if bottom <= 0:
+            return
+        self._request_area.setMinimumHeight(bottom)
 
     def _on_load_finished(self) -> None:
         """Switch from the loading screen to the main UI."""

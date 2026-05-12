@@ -422,16 +422,9 @@ def debug_execute(
             # (``.ts``); a ``.mjs`` bundle has no source map and we keep 1:1
             # line mapping.
             sp_deadline = time.monotonic() + 1.0
-            while (
-                src_to_gen is None
-                and time.monotonic() < sp_deadline
-            ):
+            while src_to_gen is None and time.monotonic() < sp_deadline:
                 bundle_event = next(
-                    (
-                        e
-                        for e in c.script_parsed
-                        if (e.get("params") or {}).get("url") == furl
-                    ),
+                    (e for e in c.script_parsed if (e.get("params") or {}).get("url") == furl),
                     None,
                 )
                 if bundle_event is None:

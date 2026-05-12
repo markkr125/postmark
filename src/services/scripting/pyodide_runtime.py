@@ -168,9 +168,7 @@ def _resolve_pypi_index_urls() -> list[str]:
                     decoded = ""
                 if ":" in decoded:
                     user, _, password = decoded.partition(":")
-                    creds_segment = (
-                        f"{quote(user, safe='')}:{quote(password, safe='')}"
-                    )
+                    creds_segment = f"{quote(user, safe='')}:{quote(password, safe='')}"
             else:
                 creds_segment = quote(secret, safe="")
 

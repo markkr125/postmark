@@ -13,7 +13,8 @@ from typing import Any
 from PySide6.QtCore import QObject, Signal, Slot
 
 from services.scripting import ScriptEngine, ScriptEntry, ScriptInput
-from services.scripting.context import build_pre_request_context, build_test_context
+from services.scripting.context import (build_pre_request_context,
+                                        build_test_context)
 from services.scripting.debug import DebugProtocol
 
 
@@ -249,4 +250,5 @@ class ScriptDebugWorker(QObject):
             elapsed = (time.perf_counter() - start) * 1000.0
             self.finished.emit(result, elapsed)
         except Exception as exc:
+            self.error.emit(str(exc))
             self.error.emit(str(exc))

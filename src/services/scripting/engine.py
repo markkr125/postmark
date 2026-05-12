@@ -592,15 +592,14 @@ def find_top_level_statement_lines(source: str, language: str) -> set[int]:
                 return
             node_type = node.get("type")
             if isinstance(node_type, str) and (
-                node_type.endswith("Statement")
-                or node_type.endswith("Declaration")
+                node_type.endswith("Statement") or node_type.endswith("Declaration")
             ):
                 loc = (node.get("loc") or {}).get("start") or {}
                 line1 = int(loc.get("line", 0))
                 if line1 > 0:
                     out_js.add(line1 - 1)
             for value in node.values():
-                if isinstance(value, (dict, list)):
+                if isinstance(value, dict | list):
                     _walk_js(value)
 
         _walk_js(tree.get("body"))

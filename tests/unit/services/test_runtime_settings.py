@@ -7,11 +7,9 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from services.scripting.runtime_settings import (
-    RuntimePathStatus,
-    RuntimeSettings,
-    _is_executable_file,
-)
+from services.scripting.runtime_settings import (RuntimePathStatus,
+                                                 RuntimeSettings,
+                                                 _is_executable_file)
 
 
 class _MemoryQSettings:
@@ -366,7 +364,8 @@ class TestPrivateRegistries:
         """P4 fix: a legacy entry without ``id`` gets a UUID *and* the new
         ID is written back to QSettings so subsequent reads return the
         same ID. Without persistence, auth saved against a freshly-minted
-        ID would orphan its secret on the next ``get_registries`` call."""
+        ID would orphan its secret on the next ``get_registries`` call.
+        """
         import json as _json
 
         mem = _MemoryQSettings()
@@ -422,7 +421,8 @@ class TestPrivateRegistries:
 
     def test_pypi_indexes_migrate_from_legacy_config(self) -> None:
         """Legacy single-primary + single-extra keys migrate to the list shape
-        on first read; the migration is persisted so IDs stay stable."""
+        on first read; the migration is persisted so IDs stay stable.
+        """
         mem = _MemoryQSettings()
         mem.setValue("scripting/pypi/index_url", "https://pypi.mycorp.io/simple/")
         mem.setValue("scripting/pypi/extra_index_url", "https://pypi.public/simple/")
@@ -441,7 +441,8 @@ class TestPrivateRegistries:
 
     def test_set_pypi_indexes_clears_legacy_keys(self) -> None:
         """Persisting the new list also wipes the legacy single-pair keys so
-        they don't shadow the list on subsequent reads."""
+        they don't shadow the list on subsequent reads.
+        """
         mem = _MemoryQSettings()
         mem.setValue("scripting/pypi/index_url", "https://old.example/")
         mem.setValue("scripting/pypi/auth_ref", "pypi:legacy")
@@ -462,7 +463,8 @@ class TestPrivateRegistries:
 
     def test_pypi_legacy_auth_kind_defaults_to_token(self) -> None:
         """PyPI configs persisted before ``auth_kind`` was introduced
-        keep working with implicit ``token`` semantics."""
+        keep working with implicit ``token`` semantics.
+        """
         mem = _MemoryQSettings()
         mem.setValue("scripting/pypi/index_url", "https://pypi.mycorp.io/simple/")
         mem.setValue("scripting/pypi/auth_ref", "pypi:default")

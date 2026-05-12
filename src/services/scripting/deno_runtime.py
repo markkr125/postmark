@@ -107,9 +107,7 @@ def _build_npmrc_text() -> tuple[str, list[str]]:
     from services.scripting.secret_store import get_default_store
 
     entries = RuntimeSettings.get_registries()
-    default_url, default_auth_ref, default_auth_kind = (
-        RuntimeSettings.get_default_npm_registry()
-    )
+    default_url, default_auth_ref, default_auth_kind = RuntimeSettings.get_default_npm_registry()
     if not entries and not default_url:
         return "", []
 

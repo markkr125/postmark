@@ -573,7 +573,8 @@ class TestFindTopLevelStatementLines:
 
     def test_python_includes_nested_statement_lines(self) -> None:
         """Recursive walk: nested statements (function bodies, ``try`` bodies)
-        are reachable too — both runtimes pause inside callbacks."""
+        are reachable too — both runtimes pause inside callbacks.
+        """
         from services.scripting.engine import find_top_level_statement_lines
 
         src = "a = 1\ndef f():\n    x = 2\n"

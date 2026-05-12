@@ -87,8 +87,7 @@ class SecretEntryDialog(QDialog):
         )
         self._basic_radio = QRadioButton("Basic (user:password)")
         self._basic_radio.setToolTip(
-            "Encoded as base64 ``user:password`` and emitted as "
-            "``_auth=`` in .npmrc."
+            "Encoded as base64 ``user:password`` and emitted as ``_auth=`` in .npmrc."
         )
         self._none_radio = QRadioButton("None / clear")
         self._none_radio.setToolTip(

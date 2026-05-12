@@ -98,9 +98,7 @@ class TestSettingsDialogConstruction:
         ]
         assert labels == ["Appearance", "Tabs", "Scripting", "Private packages"]
 
-    def test_private_packages_has_provider_children(
-        self, qapp: QApplication, qtbot
-    ) -> None:
+    def test_private_packages_has_provider_children(self, qapp: QApplication, qtbot) -> None:
         """Private packages has npm / JSR / PyPI children."""
         tm = ThemeManager(qapp)
         dialog = SettingsDialog(tm)
@@ -200,9 +198,7 @@ class TestSettingsDialogApply:
         dialog._on_apply()
         assert tm.scheme == SCHEME_DARK
 
-    def test_apply_emits_theme_changed_when_style_changes(
-        self, qapp: QApplication, qtbot
-    ) -> None:
+    def test_apply_emits_theme_changed_when_style_changes(self, qapp: QApplication, qtbot) -> None:
         """Applying settings emits theme_changed when the style actually changes.
 
         Apply is a no-op for the theme when nothing changed (otherwise
@@ -220,9 +216,7 @@ class TestSettingsDialogApply:
         with qtbot.waitSignal(tm.theme_changed, timeout=1000):
             dialog._on_apply()
 
-    def test_apply_is_noop_when_nothing_changed(
-        self, qapp: QApplication, qtbot
-    ) -> None:
+    def test_apply_is_noop_when_nothing_changed(self, qapp: QApplication, qtbot) -> None:
         """No theme reflow when neither style nor scheme actually changed."""
         tm = ThemeManager(qapp)
         dialog = SettingsDialog(tm)
@@ -468,9 +462,7 @@ class TestSettingsDialogPrivatePackages:
         assert dialog._jsr_table.rowCount() == before_jsr + 1
         assert dialog._npm_table.rowCount() == before_npm
 
-    def test_remove_selected_row_drops_entry(
-        self, qapp: QApplication, qtbot
-    ) -> None:
+    def test_remove_selected_row_drops_entry(self, qapp: QApplication, qtbot) -> None:
         from services.scripting.runtime_settings import RuntimeSettings
 
         RuntimeSettings.set_registries(
@@ -530,9 +522,7 @@ class TestSettingsDialogPrivatePackages:
         url_item = dialog._npm_table.item(row, 1)
         assert "https://" in url_item.toolTip()
 
-    def test_row_remove_deletes_stored_secret(
-        self, qapp: QApplication, qtbot
-    ) -> None:
+    def test_row_remove_deletes_stored_secret(self, qapp: QApplication, qtbot) -> None:
         """B3: removing a row also wipes its secret from the keychain."""
         from services.scripting.runtime_settings import RuntimeSettings
 
@@ -578,11 +568,10 @@ class TestSettingsDialogPrivatePackages:
             _ss.get_default_store = original
             RuntimeSettings.set_registries([])
 
-    def test_scope_rename_preserves_auth_ref(
-        self, qapp: QApplication, qtbot
-    ) -> None:
+    def test_scope_rename_preserves_auth_ref(self, qapp: QApplication, qtbot) -> None:
         """B4: ``auth_ref`` is anchored to ``id`` so renaming scope keeps
-        the existing keychain entry reachable."""
+        the existing keychain entry reachable.
+        """
         from services.scripting.runtime_settings import RuntimeSettings
 
         RuntimeSettings.set_registries(
@@ -614,9 +603,7 @@ class TestSettingsDialogPrivatePackages:
         finally:
             RuntimeSettings.set_registries([])
 
-    def test_legacy_entries_without_id_get_migrated(
-        self, qapp: QApplication, qtbot
-    ) -> None:
+    def test_legacy_entries_without_id_get_migrated(self, qapp: QApplication, qtbot) -> None:
         """Settings persisted before ``id`` was introduced auto-receive one."""
         from services.scripting.runtime_settings import RuntimeSettings
 
@@ -648,11 +635,10 @@ class TestSettingsDialogPrivatePackages:
         finally:
             RuntimeSettings.set_registries([])
 
-    def test_apply_drops_invalid_rows_with_warning(
-        self, qapp: QApplication, qtbot
-    ) -> None:
+    def test_apply_drops_invalid_rows_with_warning(self, qapp: QApplication, qtbot) -> None:
         """B6: invalid rows are stripped on Apply (with a transient warning),
-        not silently lost at read time."""
+        not silently lost at read time.
+        """
         from services.scripting.runtime_settings import RuntimeSettings
 
         tm = ThemeManager(qapp)
@@ -675,9 +661,7 @@ class TestSettingsDialogPrivatePackages:
         finally:
             RuntimeSettings.set_registries([])
 
-    def test_auth_button_shows_check_when_secret_set(
-        self, qapp: QApplication, qtbot
-    ) -> None:
+    def test_auth_button_shows_check_when_secret_set(self, qapp: QApplication, qtbot) -> None:
         """UX polish: ``Auth ✓`` text when a token/basic ref is recorded."""
         from PySide6.QtWidgets import QPushButton
 
@@ -715,9 +699,7 @@ class TestSettingsDialogPrivatePackages:
         qtbot.addWidget(dialog)
         assert dialog._pypi_table.rowCount() == 0
 
-    def test_add_pypi_row_appends_with_priority_badge(
-        self, qapp: QApplication, qtbot
-    ) -> None:
+    def test_add_pypi_row_appends_with_priority_badge(self, qapp: QApplication, qtbot) -> None:
         """First row labels as 'Primary'; second as 'Extra 1'."""
         tm = ThemeManager(qapp)
         dialog = SettingsDialog(tm)
@@ -813,9 +795,7 @@ class TestSettingsDialogPrivatePackages:
         assert dialog._registry_url_is_valid("http://127.0.0.1:4873/")
         assert not dialog._registry_url_is_valid("http://prod.example/")
 
-    def test_apply_persists_registries_and_pypi(
-        self, qapp: QApplication, qtbot
-    ) -> None:
+    def test_apply_persists_registries_and_pypi(self, qapp: QApplication, qtbot) -> None:
         from services.scripting.runtime_settings import RuntimeSettings
 
         tm = ThemeManager(qapp)
@@ -834,15 +814,12 @@ class TestSettingsDialogPrivatePackages:
         try:
             entries = RuntimeSettings.get_registries()
             assert any(
-                e["scope"] == "@mytest" and e["url"] == "https://npm.test.invalid/"
-                for e in entries
+                e["scope"] == "@mytest" and e["url"] == "https://npm.test.invalid/" for e in entries
             )
             default_url, _ref, _kind = RuntimeSettings.get_default_npm_registry()
             assert default_url == "https://npm.mirror.test/"
             indexes = RuntimeSettings.get_pypi_indexes()
-            assert any(
-                e["url"] == "https://pypi.test.invalid/simple/" for e in indexes
-            )
+            assert any(e["url"] == "https://pypi.test.invalid/simple/" for e in indexes)
         finally:
             RuntimeSettings.set_registries([])
             RuntimeSettings.set_default_npm_registry("")

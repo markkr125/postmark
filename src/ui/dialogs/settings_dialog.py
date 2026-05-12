@@ -13,62 +13,30 @@ from typing import Any, Literal, cast
 
 from PySide6.QtCore import QSettings, Qt, QThread, QTimer
 from PySide6.QtGui import QBrush, QColor
-from PySide6.QtWidgets import (
-    QApplication,
-    QAbstractItemView,
-    QCheckBox,
-    QComboBox,
-    QDialog,
-    QFileDialog,
-    QFrame,
-    QHBoxLayout,
-    QHeaderView,
-    QLabel,
-    QLineEdit,
-    QProgressBar,
-    QPushButton,
-    QSizePolicy,
-    QSpinBox,
-    QSplitter,
-    QStackedWidget,
-    QTableWidget,
-    QTableWidgetItem,
-    QTreeWidget,
-    QTreeWidgetItem,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox,
+                               QComboBox, QDialog, QFileDialog, QHBoxLayout,
+                               QHeaderView, QLabel, QLineEdit, QProgressBar,
+                               QPushButton, QSizePolicy, QSpinBox, QSplitter,
+                               QStackedWidget, QTableWidget, QTableWidgetItem,
+                               QTreeWidget, QTreeWidgetItem, QVBoxLayout,
+                               QWidget)
 
-from ui.styling.icons import phi
-from ui.styling.tab_settings_manager import (
-    ACTIVATE_LEFT,
-    ACTIVATE_MRU,
-    ACTIVATE_RIGHT,
-    LIMIT_CLOSE_UNCHANGED,
-    LIMIT_CLOSE_UNUSED,
-    MAX_TAB_LIMIT,
-    MIN_TAB_LIMIT,
-    WRAP_MULTIPLE_ROWS,
-    WRAP_SINGLE_ROW,
-    TabSettingsManager,
-)
-from ui.styling.theme_manager import (
-    SCHEME_AUTO,
-    SCHEME_DARK,
-    SCHEME_LIGHT,
-    SCHEMES,
-    STYLE_FUSION,
-    STYLES,
-    ThemeManager,
-)
-from ui.widgets.deno_download_worker import DenoDownloadWorker
-from services.scripting.runtime_settings import (
-    PyPIConfig,
-    PyPIIndex,
-    RegistryEntry,
-    RuntimeSettings,
-)
+from services.scripting.runtime_settings import (PyPIConfig, PyPIIndex,
+                                                 RegistryEntry,
+                                                 RuntimeSettings)
 from services.scripting.secret_store import backend_status
+from ui.styling.icons import phi
+from ui.styling.tab_settings_manager import (ACTIVATE_LEFT, ACTIVATE_MRU,
+                                             ACTIVATE_RIGHT,
+                                             LIMIT_CLOSE_UNCHANGED,
+                                             LIMIT_CLOSE_UNUSED, MAX_TAB_LIMIT,
+                                             MIN_TAB_LIMIT, WRAP_MULTIPLE_ROWS,
+                                             WRAP_SINGLE_ROW,
+                                             TabSettingsManager)
+from ui.styling.theme_manager import (SCHEME_AUTO, SCHEME_DARK, SCHEME_LIGHT,
+                                      SCHEMES, STYLE_FUSION, STYLES,
+                                      ThemeManager)
+from ui.widgets.deno_download_worker import DenoDownloadWorker
 
 
 class SettingsDialog(QDialog):
@@ -692,7 +660,7 @@ class SettingsDialog(QDialog):
         heading: str,
         intro: str,
         include_default_override: bool,
-        pypi_cfg: Any,  # noqa: ARG002 — kept for signature symmetry with PyPI page
+        pypi_cfg: Any,
     ) -> None:
         page = QWidget()
         layout = QVBoxLayout(page)
@@ -774,7 +742,7 @@ class SettingsDialog(QDialog):
 
     _PYPI_COLS = ("#", "Index URL", "Auth")
 
-    def _build_private_pypi_page(self, pypi_cfg: "PyPIConfig") -> None:  # noqa: ARG002
+    def _build_private_pypi_page(self, pypi_cfg: PyPIConfig) -> None:
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -1095,7 +1063,8 @@ class SettingsDialog(QDialog):
     def _sync_table_into_registries(self, kind: Literal["npm", "jsr"]) -> None:
         """Pull scope/URL edits out of the kind's table back into the
         master ``self._registries`` list, identifying entries by stable
-        ``id`` so reorderings or row index drift don't lose data."""
+        ``id`` so reorderings or row index drift don't lose data.
+        """
         table = self._table_for_kind(kind)
         for row in range(table.rowCount()):
             row_id = self._row_id_at(table, row)
@@ -1176,9 +1145,7 @@ class SettingsDialog(QDialog):
             return False
         if url.startswith("https://") and len(url) > len("https://"):
             return True
-        if url.startswith("http://localhost") or url.startswith("http://127."):
-            return True
-        return False
+        return bool(url.startswith("http://localhost") or url.startswith("http://127."))
 
     def _refresh_registry_row_validation(self) -> None:
         """Colour invalid Scope / URL cells red + tooltip the rule.
@@ -1363,7 +1330,8 @@ class SettingsDialog(QDialog):
     ) -> tuple[list[RegistryEntry], list[RegistryEntry]]:
         """Split *entries* into ``(kept, dropped)`` by the same validation
         the inline UI cues use (scope must start with ``@``, URL must be
-        https or loopback)."""
+        https or loopback).
+        """
         kept: list[RegistryEntry] = []
         dropped: list[RegistryEntry] = []
         for entry in entries:
