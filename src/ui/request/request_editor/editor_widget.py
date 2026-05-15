@@ -125,13 +125,13 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, _ScriptsM
         self._debounce_timer.timeout.connect(self._emit_request_changed)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(12, 12, 12, 0)
-        root.setSpacing(10)
+        root.setContentsMargins(12, 8, 12, 0)
+        root.setSpacing(8)
 
         # -- Top bar: method dropdown + URL + Send --
         top_bar = QHBoxLayout()
         top_bar.setSpacing(8)
-        top_bar.setContentsMargins(0, 4, 0, 8)
+        top_bar.setContentsMargins(0, 2, 0, 4)
 
         self._method_combo = QComboBox()
         self._method_combo.addItems(list(_HTTP_METHODS))
@@ -162,13 +162,17 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, _ScriptsM
         self._tabs = QTabWidget()
 
         self._params_table = KeyValueTableWidget(
-            placeholder_key="Parameter", placeholder_value="Value"
+            placeholder_key="Parameter",
+            placeholder_value="Value",
+            settings_profile="params",
         )
         self._params_table.data_changed.connect(self._on_field_changed)
         self._tabs.addTab(self._params_table, "Params")
 
         self._headers_table = KeyValueTableWidget(
-            placeholder_key="Header", placeholder_value="Value"
+            placeholder_key="Header",
+            placeholder_value="Value",
+            settings_profile="headers",
         )
         self._headers_table.data_changed.connect(self._on_field_changed)
         self._tabs.addTab(self._headers_table, "Headers")

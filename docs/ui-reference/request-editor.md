@@ -26,8 +26,8 @@ and hover popup.
 
 | Index | Tab | Content |
 |-------|-----|---------|
-| 0 | Params | `KeyValueTableWidget` for query parameters |
-| 1 | Headers | `KeyValueTableWidget` for request headers |
+| 0 | Params | `KeyValueTableWidget` for query parameters (table + optional bulk text) |
+| 1 | Headers | `KeyValueTableWidget` for request headers (table + optional bulk text) |
 | 2 | Body | Mode selector + stacked editors |
 | 3 | Auth | Auth type selector + field pages (via `_AuthMixin`) |
 | 4 | Description | `QTextEdit` for request documentation |

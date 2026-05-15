@@ -115,3 +115,8 @@ Badge dimensions from `theme.py` constants: `BADGE_HEIGHT`,
 `BADGE_BORDER_RADIUS`, `BADGE_MIN_WIDTH`.
 
 Method colour from `method_color(method)`.
+
+Request row labels use the normal palette text colour when selected (not
+`HighlightedText`), so the name matches unselected tree text on the selection
+tint. Folder rows rely on the same `QTreeWidget::item:selected` foreground in
+global QSS.

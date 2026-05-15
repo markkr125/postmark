@@ -179,6 +179,7 @@ class FolderEditorWidget(_AuthMixin, _RunsMixin, _ScriptsMixin, QWidget):
         self._variables_table = KeyValueTableWidget(
             placeholder_key="Variable name",
             placeholder_value="Variable value",
+            settings_profile="folder_variables",
         )
         self._variables_table.data_changed.connect(self._on_field_changed)
         self._tabs.addTab(self._variables_table, "Variables")

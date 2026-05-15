@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFontMetrics
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QWidget
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QSizePolicy, QWidget
 
 from ui.styling.icons import phi
 from ui.styling.theme import (
@@ -44,7 +44,7 @@ STANDARD_LAYOUT = TabLayoutConfig(
     badge_height=BADGE_HEIGHT,
     margins=(4, 0, 4, 0),
     spacing=4,
-    font_delta=0,
+    font_delta=-1,
     spinner_size=10,
 )
 
@@ -55,7 +55,7 @@ COMPACT_LAYOUT = TabLayoutConfig(
     badge_height=max(16, BADGE_HEIGHT - 2),
     margins=(3, 0, 3, 0),
     spacing=3,
-    font_delta=-1,
+    font_delta=-2,
     spinner_size=9,
 )
 
@@ -66,12 +66,18 @@ def layout_config(compact: bool) -> TabLayoutConfig:
 
 
 def _font_with_delta(label: QLabel, delta: int) -> None:
-    """Apply a point-size delta to the given label font."""
+    """Apply a point-size delta to the given label font.
+
+    Computed from the QApplication font, not the label's current font, so
+    repeat calls are idempotent. Reading the current size compounded the
+    delta on every settings/theme reapply.
+    """
     font = label.font()
-    current_size = font.pointSize()
-    if current_size <= 0:
-        current_size = 10
-    font.setPointSize(max(8, current_size + delta))
+    app = QApplication.instance()
+    base_size = app.font().pointSize() if app is not None else 10
+    if base_size <= 0:
+        base_size = 10
+    font.setPointSize(max(8, base_size + delta))
     label.setFont(font)
 
 

@@ -20,7 +20,8 @@ if TYPE_CHECKING:
     from ui.request.navigation.request_tab_bar import RequestTabBar
     from ui.request.navigation.tab_manager import TabContext
     from ui.request.request_editor import RequestEditorWidget
-    from ui.request.request_editor.scripts.output_panel import ScriptOutputPanel
+    from ui.request.request_editor.scripts.output_panel import \
+        ScriptOutputPanel
     from ui.request.response_viewer import ResponseViewerWidget
     from ui.sidebar import RightSidebar
 
@@ -329,7 +330,8 @@ class _SendPipelineMixin:
         self._refresh_sidebar()
 
         if inline_test is not None:
-            from ui.request.request_editor.scripts.script_run_worker import build_inline_context
+            from ui.request.request_editor.scripts.script_run_worker import \
+                build_inline_context
 
             panel = inline_test.get("panel")
             script = str(inline_test.get("script", ""))

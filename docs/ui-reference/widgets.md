@@ -71,6 +71,14 @@ only for the visible viewport.  Bracket search is bounded by
 
 Editable key-value table with enable checkboxes.
 
+The horizontal header uses **Interactive** resize for **Key** and **Value** (drag borders), **Stretch** for **Description** so extra table width goes into the notes column, and **Fixed** widths for the checkbox and delete columns.  Default Key / Value pixel widths are **220** and **520** so Key/Value start wide and Description starts with less of the row.
+
+The inner ``QTableWidget`` uses ``objectName="keyValueTable"`` for global QSS (stronger gridlines; full top/right/bottom borders on each header section so the Key/Value header row closes against the tab strip, plus ``QHeaderView::section:first`` for the **left** header edge — a border on the ``QHeaderView`` itself is covered by opaque section backgrounds).  Header sections use **4 px** vertical padding (vs **6 px** on other ``QHeaderView`` tables) so the label row stays a bit shorter.  Each checkbox column cell wraps the ``QCheckBox`` in ``objectName="keyValueCheckCell"`` so a **left** line is drawn in the body (Qt omits the left gridline when column 0 is a cell widget).  The table uses ``QFrame.NoFrame`` so the stylesheet border does not stack on the native scroll-area frame.  The host layout applies **1 px** top margin so the table clears the tab bar baseline.
+
+**Bulk text** (Postman-style): a **Bulk** link with list icon (accent text, underline on hover) sits on the horizontal ``QHeaderView``, right-aligned in the delete column header (trash column).  In bulk mode, a ``keyValueBulkPageHeader`` strip (``bg_alt``, bordered like the table header) sits above the editor with only **Key-value edit** on the right to return to the grid.  Clicking opens a monospace text area (``objectName="keyValueBulkEdit"``).  One row per parameter; use the first ``: `` or ``=`` as the key/value separator (same as ``from_text``).  Prefix a line with ``// `` for a disabled row.  **Key-value edit** applies the text back to the table and emits ``data_changed``.  While bulk mode is open, ``get_data()`` parses the text area so Send still sees current values.  Bulk text does not include **Description** — round-tripping through bulk clears descriptions.  Helpers live in ``ui/widgets/key_value_bulk.py``.
+
+Pass ``settings_profile`` (for example ``"params"``, ``"headers"``, ``"body_form"``) to persist Key/Value widths in ``QSettings`` under the JSON key ``ui/kv_col_widths`` — each profile stores its own ``{"key": width, "value": width}`` entry so sizes survive restarts without clashing between tables.
+
 ### Columns
 
 | Column | Widget |

@@ -106,13 +106,10 @@ class CollectionTreeDelegate(QStyledItemDelegate):
         name_font.setPixelSize(12)
         name_font.setBold(False)
 
-        # Use the palette's normal or highlighted text depending on selection
-        state = option.state  # type: ignore[assignment]
         palette = option.palette  # type: ignore[assignment]
-        if state & QStyle.StateFlag.State_Selected:
-            text_color = palette.highlightedText().color()
-        else:
-            text_color = palette.text().color()
+        # Request name: keep normal text colour when selected (same as unfocused
+        # tree text) so the row does not flip to white on the blue selection tint.
+        text_color = palette.text().color()
         painter.setPen(QPen(text_color))
         painter.setFont(name_font)
 

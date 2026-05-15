@@ -94,7 +94,11 @@ class EnvironmentEditorDialog(QDialog):
         name_row.addWidget(self._name_input, 1)
         right_layout.addLayout(name_row)
 
-        self._var_table = KeyValueTableWidget(placeholder_key="Variable", placeholder_value="Value")
+        self._var_table = KeyValueTableWidget(
+            placeholder_key="Variable",
+            placeholder_value="Value",
+            settings_profile="environment_vars",
+        )
         self._var_table.data_changed.connect(self._on_vars_changed)
         right_layout.addWidget(self._var_table, 1)
 

@@ -251,6 +251,11 @@ standard object names:
 | `RuntimeBanner` | `QFrame` | Deno download prompt banner container |
 | `bannerMessage` | `QLabel` | Banner message text |
 | `bannerDownloadBtn` | `QPushButton` | "Download Deno" action button |
+| `keyValueTable` | `QTableWidget` | Key-value tables (Params, Headers, etc.): clearer grid/header borders |
+| `keyValueBulkPageHeader` | `QFrame` | Bulk mode: header strip above the text editor (``Key-value edit`` right) |
+| `keyValueBulkEnter` | `QPushButton` | Key-value table: ``Bulk`` accent link + list icon in header → bulk text editor |
+| `keyValueBulkEdit` | `QTextEdit` | Key-value bulk editor (monospace; ``:`` / ``=`` lines, ``//`` disabled) |
+| `keyValueCheckCell` | `QWidget` | Key-value table checkbox cell wrapper: left edge (widget cells omit gridlines) |
 
 `RequestEditorWidget` and `FolderEditorWidget` call
 `_update_runtime_banners()` at the end of their load/clear entry points

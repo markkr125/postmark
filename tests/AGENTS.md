@@ -11,7 +11,9 @@
    fixture handles this.  Never share DB state between tests.
 4. **Each test starts with cleared tab preferences** — the
    `_reset_tab_settings` autouse fixture removes the `tabs/*` QSettings
-   group so preview/tab-limit settings never leak between cases.
+   group and the ``ui/kv_col_widths`` key (key-value table column widths)
+   so preview/tab-limit settings and persisted table columns never leak
+   between cases.
 4b. **Settings → Scripting tests** — `test_settings_dialog` uses an
    autouse fixture that removes `scripting` (as well as `theme` and `tabs`)
    **before and after** each test so a fake persisted `scripting/deno_path`
@@ -57,9 +59,10 @@ the first `QApplication` is constructed in the test process.
 ## Fresh QSettings tab preferences per test (autouse fixture)
 
 `conftest.py` also provides `_reset_tab_settings`, which removes the
-`tabs` QSettings group before every test. Use this when adding persisted
-request-tab settings so one test cannot silently change preview or tab-limit
-behaviour for the next.
+`tabs` QSettings group and the ``ui/kv_col_widths`` key before every test.
+Use this when adding persisted request-tab settings (or key-value column
+widths) so one test cannot silently change preview, tab-limit, or table
+layout behaviour for the next.
 
 ## `_no_fetch` fixture — avoiding background threads in tests
 

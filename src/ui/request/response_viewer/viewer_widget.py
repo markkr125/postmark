@@ -194,19 +194,10 @@ class ResponseViewerWidget(
         self._format_combo.currentTextChanged.connect(self._on_format_changed)
 
         format_row = QHBoxLayout()
+        format_row.setSpacing(6)
         format_row.addWidget(self._format_combo)
 
-        self._beautify_btn = QPushButton("Beautify")
-        self._beautify_btn.setIcon(phi("magic-wand", color=COLOR_WHITE))
-        self._beautify_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._beautify_btn.setToolTip("Format and beautify the response body")
-        self._beautify_btn.setObjectName("smallPrimaryButton")
-        self._beautify_btn.clicked.connect(self._on_beautify)
-        format_row.addWidget(self._beautify_btn)
-
-        format_row.addStretch()
-
-        # -- Toolbar buttons (right side of format row) ----------------
+        # -- Toolbar icon buttons (placed between Pretty combo and Beautify) --
         self._wrap_btn = QPushButton()
         self._wrap_btn.setIcon(phi("text-align-left"))
         self._wrap_btn.setToolTip("Toggle word wrap")
@@ -249,6 +240,18 @@ class ResponseViewerWidget(
         self._copy_btn.setFixedSize(28, 28)
         self._copy_btn.clicked.connect(self._on_copy_body)
         format_row.addWidget(self._copy_btn)
+
+        format_row.addSpacing(4)
+
+        self._beautify_btn = QPushButton("Beautify")
+        self._beautify_btn.setIcon(phi("magic-wand", color=COLOR_WHITE))
+        self._beautify_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._beautify_btn.setToolTip("Format and beautify the response body")
+        self._beautify_btn.setObjectName("smallPrimaryButton")
+        self._beautify_btn.clicked.connect(self._on_beautify)
+        format_row.addWidget(self._beautify_btn)
+
+        format_row.addStretch()
 
         _chrome_layout.addLayout(format_row)
 

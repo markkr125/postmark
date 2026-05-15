@@ -262,7 +262,9 @@ Source: `ui/widgets/key_value_table.py`
 
 | Signal | Parameters | Description |
 |--------|------------|-------------|
-| `data_changed` | *(none)* | Any key, value, or checkbox changed |
+| `data_changed` | *(none)* | Grid cell/checkbox changed, or bulk text applied back to the grid |
+
+Bulk serialize/parse: `ui/widgets/key_value_bulk.py`
 
 ### ClickableLabel (in InfoPopup)
 

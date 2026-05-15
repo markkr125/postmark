@@ -107,7 +107,7 @@ class TabButton(QFrame):
             "background: transparent;"
             "border: none;"
             f"color: {text};"
-            "font-size: 13px;"
+            "font-size: 12px;"
             "font-weight: bold;"
             "}"
             f"QToolButton:hover {{ color: {ui_theme.COLOR_TEXT}; }}"

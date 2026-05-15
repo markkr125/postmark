@@ -86,7 +86,10 @@ src/
     |   |       +-- popup.py         CompletionPopup -- floating autocomplete widget
     |   |       +-- symbol_doc_popup.py  SymbolDocPopup -- Ctrl+hover/Ctrl+Q quick-doc tooltip
     |   +-- info_popup.py            InfoPopup (QFrame) base + ClickableLabel
+    |   +-- key_value_column_widths.py  QSettings persistence for Key/Value column widths
+    |   +-- key_value_bulk.py          Postman-style bulk text serialize/parse for key-value tables
     |   +-- key_value_table.py       Reusable key-value editor widget
+    |   +-- key_value_table_delegate.py  Variable {{…}} highlight delegate
     |   +-- search_replace_bar.py    SearchReplaceBar -- find/replace + go-to-line for CodeEditorWidget
     |   +-- variable_line_edit.py    VariableLineEdit -- QLineEdit with {{var}} highlighting + popup
     |   +-- variable_popup.py        VariablePopup -- singleton hover popup for variable details

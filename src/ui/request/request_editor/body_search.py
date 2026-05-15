@@ -132,7 +132,9 @@ class _BodySearchMixin:
 
         # Page 2: form-data / x-www-form-urlencoded
         self._body_form_table = KeyValueTableWidget(
-            placeholder_key="Key", placeholder_value="Value"
+            placeholder_key="Key",
+            placeholder_value="Value",
+            settings_profile="body_form",
         )
         self._body_form_table.data_changed.connect(self._on_field_changed)
         self._body_stack.addWidget(self._body_form_table)

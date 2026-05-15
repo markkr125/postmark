@@ -103,6 +103,7 @@ class ScriptMockResponseTab(QWidget):
         self.headers_table = KeyValueTableWidget(
             placeholder_key="Header",
             placeholder_value="Value",
+            settings_profile="mock_response_headers",
         )
         self.headers_table.setMinimumHeight(72)
         self.headers_table.setSizePolicy(

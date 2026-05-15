@@ -262,7 +262,10 @@ src/
     │   │       └── symbol_doc_popup.py # SymbolDocPopup — Ctrl+hover / Ctrl+Q quick-doc tooltip
     │   ├── info_popup.py          # InfoPopup (QFrame) base + ClickableLabel
     │   ├── lazy_editor_placeholder.py # LazyEditorPlaceholder — progress + caption until Body/Scripts editors mount
+    │   ├── key_value_column_widths.py # QSettings JSON persistence for Key/Value widths
     │   ├── key_value_table.py     # Reusable key-value editor widget
+    │   ├── key_value_bulk.py      # Bulk text serialize/parse for key-value tables
+    │   ├── key_value_table_delegate.py # Variable {{…}} highlight delegate for key-value cells
     │   ├── search_replace_bar.py  # SearchReplaceBar — find/replace + go-to-line for CodeEditorWidget
     │   ├── deno_download_worker.py # DenoDownloadWorker — QThread background Deno download (banner + settings)
     │   ├── debug_value_tree.py    # Debug tree helpers (CLASSNAME_KEY, attach_selectable_cell_widgets, debug_tree_cell_text, fill_tree_item, populate_debug_tree, source_dot_icon, make_debug_value_tree)

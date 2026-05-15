@@ -47,6 +47,7 @@ from ui.request.response_viewer import ResponseViewerWidget
 from ui.sidebar import RightSidebar
 from ui.styling.icons import phi
 from ui.styling.tab_settings_manager import TabSettingsManager
+from ui.styling.theme import COLOR_ACCENT, COLOR_TEXT_MUTED
 from ui.styling.theme_manager import ThemeManager
 
 logger = logging.getLogger(__name__)
@@ -109,6 +110,8 @@ class MainWindow(
 
         # Right sidebar (created before _setup_ui so layout can embed it)
         self._right_sidebar = RightSidebar()
+        if self._theme_manager is not None:
+            self._theme_manager.theme_changed.connect(self._right_sidebar.refresh_theme)
 
         # Debounce timer for live snippet updates in the sidebar
         self._sidebar_debounce = QTimer(self)
@@ -327,20 +330,23 @@ class MainWindow(
         breadcrumb_row.addWidget(self._breadcrumb_bar, 1)
 
         self._save_btn = QPushButton("Save")
-        self._save_btn.setIcon(phi("floppy-disk"))
         self._save_btn.setObjectName("saveButton")
         self._save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._save_btn.setFixedWidth(80)
+        self._save_btn.setMinimumWidth(92)
         self._save_btn.setEnabled(False)
         self._save_btn.setToolTip("No changes to save")
         self._save_btn.setVisible(False)
         self._save_btn.clicked.connect(self._on_save_request)
+        self._refresh_save_btn_icon()
         breadcrumb_row.addWidget(self._save_btn)
 
         # Right margin so Save aligns roughly with the Send button below
         breadcrumb_row.setContentsMargins(0, 0, 12, 0)
 
         layout.addLayout(breadcrumb_row)
+
+        if self._theme_manager is not None:
+            self._theme_manager.theme_changed.connect(self._refresh_save_btn_icon)
 
         self._editor_stack = QStackedWidget()
         layout.addWidget(self._editor_stack, 1)
@@ -357,9 +363,7 @@ class MainWindow(
         self.request_widget.open_scripting_settings_requested.connect(
             self._on_open_scripting_settings
         )
-        self.request_widget.scripts_tab_active_changed.connect(
-            self._on_editor_scripts_tab_changed
-        )
+        self.request_widget.scripts_tab_active_changed.connect(self._on_editor_scripts_tab_changed)
 
         return wrapper
 
@@ -423,13 +427,19 @@ class MainWindow(
         status_bar = QStatusBar()
         status_bar.setObjectName("appStatusBar")
         status_bar.setSizeGripEnabled(False)
+        status_bar.setFixedHeight(22)
+        status_bar.setContentsMargins(0, 0, 0, 0)
+        layout = status_bar.layout()
+        if layout is not None:
+            layout.setContentsMargins(2, 0, 2, 0)
+            layout.setSpacing(0)
         self.setStatusBar(status_bar)
 
         self._sidebar_toggle_btn = QPushButton()
         self._sidebar_toggle_btn.setObjectName("statusBarButton")
         self._sidebar_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._sidebar_toggle_btn.setFlat(True)
-        self._sidebar_toggle_btn.setFixedSize(28, 22)
+        self._sidebar_toggle_btn.setFixedSize(24, 18)
         self._sidebar_toggle_btn.clicked.connect(self._toggle_sidebar)
         status_bar.addWidget(self._sidebar_toggle_btn)
 
@@ -439,7 +449,7 @@ class MainWindow(
         """Update the sidebar toggle button icon and tooltip to match state."""
         hidden = self.collection_widget.isHidden()
         icon_name = "caret-double-right" if hidden else "caret-double-left"
-        self._sidebar_toggle_btn.setIcon(phi(icon_name, size=14))
+        self._sidebar_toggle_btn.setIcon(phi(icon_name, size=12))
         self._sidebar_toggle_btn.setToolTip("Expand sidebar" if hidden else "Collapse sidebar")
 
     # ------------------------------------------------------------------
@@ -526,9 +536,12 @@ class MainWindow(
 
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
         """Recompute request_area's min when chrome geometry changes (tab wrap, etc.)."""
-        if event.type() in (QEvent.Type.Resize, QEvent.Type.Show, QEvent.Type.LayoutRequest):
-            if obj is self._tab_bar or obj is self._editor_stack:
-                QTimer.singleShot(0, self._update_request_area_min)
+        if event.type() in (
+            QEvent.Type.Resize,
+            QEvent.Type.Show,
+            QEvent.Type.LayoutRequest,
+        ) and (obj is self._tab_bar or obj is self._editor_stack):
+            QTimer.singleShot(0, self._update_request_area_min)
         return bool(super().eventFilter(obj, event))
 
     def _update_request_area_min(self) -> None:
@@ -541,7 +554,7 @@ class MainWindow(
         if not isinstance(current, _REW):
             self._request_area.setMinimumHeight(0)
             return
-        bar = current._tabs.tabBar()  # noqa: SLF001 -- internal coordination
+        bar = current._tabs.tabBar()
         if bar is None or not bar.isVisible():
             self._request_area.setMinimumHeight(0)
             return
@@ -706,10 +719,16 @@ class MainWindow(
     # ------------------------------------------------------------------
     # Save-button state helper
     # ------------------------------------------------------------------
+    def _refresh_save_btn_icon(self) -> None:
+        """Re-tint the floppy icon so it matches QSS (glyph icons ignore button text color)."""
+        color = COLOR_ACCENT if self._save_btn.isEnabled() else COLOR_TEXT_MUTED
+        self._save_btn.setIcon(phi("floppy-disk", color=color))
+
     def _sync_save_btn(self, dirty: bool) -> None:
         """Update the Save button enabled state and tooltip."""
         self._save_btn.setEnabled(dirty)
         self._save_btn.setToolTip("" if dirty else "No changes to save")
+        self._refresh_save_btn_icon()
 
     # ------------------------------------------------------------------
     # Close event

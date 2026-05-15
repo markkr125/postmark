@@ -134,6 +134,22 @@ def build_global_qss(p: ThemePalette) -> str:
     QTextEdit[objectName="monoEdit"] {{
         font-family: monospace;
     }}
+    QTextEdit[objectName="keyValueBulkEdit"] {{
+        font-family: monospace;
+        min-height: 140px;
+        border-top: none;
+        border-left: 1px solid {p["border"]};
+        border-right: 1px solid {p["border"]};
+        border-bottom: 1px solid {p["border"]};
+        border-radius: 0px;
+    }}
+    QFrame#keyValueBulkPageHeader {{
+        background: {p["bg_alt"]};
+        border-top: 1px solid {p["border"]};
+        border-left: 1px solid {p["border"]};
+        border-right: 1px solid {p["border"]};
+        border-bottom: 1px solid {p["border"]};
+    }}
     QTextEdit[objectName="consoleOutput"] {{
         background: {p["console_bg"]};
         color: {p["console_text"]};
@@ -216,18 +232,34 @@ def build_global_qss(p: ThemePalette) -> str:
     QPushButton[objectName="outlineButton"]:hover {{
         background: {"rgba(255,255,255,0.08)" if p is DARK_PALETTE else "rgba(0,0,0,0.06)"};
     }}
+    QPushButton[objectName="keyValueBulkEnter"] {{
+        color: {p["accent"]};
+        border: none;
+        font-size: 11px;
+        font-weight: normal;
+        padding: 2px 6px;
+        background: transparent;
+        text-decoration: none;
+    }}
+    QPushButton[objectName="keyValueBulkEnter"]:hover {{
+        text-decoration: underline;
+        background: {"rgba(255,255,255,0.06)" if p is DARK_PALETTE else "rgba(0,0,0,0.04)"};
+    }}
     QPushButton[objectName="saveButton"] {{
         border: 1px solid {p["accent"]};
-        padding: 4px 12px;
+        padding: 6px 14px;
+        margin-top: 5px;
         font-size: 11px;
+        font-weight: 600;
         border-radius: 4px;
-        background: transparent;
+        background: {p["drop_zone_active_bg"]};
         color: {p["accent"]};
     }}
     QPushButton[objectName="saveButton"]:hover {{
-        background: {"rgba(52,152,219,0.12)" if p is DARK_PALETTE else "rgba(52,152,219,0.08)"};
+        background: {p["selected_bg"]};
     }}
     QPushButton[objectName="saveButton"]:disabled {{
+        background: {p["bg_alt"]};
         border-color: {p["border"]};
         color: {p["text_muted"]};
     }}
@@ -332,9 +364,10 @@ def build_global_qss(p: ThemePalette) -> str:
 
     /* ---- Status bar --------------------------------------------- */
     QStatusBar#appStatusBar {{
-        background: {p["bg_alt"]};
+        background: {"#1a1a1c" if p is DARK_PALETTE else "#ebebeb"};
         border-top: 1px solid {p["border"]};
-        min-height: 24px;
+        min-height: 20px;
+        max-height: 22px;
         padding: 0px;
     }}
     QStatusBar#appStatusBar::item {{
@@ -345,6 +378,7 @@ def build_global_qss(p: ThemePalette) -> str:
         background: transparent;
         padding: 0px 6px;
         margin: 0px;
+        margin-top: -2px;
         color: {p["text_muted"]};
         border-radius: 3px;
     }}
@@ -441,6 +475,48 @@ def build_global_qss(p: ThemePalette) -> str:
         font-size: 12px;
         font-weight: 500;
         color: {p["text_muted"]};
+    }}
+    QTableWidget#keyValueTable {{
+        gridline-color: {p["border"]};
+        border: none;
+    }}
+    /* Full header cell frame: generic QHeaderView omits top; key-value
+       sections previously only set border-right, so the Key row had no
+       top line and looked open against the tab bar.  A border on the
+       QHeaderView widget sits *under* section backgrounds — the left
+       edge must be on the first ``::section`` (``:first``) to appear. */
+    QTableWidget#keyValueTable QHeaderView::section {{
+        border-top: 1px solid {p["border"]};
+        border-right: 1px solid {p["border"]};
+        border-bottom: 1px solid {p["border"]};
+        padding: 4px 8px;
+    }}
+    QTableWidget#keyValueTable QHeaderView::section:first {{
+        border-left: 1px solid {p["border"]};
+    }}
+    QTableWidget#keyValueTable QHeaderView::section:hover {{
+        border-top: 1px solid {p["border"]};
+        border-bottom: 1px solid {p["border"]};
+        border-right: 1px solid {p["accent"]};
+    }}
+    QTableWidget#keyValueTable QHeaderView::section:first:hover {{
+        border-left: 1px solid {p["border"]};
+    }}
+    /* The trailing "Delete" column has no label and exists only to host
+       inline trash buttons. Drop its right edge so the table doesn't
+       show a second vertical line to the right of Description. */
+    QTableWidget#keyValueTable QHeaderView::section:last {{
+        border-right: 1px solid {p["border"]};
+    }}
+    QTableWidget#keyValueTable QTableCornerButton::section {{
+        border-top: 1px solid {p["border"]};
+        border-left: 1px solid {p["border"]};
+        border-bottom: 1px solid {p["border"]};
+        background: {p["bg_alt"]};
+    }}
+    /* Checkbox column uses cell widgets; gridlines skip the left edge. */
+    QWidget#keyValueCheckCell {{
+        border-left: 1px solid {p["border"]};
     }}
 
     /* ---- List widgets ------------------------------------------- */
@@ -573,6 +649,7 @@ def build_global_qss(p: ThemePalette) -> str:
     }}
     QTreeWidget::item:selected {{
         background-color: {p["selected_bg"]};
+        color: {p["text"]};
     }}
 
     /* ---- Request tab bar ---------------------------------------- */
@@ -927,16 +1004,20 @@ def build_global_qss(p: ThemePalette) -> str:
     QToolButton[objectName="sidebarRailButton"] {{
         background: transparent;
         border: none;
-        border-radius: 4px;
+        border-right: 2px solid transparent;
+        border-radius: 0px;
         margin: 2px 1px;
+        padding-right: 0px;
         color: {p["text_muted"]};
     }}
     QToolButton[objectName="sidebarRailButton"]:hover {{
-        background: {"rgba(255,255,255,0.06)" if p is DARK_PALETTE else "rgba(0,0,0,0.05)"};
+        background: {"rgba(255,255,255,0.10)" if p is DARK_PALETTE else "rgba(0,0,0,0.07)"};
+        color: {p["text"]};
     }}
     QToolButton[objectName="sidebarRailButton"]:checked {{
-        background: {"rgba(255,255,255,0.10)" if p is DARK_PALETTE else "rgba(0,0,0,0.08)"};
-        color: {p["text"]};
+        background: {"rgba(79,193,255,0.14)" if p is DARK_PALETTE else "rgba(52,152,219,0.12)"};
+        border-right: 2px solid {p["accent"]};
+        color: {p["accent"]};
     }}
     QToolButton[objectName="sidebarRailButton"]:disabled {{
         color: {p["text_muted"]};
