@@ -74,7 +74,7 @@ def _font_with_delta(label: QLabel, delta: int) -> None:
     """
     font = label.font()
     app = QApplication.instance()
-    base_size = app.font().pointSize() if app is not None else 10
+    base_size = app.font().pointSize() if isinstance(app, QApplication) else 10
     if base_size <= 0:
         base_size = 10
     font.setPointSize(max(8, base_size + delta))

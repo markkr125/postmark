@@ -113,8 +113,9 @@ src/
     |   +-- save_request_dialog.py   SaveRequestDialog -- save draft to collection
     |   +-- settings_dialog.py       SettingsDialog -- theme + request-tab behaviour
     +-- environments/                Environment management widgets
-    |   +-- environment_editor.py    EnvironmentEditor dialog
-    |   +-- environment_selector.py  EnvironmentSelector dropdown
+    |   +-- environment_editor.py    EnvironmentEditorWidget + EnvironmentEditorDialog wrapper
+    |   +-- environment_selector.py  EnvironmentSelector dropdown (dialogs / legacy)
+    |   +-- environment_sidebar_panel.py  EnvironmentSidebarPanel — left column global env picker
     +-- panels/                      Bottom panels
     |   +-- console_panel.py         Console output panel
     |   +-- history_panel.py         Request history panel
@@ -221,6 +222,7 @@ tests/
     +-- environments/
     |   +-- test_environment_editor.py   EnvironmentEditor tests
     |   +-- test_environment_selector.py EnvironmentSelector tests
+    |   +-- test_environment_sidebar_panel.py EnvironmentSidebarPanel tests
     +-- panels/
     |   +-- test_console_panel.py        ConsolePanel tests
     |   +-- test_history_panel.py        HistoryPanel tests

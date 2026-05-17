@@ -204,16 +204,17 @@ BreadcrumbBar.last_segment_renamed(new_name)
     → else: CollectionService.rename_request / rename_collection
 ```
 
-### Environment selector flow
+### Environment sidebar flow
 
 ```
-EnvironmentSelector.environment_changed(env_id | None)
+EnvironmentSidebarPanel.environment_changed(env_id | None)
   → MainWindow._on_environment_changed
     → _refresh_variable_map()
 
-EnvironmentSelector.manage_requested
+EnvironmentSidebarPanel.manage_requested
   → MainWindow._on_manage_environments
-    → show EnvironmentEditor dialog
+    → MainWindow._open_environments_tab() (focus existing or add **Environments** tab)
+    → EnvironmentEditorWidget.environments_changed → `_env_selector.refresh` + `_on_environments_data_changed`
 ```
 
 ### Save response flow
@@ -533,7 +534,10 @@ All other signals in the flow diagrams above are fully wired.
 |-------|--------|-----------|
 | `EnvironmentSelector` | `environment_changed` | `Signal(object)` — `int \| None` |
 | `EnvironmentSelector` | `manage_requested` | `Signal()` |
-| `EnvironmentEditor` | `environments_changed` | `Signal()` |
+| `EnvironmentSidebarPanel` | `environment_changed` | `Signal(object)` — `int \| None` |
+| `EnvironmentSidebarPanel` | `manage_requested` | `Signal()` |
+| `EnvironmentEditorWidget` | `environments_changed` | `Signal()` |
+| `EnvironmentEditorDialog` | `environments_changed` | `Signal()` — forwards from embedded widget |
 
 ### Folder editor
 
@@ -587,13 +591,15 @@ All connections made in `MainWindow.__init__` (and `_create_menus`):
 - `_breadcrumb_bar.item_clicked` → `_on_breadcrumb_clicked`
 - `_breadcrumb_bar.last_segment_renamed` → `_on_breadcrumb_rename`
 
-**From environment selector:**
+**From environment sidebar (`_env_selector` is ``EnvironmentSidebarPanel``):**
 - `_env_selector.environment_changed` → `_on_environment_changed`
 - `_env_selector.manage_requested` → `_on_manage_environments`
 
-**From toolbar / menus:**
+**From window shortcuts (no toolbar strip):**
 - `back_action.triggered` → `_navigate_back`
 - `forward_action.triggered` → `_navigate_forward`
+
+**From menus:**
 - `import_act.triggered` → `_on_import`
 - `save_act.triggered` → `_on_save_request`
 - `snippet_act.triggered` → `_on_snippet_shortcut`

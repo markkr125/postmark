@@ -6,6 +6,7 @@ handling, and navigation history.  Mixed into ``MainWindow``.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from typing import TYPE_CHECKING, Any, cast
 
@@ -20,6 +21,7 @@ if TYPE_CHECKING:
     from PySide6.QtGui import QAction
     from PySide6.QtWidgets import QPushButton, QStackedWidget, QWidget
 
+    from ui.environments.environment_sidebar_panel import EnvironmentSidebarPanel
     from ui.collections.collection_widget import CollectionWidget
     from ui.request.navigation.breadcrumb_bar import BreadcrumbBar
     from ui.request.navigation.request_tab_bar import RequestTabBar
@@ -67,6 +69,7 @@ class _TabControllerMixin:
     _deferred_tabs: dict[int, dict]
     _tab_change_debounce: QTimer
     _right_sidebar: RightSidebar
+    _env_selector: EnvironmentSidebarPanel
 
     def _on_send_request(self) -> None: ...
     def _on_save_request(self) -> None: ...
@@ -84,6 +87,7 @@ class _TabControllerMixin:
     ) -> None: ...
     def _refresh_sidebar(self, ctx: TabContext | None = None) -> None: ...
     def _schedule_sidebar_snippet_refresh(self) -> None: ...
+    def _on_environments_data_changed(self) -> None: ...
 
     # ------------------------------------------------------------------
     # Open request
@@ -254,11 +258,13 @@ class _TabControllerMixin:
         ctx.cancel_send()
         ctx.request_id = request_id
         ctx.is_preview = is_preview
-        ctx.editor.load_request(data, request_id=request_id)
-        ctx.response_viewer.clear()
+        editor = ctx.require_editor()
+        viewer = ctx.require_response_viewer()
+        editor.load_request(data, request_id=request_id)
+        viewer.clear()
 
         # Refresh variable map for the replaced tab
-        self._refresh_variable_map(ctx.editor, request_id, ctx.local_overrides)
+        self._refresh_variable_map(editor, request_id, ctx.local_overrides)
 
         self._tab_bar.update_tab(
             index,
@@ -307,7 +313,7 @@ class _TabControllerMixin:
         if sender is None:
             return
         for idx, ctx in self._tabs.items():
-            if ctx.tab_type == "request" and ctx.editor is sender:
+            if ctx.tab_type == "request" and ctx.require_editor() is sender:
                 ctx.is_dirty = dirty
                 self._tab_bar.update_tab(idx, is_dirty=dirty)
                 break
@@ -325,7 +331,7 @@ class _TabControllerMixin:
         if sender is not self.request_widget:
             return
         ctx = self._current_tab_context()
-        if ctx is not None and ctx.tab_type == "folder":
+        if ctx is not None and ctx.tab_type in ("folder", "environments"):
             return
         self._response_area.setVisible(not scripts_active)
 
@@ -355,16 +361,23 @@ class _TabControllerMixin:
                 self._editor_stack.setCurrentWidget(ctx.folder_editor)
             self._response_area.hide()
             self._save_btn.setVisible(False)
+        elif ctx is not None and ctx.tab_type == "environments":
+            if ctx.environment_editor is not None:
+                self._editor_stack.setCurrentWidget(ctx.environment_editor)
+            self._response_area.hide()
+            self._save_btn.setVisible(False)
         elif ctx is not None:
-            self._editor_stack.setCurrentWidget(ctx.editor)
-            self._response_stack.setCurrentWidget(ctx.response_viewer)
-            self.request_widget = ctx.editor
-            self.response_widget = ctx.response_viewer
+            editor = ctx.require_editor()
+            viewer = ctx.require_response_viewer()
+            self._editor_stack.setCurrentWidget(editor)
+            self._response_stack.setCurrentWidget(viewer)
+            self.request_widget = editor
+            self.response_widget = viewer
             # Response area defaults to visible, but the Scripts section tab
             # gives its Output/Problems/Mock panel the full bottom row.
-            self._response_area.setVisible(not ctx.editor.is_scripts_tab_active())
+            self._response_area.setVisible(not editor.is_scripts_tab_active())
             self._save_btn.setVisible(True)
-            self._sync_save_btn(ctx.editor.is_dirty)
+            self._sync_save_btn(editor.is_dirty)
         else:
             self._editor_stack.setCurrentWidget(self._default_editor)
             self._response_stack.setCurrentWidget(self._default_response_viewer)
@@ -395,6 +408,8 @@ class _TabControllerMixin:
                 self._breadcrumb_bar.set_path(crumbs)
             else:
                 self._breadcrumb_bar.clear()
+        elif ctx is not None and ctx.tab_type == "environments":
+            self._breadcrumb_bar.clear()
         elif ctx is not None:
             if ctx.request_id is not None:
                 cached = getattr(ctx, "_cached_crumbs", None)
@@ -411,7 +426,7 @@ class _TabControllerMixin:
             else:
                 self._breadcrumb_bar.clear()
             # Refresh variable map for highlighting and tooltips
-            self._refresh_variable_map(ctx.editor, ctx.request_id, ctx.local_overrides)
+            self._refresh_variable_map(ctx.require_editor(), ctx.request_id, ctx.local_overrides)
 
         # Refresh right sidebar for the active tab.
         self._refresh_sidebar(ctx)
@@ -437,6 +452,8 @@ class _TabControllerMixin:
         """Highlight the active tab's item in the collection tree."""
         if ctx is None:
             return
+        if ctx.tab_type == "environments":
+            return
         if ctx.tab_type == "folder" and ctx.collection_id is not None:
             self.collection_widget.select_and_scroll_to(ctx.collection_id, "folder")
         elif ctx.request_id is not None:
@@ -456,13 +473,16 @@ class _TabControllerMixin:
             if ctx is not None:
                 if ctx.tab_type == "folder" and ctx.collection_id is not None:
                     tabs_list.append({"type": "folder", "id": ctx.collection_id})
+                elif ctx.tab_type == "environments":
+                    tabs_list.append({"type": "environments"})
                 elif ctx.tab_type == "request" and ctx.request_id is not None:
                     method, name = self._tab_bar.tab_request_info(idx)
+                    ed = ctx.require_editor()
                     tabs_list.append(
                         {
                             "type": "request",
                             "id": ctx.request_id,
-                            "method": method or ctx.editor.get_request_data().get("method", "GET"),
+                            "method": method or ed.get_request_data().get("method", "GET"),
                             "name": name,
                         }
                     )
@@ -470,7 +490,7 @@ class _TabControllerMixin:
                     # Draft (unsaved) tab — snapshot the editor state.
                     entry: dict[str, object] = {
                         "type": "draft",
-                        "data": ctx.editor.get_request_data(),
+                        "data": ctx.require_editor().get_request_data(),
                     }
                     if ctx.draft_name:
                         entry["draft_name"] = ctx.draft_name
@@ -503,7 +523,9 @@ class _TabControllerMixin:
         widgets are materialised on first selection via
         :meth:`_materialise_deferred_tab`.  Draft and folder tabs are
         still created eagerly because they require immediate state
-        (editor snapshot / folder metadata).
+        (editor snapshot / folder metadata).  **Environments** tabs are
+        materialised eagerly (no database id); each ``{"type": "environments"}``
+        entry creates the global editor widget.
         """
         data = self._tab_settings_manager.load_open_tabs()
         if data is None:
@@ -524,6 +546,16 @@ class _TabControllerMixin:
                 tab_type = entry.get("type")
                 if tab_type == "draft":
                     self._restore_draft(entry)
+                    continue
+                if tab_type == "environments":
+                    if self._find_environments_tab_index() is not None:
+                        continue
+                    if not self._enforce_tab_limit_before_open():
+                        logger.warning(
+                            "Skipping environments tab restore: tab limit reached",
+                        )
+                        continue
+                    self._materialize_environments_tab_at(self._tab_bar.count())
                     continue
                 item_id = entry.get("id")
                 if not isinstance(item_id, int):
@@ -672,8 +704,9 @@ class _TabControllerMixin:
         ctx = self._tabs.get(idx)
         if ctx is None or ctx.request_id is not None:
             return
-        ctx.editor.load_request(cast(RequestLoadDict, draft_data), request_id=None)
-        ctx.editor._set_dirty(True)
+        ed = ctx.require_editor()
+        ed.load_request(cast(RequestLoadDict, draft_data), request_id=None)
+        ed._set_dirty(True)
         if isinstance(draft_name, str):
             ctx.draft_name = draft_name
             method = draft_data.get("method", "GET")
@@ -727,11 +760,23 @@ class _TabControllerMixin:
             del ctx
 
             self._tab_bar.remove_request_tab(index)
+        elif ctx.tab_type == "environments":
+            env_ed = ctx.environment_editor
+            if env_ed is not None:
+                with contextlib.suppress(TypeError, RuntimeError):
+                    env_ed.environments_changed.disconnect(self._env_selector.refresh)
+                with contextlib.suppress(TypeError, RuntimeError):
+                    env_ed.environments_changed.disconnect(self._on_environments_data_changed)
+                self._editor_stack.removeWidget(env_ed)
+                env_ed.setParent(None)
+            ctx.dispose()
+            del ctx
+            self._tab_bar.remove_request_tab(index)
         else:
             # Request tab cleanup
             # Grab local references before dispose() nulls the context.
-            editor = ctx.editor
-            viewer = ctx.response_viewer
+            editor = ctx.require_editor()
+            viewer = ctx.require_response_viewer()
 
             # Disconnect signals that reference MainWindow slots so the
             # sender objects can be garbage-collected.
@@ -1072,6 +1117,63 @@ class _TabControllerMixin:
 
         self._persist_open_tabs()
         return idx
+
+    # ------------------------------------------------------------------
+    # Environments tab
+    # ------------------------------------------------------------------
+    def _find_environments_tab_index(self) -> int | None:
+        """Return the tab-bar index of an open **Environments** tab, if any."""
+        for idx, tab_ctx in self._tabs.items():
+            if tab_ctx.tab_type == "environments":
+                return idx
+        return None
+
+    def _materialize_environments_tab_at(self, insert_index: int) -> int:
+        """Insert a new environments editor tab at *insert_index* and return its index.
+
+        Caller must enforce the tab limit and ensure no environments tab exists yet.
+        """
+        from ui.environments.environment_editor import EnvironmentEditorWidget
+
+        env_widget = EnvironmentEditorWidget()
+        self._editor_stack.addWidget(env_widget)
+
+        tab_ctx = TabContext(
+            tab_type="environments",
+            environment_editor=env_widget,
+            opened_order=self._next_tab_open_order(),
+        )
+
+        self._shift_tabs_for_insert(insert_index)
+
+        self._tab_bar.blockSignals(True)
+        try:
+            idx = self._tab_bar.add_environments_tab(name="Environments", index=insert_index)
+        finally:
+            self._tab_bar.blockSignals(False)
+
+        self._tabs[idx] = tab_ctx
+        env_widget.environments_changed.connect(self._env_selector.refresh)
+        env_widget.environments_changed.connect(self._on_environments_data_changed)
+        return idx
+
+    def _open_environments_tab(self) -> None:
+        """Open or focus the global environments editor tab."""
+        existing = self._find_environments_tab_index()
+        if existing is not None:
+            self._tab_bar.setCurrentIndex(existing)
+            self._flush_tab_change()
+            return
+
+        if not self._enforce_tab_limit_before_open():
+            return
+
+        idx = self._materialize_environments_tab_at(self._next_tab_insert_index())
+
+        self._tab_bar.setCurrentIndex(idx)
+        self._on_tab_changed(idx)
+        self._flush_tab_change()
+        self._persist_open_tabs()
 
     def _on_folder_auto_save(self, data: dict) -> None:
         """Auto-save folder changes triggered by the debounced signal."""

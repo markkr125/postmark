@@ -863,10 +863,11 @@ class TestSettingsDialogScriptingPage:
         tm = ThemeManager(qapp)
         dialog = SettingsDialog(tm)
         qtbot.addWidget(dialog)
-        labels = [
-            dialog._cat_tree.topLevelItem(i).text(0)
-            for i in range(dialog._cat_tree.topLevelItemCount())
-        ]
+        labels = []
+        for i in range(dialog._cat_tree.topLevelItemCount()):
+            it = dialog._cat_tree.topLevelItem(i)
+            if it is not None:
+                labels.append(it.text(0))
         assert "Scripting" in labels
 
     def test_scripting_checkbox_default_checked(self, qapp: QApplication, qtbot) -> None:

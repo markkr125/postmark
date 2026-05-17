@@ -179,11 +179,23 @@ class ScriptOutputPanel(QWidget):
         pause: DebugPauseInfo = cast(DebugPauseInfo, info)
         self._debug_variables.update_pause(pause)
         self._debug_variables.setVisible(True)
+        self._schedule_script_split_line_refresh_on_host()
 
     def hide_debug_controls(self) -> None:
         """Hide the debug variable list."""
         self._debug_variables.set_idle()
         self._debug_variables.hide()
+        self._schedule_script_split_line_refresh_on_host()
+
+    def _schedule_script_split_line_refresh_on_host(self) -> None:
+        """Reposition the scripts full-width split line after output-pane layout changes."""
+        w: QWidget | None = self
+        while w is not None:
+            sched = getattr(w, "_schedule_refresh_script_split_full_width_line", None)
+            if callable(sched):
+                sched()
+                return
+            w = w.parentWidget()
 
     def response_source_mode(self) -> str:
         """Return selected test response source: ``live`` or ``manual``."""

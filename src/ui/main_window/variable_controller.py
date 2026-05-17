@@ -16,7 +16,7 @@ from services.environment_service import EnvironmentService
 
 if TYPE_CHECKING:
     from services.environment_service import LocalOverride
-    from ui.environments.environment_selector import EnvironmentSelector
+    from ui.environments.environment_sidebar_panel import EnvironmentSidebarPanel
     from ui.request.navigation.request_tab_bar import RequestTabBar
     from ui.request.navigation.tab_manager import TabContext
     from ui.request.request_editor import RequestEditorWidget
@@ -28,13 +28,13 @@ logger = logging.getLogger(__name__)
 class _VariableControllerMixin:
     """Mixin that manages variable maps, popup callbacks, and sidebar.
 
-    Expects the host class to provide ``_tabs``, ``_env_selector``,
-    ``_tab_bar``, ``request_widget``, ``_right_sidebar``, and
-    ``_current_tab_context()``.
+    Expects the host class to provide ``_tabs``, ``_env_selector``
+    (an ``EnvironmentSidebarPanel`` instance), ``_tab_bar``,
+    ``request_widget``, ``_right_sidebar``, and ``_current_tab_context()``.
     """
 
     # -- Host-class interface (declared for mypy) -----------------------
-    _env_selector: EnvironmentSelector
+    _env_selector: EnvironmentSidebarPanel
     _tabs: dict[int, TabContext]
     _right_sidebar: RightSidebar
     _sidebar_debounce: QTimer
@@ -76,8 +76,18 @@ class _VariableControllerMixin:
 
         VariablePopup.set_has_environment(self._env_selector.current_environment_id() is not None)
         for ctx in self._tabs.values():
-            if ctx.tab_type != "folder":
+            if ctx.tab_type == "request" and ctx.editor is not None:
                 self._refresh_variable_map(ctx.editor, ctx.request_id, ctx.local_overrides)
+        self._refresh_sidebar()
+
+    def _on_environments_data_changed(self) -> None:
+        """Sidebar + variable maps after edits in the environments manager tab."""
+        self._env_selector.refresh()
+        for tab_ctx in self._tabs.values():
+            if tab_ctx.tab_type == "request" and tab_ctx.editor is not None:
+                self._refresh_variable_map(
+                    tab_ctx.editor, tab_ctx.request_id, tab_ctx.local_overrides
+                )
         self._refresh_sidebar()
 
     def _on_variable_updated(
@@ -97,12 +107,12 @@ class _VariableControllerMixin:
         # When a variable is globally updated, clear any local override
         # for the same key in the current tab.
         ctx = self._current_tab_context()
-        if ctx is not None:
+        if ctx is not None and ctx.tab_type == "request":
             ctx.local_overrides.pop(var_name, None)
 
         # Refresh variable maps in all open request editors
         for ctx in self._tabs.values():
-            if ctx.tab_type != "folder":
+            if ctx.tab_type == "request" and ctx.editor is not None:
                 self._refresh_variable_map(ctx.editor, ctx.request_id, ctx.local_overrides)
 
     def _on_local_variable_override(
@@ -119,7 +129,7 @@ class _VariableControllerMixin:
         local override that applies only to the current request tab.
         """
         ctx = self._current_tab_context()
-        if ctx is None or ctx.tab_type == "folder":
+        if ctx is None or ctx.tab_type != "request" or ctx.editor is None:
             return
 
         ctx.local_overrides[var_name] = {
@@ -136,7 +146,7 @@ class _VariableControllerMixin:
         variable in the popup.
         """
         ctx = self._current_tab_context()
-        if ctx is None or ctx.tab_type == "folder":
+        if ctx is None or ctx.tab_type != "request" or ctx.editor is None:
             return
 
         ctx.local_overrides.pop(var_name, None)
@@ -177,7 +187,7 @@ class _VariableControllerMixin:
 
         # Refresh variable maps in all open request editors
         for tab_ctx in self._tabs.values():
-            if tab_ctx.tab_type != "folder":
+            if tab_ctx.tab_type == "request" and tab_ctx.editor is not None:
                 self._refresh_variable_map(
                     tab_ctx.editor,
                     tab_ctx.request_id,
@@ -199,6 +209,10 @@ class _VariableControllerMixin:
             self._right_sidebar.clear()
             return
 
+        if ctx.tab_type == "environments":
+            self._right_sidebar.clear()
+            return
+
         if ctx.tab_type == "folder":
             variables = EnvironmentService.build_combined_variable_detail_map(env_id, None)
             # Merge folder-level variables from the collection chain
@@ -217,7 +231,9 @@ class _VariableControllerMixin:
                             "source_id": coll_id,
                         }
             self._right_sidebar.show_folder_panels(variables, has_environment=has_env)
-        else:
+        elif (
+            ctx.tab_type == "request" and ctx.editor is not None and ctx.response_viewer is not None
+        ):
             variables = EnvironmentService.build_combined_variable_detail_map(
                 env_id, ctx.request_id
             )
@@ -275,7 +291,7 @@ class _VariableControllerMixin:
     def _refresh_sidebar_snippet(self) -> None:
         """Regenerate only the snippet panel for the active request tab."""
         ctx = self._current_tab_context()
-        if ctx is None or ctx.tab_type == "folder":
+        if ctx is None or ctx.tab_type != "request" or ctx.editor is None:
             return
         editor = ctx.editor
         data = editor.get_request_data()

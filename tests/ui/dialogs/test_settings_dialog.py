@@ -569,8 +569,9 @@ class TestSettingsDialogPrivatePackages:
             RuntimeSettings.set_registries([])
 
     def test_scope_rename_preserves_auth_ref(self, qapp: QApplication, qtbot) -> None:
-        """B4: ``auth_ref`` is anchored to ``id`` so renaming scope keeps
-        the existing keychain entry reachable.
+        """B4: ``auth_ref`` is anchored to ``id``.
+
+        Renaming scope keeps the existing keychain entry reachable.
         """
         from services.scripting.runtime_settings import RuntimeSettings
 
@@ -636,8 +637,9 @@ class TestSettingsDialogPrivatePackages:
             RuntimeSettings.set_registries([])
 
     def test_apply_drops_invalid_rows_with_warning(self, qapp: QApplication, qtbot) -> None:
-        """B6: invalid rows are stripped on Apply (with a transient warning),
-        not silently lost at read time.
+        """B6: invalid rows are stripped on Apply with a transient warning.
+
+        They are not silently lost at read time.
         """
         from services.scripting.runtime_settings import RuntimeSettings
 

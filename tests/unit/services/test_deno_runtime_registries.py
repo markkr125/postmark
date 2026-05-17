@@ -146,7 +146,9 @@ class TestBuildNpmrcText:
     def test_default_registry_basic_auth_emits_underscore_auth(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Audit-flagged bug: Basic auth on the default registry must emit
+        """Basic auth on the default registry must emit ``_auth=`` (audit fix).
+
+        Audit-flagged bug: Basic auth on the default registry must emit
         ``_auth=`` (legacy base64), not ``_authToken=`` (bearer).
         """
         store = _MemoryStore({"npm:__default__": "dXNlcjpwYXNz"})
@@ -162,8 +164,10 @@ class TestBuildNpmrcText:
     def test_url_with_embedded_credentials_strips_them_from_auth_line(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Audit-flagged B5: ``urlparse`` strips ``user:pass@`` from the auth
-        line so Deno doesn't reject ``//baked:in@host/:_authToken=…``.
+        """Strip embedded credentials from the auth line (B5).
+
+        ``urlparse`` strips ``user:pass@`` from the auth line so Deno doesn't
+        reject ``//baked:in@host/:_authToken=...``.
         """
         store = _MemoryStore({"npm:@mycompany": "tok-xyz"})
         monkeypatch.setattr("services.scripting.secret_store.get_default_store", lambda: store)

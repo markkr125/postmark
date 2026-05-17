@@ -201,6 +201,7 @@ class TestBackendStatus:
 
 
 def test_noop_store_is_silent_no_op() -> None:
+    """NoopSecretStore accepts writes but never persists or returns secrets."""
     store = NoopSecretStore()
     store.put("ref", "x")
     assert store.get("ref") is None

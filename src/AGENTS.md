@@ -496,6 +496,8 @@ into `%Y-%m-%d %H:%M` strings for the UI.
   **Session persistence:** `_TabControllerMixin._persist_open_tabs()` saves
   the current tab list (type + DB id + method + name for requests) and
   active index after every tab open/close/reorder and in `closeEvent`.
+  **Environments** tabs are saved as ``{"type": "environments"}`` (no id)
+  and recreated on restore in their saved order.
   **Deferred tab materialisation:** `_restore_tabs()` restores tabs
   lazily after `CollectionWidget.load_finished` fires.  Request tabs
   with `method` and `name` in the session data are created as

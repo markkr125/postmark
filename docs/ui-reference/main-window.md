@@ -22,12 +22,11 @@ QMainWindow
 +------------------------------------------------------------------+
 | Menu bar                                                          |
 +------------------------------------------------------------------+
-| Collection    |  BreadcrumbBar                       |  Rail  |   |
-| Sidebar       +--------------------------------------+  [ {} ]|   |
-|               |  RequestTabBar (multi-row deck)      |  [ <> ]|   |
-| CollectionTree+--------------------------------------+  [ [] ]|   |
-|               |  RequestEditorWidget                 |        |   |
-|               |  (method | URL | send button)        |Flyout  |   |
+| Collections + |  BreadcrumbBar                       |  Rail  |   |
+| Environments  +--------------------------------------+  [ {} ]|   |
+| (split)       |  RequestTabBar (multi-row deck)      |  [ <> ]|   |
+| CollectionTree|  Editor stack (request / folder / env) |  [ [] ]|   |
+| Env rows      |  + RequestEditorWidget (method | URL | send) |Flyout  |   |
 |               |  (Params|Headers|Body|Auth|Desc|Scripts)|Panel|   |
 |               +--------------------------------------+        |   |
 |               |  ResponseViewerWidget                |        |   |
@@ -49,7 +48,9 @@ QMainWindow
 | `_response_stack` | `QStackedWidget` | Per-tab response viewer stack |
 | `_breadcrumb_bar` | `BreadcrumbBar` | Path navigation bar |
 | `_right_sidebar` | `RightSidebar` | Icon rail and flyout panel |
-| `collection_widget` | `CollectionWidget` | Left sidebar with collection tree |
+| `collection_widget` | `CollectionWidget` | Collection tree + header (top of left column) |
+| `_left_nav_splitter` | `QSplitter` | Vertical splitter: collections above environments |
+| `_env_selector` | `EnvironmentSidebarPanel` | Global environment picker: scrollable rows (name + **Set active** / **Clear**); empty list shows a hint that opens the same flow as **Manage**; attribute name kept for mixin compatibility |
 | `_history` | `list[int]` | Back/forward navigation stack |
 | `_theme_manager` | `ThemeManager` | App-wide theme controller |
 | `_tab_settings_manager` | `TabSettingsManager` | Tab preference controller |
@@ -64,6 +65,7 @@ Tab lifecycle and history navigation.
 |--------|-------------|
 | `_open_request(request_id, push_history, is_preview)` | Load request into existing or new tab |
 | `_open_folder(collection_id, focus_scripts_kind=..., focus_runner_panel=...)` | Open folder detail editor tab; optional Scripts sub-tab or **Runs → New run** (`focus_runner_panel`).  Run menu / tree **Run** use `_on_run_collection_by_id`, which calls `_open_folder(..., focus_runner_panel=True)` |
+| `_open_environments_tab()` | Open or focus the **Environments** tab (`EnvironmentEditorWidget` in the main editor stack). When no environments exist, the tab shows a sidebar hint and a placeholder instead of the name/variable editor until the first environment is created (e.g. from the left column **Add**) |
 | `_on_tab_changed(index)` | Active tab switched (debounced) |
 | `_flush_tab_change()` | Immediate breadcrumb, sidebar, variable refresh |
 | `_navigate_back()` / `_navigate_forward()` | History navigation |
@@ -88,6 +90,7 @@ Environment variable resolution and sidebar refresh.
 |--------|-------------|
 | `_refresh_variable_map(editor, request_id, local_overrides)` | Push combined variables to editor |
 | `_on_environment_changed(env_id)` | Refresh all open editor variable maps |
+| `_on_environments_data_changed()` | After edits in the **Environments** tab: refresh env selector, variable maps, sidebar |
 | `_on_variable_updated(var_name, new_value, source, source_id)` | Persist global variable change |
 | `_on_local_variable_override(var_name, new_value, source, source_id)` | Store per-request override |
 | `_on_reset_local_override(var_name)` | Remove temporary override |
@@ -110,4 +113,5 @@ HTTP send/cancel/cleanup cycle.
 On close, `_save_tabs()` writes the open tab list to `QSettings`.
 On startup, `_restore_tabs()` creates `_deferred_tabs` entries that
 are only materialised when first activated.  This keeps startup fast
-even with many tabs.
+even with many tabs.  **Environments** tabs are included in the saved list
+as ``{"type": "environments"}`` and restored as a normal tab row entry.

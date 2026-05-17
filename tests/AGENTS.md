@@ -18,7 +18,10 @@
    autouse fixture that removes `scripting` (as well as `theme` and `tabs`)
    **before and after** each test so a fake persisted `scripting/deno_path`
    from the Apply test cannot affect later test modules in the same session
-   (which would break Deno-based script tests).
+   (which would break Deno-based script tests).  Mypy: that module has a
+   scoped ``[[tool.mypy.overrides]]`` entry in ``pyproject.toml`` disabling
+   ``union-attr`` for ``QTreeWidgetItem`` / ``QTableWidgetItem`` access patterns
+   the stubs mark as optional.
 5. **UI tests need `qapp` and `qtbot` fixtures.**  Register widgets with
    `qtbot.addWidget(widget)`.
 6. **The `_no_fetch` fixture is autouse in `tests/ui/`** — it prevents
@@ -208,7 +211,8 @@ tests/
     │   └── test_settings_dialog.py
     ├── environments/              # Environment widget tests
     │   ├── test_environment_editor.py
-    │   └── test_environment_selector.py
+    │   ├── test_environment_selector.py
+    │   └── test_environment_sidebar_panel.py
     ├── panels/                    # Panel tests
     │   ├── test_console_panel.py
     │   └── test_history_panel.py

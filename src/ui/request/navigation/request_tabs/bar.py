@@ -285,6 +285,23 @@ class RequestTabBar(_TabLayoutMixin, QWidget):
         self._apply_tooltip(idx, name, path)
         return idx
 
+    def add_environments_tab(
+        self,
+        name: str = "Environments",
+        *,
+        path: str | None = None,
+        index: int | None = None,
+    ) -> int:
+        """Add a tab for the global environments editor and return its index."""
+        label = FolderTabLabel(
+            name,
+            compact=self._small_labels,
+            mark_modified=self._mark_modified,
+        )
+        idx = self._insert_entry("environments", label, path, index)
+        self._apply_tooltip(idx, name, path)
+        return idx
+
     def update_tab(
         self,
         index: int,
@@ -564,7 +581,9 @@ class RequestTabBar(_TabLayoutMixin, QWidget):
 
         for index, entry in enumerate(self._entries):
             if entry.tab_type != "request" or not isinstance(entry.label, TabLabel):
-                if entry.tab_type == "folder" and isinstance(entry.label, FolderTabLabel):
+                if entry.tab_type in ("folder", "environments") and isinstance(
+                    entry.label, FolderTabLabel
+                ):
                     self._apply_tooltip(index, entry.label._name, entry.path)
                 continue
             display_name = entry.label._name

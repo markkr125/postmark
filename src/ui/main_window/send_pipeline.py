@@ -14,14 +14,13 @@ from PySide6.QtCore import QSettings, QThread
 
 if TYPE_CHECKING:
     from services.scripting.debug import DebugProtocol
-    from ui.environments.environment_selector import EnvironmentSelector
+    from ui.environments.environment_sidebar_panel import EnvironmentSidebarPanel
     from ui.panels.history_panel import HistoryPanel
     from ui.request.http_worker import HttpSendWorker
     from ui.request.navigation.request_tab_bar import RequestTabBar
     from ui.request.navigation.tab_manager import TabContext
     from ui.request.request_editor import RequestEditorWidget
-    from ui.request.request_editor.scripts.output_panel import \
-        ScriptOutputPanel
+    from ui.request.request_editor.scripts.output_panel import ScriptOutputPanel
     from ui.request.response_viewer import ResponseViewerWidget
     from ui.sidebar import RightSidebar
 
@@ -89,14 +88,15 @@ class _SendPipelineMixin:
 
     Expects the host class to provide ``_tabs``, ``_tab_bar``,
     ``_send_thread``, ``_send_worker``, ``request_widget``,
-    ``response_widget``, ``_env_selector``, and ``_history_panel``.
+    ``response_widget``, ``_env_selector`` (``EnvironmentSidebarPanel``),
+    and ``_history_panel``.
     """
 
     # -- Host-class interface (declared for mypy) -----------------------
     _send_thread: QThread | None
     _send_worker: HttpSendWorker | None
     _tab_bar: RequestTabBar
-    _env_selector: EnvironmentSelector
+    _env_selector: EnvironmentSidebarPanel
     _history_panel: HistoryPanel
     _right_sidebar: RightSidebar
     request_widget: RequestEditorWidget
@@ -115,7 +115,7 @@ class _SendPipelineMixin:
         ctx: TabContext | None = self._current_tab_context()
 
         # Folder tabs cannot send requests
-        if ctx is not None and ctx.tab_type == "folder":
+        if ctx is not None and ctx.tab_type in ("folder", "environments"):
             return
 
         # If already sending, treat as cancel
@@ -131,8 +131,12 @@ class _SendPipelineMixin:
             return
 
         # 1. Gather request data from the current editor
-        editor = ctx.editor if ctx else self.request_widget
-        viewer = ctx.response_viewer if ctx else self.response_widget
+        if ctx is not None:
+            editor = ctx.require_editor()
+            viewer = ctx.require_response_viewer()
+        else:
+            editor = self.request_widget
+            viewer = self.response_widget
 
         method = editor._method_combo.currentText()
         url = editor._url_input.text().strip()
@@ -260,7 +264,7 @@ class _SendPipelineMixin:
         """Handle a successful HTTP response from the worker thread."""
         inline_test = getattr(self, "_inline_test_run", None)
         ctx = self._current_tab_context()
-        viewer = ctx.response_viewer if ctx else self.response_widget
+        viewer = ctx.require_response_viewer() if ctx is not None else self.response_widget
 
         # Remember if the user was on the Pre-request tab before reload.
         was_on_pre_request = (
@@ -304,7 +308,8 @@ class _SendPipelineMixin:
 
         # Apply variable changes to local overrides
         var_changes = data.get("variable_changes", {})
-        if ctx and var_changes:
+        if ctx and ctx.tab_type not in ("folder", "environments") and var_changes:
+            _ = ctx.require_editor()
             for key, value in var_changes.items():
                 ctx.local_overrides[key] = {
                     "value": str(value),
@@ -320,7 +325,7 @@ class _SendPipelineMixin:
         else:
             self._cleanup_send_thread()
         # Add to history panel
-        editor = ctx.editor if ctx else self.request_widget
+        editor = ctx.require_editor() if ctx is not None else self.request_widget
         self._history_panel.add_entry(
             editor._method_combo.currentText(),
             editor._url_input.text(),
@@ -330,8 +335,7 @@ class _SendPipelineMixin:
         self._refresh_sidebar()
 
         if inline_test is not None:
-            from ui.request.request_editor.scripts.script_run_worker import \
-                build_inline_context
+            from ui.request.request_editor.scripts.script_run_worker import build_inline_context
 
             panel = inline_test.get("panel")
             script = str(inline_test.get("script", ""))
@@ -365,7 +369,7 @@ class _SendPipelineMixin:
         """Handle an error from the HTTP send worker."""
         inline_test = getattr(self, "_inline_test_run", None)
         ctx = self._current_tab_context()
-        viewer = ctx.response_viewer if ctx else self.response_widget
+        viewer = ctx.require_response_viewer() if ctx is not None else self.response_widget
         viewer.show_error(message)
         self._set_send_button_cancel(False)
         if ctx is not None:
@@ -375,7 +379,7 @@ class _SendPipelineMixin:
         else:
             self._cleanup_send_thread()
         # Add error entry to history panel
-        editor = ctx.editor if ctx else self.request_widget
+        editor = ctx.require_editor() if ctx is not None else self.request_widget
         self._history_panel.add_entry(
             editor._method_combo.currentText(),
             editor._url_input.text(),
@@ -401,7 +405,8 @@ class _SendPipelineMixin:
         ctx = self._current_tab_context()
         if ctx is not None:
             ctx.cancel_send()
-            ctx.response_viewer.show_error("Request cancelled")
+            if ctx.tab_type not in ("folder", "environments"):
+                ctx.require_response_viewer().show_error("Request cancelled")
         else:
             if self._send_worker is not None:
                 self._send_worker.cancel()
@@ -412,9 +417,9 @@ class _SendPipelineMixin:
     def _set_send_button_cancel(self, is_cancel: bool) -> None:
         """Toggle the Send button between Send and Cancel states."""
         ctx = self._current_tab_context()
-        if ctx is not None and ctx.tab_type == "folder":
+        if ctx is not None and ctx.tab_type in ("folder", "environments"):
             return
-        editor = ctx.editor if ctx else self.request_widget
+        editor = ctx.require_editor() if ctx is not None else self.request_widget
         btn = editor._send_btn
         if is_cancel:
             btn.setText("Cancel")
@@ -524,6 +529,10 @@ class _SendPipelineMixin:
                     if pbar is not None:
                         pbar.hide()
 
+        sched = getattr(editor, "_schedule_refresh_script_split_full_width_line", None)
+        if callable(sched):
+            sched()
+
     def _on_debug_step(self, mode_name: str) -> None:
         """Handle a step request from the debug panel."""
         if self._debug_protocol is None:
@@ -583,6 +592,9 @@ class _SendPipelineMixin:
                 pbar = ctrl.parentWidget()
                 if pbar is not None:
                     pbar.hide()
+        sched = getattr(host, "_schedule_refresh_script_split_full_width_line", None)
+        if callable(sched):
+            sched()
 
     def end_inline_script_debug(self) -> None:
         """Clear inline script debug state when :class:`ScriptDebugWorker` ends."""
@@ -592,4 +604,6 @@ class _SendPipelineMixin:
     def _current_editor(self) -> RequestEditorWidget:
         """Return the editor for the active tab."""
         ctx = self._current_tab_context()
-        return ctx.editor if ctx else self.request_widget
+        if ctx is not None and ctx.editor is not None:
+            return ctx.editor
+        return self.request_widget

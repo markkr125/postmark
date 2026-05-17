@@ -318,7 +318,7 @@ Every field is a hex colour string.
 | Category | Fields | Examples |
 |----------|--------|----------|
 | Neutral | 9 | `bg`, `bg_alt`, `text`, `text_muted`, `border`, `hover_bg`, `selected_bg` |
-| Semantic | 6 | `accent`, `success`, `warning`, `danger`, `muted`, `delete` |
+| Semantic | 9 | `accent`, `accent_hover`, `success`, `warning`, `danger`, `danger_hover`, `solid_button_fg`, `muted`, `delete` |
 | HTTP method | 8 | `head`, `options`, `get`, `post`, `put`, `patch`, `delete` |
 | Functional | 2 | `sending`, `breadcrumb_sep` |
 | Import dialog | 5 | `drop_zone_border`, `import_success`, `import_error` |

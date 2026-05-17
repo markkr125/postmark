@@ -13,12 +13,13 @@ Source: `src/ui/request/navigation/`
 
 | Attribute | Type | Description |
 |-----------|------|-------------|
-| `tab_type` | `str` | "request" or "folder" |
-| `request_id` | `int \| None` | Database PK (None for drafts) |
+| `tab_type` | `str` | `"request"`, `"folder"`, or `"environments"` |
+| `request_id` | `int \| None` | Database PK (None for drafts / non-request tabs) |
 | `collection_id` | `int \| None` | Parent collection (folder tabs) |
-| `editor` | `RequestEditorWidget` | Request editor (request tabs) |
-| `folder_editor` | `FolderEditorWidget` | Folder editor (folder tabs) |
-| `response_viewer` | `ResponseViewerWidget` | Response pane |
+| `editor` | `RequestEditorWidget \| None` | Request editor (request tabs); `None` for environments |
+| `folder_editor` | `FolderEditorWidget \| None` | Folder editor (folder tabs) |
+| `environment_editor` | `EnvironmentEditorWidget \| None` | Global environments editor (environments tab) |
+| `response_viewer` | `ResponseViewerWidget \| None` | Response pane; `None` for environments |
 | `thread` | `QThread \| None` | Current HTTP send thread |
 | `worker` | `HttpSendWorker \| None` | Current send worker |
 | `is_dirty` | `bool` | Unsaved changes flag |
@@ -33,6 +34,8 @@ Source: `src/ui/request/navigation/`
 
 | Method | Description |
 |--------|-------------|
+| `require_editor()` | Return the request editor; raises when ``editor`` is absent (environments tab) |
+| `require_response_viewer()` | Return the response viewer; raises when ``response_viewer`` is absent |
 | `cleanup_thread()` | Quit, wait, and delete the worker thread |
 | `dispose()` | Release all resources before deletion |
 
@@ -45,7 +48,7 @@ Source: `src/ui/request/navigation/request_tabs/`
 ### Layout
 
 Each tab is a `TabButton` containing a `TabLabel` (request) or
-`FolderTabLabel` (folder).  Tabs wrap to multiple rows when space
+`FolderTabLabel` (folder and **Environments**).  Tabs wrap to multiple rows when space
 is tight.  Vertical mouse-wheel scrolling moves between rows.
 
 ```
@@ -62,7 +65,7 @@ is tight.  Vertical mouse-wheel scrolling moves between rows.
 | Class | Usage | Layout |
 |-------|-------|--------|
 | `TabLabel` | Request tabs | Method badge + request name |
-| `FolderTabLabel` | Folder tabs | "Folder" text (italic) + folder name |
+| `FolderTabLabel` | Folder + Environments tabs | Folder: italic **Folder** + name; Environments: chip label |
 
 Layout modes: STANDARD_LAYOUT (30px) and COMPACT_LAYOUT (26px),
 controlled by `TabSettingsManager.small_labels`.
@@ -95,6 +98,7 @@ controlled by `TabSettingsManager.small_labels`.
 |--------|-------------|
 | `add_request_tab(method, name, path, index)` | Add request tab chip |
 | `add_folder_tab(name, index)` | Add folder tab chip (italic) |
+| `add_environments_tab(name, index)` | Add global environments editor tab chip |
 | `update_tab(index, is_preview, is_sending, is_dirty)` | Refresh visual state |
 
 ## TabButton

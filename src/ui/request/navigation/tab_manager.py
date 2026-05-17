@@ -16,6 +16,7 @@ from PySide6.QtCore import QThread
 
 if TYPE_CHECKING:
     from services.environment_service import LocalOverride
+    from ui.environments.environment_editor import EnvironmentEditorWidget
     from ui.request.folder_editor import FolderEditorWidget
     from ui.request.http_worker import HttpSendWorker
 
@@ -32,12 +33,13 @@ class TabContext:
     """Bundle of per-tab state: widgets, thread lifecycle, and dirty flag.
 
     Attributes:
-        tab_type: ``"request"`` or ``"folder"``.
+        tab_type: ``"request"``, ``"folder"``, or ``"environments"``.
         request_id: Database PK of the loaded request, or ``None``.
         collection_id: Database PK of the loaded folder, or ``None``.
-        editor: The request editor widget (request tabs only).
+        editor: The request editor widget (request tabs only); ``None`` for environments.
         folder_editor: The folder editor widget (folder tabs only).
-        response_viewer: The response viewer widget for this tab.
+        environment_editor: The environments manager widget (environments tab only).
+        response_viewer: The response viewer widget for this tab; ``None`` for environments.
         thread: The ``QThread`` running the current request, if any.
         worker: The ``HttpSendWorker`` for the current request, if any.
         is_dirty: Whether the editor has unsaved changes.
@@ -69,6 +71,7 @@ class TabContext:
         collection_id: int | None = None,
         editor: RequestEditorWidget | None = None,
         folder_editor: FolderEditorWidget | None = None,
+        environment_editor: EnvironmentEditorWidget | None = None,
         response_viewer: ResponseViewerWidget | None = None,
         is_preview: bool = False,
         opened_order: int = 0,
@@ -77,9 +80,15 @@ class TabContext:
         self.tab_type = tab_type
         self.request_id = request_id
         self.collection_id = collection_id
-        self.editor = editor or RequestEditorWidget()
-        self.folder_editor = folder_editor
-        self.response_viewer = response_viewer or ResponseViewerWidget()
+        self.environment_editor = environment_editor
+        if tab_type == "environments":
+            self.editor = None  # type: ignore[assignment]
+            self.folder_editor = None
+            self.response_viewer = None  # type: ignore[assignment]
+        else:
+            self.editor = editor or RequestEditorWidget()
+            self.folder_editor = folder_editor
+            self.response_viewer = response_viewer or ResponseViewerWidget()
         self.thread: QThread | None = None
         self.worker: HttpSendWorker | None = None
         self.is_dirty: bool = False
@@ -89,6 +98,28 @@ class TabContext:
         self.local_overrides: dict[str, LocalOverride] = {}
         self.opened_order: int = opened_order
         self.last_activated_order: int = 0
+
+    def require_editor(self) -> RequestEditorWidget:
+        """Return the request editor when this tab mounts one.
+
+        Raises:
+            RuntimeError: When ``editor`` is absent (e.g. environments tab).
+        """
+        if self.editor is None:
+            msg = "require_editor() called without a request editor"
+            raise RuntimeError(msg)
+        return self.editor
+
+    def require_response_viewer(self) -> ResponseViewerWidget:
+        """Return the response viewer when this tab mounts one.
+
+        Raises:
+            RuntimeError: When ``response_viewer`` is absent (e.g. environments tab).
+        """
+        if self.response_viewer is None:
+            msg = "require_response_viewer() called without a response viewer"
+            raise RuntimeError(msg)
+        return self.response_viewer
 
     # -- Send lifecycle ------------------------------------------------
 
@@ -164,5 +195,6 @@ class TabContext:
         """
         self.cleanup_thread()
         self.folder_editor = None
+        self.environment_editor = None
         self.request_id = None
         self.collection_id = None

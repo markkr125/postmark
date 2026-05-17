@@ -572,8 +572,10 @@ class TestFindTopLevelStatementLines:
     """Tests for :func:`services.scripting.engine.find_top_level_statement_lines`."""
 
     def test_python_includes_nested_statement_lines(self) -> None:
-        """Recursive walk: nested statements (function bodies, ``try`` bodies)
-        are reachable too — both runtimes pause inside callbacks.
+        """Include nested statements when building pauseable line sets.
+
+        Recursive walk: nested statements (function bodies, ``try`` bodies)
+        are reachable too - both runtimes pause inside callbacks.
         """
         from services.scripting.engine import find_top_level_statement_lines
 

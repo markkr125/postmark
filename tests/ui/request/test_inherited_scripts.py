@@ -88,9 +88,9 @@ class TestInheritedScriptsUI:
         # Banners are in the Scripts tab; hidden tabs report isVisible() false.
         ed._tabs.setCurrentIndex(5)
         ed._scripts_sub_tabs.setCurrentIndex(0)
-        assert "inherit" not in ed._pre_inherited_banner._text.text().lower()
+        assert ed._pre_inherited_banner.isHidden()
         ed._scripts_sub_tabs.setCurrentIndex(1)
-        assert "inherit" not in ed._test_inherited_banner._text.text().lower()
+        assert ed._test_inherited_banner.isHidden()
 
     def test_banner_shows_when_collection_has_pre(
         self,
@@ -116,8 +116,9 @@ class TestInheritedScriptsUI:
         )
         ed._tabs.setCurrentIndex(5)
         ed._scripts_sub_tabs.setCurrentIndex(0)
-        assert "1" in ed._pre_inherited_banner._text.text()
-        assert "inherit" in ed._pre_inherited_banner._text.text().lower()
+        assert "1" in ed._pre_inherited_banner.text()
+        assert "View Chain" in ed._pre_inherited_banner.text()
+        assert not ed._pre_inherited_banner.isHidden()
 
     def test_get_scripts_data_persists_disabled_only(
         self,

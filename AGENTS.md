@@ -295,8 +295,9 @@ src/
     │   ├── save_request_dialog.py  # Save draft request to collection
     │   └── settings_dialog.py     # Settings (theme + request-tab + Scripting: LSP toggle, Deno/Python paths)
     ├── environments/              # Environment management widgets
-    │   ├── environment_editor.py
-    │   └── environment_selector.py
+    │   ├── environment_editor.py  # EnvironmentEditorWidget + EnvironmentEditorDialog
+    │   ├── environment_selector.py
+    │   └── environment_sidebar_panel.py
     ├── panels/                    # Bottom / side panels
     │   ├── console_panel.py
     │   └── history_panel.py
@@ -430,7 +431,8 @@ tests/
     │   └── test_settings_dialog.py
     ├── environments/              # Environment widget tests
     │   ├── test_environment_editor.py
-    │   └── test_environment_selector.py
+    │   ├── test_environment_selector.py
+    │   └── test_environment_sidebar_panel.py
     ├── panels/                    # Panel tests
     │   ├── test_console_panel.py
     │   └── test_history_panel.py

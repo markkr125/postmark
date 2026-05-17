@@ -12,9 +12,19 @@ from typing import cast
 
 from PySide6.QtCore import QObject, Qt
 from PySide6.QtGui import QColor, QTextCharFormat, QTextCursor
-from PySide6.QtWidgets import (QButtonGroup, QComboBox, QHBoxLayout, QLabel,
-                               QLineEdit, QPushButton, QRadioButton,
-                               QStackedWidget, QTextEdit, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (
+    QButtonGroup,
+    QComboBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QRadioButton,
+    QStackedWidget,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ui.styling.icons import phi
 from ui.styling.theme import COLOR_WARNING

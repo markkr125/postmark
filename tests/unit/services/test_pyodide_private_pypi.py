@@ -37,6 +37,8 @@ class _MemoryStore:
 
 
 class TestPypiIndexHosts:
+    """Tests for :func:`services.scripting.pyodide_runtime._pypi_index_hosts`."""
+
     def test_extracts_host_and_port(self) -> None:
         urls = [
             "https://pypi.mycorp.io/simple/",

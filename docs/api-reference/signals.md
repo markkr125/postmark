@@ -182,13 +182,32 @@ Source: `ui/environments/environment_selector.py`
 | `environment_changed` | `object` | Selection changed (int or None) |
 | `manage_requested` | *(none)* | "Manage Environments" selected |
 
-### EnvironmentEditorDialog
+### EnvironmentSidebarPanel
+
+Source: `ui/environments/environment_sidebar_panel.py`
+
+| Signal | Parameters | Description |
+|--------|------------|-------------|
+| `environment_changed` | `object` | Global active environment changed (`int` or `None`) |
+| `manage_requested` | *(none)* | **Manage** clicked — opens or focuses the **Environments** tab in the main tab deck |
+
+### EnvironmentEditorWidget
 
 Source: `ui/environments/environment_editor.py`
 
 | Signal | Parameters | Description |
 |--------|------------|-------------|
 | `environments_changed` | *(none)* | Environment created, renamed, deleted, or modified |
+
+### EnvironmentEditorDialog
+
+Source: `ui/environments/environment_editor.py`
+
+Modal wrapper around `EnvironmentEditorWidget` (tests and legacy callers).
+
+| Signal | Parameters | Description |
+|--------|------------|-------------|
+| `environments_changed` | *(none)* | Forwarded from the embedded widget |
 
 ## Saved Responses Panel
 

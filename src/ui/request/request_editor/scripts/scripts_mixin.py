@@ -328,6 +328,8 @@ class _ScriptsMixin:
         """Reposition the overlay after the active splitter has a stable geometry."""
         QTimer.singleShot(0, self._refresh_script_split_full_width_line)
         QTimer.singleShot(50, self._refresh_script_split_full_width_line)
+        # Debug bar + variable inspector reflow the scripts tab one frame later.
+        QTimer.singleShot(120, self._refresh_script_split_full_width_line)
 
     def _wire_script_split_full_width_line(self) -> None:
         """Connect splitters once script UI exists (lazy request editor)."""
@@ -569,9 +571,7 @@ class _ScriptsMixin:
         lang_row = QHBoxLayout()
         lang_row.setContentsMargins(0, 0, 0, 0)
 
-        def _make_icon_btn(
-            icon: str, tip: str, slot: Any, *, enabled: bool = True
-        ) -> QPushButton:
+        def _make_icon_btn(icon: str, tip: str, slot: Any, *, enabled: bool = True) -> QPushButton:
             b = QPushButton()
             b.setIcon(phi(icon))
             b.setFixedSize(28, 28)

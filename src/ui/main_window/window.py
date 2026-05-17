@@ -1,37 +1,26 @@
-"""Top-level application window -- menu bar, toolbar, and three-pane layout."""
+"""Top-level application window -- menu bar, status bar, and multi-pane layout."""
 
 from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import QEvent, QObject, QPoint, QSize, Qt, QThread, QTimer
-from PySide6.QtGui import QAction, QCloseEvent, QCursor, QGuiApplication, QKeySequence
+from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QThread, QTimer
+from PySide6.QtGui import (QAction, QCloseEvent, QCursor, QGuiApplication,
+                           QKeySequence)
 
 if TYPE_CHECKING:
     from services.scripting.debug import DebugProtocol
     from ui.request.http_worker import HttpSendWorker
 
-from PySide6.QtWidgets import (
-    QApplication,
-    QHBoxLayout,
-    QInputDialog,
-    QMainWindow,
-    QMessageBox,
-    QPushButton,
-    QSizePolicy,
-    QSplitter,
-    QStackedWidget,
-    QStatusBar,
-    QTabWidget,
-    QToolBar,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import (QApplication, QHBoxLayout, QInputDialog,
+                               QMainWindow, QMessageBox, QPushButton,
+                               QSplitter, QStackedWidget, QStatusBar,
+                               QTabWidget, QVBoxLayout, QWidget)
 
 from services.collection_service import CollectionService
 from ui.collections.collection_widget import CollectionWidget
-from ui.environments.environment_selector import EnvironmentSelector
+from ui.environments.environment_sidebar_panel import EnvironmentSidebarPanel
 from ui.loading_screen import LoadingScreen
 from ui.main_window.draft_controller import _DraftControllerMixin
 from ui.main_window.send_pipeline import _SendPipelineMixin
@@ -62,8 +51,10 @@ class MainWindow(
 ):
     """Top-level application window.
 
-    Sets up the menu bar, toolbar, and four-pane layout
-    (collection sidebar | request editor | response viewer | right sidebar rail).
+    Sets up the menu bar, status bar, and four-pane layout
+    (collections + environments sidebar | request editor | response viewer
+    | right sidebar rail). Back/forward navigation uses ``QAction`` shortcuts
+    only (no toolbar strip).
     """
 
     def __init__(
@@ -388,36 +379,21 @@ class MainWindow(
         return wrapper
 
     # ------------------------------------------------------------------
-    # Toolbar creation
+    # Navigation shortcuts (no visible toolbar)
     # ------------------------------------------------------------------
-    def _create_toolbar(self) -> None:
-        """Build the main toolbar with navigation actions."""
-        toolbar = QToolBar("Main Toolbar")
-        toolbar.setIconSize(QSize(32, 32))
-        toolbar.setMovable(False)
-        self.addToolBar(toolbar)
-
+    def _create_nav_actions(self) -> None:
+        """Register back/forward actions on the window for Alt+Left / Alt+Right."""
         self.back_action = QAction(phi("arrow-left", size=20), "Go back", self)
         self.back_action.setShortcut(QKeySequence("Alt+Left"))
         self.back_action.setEnabled(False)
         self.back_action.triggered.connect(self._navigate_back)
-        toolbar.addAction(self.back_action)
+        self.addAction(self.back_action)
 
         self.forward_action = QAction(phi("arrow-right", size=20), "Go forward", self)
         self.forward_action.setShortcut(QKeySequence("Alt+Right"))
         self.forward_action.setEnabled(False)
         self.forward_action.triggered.connect(self._navigate_forward)
-        toolbar.addAction(self.forward_action)
-
-        # Spacer to push environment selector to the right
-        spacer = QWidget()
-        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        toolbar.addWidget(spacer)
-
-        # Environment selector
-        self._env_selector = EnvironmentSelector()
-        toolbar.addWidget(self._env_selector)
-        self._env_selector.refresh()
+        self.addAction(self.forward_action)
 
     # ------------------------------------------------------------------
     # Status bar creation
@@ -443,11 +419,9 @@ class MainWindow(
         self._sidebar_toggle_btn.clicked.connect(self._toggle_sidebar)
         status_bar.addWidget(self._sidebar_toggle_btn)
 
-        self._sync_sidebar_toggle_btn()
-
     def _sync_sidebar_toggle_btn(self) -> None:
         """Update the sidebar toggle button icon and tooltip to match state."""
-        hidden = self.collection_widget.isHidden()
+        hidden = self._left_nav_splitter.isHidden()
         icon_name = "caret-double-right" if hidden else "caret-double-left"
         self._sidebar_toggle_btn.setIcon(phi(icon_name, size=12))
         self._sidebar_toggle_btn.setToolTip("Expand sidebar" if hidden else "Collapse sidebar")
@@ -456,17 +430,15 @@ class MainWindow(
     # UI construction
     # ------------------------------------------------------------------
     def _setup_ui(self) -> None:
-        """Assemble the full window layout from menus, toolbar, and panes."""
-        # 1. Menu & toolbar
+        """Assemble the full window layout from menus, shortcuts, and panes."""
+        # 1. Menu, navigation shortcuts, status bar
         self._create_menus()
-        self._create_toolbar()
+        self._create_nav_actions()
         self._create_status_bar()
 
         # Hide them initially during loading
         self.menuBar().hide()
         self.statusBar().hide()
-        for tb in self.findChildren(QToolBar):
-            tb.hide()
 
         # 2. Main stack: loading screen vs main UI
         self._main_stack = QStackedWidget()
@@ -486,8 +458,20 @@ class MainWindow(
         self._main_splitter.setHandleWidth(6)
         main_layout.addWidget(self._main_splitter)
 
-        # --- Left navigation pane ---
-        self._main_splitter.addWidget(self.collection_widget)
+        # --- Left navigation: collections + environments (vertical splitter) ---
+        self._left_nav_splitter = QSplitter(Qt.Orientation.Vertical)
+        self._left_nav_splitter.setHandleWidth(6)
+        self._left_nav_splitter.setChildrenCollapsible(False)
+        self._left_nav_splitter.addWidget(self.collection_widget)
+
+        self._env_selector = EnvironmentSidebarPanel()
+        self._left_nav_splitter.addWidget(self._env_selector)
+        self._left_nav_splitter.setStretchFactor(0, 4)
+        self._left_nav_splitter.setStretchFactor(1, 1)
+        self._left_nav_splitter.setSizes([520, 160])
+        self._env_selector.refresh()
+
+        self._main_splitter.addWidget(self._left_nav_splitter)
 
         # --- Centre: vertical splitter (request + response) ---
         request_area = self._build_request_area()
@@ -534,6 +518,8 @@ class MainWindow(
         )
         QTimer.singleShot(0, self._update_request_area_min)
 
+        self._sync_sidebar_toggle_btn()
+
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
         """Recompute request_area's min when chrome geometry changes (tab wrap, etc.)."""
         if event.type() in (
@@ -569,8 +555,6 @@ class MainWindow(
         self._main_stack.setCurrentIndex(1)
         self.menuBar().show()
         self.statusBar().show()
-        for tb in self.findChildren(QToolBar):
-            tb.show()
 
         # Restore tabs from the previous session after collections are ready.
         self._restore_tabs()
@@ -596,8 +580,8 @@ class MainWindow(
         self._response_area.setHidden(not self._response_area.isHidden())
 
     def _toggle_sidebar(self) -> None:
-        """Show or hide the collection sidebar."""
-        self.collection_widget.setHidden(not self.collection_widget.isHidden())
+        """Show or hide the collection and environment left column."""
+        self._left_nav_splitter.setHidden(not self._left_nav_splitter.isHidden())
         self._sync_sidebar_toggle_btn()
 
     def _toggle_bottom_panel(self) -> None:
@@ -682,7 +666,10 @@ class MainWindow(
                 self._on_folder_auto_save(data)
             return
 
-        editor = ctx.editor if ctx else self.request_widget
+        if ctx is not None and ctx.tab_type == "environments":
+            return
+
+        editor = ctx.require_editor() if ctx else self.request_widget
 
         request_id = editor.request_id
 
@@ -775,12 +762,8 @@ class MainWindow(
     # Environment editor
     # ------------------------------------------------------------------
     def _on_manage_environments(self) -> None:
-        """Open the environment editor dialog."""
-        from ui.environments.environment_editor import EnvironmentEditorDialog
-
-        dialog = EnvironmentEditorDialog(parent=self)
-        dialog.environments_changed.connect(self._env_selector.refresh)
-        dialog.exec()
+        """Open the environments editor in a main-window tab."""
+        self._open_environments_tab()
 
     # ------------------------------------------------------------------
     # Save response handler
@@ -802,7 +785,7 @@ class MainWindow(
         if not accepted:
             return
         clean_name = name.strip() or default_name
-        request_data = ctx.editor.get_request_data()
+        request_data = ctx.require_editor().get_request_data()
         CollectionService.save_response(
             ctx.request_id,
             name=clean_name,
@@ -820,7 +803,7 @@ class MainWindow(
         ctx = self._current_tab_context()
         if ctx is None:
             return
-        payload = ctx.response_viewer.get_save_response_data()
+        payload = ctx.require_response_viewer().get_save_response_data()
         if payload is None:
             return
         self._on_save_response(payload)

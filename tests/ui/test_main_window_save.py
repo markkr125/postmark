@@ -463,7 +463,7 @@ class TestMainWindowVariableMap:
     """Tests for variable map refresh on environment and tab changes."""
 
     def test_environment_changed_signal_connected(self, qapp: QApplication, qtbot) -> None:
-        """MainWindow connects to EnvironmentSelector.environment_changed."""
+        """MainWindow connects to EnvironmentSidebarPanel.environment_changed."""
         window = MainWindow()
         qtbot.addWidget(window)
         # Verify the connection works by calling the slot directly

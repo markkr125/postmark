@@ -166,7 +166,8 @@ standard object names:
 
 | objectName | Widget type | Visual role |
 |---|---|---|
-| `primaryButton` | `QPushButton` | Accent-coloured action button |
+| `primaryButton` | `QPushButton` | Accent-coloured action button (label + icon use ``solid_button_fg`` in QSS; Phosphor icons: ``phi(..., color=COLOR_SOLID_BUTTON_FG)``) |
+| `environmentEditorSaveVarsButton` | `QPushButton` | **Environments** tab: compact **Save Variables** (accent + hover; disabled until vars differ from last save) |
 | `dangerButton` | `QPushButton` | Red destructive action |
 | `smallPrimaryButton` | `QPushButton` | Compact accent button |
 | `outlineButton` | `QPushButton` | Border-only button |
@@ -212,6 +213,16 @@ standard object names:
 | `sidebarSearch` | `QLineEdit` | Collection sidebar search input |
 | `sidebarSectionLabel` | `QLabel` | Sidebar section heading |
 | `sidebarToolButton` | `QToolButton` | Sidebar toolbar button |
+| `environmentSidebarPanel` | `QWidget` | MainWindow left column: environments section under collections |
+| `environmentSidebarScroll` | `QScrollArea` | Environment list viewport (no frame) |
+| `environmentSidebarList` | `QWidget` | Bordered list frame (background + border QSS) |
+| `environmentSidebarListBody` | `QWidget` | Inner host for rows (shimmed inside the frame so hover does not clip the border) |
+| `environmentSidebarRow` | `QWidget` | One environment row (hover like collection tree) |
+| `environmentSidebarNameLabel` | `QLabel` | Environment name in sidebar list |
+| `environmentSidebarRowIcon` | `QLabel` | Globe icon beside each environment name |
+| `environmentSidebarEmptyHint` | `ClickableLabel` | Empty list: "Click here to add one." (same action as **Manage**) |
+| `environmentSidebarSetActiveButton` | `QPushButton` | Choose this environment for variable substitution |
+| `environmentSidebarClearButton` | `QPushButton` | Clear global active environment (shown on active row) |
 | `newItemPopup` | `QDialog` | Postman-style "Create New" dialog |
 | `newItemTile` | `QPushButton` | Tile button inside the new-item dialog |
 | `settingsDenoPathEdit` | `QLineEdit` | Scripting: Deno executable path |

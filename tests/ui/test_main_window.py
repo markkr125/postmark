@@ -248,7 +248,7 @@ class TestMainWindowNavigation:
         window._open_request(req1.id, push_history=True)
         window._open_request(req2.id, push_history=True)
         window._tab_bar.setCurrentIndex(0)
-        window._tabs[0].editor._set_dirty(True)
+        window._tabs[0].require_editor()._set_dirty(True)
 
         window._open_request(req3.id, push_history=True)
 
@@ -511,14 +511,14 @@ class TestMainWindowViewToggles:
         assert not window._response_area.isHidden()
 
     def test_toggle_sidebar(self, qapp: QApplication, qtbot) -> None:
-        """Toggling the sidebar hides and shows the collection widget."""
+        """Toggling the sidebar hides and shows the whole left navigation column."""
         window = MainWindow()
         qtbot.addWidget(window)
-        assert not window.collection_widget.isHidden()
+        assert not window._left_nav_splitter.isHidden()
         window._toggle_sidebar()
-        assert window.collection_widget.isHidden()
+        assert window._left_nav_splitter.isHidden()
         window._toggle_sidebar()
-        assert not window.collection_widget.isHidden()
+        assert not window._left_nav_splitter.isHidden()
 
     def test_toggle_bottom_panel(self, qapp: QApplication, qtbot) -> None:
         """Toggling the bottom panel hides and shows it."""

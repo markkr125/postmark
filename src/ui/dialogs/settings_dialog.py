@@ -13,29 +13,60 @@ from typing import Any, Literal, cast
 
 from PySide6.QtCore import QSettings, Qt, QThread, QTimer
 from PySide6.QtGui import QBrush, QColor
-from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox,
-                               QComboBox, QDialog, QFileDialog, QHBoxLayout,
-                               QHeaderView, QLabel, QLineEdit, QProgressBar,
-                               QPushButton, QSizePolicy, QSpinBox, QSplitter,
-                               QStackedWidget, QTableWidget, QTableWidgetItem,
-                               QTreeWidget, QTreeWidgetItem, QVBoxLayout,
-                               QWidget)
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QFileDialog,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QProgressBar,
+    QPushButton,
+    QSizePolicy,
+    QSpinBox,
+    QSplitter,
+    QStackedWidget,
+    QTableWidget,
+    QTableWidgetItem,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
-from services.scripting.runtime_settings import (PyPIConfig, PyPIIndex,
-                                                 RegistryEntry,
-                                                 RuntimeSettings)
+from services.scripting.runtime_settings import (
+    PyPIConfig,
+    PyPIIndex,
+    RegistryEntry,
+    RuntimeSettings,
+)
 from services.scripting.secret_store import backend_status
 from ui.styling.icons import phi
-from ui.styling.tab_settings_manager import (ACTIVATE_LEFT, ACTIVATE_MRU,
-                                             ACTIVATE_RIGHT,
-                                             LIMIT_CLOSE_UNCHANGED,
-                                             LIMIT_CLOSE_UNUSED, MAX_TAB_LIMIT,
-                                             MIN_TAB_LIMIT, WRAP_MULTIPLE_ROWS,
-                                             WRAP_SINGLE_ROW,
-                                             TabSettingsManager)
-from ui.styling.theme_manager import (SCHEME_AUTO, SCHEME_DARK, SCHEME_LIGHT,
-                                      SCHEMES, STYLE_FUSION, STYLES,
-                                      ThemeManager)
+from ui.styling.tab_settings_manager import (
+    ACTIVATE_LEFT,
+    ACTIVATE_MRU,
+    ACTIVATE_RIGHT,
+    LIMIT_CLOSE_UNCHANGED,
+    LIMIT_CLOSE_UNUSED,
+    MAX_TAB_LIMIT,
+    MIN_TAB_LIMIT,
+    WRAP_MULTIPLE_ROWS,
+    WRAP_SINGLE_ROW,
+    TabSettingsManager,
+)
+from ui.styling.theme_manager import (
+    SCHEME_AUTO,
+    SCHEME_DARK,
+    SCHEME_LIGHT,
+    SCHEMES,
+    STYLE_FUSION,
+    STYLES,
+    ThemeManager,
+)
 from ui.widgets.deno_download_worker import DenoDownloadWorker
 
 
@@ -177,9 +208,7 @@ class SettingsDialog(QDialog):
         _leaf(self._cat_tree, "Scripting", self._page_indices["scripting"])
 
         private_parent = QTreeWidgetItem(["Private packages"])
-        private_parent.setData(
-            0, Qt.ItemDataRole.UserRole, self._page_indices["private_overview"]
-        )
+        private_parent.setData(0, Qt.ItemDataRole.UserRole, self._page_indices["private_overview"])
         font = private_parent.font(0)
         font.setBold(True)
         private_parent.setFont(0, font)
@@ -210,11 +239,15 @@ class SettingsDialog(QDialog):
             return
         for top in range(self._cat_tree.topLevelItemCount()):
             top_item = self._cat_tree.topLevelItem(top)
+            if top_item is None:
+                continue
             if top_item.text(0) == target:
                 self._cat_tree.setCurrentItem(top_item)
                 return
             for child in range(top_item.childCount()):
                 child_item = top_item.child(child)
+                if child_item is None:
+                    continue
                 if child_item.text(0) == target:
                     self._cat_tree.setCurrentItem(child_item)
                     self._cat_tree.expandItem(top_item)
@@ -560,7 +593,7 @@ class SettingsDialog(QDialog):
             page_key="private_npm",
             heading="npm (private scoped registries)",
             intro=(
-                "Route <code>pm.require(\"npm:…\")</code> calls through your "
+                'Route <code>pm.require("npm:…")</code> calls through your '
                 "own npm-compatible mirror. One row per <code>@scope</code>; "
                 "public packages stay on registry.npmjs.org unless you "
                 "configure the **Override default npm registry** field below."
@@ -576,7 +609,7 @@ class SettingsDialog(QDialog):
                 "JSR.io does not host private packages — most enterprises "
                 "proxy JSR through an npm-compatible upstream (Cloudsmith, "
                 "Artifactory). Add the proxy here as a scope row; "
-                "<code>pm.require(\"jsr:@scope/pkg\")</code> resolves through "
+                '<code>pm.require("jsr:@scope/pkg")</code> resolves through '
                 "the same <code>.npmrc</code> machinery as npm."
             ),
             include_default_override=False,
@@ -597,8 +630,8 @@ class SettingsDialog(QDialog):
         layout.addWidget(heading)
 
         intro = QLabel(
-            "Route <code>pm.require(\"npm:…\")</code>, "
-            "<code>pm.require(\"jsr:…\")</code> and Python <code>pm.require(…)"
+            'Route <code>pm.require("npm:…")</code>, '
+            '<code>pm.require("jsr:…")</code> and Python <code>pm.require(…)'
             "</code> calls through your own private registries. Pick a provider "
             "from the tree to configure scope mappings, default-registry "
             "overrides, and credentials."
@@ -708,7 +741,7 @@ class SettingsDialog(QDialog):
 
             default_hint = QLabel(
                 "Set this only if you want **every** unscoped "
-                "<code>pm.require(\"npm:…\")</code> call to go through your "
+                '<code>pm.require("npm:…")</code> call to go through your '
                 "mirror instead of registry.npmjs.org. Scoped rows above still "
                 "win for their specific scopes."
             )
@@ -729,9 +762,7 @@ class SettingsDialog(QDialog):
             self._default_npm_auth_btn = QPushButton("Auth…")
             self._default_npm_auth_btn.setObjectName("outlineButton")
             self._default_npm_auth_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            self._default_npm_auth_btn.clicked.connect(
-                self._on_default_npm_auth_clicked
-            )
+            self._default_npm_auth_btn.clicked.connect(self._on_default_npm_auth_clicked)
             default_row.addWidget(self._default_npm_auth_btn)
             layout.addLayout(default_row)
 
@@ -835,9 +866,7 @@ class SettingsDialog(QDialog):
         table.cellChanged.connect(self._on_pypi_cell_changed)
         return table
 
-    def _append_pypi_row_widget(
-        self, table: QTableWidget, entry: PyPIIndex
-    ) -> None:
+    def _append_pypi_row_widget(self, table: QTableWidget, entry: PyPIIndex) -> None:
         """Append one row reflecting *entry*. ``#`` column is read-only."""
         table.blockSignals(True)
         row = table.rowCount()
@@ -1019,14 +1048,10 @@ class SettingsDialog(QDialog):
             if entry["kind"] != kind:
                 continue
             self._append_registry_row_widget(table, entry)
-        table.cellChanged.connect(
-            lambda r, c, k=kind: self._on_registry_cell_changed(k, r, c)
-        )
+        table.cellChanged.connect(lambda r, c, k=kind: self._on_registry_cell_changed(k, r, c))
         return table
 
-    def _append_registry_row_widget(
-        self, table: QTableWidget, entry: RegistryEntry
-    ) -> None:
+    def _append_registry_row_widget(self, table: QTableWidget, entry: RegistryEntry) -> None:
         """Append one row to *table* reflecting *entry* (no Type combo)."""
         table.blockSignals(True)
         row = table.rowCount()
@@ -1061,7 +1086,9 @@ class SettingsDialog(QDialog):
         return item.text() if item else ""
 
     def _sync_table_into_registries(self, kind: Literal["npm", "jsr"]) -> None:
-        """Pull scope/URL edits out of the kind's table back into the
+        """Copy scope/URL cells from the registry table into ``self._registries``.
+
+        Pull scope/URL edits out of the kind's table back into the
         master ``self._registries`` list, identifying entries by stable
         ``id`` so reorderings or row index drift don't lose data.
         """
@@ -1115,9 +1142,7 @@ class SettingsDialog(QDialog):
         self._refresh_overview_summary()
         self._mark_dirty()
 
-    def _on_registry_cell_changed(
-        self, kind: Literal["npm", "jsr"], _row: int, _col: int
-    ) -> None:
+    def _on_registry_cell_changed(self, kind: Literal["npm", "jsr"], _row: int, _col: int) -> None:
         self._sync_table_into_registries(kind)
         self._refresh_registry_row_validation()
         self._refresh_url_field_validation()
@@ -1169,9 +1194,7 @@ class SettingsDialog(QDialog):
                             scope_item.setToolTip("")
                         else:
                             scope_item.setForeground(bad)
-                            scope_item.setToolTip(
-                                "Scope must start with '@' (e.g. @mycompany)."
-                            )
+                            scope_item.setToolTip("Scope must start with '@' (e.g. @mycompany).")
                     if url_item is not None:
                         if self._registry_url_is_valid(url_item.text()):
                             url_item.setForeground(good)
@@ -1215,9 +1238,7 @@ class SettingsDialog(QDialog):
                 edit.setToolTip("")
             else:
                 edit.setStyleSheet("QLineEdit { border: 1px solid #c62828; }")
-                edit.setToolTip(
-                    f"{label} must be https:// (or http://localhost for local dev)."
-                )
+                edit.setToolTip(f"{label} must be https:// (or http://localhost for local dev).")
 
     def _on_registry_auth_clicked_by_id(self, row_id: str) -> None:
         """Auth-button handler keyed by the entry's stable ``id``.
@@ -1283,11 +1304,11 @@ class SettingsDialog(QDialog):
                 if not isinstance(btn, QPushButton):
                     continue
                 row_id = self._row_id_at(table, row)
-                entry = self._entry_by_id(row_id)
+                reg_entry = self._entry_by_id(row_id)
                 self._style_auth_button(
                     btn,
-                    kind=entry.get("auth_kind", "none") if entry else "none",
-                    has_ref=bool(entry and entry.get("auth_ref")),
+                    kind=reg_entry.get("auth_kind", "none") if reg_entry else "none",
+                    has_ref=bool(reg_entry and reg_entry.get("auth_ref")),
                 )
         # Default-npm auth button.
         if hasattr(self, "_default_npm_auth_btn"):
@@ -1308,11 +1329,11 @@ class SettingsDialog(QDialog):
                 if not isinstance(btn, QPushButton):
                     continue
                 row_id = self._pypi_row_id_at(row)
-                entry = self._pypi_entry_by_id(row_id)
+                pypi_entry = self._pypi_entry_by_id(row_id)
                 self._style_auth_button(
                     btn,
-                    kind=entry.get("auth_kind", "none") if entry else "none",
-                    has_ref=bool(entry and entry.get("auth_ref")),
+                    kind=pypi_entry.get("auth_kind", "none") if pypi_entry else "none",
+                    has_ref=bool(pypi_entry and pypi_entry.get("auth_ref")),
                 )
 
     @staticmethod
@@ -1328,7 +1349,9 @@ class SettingsDialog(QDialog):
     def _partition_valid_registries(
         self, entries: list[RegistryEntry]
     ) -> tuple[list[RegistryEntry], list[RegistryEntry]]:
-        """Split *entries* into ``(kept, dropped)`` by the same validation
+        """Split *entries* into kept vs dropped using the same rules as the UI.
+
+        Split *entries* into ``(kept, dropped)`` by the same validation
         the inline UI cues use (scope must start with ``@``, URL must be
         https or loopback).
         """
@@ -1364,10 +1387,11 @@ class SettingsDialog(QDialog):
         self._refresh_auth_button_states()
 
     def _announce_dropped_registries(self, count: int) -> None:
-        """Surface a transient message on the secret-backend label so the
-        user notices when half-typed rows are stripped on Apply.
+        """Show a short warning on the secret-backend label.
 
-        Cheap channel — avoids a QMessageBox that would steal focus.
+        Surfaces a transient message so the user notices when half-typed rows
+        are stripped on Apply. Uses a short label flash instead of a
+        QMessageBox that would steal focus.
         """
         if count <= 0 or not hasattr(self, "_secret_backend_label"):
             return
@@ -1391,8 +1415,7 @@ class SettingsDialog(QDialog):
             colour = "#c62828"
             prefix = "✕"
         self._secret_backend_label.setText(
-            f"Secrets stored in: <span style='color:{colour};'>{prefix} "
-            f"{status['label']}</span>"
+            f"Secrets stored in: <span style='color:{colour};'>{prefix} {status['label']}</span>"
         )
 
     # -- Slots ---------------------------------------------------------
@@ -1509,12 +1532,11 @@ class SettingsDialog(QDialog):
         new_scheme = scheme_data if isinstance(scheme_data, str) else SCHEME_AUTO
 
         theme_changed = False
-        if self._tm is not None:
-            if self._tm.style != new_style or self._tm.scheme != new_scheme:
-                self._tm.style = new_style
-                self._tm.scheme = new_scheme
-                self._tm.apply()
-                theme_changed = True
+        if self._tm is not None and (self._tm.style != new_style or self._tm.scheme != new_scheme):
+            self._tm.style = new_style
+            self._tm.scheme = new_scheme
+            self._tm.apply()
+            theme_changed = True
 
         wrap_mode = self._wrap_mode_combo.currentData()
         self._tab_settings.wrap_mode = (
@@ -1578,16 +1600,14 @@ class SettingsDialog(QDialog):
         # tidy. Pull pending edits from both per-kind tables before the
         # validity check; otherwise an in-flight scope rename would be lost.
         for table_kind in ("npm", "jsr"):
-            self._sync_table_into_registries(
-                cast(Literal["npm", "jsr"], table_kind)
-            )
+            self._sync_table_into_registries(cast(Literal["npm", "jsr"], table_kind))
         kept, dropped = self._partition_valid_registries(self._registries)
         if dropped:
             from services.scripting.secret_store import get_default_store
 
             store = get_default_store()
-            for entry in dropped:
-                ref = entry.get("auth_ref", "")
+            for reg_entry in dropped:
+                ref = reg_entry.get("auth_ref", "")
                 if ref:
                     with contextlib.suppress(Exception):
                         store.delete(ref)
@@ -1610,18 +1630,18 @@ class SettingsDialog(QDialog):
         self._sync_pypi_table_into_indexes()
         kept_pypi: list[PyPIIndex] = []
         dropped_pypi: list[PyPIIndex] = []
-        for entry in self._pypi_indexes:
-            url = entry.get("url", "").strip()
+        for pypi_row in self._pypi_indexes:
+            url = pypi_row.get("url", "").strip()
             if url and url not in ("https://", "http://"):
-                kept_pypi.append(entry)
+                kept_pypi.append(pypi_row)
             else:
-                dropped_pypi.append(entry)
+                dropped_pypi.append(pypi_row)
         if dropped_pypi:
             from services.scripting.secret_store import get_default_store
 
             store = get_default_store()
-            for entry in dropped_pypi:
-                ref = entry.get("auth_ref", "")
+            for drop_row in dropped_pypi:
+                ref = drop_row.get("auth_ref", "")
                 if ref:
                     with contextlib.suppress(Exception):
                         store.delete(ref)
@@ -1631,8 +1651,8 @@ class SettingsDialog(QDialog):
             self._pypi_table.blockSignals(True)
             try:
                 self._pypi_table.setRowCount(0)
-                for entry in self._pypi_indexes:
-                    self._append_pypi_row_widget(self._pypi_table, entry)
+                for idx_row in self._pypi_indexes:
+                    self._append_pypi_row_widget(self._pypi_table, idx_row)
             finally:
                 self._pypi_table.blockSignals(False)
             self._refresh_pypi_priority_labels()

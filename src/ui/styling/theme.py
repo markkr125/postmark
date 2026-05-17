@@ -35,6 +35,9 @@ class ThemePalette(TypedDict):
     success: str
     warning: str
     danger: str
+    accent_hover: str
+    danger_hover: str
+    solid_button_fg: str
     muted: str
     delete: str
     head: str
@@ -128,6 +131,9 @@ LIGHT_PALETTE: ThemePalette = {
     "success": "#2ecc71",
     "warning": "#e89a0c",
     "danger": "#e74c3c",
+    "accent_hover": "#2980b9",
+    "danger_hover": "#c0392b",
+    "solid_button_fg": "#ffffff",
     "muted": "#95a5a6",
     "delete": "#e67e22",
     "head": "#27ae60",
@@ -207,6 +213,9 @@ DARK_PALETTE: ThemePalette = {
     "success": "#4ec9b0",
     "warning": "#dcdcaa",
     "danger": "#f44747",
+    "accent_hover": "#3d9fd9",
+    "danger_hover": "#ff6b6b",
+    "solid_button_fg": "#ffffff",
     "muted": "#808080",
     "delete": "#ce9178",
     "head": "#4ec9b0",
@@ -288,6 +297,9 @@ COLOR_ACCENT: str = _active["accent"]
 COLOR_SUCCESS: str = _active["success"]
 COLOR_WARNING: str = _active["warning"]
 COLOR_DANGER: str = _active["danger"]
+COLOR_ACCENT_HOVER: str = _active["accent_hover"]
+COLOR_DANGER_HOVER: str = _active["danger_hover"]
+COLOR_SOLID_BUTTON_FG: str = _active["solid_button_fg"]
 COLOR_MUTED: str = _active["muted"]
 COLOR_DELETE: str = _active["delete"]
 COLOR_HEAD: str = _active["head"]
@@ -375,6 +387,7 @@ def set_active_palette(palette: ThemePalette) -> None:
     """
     global _active
     global COLOR_ACCENT, COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER
+    global COLOR_ACCENT_HOVER, COLOR_DANGER_HOVER, COLOR_SOLID_BUTTON_FG
     global COLOR_MUTED, COLOR_DELETE, COLOR_HEAD, COLOR_OPTIONS
     global COLOR_WHITE, COLOR_TEXT, COLOR_TEXT_MUTED, COLOR_BORDER
     global COLOR_HOVER_BG, COLOR_HOVER_TREE_BG, COLOR_SELECTED_BG
@@ -418,6 +431,9 @@ def set_active_palette(palette: ThemePalette) -> None:
     COLOR_SUCCESS = palette["success"]
     COLOR_WARNING = palette["warning"]
     COLOR_DANGER = palette["danger"]
+    COLOR_ACCENT_HOVER = palette["accent_hover"]
+    COLOR_DANGER_HOVER = palette["danger_hover"]
+    COLOR_SOLID_BUTTON_FG = palette["solid_button_fg"]
     COLOR_MUTED = palette["muted"]
     COLOR_DELETE = palette["delete"]
     COLOR_HEAD = palette["head"]

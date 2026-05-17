@@ -13,8 +13,7 @@ from typing import Any
 from PySide6.QtCore import QObject, Signal, Slot
 
 from services.scripting import ScriptEngine, ScriptEntry, ScriptInput
-from services.scripting.context import (build_pre_request_context,
-                                        build_test_context)
+from services.scripting.context import build_pre_request_context, build_test_context
 from services.scripting.debug import DebugProtocol
 
 
@@ -148,6 +147,7 @@ class ScriptChainRunWorker(QObject):
     error = Signal(str)
 
     def __init__(self) -> None:
+        """Initialise empty chain state (call ``set_params`` before ``run``)."""
         super().__init__()
         self._chain: list[ScriptEntry] = []
         self._script_type: str = "pre_request"

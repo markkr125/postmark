@@ -86,12 +86,14 @@ class KeyringSecretStore:
     backend_id = "keyring"
 
     def put(self, ref: str, secret: str) -> None:
+        """Store *secret* under *ref* (overwrites)."""
         if not _KEYRING_AVAILABLE or _keyring_lib is None:
             msg = "keyring library is not installed"
             raise RuntimeError(msg)
         _keyring_lib.set_password(_SERVICE_NAME, ref, secret)
 
     def get(self, ref: str) -> str | None:
+        """Return the secret for *ref*, or ``None`` if absent / unreadable."""
         if not _KEYRING_AVAILABLE or _keyring_lib is None:
             return None
         try:
@@ -101,6 +103,7 @@ class KeyringSecretStore:
             return None
 
     def delete(self, ref: str) -> None:
+        """Remove the secret for *ref* (no-op when absent)."""
         if not _KEYRING_AVAILABLE or _keyring_lib is None:
             return
         try:
@@ -193,16 +196,19 @@ class EncryptedFileSecretStore:
         tmp.replace(self._path)
 
     def put(self, ref: str, secret: str) -> None:
+        """Store *secret* under *ref* (overwrites)."""
         with self._lock:
             data = self._load()
             data[ref] = secret
             self._save(data)
 
     def get(self, ref: str) -> str | None:
+        """Return the secret for *ref*, or ``None`` if absent / unreadable."""
         with self._lock:
             return self._load().get(ref)
 
     def delete(self, ref: str) -> None:
+        """Remove the secret for *ref* (no-op when absent)."""
         with self._lock:
             data = self._load()
             if ref in data:
@@ -220,12 +226,15 @@ class NoopSecretStore:
     backend_id = "none"
 
     def put(self, ref: str, secret: str) -> None:
+        """Accept *secret* for *ref* but discard it (no persistent backend)."""
         logger.warning("NoopSecretStore: secret %r dropped (no backend available)", ref)
 
     def get(self, ref: str) -> str | None:
+        """Always return ``None`` (secrets are not stored)."""
         return None
 
     def delete(self, ref: str) -> None:
+        """No-op (nothing is stored)."""
         return None
 
 

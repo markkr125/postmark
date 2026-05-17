@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QEvent, Qt, Signal
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QEnterEvent, QIcon
 from PySide6.QtWidgets import QPushButton, QWidget
 
 from ui.styling import theme
@@ -51,7 +51,7 @@ class InheritedScriptsBanner(QPushButton):
         self.setToolTip("View inherited scripts and per-request disable options")
         self.setVisible(False)
 
-    def enterEvent(self, event: QEvent) -> None:
+    def enterEvent(self, event: QEnterEvent) -> None:
         """Switch the icon to white when the cursor enters the button."""
         self.setIcon(self._icon_hover)
         super().enterEvent(event)

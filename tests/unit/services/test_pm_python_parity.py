@@ -1,6 +1,6 @@
 """Postman API parity tests for the Python sandbox (`_py_sandbox.py`).
 
-Covers the Phases 2–10 Python work:
+Covers the Phases 2-10 Python work:
 - HeaderList shape on pm.request.headers / pm.response.headers
 - _PmUrl wrapper on pm.request.url + .query.add(...)
 - Request body discriminated union (mode/raw/urlencoded/formdata)
@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from services.scripting import ScriptInput
+from services.scripting import ScriptInput, ScriptOutput, TestResult as _ScriptTestResult
 from services.scripting.py_runtime import PyRuntime
 
 
@@ -40,11 +40,11 @@ def _ctx(response: dict | None = None, **extra: Any) -> ScriptInput:
     return base  # type: ignore[return-value]
 
 
-def _passed(result: dict[str, Any]) -> list[dict[str, Any]]:
+def _passed(result: ScriptOutput) -> list[_ScriptTestResult]:
     return [r for r in result["test_results"] if r["passed"]]
 
 
-def _failed(result: dict[str, Any]) -> list[dict[str, Any]]:
+def _failed(result: ScriptOutput) -> list[_ScriptTestResult]:
     return [r for r in result["test_results"] if not r["passed"]]
 
 
@@ -461,7 +461,9 @@ def test_pm_response_body_is_public_attribute() -> None:
 
 
 def test_pm_response_is_dict_subclass_for_isinstance_check() -> None:
-    """Postman scripts ported to Python often gate on ``isinstance(response, dict)``;
+    """Gate ported scripts on ``isinstance(response, dict)``.
+
+    Postman scripts ported to Python often gate on ``isinstance(response, dict)``;
     the wrapped response must satisfy it so ``response.get(...)`` is reached.
     """
     from services.scripting._py_sandbox import _PmResponse

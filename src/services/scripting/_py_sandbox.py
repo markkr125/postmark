@@ -30,7 +30,9 @@ from urllib.parse import quote, urlencode
 
 try:
     from RestrictedPython import (  # type: ignore[import-untyped]
-        compile_restricted, safe_globals)
+        compile_restricted,
+        safe_globals,
+    )
 
     _HAS_RESTRICTED = True
 except ImportError:
@@ -574,9 +576,10 @@ class _PmUrl:
     """Postman-style ``Url`` wrapper. See ``_HeaderList`` notes."""
 
     def __init__(self, raw: Any) -> None:
-        from urllib.parse import parse_qsl, urlparse
+        from urllib.parse import ParseResult, parse_qsl, urlparse
 
         self._raw = str(raw or "")
+        self._parsed: ParseResult | None
         try:
             self._parsed = urlparse(self._raw)
         except Exception:
@@ -793,6 +796,7 @@ class _PmResponse(dict):  # type: ignore[type-arg]
         self.body: str = data.get("body", "")
         self._body: str = self.body
         self.cookies = _PmCookies(data)
+        self.originalRequest: _PmRequest | None
         if original_request:
             self.originalRequest = _PmRequest(original_request, is_pre_request=False)
         else:

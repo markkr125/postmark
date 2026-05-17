@@ -5,11 +5,16 @@ from __future__ import annotations
 import stat
 import sys
 from pathlib import Path
+from typing import cast
 from unittest.mock import MagicMock, patch
 
-from services.scripting.runtime_settings import (RuntimePathStatus,
-                                                 RuntimeSettings,
-                                                 _is_executable_file)
+from services.scripting.runtime_settings import (
+    PyPIIndex,
+    RegistryEntry,
+    RuntimePathStatus,
+    RuntimeSettings,
+    _is_executable_file,
+)
 
 
 class _MemoryQSettings:
@@ -236,7 +241,7 @@ class TestPrivateRegistries:
                     "auth_ref": "",
                 },
             ]
-            RuntimeSettings.set_registries(entries)
+            RuntimeSettings.set_registries(cast(list[RegistryEntry], entries))
             assert RuntimeSettings.get_registries() == entries
 
     def test_registries_corrupt_json_returns_empty(self) -> None:
@@ -361,10 +366,12 @@ class TestPrivateRegistries:
             }
 
     def test_legacy_id_migration_is_persisted(self) -> None:
-        """P4 fix: a legacy entry without ``id`` gets a UUID *and* the new
-        ID is written back to QSettings so subsequent reads return the
-        same ID. Without persistence, auth saved against a freshly-minted
-        ID would orphan its secret on the next ``get_registries`` call.
+        """P4 fix: legacy entries without ``id`` get a stable persisted UUID.
+
+        A legacy entry without ``id`` gets a UUID *and* the new ID is written
+        back to QSettings so subsequent reads return the same ID. Without
+        persistence, auth saved against a freshly-minted ID would orphan its
+        secret on the next ``get_registries`` call.
         """
         import json as _json
 
@@ -411,7 +418,7 @@ class TestPrivateRegistries:
                     "auth_ref": "",
                 },
             ]
-            RuntimeSettings.set_pypi_indexes(indexes)
+            RuntimeSettings.set_pypi_indexes(cast(list[PyPIIndex], indexes))
             assert RuntimeSettings.get_pypi_indexes() == indexes
             # Order preserved across reads.
             assert RuntimeSettings.get_pypi_indexes()[0]["url"] == indexes[0]["url"]
@@ -420,8 +427,9 @@ class TestPrivateRegistries:
             assert RuntimeSettings.get_pypi_indexes() == []
 
     def test_pypi_indexes_migrate_from_legacy_config(self) -> None:
-        """Legacy single-primary + single-extra keys migrate to the list shape
-        on first read; the migration is persisted so IDs stay stable.
+        """Migrate legacy single-primary + single-extra keys to the list shape.
+
+        On first read the migration is persisted so IDs stay stable.
         """
         mem = _MemoryQSettings()
         mem.setValue("scripting/pypi/index_url", "https://pypi.mycorp.io/simple/")
@@ -440,8 +448,9 @@ class TestPrivateRegistries:
         assert [e["id"] for e in first] == [e["id"] for e in second]
 
     def test_set_pypi_indexes_clears_legacy_keys(self) -> None:
-        """Persisting the new list also wipes the legacy single-pair keys so
-        they don't shadow the list on subsequent reads.
+        """Persisting the new list wipes legacy single-pair keys.
+
+        They must not shadow the list on subsequent reads.
         """
         mem = _MemoryQSettings()
         mem.setValue("scripting/pypi/index_url", "https://old.example/")
@@ -462,8 +471,10 @@ class TestPrivateRegistries:
         assert "scripting/pypi/auth_ref" not in mem._d
 
     def test_pypi_legacy_auth_kind_defaults_to_token(self) -> None:
-        """PyPI configs persisted before ``auth_kind`` was introduced
-        keep working with implicit ``token`` semantics.
+        """PyPI configs without ``auth_kind`` default to token semantics.
+
+        PyPI configs persisted before ``auth_kind`` was introduced keep working
+        with implicit ``token`` semantics.
         """
         mem = _MemoryQSettings()
         mem.setValue("scripting/pypi/index_url", "https://pypi.mycorp.io/simple/")

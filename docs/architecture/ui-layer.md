@@ -34,14 +34,14 @@ wiring map.
 
 ```text
 MainWindow (QMainWindow)
-  +-- QToolBar
-  |     +-- EnvironmentSelector (dropdown)
-  |     +-- Settings button, Theme button
+  +-- QAction (back / forward shortcuts only; no visible toolbar strip)
   +-- QSplitter (horizontal, 3 panes)
-        +-- CollectionWidget (left sidebar)
-        |     +-- CollectionHeader (search + new/import buttons)
-        |     +-- CollectionTree (QTreeWidget subclass)
-        |           +-- CollectionTreeDelegate (method badge renderer)
+        +-- QSplitter (vertical, left column)
+        |     +-- CollectionWidget
+        |     |     +-- CollectionHeader (search + new/import buttons)
+        |     |     +-- CollectionTree (QTreeWidget subclass)
+        |     |           +-- CollectionTreeDelegate (method badge renderer)
+        |     +-- EnvironmentSidebarPanel (global env list + **Set active** / **Clear** per row)
         +-- Centre pane (QWidget)
         |     +-- RequestTabBar (wrapped multi-row tab deck)
         |     +-- BreadcrumbBar (path navigation)
@@ -114,12 +114,13 @@ TabManager
   +-- _deferred_tabs: dict[int, dict]   Lazy-loaded tabs from session restore
 
 TabContext
-  +-- tab_type: "request" | "folder"
+  +-- tab_type: "request" | "folder" | "environments"
   +-- request_id: int | None
   +-- collection_id: int | None
-  +-- editor: RequestEditor
+  +-- editor: RequestEditor | None
   +-- folder_editor: FolderEditorWidget | None
-  +-- response_viewer: ResponseViewer
+  +-- environment_editor: EnvironmentEditorWidget | None
+  +-- response_viewer: ResponseViewer | None
   +-- is_dirty: bool
   +-- is_sending: bool
   +-- is_preview: bool

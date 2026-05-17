@@ -6,16 +6,9 @@ application-wide Qt Style Sheet string from a ThemePalette.
 
 from __future__ import annotations
 
-from ui.styling.theme import (
-    BADGE_BORDER_RADIUS,
-    BADGE_FONT_SIZE,
-    BADGE_HEIGHT,
-    BADGE_MIN_WIDTH,
-    DARK_PALETTE,
-    LIGHT_PALETTE,
-    TREE_ROW_HEIGHT,
-    ThemePalette,
-)
+from ui.styling.theme import (BADGE_BORDER_RADIUS, BADGE_FONT_SIZE,
+                              BADGE_HEIGHT, BADGE_MIN_WIDTH, DARK_PALETTE,
+                              LIGHT_PALETTE, TREE_ROW_HEIGHT, ThemePalette)
 
 
 def build_global_qss(p: ThemePalette) -> str:
@@ -179,14 +172,14 @@ def build_global_qss(p: ThemePalette) -> str:
     /* ---- Buttons ------------------------------------------------ */
     QPushButton[objectName="primaryButton"] {{
         background: {p["accent"]};
-        color: {p["bg"]};
+        color: {p["solid_button_fg"]};
         border: none;
         padding: 6px 20px;
         font-weight: bold;
         border-radius: 4px;
     }}
     QPushButton[objectName="primaryButton"]:hover {{
-        opacity: 0.85;
+        background: {p["accent_hover"]};
     }}
     QPushButton[objectName="primaryButton"]:disabled {{
         /* Keep the button visibly the primary action — just dim it.
@@ -196,22 +189,38 @@ def build_global_qss(p: ThemePalette) -> str:
            Qt's stylesheet engine cannot derive ``rgba(p["accent"], 0.4)``
            from a hex string at runtime. */
         background: {"rgba(79, 193, 255, 0.40)" if p is DARK_PALETTE else "rgba(52, 152, 219, 0.40)"};
-        color: {p["bg"]};
+        color: {p["solid_button_fg"]};
     }}
     QPushButton[objectName="dangerButton"] {{
         background: {p["danger"]};
-        color: {p["bg"]};
+        color: {p["solid_button_fg"]};
         border: none;
         padding: 6px 20px;
         font-weight: bold;
         border-radius: 4px;
     }}
     QPushButton[objectName="dangerButton"]:hover {{
-        opacity: 0.85;
+        background: {p["danger_hover"]};
     }}
     QPushButton[objectName="dangerButton"]:disabled {{
         background: {p["bg_alt"]};
         color: {p["text_muted"]};
+    }}
+    QPushButton[objectName="environmentEditorSaveVarsButton"] {{
+        background: {p["accent"]};
+        color: {p["solid_button_fg"]};
+        border: none;
+        padding: 10px 34px;
+        font-size: 15px;
+        font-weight: 600;
+        border-radius: 4px;
+    }}
+    QPushButton[objectName="environmentEditorSaveVarsButton"]:hover {{
+        background: {p["accent_hover"]};
+    }}
+    QPushButton[objectName="environmentEditorSaveVarsButton"]:disabled {{
+        background: {"rgba(79, 193, 255, 0.40)" if p is DARK_PALETTE else "rgba(52, 152, 219, 0.40)"};
+        color: {p["solid_button_fg"]};
     }}
     QPushButton[objectName="smallPrimaryButton"] {{
         background: {p["accent"]};
@@ -753,6 +762,82 @@ def build_global_qss(p: ThemePalette) -> str:
         font-weight: bold;
         font-size: 13px;
         color: {p["text"]};
+    }}
+
+    /* ---- Environment sidebar (under collections) -------------- */
+    QWidget#environmentSidebarPanel {{
+        border-top: 1px solid {p["border"]};
+    }}
+    QScrollArea#environmentSidebarScroll {{
+        border: none;
+        background: transparent;
+    }}
+    QWidget#environmentSidebarList {{
+        background: {p["input_bg"]};
+        border: 1px solid {p["border"]};
+        border-radius: 0px;
+    }}
+    QWidget#environmentSidebarListBody {{
+        background: transparent;
+    }}
+    QWidget#environmentSidebarRow {{
+        background: transparent;
+        border: none;
+    }}
+    QWidget#environmentSidebarRow:hover {{
+        background: {p["hover_tree_bg"]};
+    }}
+    QLabel#environmentSidebarNameLabel {{
+        font-size: 13px;
+        color: {p["text"]};
+    }}
+    QLabel#environmentSidebarRowIcon {{
+        background: transparent;
+        padding: 0px;
+    }}
+    QLabel#environmentSidebarEmptyHint {{
+        color: {p["accent"]};
+        font-size: 11px;
+        text-decoration: underline;
+    }}
+
+    QPushButton#environmentSidebarSetActiveButton {{
+        background: {p["accent"]};
+        color: {p["bg"]};
+        border: 1px solid {p["accent"]};
+        border-radius: {BADGE_BORDER_RADIUS}px;
+        font-size: 11px;
+        font-weight: 600;
+        padding: 2px 5px;
+    }}
+    QPushButton#environmentSidebarSetActiveButton:hover {{
+        background: {p["bg"]};
+        color: {p["accent"]};
+        border: 1px solid {p["accent"]};
+    }}
+    QPushButton#environmentSidebarSetActiveButton:pressed {{
+        background: {p["selected_bg"]};
+        color: {p["accent"]};
+        border-color: {p["accent"]};
+    }}
+    QPushButton#environmentSidebarClearButton {{
+        background: {p["input_bg"]};
+        color: {p["text_muted"]};
+        border: 1px solid {p["border"]};
+        border-radius: {BADGE_BORDER_RADIUS}px;
+        font-size: 11px;
+        font-weight: 600;
+        padding: 2px 5px;
+    }}
+    QPushButton#environmentSidebarClearButton:hover {{
+        color: {p["danger"]};
+        border-color: {p["danger"]};
+        background: {p["hover_tree_bg"]};
+    }}
+    QPushButton#environmentSidebarClearButton:pressed {{
+        background: {p["hover_bg"]};
+        border-color: {p["danger"]};
+        color: {p["danger"]};
     }}
 
     /* ---- Badge (method badge in tree + tabs) -------------------- */
