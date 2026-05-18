@@ -53,8 +53,9 @@ src/
     |   +-- draft_controller.py      _DraftControllerMixin -- draft tab open/save
     |   +-- tab_controller.py        _TabControllerMixin -- tab open/close/switch
     |   +-- variable_controller.py   _VariableControllerMixin -- env variable + sidebar management
-    +-- sidebar/                     Right sidebar sub-package
+    +-- sidebar/                     Sidebar rails + flyout panels
     |   +-- sidebar_widget.py        RightSidebar (icon rail) + _FlyoutPanel
+    |   +-- left_sidebar.py          LeftSidebar — activity rail + collapsible nav flyout
     |   +-- variables_panel.py       VariablesPanel -- read-only variable display
     |   +-- snippet_panel.py         SnippetPanel -- inline code snippet generator
     |   +-- saved_responses/         Saved responses sub-package
@@ -63,7 +64,7 @@ src/
     |       +-- helpers.py           Formatting helpers (body size, language detect)
     |       +-- delegate.py          Custom delegate for saved response list items
     +-- styling/                     Visual theming and icons
-    |   +-- theme.py                 Palettes, colours, badge geometry, method_color(), status_color()
+    |   +-- theme.py                 Palettes, colours, status bar / left-rail chrome, badge/tree geometry, left-nav panel margins, method_color(), status_color()
     |   +-- theme_manager.py         ThemeManager -- QPalette + QSettings
     |   +-- tab_settings_manager.py  TabSettingsManager -- request-tab QSettings bridge
     |   +-- global_qss.py           build_global_qss() -- global stylesheet builder
@@ -191,6 +192,7 @@ tests/
     |   +-- test_icons.py           Icon system tests
     +-- sidebar/
     |   +-- test_sidebar.py          RightSidebar tests
+    |   +-- test_left_sidebar.py     LeftSidebar tests
     |   +-- test_variables_panel.py  VariablesPanel tests
     |   +-- test_snippet_panel.py    SnippetPanel tests
     |   +-- test_saved_responses_panel.py  SavedResponsesPanel tests

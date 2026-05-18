@@ -44,7 +44,7 @@ Use indented text trees for hierarchies:
 
 ```text
 MainWindow
-  +-- CollectionWidget (left sidebar)
+  +-- LeftSidebar      (left rail + collections / environments flyout)
   +-- RequestEditor   (centre-left)
   +-- ResponseViewer   (centre-right)
   +-- RightSidebar     (right rail)

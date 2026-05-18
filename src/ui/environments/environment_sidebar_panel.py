@@ -19,7 +19,11 @@ from PySide6.QtWidgets import (
 
 from services.environment_service import EnvironmentService
 from ui.styling.icons import phi
-from ui.styling.theme import TREE_ROW_HEIGHT
+from ui.styling.theme import (
+    LEFT_NAV_PANEL_MARGIN_H_LEFT_PX,
+    LEFT_NAV_PANEL_MARGIN_H_RIGHT_PX,
+    TREE_ROW_HEIGHT,
+)
 from ui.widgets.info_popup import ClickableLabel
 
 # Inset between the QSS list frame and the scroll document (avoids hover under the border).
@@ -65,11 +69,16 @@ class EnvironmentSidebarPanel(QWidget):
         self._last_envs: list[dict[str, Any]] = []
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, _ENV_PANEL_ROOT_BOTTOM_MARGIN_PX)
+        root.setContentsMargins(
+            LEFT_NAV_PANEL_MARGIN_H_LEFT_PX,
+            0,
+            LEFT_NAV_PANEL_MARGIN_H_RIGHT_PX,
+            _ENV_PANEL_ROOT_BOTTOM_MARGIN_PX,
+        )
         root.setSpacing(_ENV_PANEL_HEADER_LIST_GAP_PX)
 
         header = QHBoxLayout()
-        header.setContentsMargins(8, 6, 8, 0)
+        header.setContentsMargins(0, 6, 0, 0)
         header.setSpacing(4)
         title = QLabel("Environments")
         title.setObjectName("sidebarSectionLabel")

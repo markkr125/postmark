@@ -236,10 +236,14 @@ standard object names:
 | `newItemTitle` | `QLabel` | Dialog heading ("What do you want to create?") |
 | `newItemDescription` | `QLabel` | Description text below tiles |
 | `collectionTree` | `QTreeWidget` | Collection tree in SaveRequestDialog |
+| `mainWindowHorizontalSplitter` | `QSplitter` | Main horizontal splitter (left rail + flyouts + centre); thin hairline handles via global QSS |
 | `sidebarRail` | `QWidget` | Always-visible icon rail (RightSidebar widget) |
-| `sidebarRailButton` | `QToolButton` | Checkable icon button in the rail |
-| `sidebarPanelArea` | `QWidget` | Collapsible flyout panel (separate splitter child) |
-| `sidebarTitleLabel` | `QLabel` | Bold panel title in flyout header |
+| `sidebarRailButton` | `QToolButton` | Checkable icon button in the right rail |
+| `leftSidebarRail` | `QWidget` | Left activity rail: background uses palette ``status_bar_bg`` (same as ``QStatusBar#appStatusBar``); no outer layout padding |
+| `leftSidebarRailButton` | `QToolButton` | Rail icon (``_LeftRailButton``): width ``round(LEFT_RAIL_WIDTH_EM * em)``, icon ``round(LEFT_RAIL_ICON_EM * em)``, height ``icon_size + LEFT_RAIL_BUTTON_EXTRA_HEIGHT_PX``; checked left accent **painted** full height (``LEFT_RAIL_ACCENT_STRIPE_WIDTH_PX``); QSS margin/padding ``0`` |
+| `sidebarPanelArea` | `QWidget` | Right sidebar collapsible flyout panel (separate splitter child) |
+| `leftSidebarFlyout` | `QWidget` | Left collections flyout: ``border-left`` vs rail only; right edge uses the main splitter handle (no ``border-right``, avoids a double line when open). At 0 width uses a local ``setStyleSheet`` to strip chrome. Nav horizontal inset lives on ``CollectionWidget`` / ``EnvironmentSidebarPanel`` (``LEFT_NAV_PANEL_MARGIN_H_*`` in ``theme.py``) so the collections|environments splitter handle is not inset. |
+| `sidebarTitleLabel` | `QLabel` | Bold panel title in **right** flyout header; debug panel position label (left flyout has no title row) |
 | `variableKeyLabel` | `QLineEdit` | Variable key (read-only, selectable) in variables / debug KV rows |
 | `variableValueLabel` | `QLineEdit` | Variable value preview (read-only, selectable); long values use a collapsible row in legacy KV rows |
 | `variableValueEditor` | `QPlainTextEdit` | Expanded full value in collapsible KV rows (flat debug locals) |
@@ -302,6 +306,9 @@ varies at runtime and cannot be expressed with objectName selectors:
 - Breadcrumb per-segment colour
 - Spinner animation colours
 - Drop-zone active hover overlay
+- ``LeftSidebar`` flyout at **zero splitter width** — strips borders with a
+  local sheet so they do not stack on the main splitter handle (global QSS
+  ``bool`` dynamic-property selectors are unreliable here)
 
 For everything else, use `setObjectName()` and let the global QSS handle it.
 

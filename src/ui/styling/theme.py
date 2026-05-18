@@ -46,6 +46,7 @@ class ThemePalette(TypedDict):
     # Functional
     sending: str
     breadcrumb_sep: str
+    status_bar_bg: str
 
     # Import dialog
     drop_zone_border: str
@@ -140,6 +141,7 @@ LIGHT_PALETTE: ThemePalette = {
     "options": "#9b59b6",
     "sending": "#f39c12",
     "breadcrumb_sep": "#aaaaaa",
+    "status_bar_bg": "#ebebeb",
     "drop_zone_border": "#b0b0b0",
     "drop_zone_bg": "#fafafa",
     "drop_zone_active_bg": "#e8f4fd",
@@ -222,6 +224,7 @@ DARK_PALETTE: ThemePalette = {
     "options": "#c586c0",
     "sending": "#f39c12",
     "breadcrumb_sep": "#666666",
+    "status_bar_bg": "#1a1a1c",
     "drop_zone_border": "#555555",
     "drop_zone_bg": "#252526",
     "drop_zone_active_bg": "#1a3a4a",
@@ -319,6 +322,7 @@ COLOR_CONSOLE_BG: str = _active["console_bg"]
 COLOR_CONSOLE_TEXT: str = _active["console_text"]
 
 COLOR_BREADCRUMB_SEP: str = _active["breadcrumb_sep"]
+COLOR_STATUS_BAR_BG: str = _active["status_bar_bg"]
 
 COLOR_DROP_ZONE_BORDER: str = _active["drop_zone_border"]
 COLOR_DROP_ZONE_BG: str = _active["drop_zone_bg"]
@@ -393,7 +397,7 @@ def set_active_palette(palette: ThemePalette) -> None:
     global COLOR_HOVER_BG, COLOR_HOVER_TREE_BG, COLOR_SELECTED_BG
     global COLOR_SENDING
     global COLOR_CONSOLE_BG, COLOR_CONSOLE_TEXT
-    global COLOR_BREADCRUMB_SEP
+    global COLOR_BREADCRUMB_SEP, COLOR_STATUS_BAR_BG
     global COLOR_DROP_ZONE_BORDER, COLOR_DROP_ZONE_BG
     global COLOR_DROP_ZONE_ACTIVE_BG
     global COLOR_IMPORT_SUCCESS, COLOR_IMPORT_ERROR, COLOR_IMPORT_WARN
@@ -453,6 +457,7 @@ def set_active_palette(palette: ThemePalette) -> None:
     COLOR_CONSOLE_TEXT = palette["console_text"]
 
     COLOR_BREADCRUMB_SEP = palette["breadcrumb_sep"]
+    COLOR_STATUS_BAR_BG = palette["status_bar_bg"]
 
     COLOR_DROP_ZONE_BORDER = palette["drop_zone_border"]
     COLOR_DROP_ZONE_BG = palette["drop_zone_bg"]
@@ -547,6 +552,23 @@ BADGE_MIN_WIDTH = 32  # px — keeps all labels the same width
 BADGE_HEIGHT = 16  # px — consistent vertical size
 BADGE_BORDER_RADIUS = 3  # px
 TREE_ROW_HEIGHT = 28  # px — uniform row height for every item
+
+# Left nav flyout (collections + environments panes): horizontal inset for
+# panel bodies only. Applied inside each splitter child so the vertical handle
+# between collections and environments stays edge-to-edge in the flyout.
+LEFT_NAV_PANEL_MARGIN_H_LEFT_PX = 12
+LEFT_NAV_PANEL_MARGIN_H_RIGHT_PX = 8
+
+# Left activity rail: width and icon size as multiples of the primary font
+# height (see ``LeftSidebar``). Keep the strip narrow; ``ICON_EM`` nudges the
+# glyph up slightly, and ``LEFT_RAIL_BUTTON_EXTRA_HEIGHT_PX`` adds a little
+# vertical room without a wide activity bar.
+LEFT_RAIL_WIDTH_EM = 2.55
+LEFT_RAIL_ICON_EM = 1.48
+# Extra vertical space on each button (hit target + room around the icon).
+LEFT_RAIL_BUTTON_EXTRA_HEIGHT_PX = 10
+# Full-height painted accent (``QToolButton`` QSS ``border-left`` clips to content).
+LEFT_RAIL_ACCENT_STRIPE_WIDTH_PX = 3
 
 
 def method_color(method: str) -> str:

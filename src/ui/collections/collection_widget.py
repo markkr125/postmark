@@ -9,6 +9,10 @@ from PySide6.QtWidgets import QMessageBox, QProgressBar, QVBoxLayout, QWidget
 from services.collection_service import CollectionService
 from ui.collections.collection_header import CollectionHeader
 from ui.collections.tree import CollectionTree
+from ui.styling.theme import (
+    LEFT_NAV_PANEL_MARGIN_H_LEFT_PX,
+    LEFT_NAV_PANEL_MARGIN_H_RIGHT_PX,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -89,9 +93,15 @@ class CollectionWidget(QWidget):
 
         self._svc = CollectionService()
 
-        # Main layout
+        # Main layout (horizontal inset matches left flyout nav; keeps the
+        # collections|environments splitter handle full-width in the parent).
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 6)
+        main_layout.setContentsMargins(
+            LEFT_NAV_PANEL_MARGIN_H_LEFT_PX,
+            0,
+            LEFT_NAV_PANEL_MARGIN_H_RIGHT_PX,
+            6,
+        )
         main_layout.setSpacing(0)
 
         # Header

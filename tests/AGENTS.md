@@ -193,6 +193,7 @@ tests/
     │   └── test_runtime_banner.py
    ├── sidebar/                   # Sidebar widget tests
    │   ├── test_sidebar.py
+   │   ├── test_left_sidebar.py
    │   ├── test_variables_panel.py
    │   ├── test_snippet_panel.py
    │   ├── test_debug_panel.py

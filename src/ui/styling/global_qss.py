@@ -6,9 +6,16 @@ application-wide Qt Style Sheet string from a ThemePalette.
 
 from __future__ import annotations
 
-from ui.styling.theme import (BADGE_BORDER_RADIUS, BADGE_FONT_SIZE,
-                              BADGE_HEIGHT, BADGE_MIN_WIDTH, DARK_PALETTE,
-                              LIGHT_PALETTE, TREE_ROW_HEIGHT, ThemePalette)
+from ui.styling.theme import (
+    BADGE_BORDER_RADIUS,
+    BADGE_FONT_SIZE,
+    BADGE_HEIGHT,
+    BADGE_MIN_WIDTH,
+    DARK_PALETTE,
+    LIGHT_PALETTE,
+    TREE_ROW_HEIGHT,
+    ThemePalette,
+)
 
 
 def build_global_qss(p: ThemePalette) -> str:
@@ -31,6 +38,12 @@ def build_global_qss(p: ThemePalette) -> str:
     }}
     QSplitter[objectName="gqlSplitter"]::handle:horizontal {{
         border-right: none;
+    }}
+    QSplitter[objectName="mainWindowHorizontalSplitter"]::handle:horizontal {{
+        width: 1px;
+        border: none;
+        margin: 0px;
+        background: {p["border"]};
     }}
     QSplitter::handle:vertical {{
         height: 4px;
@@ -373,7 +386,7 @@ def build_global_qss(p: ThemePalette) -> str:
 
     /* ---- Status bar --------------------------------------------- */
     QStatusBar#appStatusBar {{
-        background: {"#1a1a1c" if p is DARK_PALETTE else "#ebebeb"};
+        background: {p["status_bar_bg"]};
         border-top: 1px solid {p["border"]};
         min-height: 20px;
         max-height: 22px;
@@ -1075,6 +1088,7 @@ def build_global_qss(p: ThemePalette) -> str:
     /* ---- Right sidebar ------------------------------------------ */
     QWidget[objectName="sidebarPanelArea"] {{
         background: {p["bg"]};
+        border-left: 1px solid {p["border"]};
         border-right: 1px solid {p["border"]};
     }}
     /* Scroll area inside expanded sidebar must not override parent's right border */
@@ -1082,9 +1096,22 @@ def build_global_qss(p: ThemePalette) -> str:
         border: none;
         border-right: 1px solid {p["border"]};
     }}
+    QWidget[objectName="leftSidebarFlyout"] {{
+        background: {p["bg"]};
+        border-left: 1px solid {p["border"]};
+    }}
+    QWidget[objectName="leftSidebarFlyout"] QScrollArea {{
+        border: none;
+    }}
     QWidget[objectName="sidebarRail"] {{
         background: {p["bg"]};
         border-left: 1px solid {p["border"]};
+    }}
+    QWidget[objectName="leftSidebarRail"] {{
+        background: {p["status_bar_bg"]};
+        border: none;
+        margin: 0px;
+        padding: 0px;
     }}
     QToolButton[objectName="sidebarRailButton"] {{
         background: transparent;
@@ -1107,6 +1134,22 @@ def build_global_qss(p: ThemePalette) -> str:
     QToolButton[objectName="sidebarRailButton"]:disabled {{
         color: {p["text_muted"]};
         opacity: 0.4;
+    }}
+    QToolButton[objectName="leftSidebarRailButton"] {{
+        background: transparent;
+        border: none;
+        border-radius: 0px;
+        margin: 0px;
+        padding: 0px;
+        color: {p["text_muted"]};
+    }}
+    QToolButton[objectName="leftSidebarRailButton"]:hover {{
+        background: {"rgba(255,255,255,0.10)" if p is DARK_PALETTE else "rgba(0,0,0,0.07)"};
+        color: {p["text"]};
+    }}
+    QToolButton[objectName="leftSidebarRailButton"]:checked {{
+        background: {"rgba(79,193,255,0.14)" if p is DARK_PALETTE else "rgba(52,152,219,0.12)"};
+        color: {p["accent"]};
     }}
     QLabel[objectName="sidebarTitleLabel"] {{
         font-weight: bold;

@@ -6,17 +6,26 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QThread, QTimer
-from PySide6.QtGui import (QAction, QCloseEvent, QCursor, QGuiApplication,
-                           QKeySequence)
+from PySide6.QtGui import QAction, QCloseEvent, QCursor, QGuiApplication, QKeySequence
 
 if TYPE_CHECKING:
     from services.scripting.debug import DebugProtocol
     from ui.request.http_worker import HttpSendWorker
 
-from PySide6.QtWidgets import (QApplication, QHBoxLayout, QInputDialog,
-                               QMainWindow, QMessageBox, QPushButton,
-                               QSplitter, QStackedWidget, QStatusBar,
-                               QTabWidget, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (
+    QApplication,
+    QHBoxLayout,
+    QInputDialog,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QSplitter,
+    QStackedWidget,
+    QStatusBar,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
+)
 
 from services.collection_service import CollectionService
 from ui.collections.collection_widget import CollectionWidget
@@ -33,7 +42,7 @@ from ui.request.navigation.request_tab_bar import RequestTabBar
 from ui.request.navigation.tab_manager import TabContext
 from ui.request.request_editor import RequestEditorWidget
 from ui.request.response_viewer import ResponseViewerWidget
-from ui.sidebar import RightSidebar
+from ui.sidebar import LeftSidebar, RightSidebar
 from ui.styling.icons import phi
 from ui.styling.tab_settings_manager import TabSettingsManager
 from ui.styling.theme import COLOR_ACCENT, COLOR_TEXT_MUTED
@@ -51,9 +60,10 @@ class MainWindow(
 ):
     """Top-level application window.
 
-    Sets up the menu bar, status bar, and four-pane layout
-    (collections + environments sidebar | request editor | response viewer
-    | right sidebar rail). Back/forward navigation uses ``QAction`` shortcuts
+    Sets up the menu bar, status bar, and five-pane layout
+    (left activity rail + collections / environments flyout | request editor
+    | response viewer | right sidebar rail + flyout). Back/forward navigation
+    uses ``QAction`` shortcuts
     only (no toolbar strip).
     """
 
@@ -99,9 +109,11 @@ class MainWindow(
 
         self.collection_widget = CollectionWidget(self)
 
-        # Right sidebar (created before _setup_ui so layout can embed it)
+        # Side rails (created before _setup_ui so layout can embed them)
+        self._left_sidebar = LeftSidebar()
         self._right_sidebar = RightSidebar()
         if self._theme_manager is not None:
+            self._theme_manager.theme_changed.connect(self._left_sidebar.refresh_theme)
             self._theme_manager.theme_changed.connect(self._right_sidebar.refresh_theme)
 
         # Debounce timer for live snippet updates in the sidebar
@@ -167,6 +179,7 @@ class MainWindow(
 
         # Wire loading screen
         self.collection_widget.load_finished.connect(self._on_load_finished)
+        self._left_sidebar.panel_state_changed.connect(self._sync_sidebar_toggle_btn)
 
         # Wire breadcrumb navigation & rename
         self._breadcrumb_bar.item_clicked.connect(self._on_breadcrumb_clicked)
@@ -421,7 +434,7 @@ class MainWindow(
 
     def _sync_sidebar_toggle_btn(self) -> None:
         """Update the sidebar toggle button icon and tooltip to match state."""
-        hidden = self._left_nav_splitter.isHidden()
+        hidden = not self._left_sidebar.is_open
         icon_name = "caret-double-right" if hidden else "caret-double-left"
         self._sidebar_toggle_btn.setIcon(phi(icon_name, size=12))
         self._sidebar_toggle_btn.setToolTip("Expand sidebar" if hidden else "Collapse sidebar")
@@ -448,14 +461,15 @@ class MainWindow(
         self._main_stack.addWidget(self._loading_screen)
         self._loading_screen.start_animation()
 
-        # 3. Main splitter: left (nav) + right (request+response+sidebar)
+        # 3. Main splitter: left rail + flyout (nav) + centre (request+response+right rail)
         central = QWidget()
         main_layout = QHBoxLayout(central)
-        main_layout.setContentsMargins(9, 0, 0, 0)
+        main_layout.setContentsMargins(0, 0, 0, 0)
         self._main_stack.addWidget(central)
 
         self._main_splitter = QSplitter(Qt.Orientation.Horizontal, central)
-        self._main_splitter.setHandleWidth(6)
+        self._main_splitter.setObjectName("mainWindowHorizontalSplitter")
+        self._main_splitter.setHandleWidth(1)
         main_layout.addWidget(self._main_splitter)
 
         # --- Left navigation: collections + environments (vertical splitter) ---
@@ -471,7 +485,8 @@ class MainWindow(
         self._left_nav_splitter.setSizes([520, 160])
         self._env_selector.refresh()
 
-        self._main_splitter.addWidget(self._left_nav_splitter)
+        self._left_sidebar.set_content(self._left_nav_splitter)
+        self._left_sidebar.install_in_splitter(self._main_splitter)
 
         # --- Centre: vertical splitter (request + response) ---
         request_area = self._build_request_area()
@@ -482,7 +497,7 @@ class MainWindow(
         self._content_splitter = QSplitter(Qt.Orientation.Horizontal)
         self._content_splitter.setHandleWidth(4)
         self._main_splitter.addWidget(self._content_splitter)
-        self._main_splitter.setStretchFactor(1, 3)
+        self._main_splitter.setStretchFactor(2, 3)
 
         self._content_splitter.addWidget(self._right_splitter)
         self._right_sidebar.install_in_splitter(self._content_splitter)
@@ -519,6 +534,7 @@ class MainWindow(
         QTimer.singleShot(0, self._update_request_area_min)
 
         self._sync_sidebar_toggle_btn()
+        QTimer.singleShot(0, self._left_sidebar.open_panel)
 
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
         """Recompute request_area's min when chrome geometry changes (tab wrap, etc.)."""
@@ -580,8 +596,16 @@ class MainWindow(
         self._response_area.setHidden(not self._response_area.isHidden())
 
     def _toggle_sidebar(self) -> None:
-        """Show or hide the collection and environment left column."""
-        self._left_nav_splitter.setHidden(not self._left_nav_splitter.isHidden())
+        """Collapse or expand the collections flyout; the left rail stays visible.
+
+        Matches dragging the flyout splitter to zero width vs reopening: same
+        splitter sizes and rail visibility as :meth:`LeftSidebar.close_panel` /
+        :meth:`LeftSidebar.open_panel`.
+        """
+        if self._left_sidebar.is_open:
+            self._left_sidebar.close_panel()
+        else:
+            self._left_sidebar.open_panel()
         self._sync_sidebar_toggle_btn()
 
     def _toggle_bottom_panel(self) -> None:

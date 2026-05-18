@@ -320,7 +320,7 @@ Every field is a hex colour string.
 | Neutral | 9 | `bg`, `bg_alt`, `text`, `text_muted`, `border`, `hover_bg`, `selected_bg` |
 | Semantic | 9 | `accent`, `accent_hover`, `success`, `warning`, `danger`, `danger_hover`, `solid_button_fg`, `muted`, `delete` |
 | HTTP method | 8 | `head`, `options`, `get`, `post`, `put`, `patch`, `delete` |
-| Functional | 2 | `sending`, `breadcrumb_sep` |
+| Functional | 3 | `sending`, `breadcrumb_sep`, `status_bar_bg` |
 | Import dialog | 5 | `drop_zone_border`, `import_success`, `import_error` |
 | Console | 2 | `console_bg`, `console_text` |
 | Timing phases | 7 | `timing_prepare`, `timing_dns`, `timing_tcp`, `timing_tls` |

@@ -9,20 +9,30 @@ from typing import Any, Literal, cast
 
 from PySide6.QtCore import QPoint, QSettings, Qt, QTimer
 from PySide6.QtGui import QAction, QActionGroup, QKeySequence
-from PySide6.QtWidgets import (QCheckBox, QFrame, QHBoxLayout, QLabel, QMenu,
-                               QPushButton, QSplitter, QToolButton,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QMenu,
+    QPushButton,
+    QSplitter,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+)
 
-from database.models.collections.collection_query_repository import \
-    get_script_chain
+from database.models.collections.collection_query_repository import get_script_chain
 from services.script_service import normalize_disabled_inherited
 from services.script_version_service import ScriptVersionService
 from services.scripting.context import normalize_events as _normalize_events
 from services.scripting.runtime_settings import RuntimeSettings
-from ui.request.request_editor.scripts.inherited_banner import \
-    InheritedScriptsBanner
+from ui.request.request_editor.scripts.inherited_banner import InheritedScriptsBanner
 from ui.request.request_editor.scripts.script_language import (
-    code_to_display, detect_script_language, normalise_script_code)
+    code_to_display,
+    detect_script_language,
+    normalise_script_code,
+)
 from ui.sidebar.debug_panel import DebugControls
 from ui.styling.icons import phi
 from ui.widgets.code_editor import CodeEditorWidget
@@ -115,8 +125,7 @@ class _ScriptsMixin:
         )
 
         # Output panel for inline script execution results.
-        from ui.request.request_editor.scripts.output_panel import \
-            ScriptOutputPanel
+        from ui.request.request_editor.scripts.output_panel import ScriptOutputPanel
 
         self._pre_output_panel = ScriptOutputPanel(
             script_type="pre_request",
@@ -200,8 +209,7 @@ class _ScriptsMixin:
         )
 
         # Output panel for inline script execution results.
-        from ui.request.request_editor.scripts.output_panel import \
-            ScriptOutputPanel
+        from ui.request.request_editor.scripts.output_panel import ScriptOutputPanel
 
         self._test_output_panel = ScriptOutputPanel(
             script_type="test",
@@ -235,8 +243,7 @@ class _ScriptsMixin:
         """Update per-line ``pm.test`` markers in the post-response editor gutter."""
         if not getattr(self, "_scripts_editor_materialized", True):
             return
-        from services.scripting.engine import (find_pm_tests,
-                                               find_top_level_statement_lines)
+        from services.scripting.engine import find_pm_tests, find_top_level_statement_lines
 
         lang = self._test_script_edit.language
         self._test_script_edit.set_pm_tests(
@@ -1021,8 +1028,7 @@ class _ScriptsMixin:
         rid = getattr(self, "_request_id", None)
         if rid is None:
             return
-        from ui.request.request_editor.scripts.inherited_chain_drawer import \
-            InheritedChainDrawer
+        from ui.request.request_editor.scripts.inherited_chain_drawer import InheritedChainDrawer
 
         try:
             chain = get_script_chain(rid)
@@ -1141,8 +1147,7 @@ class _ScriptsMixin:
 
     def _run_inline_script(self, script_type: str, *, script_text: str | None = None) -> None:
         """Run the current script inline and display results."""
-        from ui.request.request_editor.scripts.script_run_worker import \
-            build_inline_context
+        from ui.request.request_editor.scripts.script_run_worker import build_inline_context
 
         ensure_scripts = getattr(self, "_ensure_scripts_editors", None)
         if callable(ensure_scripts):
@@ -1211,8 +1216,7 @@ class _ScriptsMixin:
         request without parents), falls back to :meth:`_run_inline_script`.
         """
         from services.scripting import ScriptEntry
-        from ui.request.request_editor.scripts.script_run_worker import \
-            build_inline_context
+        from ui.request.request_editor.scripts.script_run_worker import build_inline_context
 
         ensure_scripts = getattr(self, "_ensure_scripts_editors", None)
         if callable(ensure_scripts):
@@ -1293,8 +1297,7 @@ class _ScriptsMixin:
     def _debug_inline_script(self, script_type: str, *, script_text: str | None = None) -> None:
         """Start an inline script debug session for the current editor."""
         from services.scripting.debug import DebugProtocol
-        from ui.request.request_editor.scripts.script_run_worker import \
-            build_inline_context
+        from ui.request.request_editor.scripts.script_run_worker import build_inline_context
 
         ensure_scripts = getattr(self, "_ensure_scripts_editors", None)
         if callable(ensure_scripts):
@@ -1610,8 +1613,7 @@ class _ScriptsMixin:
 
     def _open_version_history(self, script_type: str = "pre_request") -> None:
         """Open the version history dialog for the current request."""
-        from ui.request.request_editor.scripts.version_history import \
-            VersionHistoryDialog
+        from ui.request.request_editor.scripts.version_history import VersionHistoryDialog
 
         request_id = getattr(self, "_request_id", None)
         collection_id = getattr(self, "_collection_id", None)

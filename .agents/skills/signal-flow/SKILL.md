@@ -279,7 +279,7 @@ MainWindow._toggle_response_action.triggered
   → _toggle_response_pane (show/hide response viewer)
 
 MainWindow._toggle_sidebar_action.triggered
-  → _toggle_sidebar (show/hide collection sidebar)
+  → _toggle_sidebar (collapse/expand collections flyout; left rail stays visible)
 
 MainWindow._toggle_bottom_action.triggered
   → _toggle_bottom_panel (show/hide console/history)

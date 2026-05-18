@@ -40,7 +40,7 @@ class CollectionHeader(QWidget):
 
         # -- Row 1: section label + action buttons --------------------
         top_row = QHBoxLayout()
-        top_row.setContentsMargins(8, 0, 8, 0)
+        top_row.setContentsMargins(0, 0, 0, 0)
         top_row.setSpacing(4)
 
         section_label = QLabel("Collections")

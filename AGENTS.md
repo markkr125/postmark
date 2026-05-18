@@ -224,8 +224,9 @@ src/
     │   ├── tab_controller.py      # _TabControllerMixin — tab open/close/switch
     │   └── variable_controller.py # _VariableControllerMixin — env variable + sidebar management
     ├── loading_screen.py          # Loading screen overlay widget
-    ├── sidebar/                   # Right sidebar sub-package
+    ├── sidebar/                   # Sidebar rails + flyout panels
     │   ├── sidebar_widget.py      # RightSidebar (icon rail) + _FlyoutPanel
+    │   ├── left_sidebar.py        # LeftSidebar — VSCode-style activity rail + nav flyout
     │   ├── variables_panel.py     # VariablesPanel — read-only variable display
     │   ├── snippet_panel.py       # SnippetPanel — inline code snippet generator
     │   ├── debug_panel.py         # DebugPanel — step controls; DebugVariablesPanel — single QTreeWidget sections + stacked placeholder
@@ -235,7 +236,7 @@ src/
     │       ├── helpers.py             # Formatting helpers (body size, language detect, etc.)
     │       └── delegate.py            # Custom delegate for saved response list items
     ├── styling/                   # Visual theming and icons
-    │   ├── theme.py               # Palettes, colours, badge geometry, method_color(), status_color()
+    │   ├── theme.py               # Palettes, colours, status bar / left-rail chrome, badge/tree geometry, left-nav panel margins, method_color(), status_color()
     │   ├── theme_manager.py       # ThemeManager — QPalette + QSettings
     │   ├── tab_settings_manager.py # TabSettingsManager — request-tab QSettings bridge (preview, limits, activate-on-close, wrap mode)
     │   ├── global_qss.py          # build_global_qss() — global stylesheet builder
@@ -397,6 +398,7 @@ tests/
     │   └── test_icons.py
     ├── sidebar/                   # Sidebar widget tests
     │   ├── test_sidebar.py
+    │   ├── test_left_sidebar.py
     │   ├── test_variables_panel.py
     │   ├── test_snippet_panel.py
     │   ├── test_debug_panel.py

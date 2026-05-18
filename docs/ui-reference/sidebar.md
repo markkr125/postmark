@@ -1,9 +1,61 @@
 # Sidebar
 
-Right-side icon rail with collapsible flyout panel containing
-variables, snippets, and saved responses.
+Icon rails with collapsible flyout panels: **LeftSidebar** hosts the
+collections and environment picker; **RightSidebar** hosts variables,
+snippets, and saved responses.
 
 Source: `src/ui/sidebar/`
+
+## LeftSidebar
+
+VS Code–style **activity bar** on the outer left edge.  The rail is a
+fixed-width `QWidget` (`objectName` ``leftSidebarRail``); width and Phosphor
+icon size follow ``LEFT_RAIL_WIDTH_EM`` and ``LEFT_RAIL_ICON_EM`` in ``theme.py``
+(multiples of the primary font height).  Its background uses palette
+``status_bar_bg`` (same as ``QStatusBar#appStatusBar``).  The checked
+icon’s left accent is **painted** in ``_LeftRailButton.paintEvent`` at full
+widget height (``LEFT_RAIL_ACCENT_STRIPE_WIDTH_PX`` wide) because Fusion-style
+``QToolButton`` stylesheets often clip ``border-left`` to the content box.  The flyout uses
+``objectName`` ``leftSidebarFlyout``; unlike the right rail flyout it has **no**
+built-in title row (the injected ``CollectionWidget`` already owns the
+``CollectionHeader`` heading).  Horizontal inset for the collections and
+environment bodies uses ``LEFT_NAV_PANEL_MARGIN_H_LEFT_PX`` /
+``LEFT_NAV_PANEL_MARGIN_H_RIGHT_PX`` in ``theme.py``, applied inside
+``CollectionWidget`` and ``EnvironmentSidebarPanel`` so the vertical splitter
+between them stays full flyout width (only the pane content is inset).
+When the splitter width is 0, the flyout applies a **local** ``setStyleSheet``
+to remove borders so they are not painted on top of the main splitter handle.
+When open, the flyout uses a **left** border only (vs the rail); the **right**
+edge is the main horizontal splitter handle only, so there is no double line
+beside the editor.  Its body comes from :meth:`LeftSidebar.set_content` (in
+``MainWindow`` this is the vertical ``_left_nav_splitter``).
+
+### Rail Buttons
+
+| Button | Icon (Phosphor) | Panel |
+|--------|-----------------|-------|
+| Collections | `files` | Collections tree + environment rows (injected content) |
+
+### Signals
+
+| Signal | Parameters | Description |
+|--------|------------|-------------|
+| `panel_state_changed` | `bool` | ``True`` when flyout width becomes non-zero, ``False`` when collapsed to zero |
+
+### Public API
+
+| Method | Description |
+|--------|-------------|
+| `set_content(widget)` | Install the sole flyout body widget |
+| `install_in_splitter(splitter)` | Insert rail then flyout as the first two splitter children |
+| `open_panel(key="collections")` | Expand flyout and activate the rail button |
+| `close_panel()` | Collapse flyout to zero width (same end state as dragging the handle closed) |
+| `toggle_panel(key)` | Toggle the named panel |
+| `is_open` | Property: flyout width is non-zero |
+
+**View → Toggle Sidebar** (``Ctrl+B``) calls :meth:`close_panel` when the flyout
+is open and :meth:`open_panel` when it is closed — it does not hide the
+activity rail, so it matches a manual resize of the flyout to zero width.
 
 ## RightSidebar
 

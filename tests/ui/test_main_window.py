@@ -511,14 +511,19 @@ class TestMainWindowViewToggles:
         assert not window._response_area.isHidden()
 
     def test_toggle_sidebar(self, qapp: QApplication, qtbot) -> None:
-        """Toggling the sidebar hides and shows the whole left navigation column."""
+        """Toggling the sidebar collapses or expands the flyout; the rail stays put."""
         window = MainWindow()
         qtbot.addWidget(window)
-        assert not window._left_nav_splitter.isHidden()
+        window.show()
+        qtbot.waitUntil(lambda: window._left_sidebar.is_open, timeout=3000)
+        assert window._left_sidebar.is_open
         window._toggle_sidebar()
-        assert window._left_nav_splitter.isHidden()
+        qapp.processEvents()
+        assert not window._left_sidebar.is_open
+        assert window._left_sidebar.flyout_width == 0
         window._toggle_sidebar()
-        assert not window._left_nav_splitter.isHidden()
+        qapp.processEvents()
+        assert window._left_sidebar.is_open
 
     def test_toggle_bottom_panel(self, qapp: QApplication, qtbot) -> None:
         """Toggling the bottom panel hides and shows it."""
