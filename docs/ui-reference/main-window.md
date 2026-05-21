@@ -24,7 +24,8 @@ QMainWindow
 +------------------------------------------------------------------------+
 | [|] | Collections + |  BreadcrumbBar                       |  Rail  |   |
 |     | Environments  +--------------------------------------+  [ {} ]|   |
-|     | (flyout)      |  RequestTabBar (multi-row deck)      |  [ <> ]|   |
+|     | (or Local     |  RequestTabBar (multi-row deck)      |  [ <> ]|   |
+|     |  scripts)     |  Editor stack (request / folder / env) |  [ [] ]|   |
 |     |               |  Editor stack (request / folder / env) |  [ [] ]|   |
 |     |               |  + RequestEditorWidget (method | URL | send) |Flyout  |   |
 |     |               |  (Params|Headers|Body|Auth|Desc|Scripts)|Panel|   |
@@ -37,9 +38,10 @@ QMainWindow
 +------------------------------------------------------------------------+
 ```
 
-The narrow **left rail** (`LeftSidebar`, Phosphor **files** icon) mirrors the
-right rail: it toggles a collapsible flyout that hosts `_left_nav_splitter`
-(collections above environments).  **View → Toggle Sidebar** (``Ctrl+B``)
+The narrow **left rail** (`LeftSidebar`, Phosphor **files** and **code** icons)
+mirrors the right rail: it toggles a collapsible flyout with a ``QStackedWidget``
+whose default page is ``_left_nav_splitter`` (collections above environments).
+The **code** icon switches to ``LocalScriptsSidebarPanel`` (placeholder).  **View → Toggle Sidebar** (``Ctrl+B``)
 collapses or expands that flyout to the same widths as dragging the splitter
 handle; the rail stays visible.  The main central ``QHBoxLayout`` has **no**
 outer margins so the left rail is flush with the window edge and its
@@ -54,10 +56,11 @@ strip.
 | `_editor_stack` | `QStackedWidget` | Per-tab request editor stack |
 | `_response_stack` | `QStackedWidget` | Per-tab response viewer stack |
 | `_breadcrumb_bar` | `BreadcrumbBar` | Path navigation bar |
-| `_left_sidebar` | `LeftSidebar` | Left activity rail + collapsible collections / environments flyout |
+| `_left_sidebar` | `LeftSidebar` | Left activity rail + stacked flyout (collections / environments vs local scripts) |
 | `_right_sidebar` | `RightSidebar` | Right icon rail and flyout panel |
 | `collection_widget` | `CollectionWidget` | Collection tree + header (top of left column) |
 | `_left_nav_splitter` | `QSplitter` | Vertical splitter inside the left flyout: collections above environments |
+| `_local_scripts_sidebar` | `LocalScriptsSidebarPanel` | Local scripts flyout page (placeholder list shell) |
 | `_env_selector` | `EnvironmentSidebarPanel` | Global environment picker: scrollable rows (name + **Set active** / **Clear**); empty list shows a hint that opens the same flow as **Manage**; attribute name kept for mixin compatibility |
 | `_history` | `list[int]` | Back/forward navigation stack |
 | `_theme_manager` | `ThemeManager` | App-wide theme controller |

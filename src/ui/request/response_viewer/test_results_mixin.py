@@ -76,10 +76,10 @@ class _TestResultsMixin:
         # Separate runtime errors from real test assertions.
         runtime_errors = [r for r in results if r.get("name") == "(runtime error)"]
         real_tests = [r for r in results if r.get("name") != "(runtime error)"]
+        declarative = [r for r in real_tests if str(r.get("source_name", "")) == "declarative"]
+        user_tests = [r for r in real_tests if str(r.get("source_name", "")) != "declarative"]
 
         if runtime_errors and not real_tests:
-            # Only runtime errors, no actual tests — show a clear
-            # "Script Error" banner instead of misleading pass/fail count.
             source = runtime_errors[0].get("source_name", "")
             label = "Script error"
             if source:
@@ -95,10 +95,19 @@ class _TestResultsMixin:
                 f"<span style='color:{color};font-weight:bold;'>{passed}/{total} tests passed</span>"
             )
 
-        for result in results:
+        for result in runtime_errors:
             row = self._build_result_row(result)
-            # Insert before the stretch at the end.
             self._test_results_list.insertWidget(self._test_results_list.count() - 1, row)
+        for result in user_tests:
+            row = self._build_result_row(result)
+            self._test_results_list.insertWidget(self._test_results_list.count() - 1, row)
+        if declarative:
+            header = QLabel("Declarative Assertions")
+            header.setObjectName("sectionLabel")
+            self._test_results_list.insertWidget(self._test_results_list.count() - 1, header)
+            for result in declarative:
+                row = self._build_result_row(result)
+                self._test_results_list.insertWidget(self._test_results_list.count() - 1, row)
 
         self._tabs.setTabVisible(self._test_tab_index, True)
 
@@ -161,5 +170,4 @@ class _TestResultsMixin:
             outer_layout.addWidget(err_label)
             return outer
 
-        return row_widget
         return row_widget

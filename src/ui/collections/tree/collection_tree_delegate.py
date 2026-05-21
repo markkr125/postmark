@@ -17,22 +17,41 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ui.collections.tree.constants import ROLE_ITEM_TYPE, ROLE_METHOD
+from ui.collections.tree.constants import (
+    ITEM_TYPE_SCRIPT,
+    ROLE_ITEM_TYPE,
+    ROLE_LANGUAGE,
+    ROLE_METHOD,
+    ROLE_MODULE_FORMAT,
+    is_leaf_item_type,
+)
+from ui.local_scripts.script_filename import (
+    SCRIPT_TREE_ICON_SIZE,
+    script_basename_from_stored,
+    script_file_extension,
+    script_name_rect,
+    script_tooltip,
+)
+from ui.styling.language_icons import language_icon_pixmap, resolve_script_language
 from ui.styling.theme import (
     BADGE_BORDER_RADIUS,
     BADGE_FONT_SIZE,
     BADGE_HEIGHT,
     BADGE_MIN_WIDTH,
+    COLOR_TEXT_MUTED,
     TREE_ROW_HEIGHT,
     method_color,
     method_short_label,
 )
 
-# Horizontal gap between badge and name label (px).
+# Horizontal gap between badge/icon and name label (px).
 _BADGE_NAME_SPACING = 6
 
-# Left padding before the badge (px).
+# Left padding before the badge or language icon (px).
 _LEFT_PADDING = 2
+
+# Square language icon size in the tree (matches ``BADGE_HEIGHT``).
+_SCRIPT_ICON_SIZE = SCRIPT_TREE_ICON_SIZE
 
 
 class CollectionTreeDelegate(QStyledItemDelegate):
@@ -53,7 +72,7 @@ class CollectionTreeDelegate(QStyledItemDelegate):
     ) -> None:
         """Paint a coloured method badge followed by the request name."""
         item_type = index.data(ROLE_ITEM_TYPE)
-        if item_type != "request":
+        if not is_leaf_item_type(item_type):
             super().paint(painter, option, index)
             return
 
@@ -68,6 +87,7 @@ class CollectionTreeDelegate(QStyledItemDelegate):
             style.drawControl(QStyle.ControlElement.CE_ItemViewItem, opt, painter, option.widget)
 
         method = index.data(ROLE_METHOD) or "GET"
+        language = index.data(ROLE_LANGUAGE)
         # Read the display name from the QTreeWidgetItem's column 1 text
         tree = self.parent()
         name = ""
@@ -75,41 +95,58 @@ class CollectionTreeDelegate(QStyledItemDelegate):
             item = tree.itemFromIndex(index)
             if item is not None:
                 name = item.text(1) or ""
+                if item_type == ITEM_TYPE_SCRIPT and language is None:
+                    language = item.data(0, ROLE_LANGUAGE)
         rect: QRect = option.rect  # type: ignore[assignment]
 
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # 2. Badge rectangle
+        palette = option.palette  # type: ignore[assignment]
+        text_color = palette.text().color()
+
         badge_x = rect.left() + _LEFT_PADDING
         badge_y = rect.top() + (rect.height() - BADGE_HEIGHT) // 2
-        badge_rect = QRect(badge_x, badge_y, BADGE_MIN_WIDTH, BADGE_HEIGHT)
 
-        bg_colour = QColor(method_color(method))
-        painter.setBrush(bg_colour)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawRoundedRect(badge_rect, BADGE_BORDER_RADIUS, BADGE_BORDER_RADIUS)
+        if item_type == ITEM_TYPE_SCRIPT:
+            lang = resolve_script_language(language, method_badge=method)
+            icon = language_icon_pixmap(lang, size=_SCRIPT_ICON_SIZE)
+            icon_rect = QRect(badge_x, badge_y, _SCRIPT_ICON_SIZE, _SCRIPT_ICON_SIZE)
+            painter.drawPixmap(icon_rect, icon)
+            mod_fmt = index.data(ROLE_MODULE_FORMAT) or "esm"
+            if isinstance(tree, QTreeWidget):
+                item = tree.itemFromIndex(index)
+                if item is not None:
+                    basename = script_basename_from_stored(name)
+                    item.setToolTip(0, script_tooltip(basename, lang, mod_fmt))
+            name_rect = script_name_rect(rect)
+            self._paint_script_label(painter, name, lang, mod_fmt, name_rect, text_color)
+            painter.restore()
+            return
+        else:
+            badge_rect = QRect(badge_x, badge_y, BADGE_MIN_WIDTH, BADGE_HEIGHT)
+            bg_colour = QColor(method_color(method))
+            painter.setBrush(bg_colour)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRoundedRect(badge_rect, BADGE_BORDER_RADIUS, BADGE_BORDER_RADIUS)
 
-        # 3. Badge text (centred)
-        badge_font = QFont(painter.font())
-        badge_font.setPixelSize(BADGE_FONT_SIZE)
-        badge_font.setBold(True)
-        painter.setFont(badge_font)
-        painter.setPen(QPen(QColor("#ffffff")))
-        painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, method_short_label(method))
+            badge_font = QFont(painter.font())
+            badge_font.setPixelSize(BADGE_FONT_SIZE)
+            badge_font.setBold(True)
+            painter.setFont(badge_font)
+            painter.setPen(QPen(QColor("#ffffff")))
+            painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, method_short_label(method))
+            name_x = badge_rect.right() + _BADGE_NAME_SPACING
 
-        # 4. Request name
-        name_x = badge_rect.right() + _BADGE_NAME_SPACING
+        # Request / script name
         name_rect = QRect(name_x, rect.top(), rect.right() - name_x, rect.height())
 
         name_font = QFont(painter.font())
         name_font.setPixelSize(12)
         name_font.setBold(False)
 
-        palette = option.palette  # type: ignore[assignment]
         # Request name: keep normal text colour when selected (same as unfocused
         # tree text) so the row does not flip to white on the blue selection tint.
-        text_color = palette.text().color()
         painter.setPen(QPen(text_color))
         painter.setFont(name_font)
 
@@ -120,6 +157,43 @@ class CollectionTreeDelegate(QStyledItemDelegate):
 
         painter.restore()
 
+    def _paint_script_label(
+        self,
+        painter: QPainter,
+        basename: str,
+        language: str,
+        module_format: str,
+        name_rect: QRect,
+        text_color: QColor,
+    ) -> None:
+        """Paint basename in normal colour and extension in muted colour."""
+        base = script_basename_from_stored(basename)
+        ext = script_file_extension(language, module_format)
+        name_font = QFont(painter.font())
+        name_font.setPixelSize(12)
+        name_font.setBold(False)
+        painter.setFont(name_font)
+        fm = QFontMetrics(name_font)
+        ext_width = fm.horizontalAdvance(ext) if ext else 0
+        base_max = max(0, name_rect.width() - ext_width)
+        elided_base = fm.elidedText(base or "", Qt.TextElideMode.ElideRight, base_max)
+        painter.setPen(QPen(text_color))
+        painter.drawText(
+            name_rect,
+            Qt.AlignmentFlag.AlignVCenter,
+            elided_base,
+        )
+        if ext and ext_width > 0:
+            base_width = fm.horizontalAdvance(elided_base)
+            ext_rect = QRect(
+                name_rect.left() + base_width,
+                name_rect.top(),
+                name_rect.width() - base_width,
+                name_rect.height(),
+            )
+            painter.setPen(QPen(QColor(COLOR_TEXT_MUTED)))
+            painter.drawText(ext_rect, Qt.AlignmentFlag.AlignVCenter, ext)
+
     def sizeHint(
         self,
         option: QStyleOptionViewItem,
@@ -127,7 +201,7 @@ class CollectionTreeDelegate(QStyledItemDelegate):
     ) -> QSize:
         """Return a fixed row height for request items."""
         item_type = index.data(ROLE_ITEM_TYPE)
-        if item_type == "request":
+        if is_leaf_item_type(item_type):
             return QSize(0, TREE_ROW_HEIGHT)
         return super().sizeHint(option, index)
 
@@ -143,6 +217,6 @@ class CollectionTreeDelegate(QStyledItemDelegate):
         which creates its own ``QLineEdit`` overlay.
         """
         item_type = index.data(ROLE_ITEM_TYPE)
-        if item_type == "request":
+        if is_leaf_item_type(item_type):
             return None
         return super().createEditor(parent, option, index)

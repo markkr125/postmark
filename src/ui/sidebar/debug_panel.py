@@ -1,14 +1,17 @@
-"""Debug UI: step controls, variable inspector, and combined facade.
+"""Debug UI: step controls, call stack, variable inspector, watch list, and facade.
 
-``DebugControls`` is the toolbar (step buttons + position).  ``DebugVariablesPanel``
-shows script locals in one collapsible ``QTreeWidget`` (section roots + values).
-``DebugPanel`` composes both for tests and legacy callers.
+``DebugControls`` is the toolbar (step buttons + position).
+``CallStackPanel`` lists paused stack frames.
+``DebugVariablesPanel`` shows script locals in one collapsible ``QTreeWidget``.
+``WatchPanel`` evaluates user watch expressions on each pause.
+``DebugPanel`` composes all four for tests and legacy callers.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+from shiboken6 import Shiboken
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -21,7 +24,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from services.scripting.debug import DebugPauseInfo
+from services.scripting.debug import DebugPauseInfo, DebugProtocol
+from ui.sidebar.debug_call_stack_panel import CallStackPanel
+from ui.sidebar.debug_watch_panel import WatchPanel
 from ui.styling.icons import phi
 from ui.styling.theme import COLOR_WHITE
 from ui.widgets.debug_value_tree import (
@@ -33,6 +38,11 @@ from ui.widgets.debug_value_tree import (
 
 DEBUG_VARIABLES_PAGE_TREE: int = 0
 DEBUG_VARIABLES_PAGE_MESSAGE: int = 1
+
+
+def _qt_valid(obj: object | None) -> bool:
+    """Return whether *obj* is a live Qt C++ wrapper (not deleted)."""
+    return obj is not None and Shiboken.isValid(obj)
 
 
 class DebugControls(QWidget):
@@ -48,7 +58,8 @@ class DebugControls(QWidget):
         layout.setSpacing(6)
 
         btn_row = QHBoxLayout()
-        btn_row.setSpacing(4)
+        btn_row.setContentsMargins(0, 2, 0, 2)
+        btn_row.setSpacing(6)
 
         self._continue_btn = self._make_btn("play", "Continue", "continue")
         self._step_over_btn = self._make_btn("arrow-line-down", "Step Over", "step_over")
@@ -82,6 +93,7 @@ class DebugControls(QWidget):
         btn.setIcon(phi(icon_name, size=14))
         btn.setToolTip(tooltip)
         btn.setFixedSize(28, 28)
+        btn.setObjectName("iconButton")
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.clicked.connect(lambda: self.step_requested.emit(mode))
         return btn
@@ -166,14 +178,21 @@ class DebugVariablesPanel(QWidget):
 
     def clear_session(self) -> None:
         """Clear the tree and show a session-ended hint."""
+        if not _qt_valid(self._tree):
+            return
         self._tree.clear()
-        self._placeholder.setText("Session ended")
-        self._stack.setCurrentIndex(DEBUG_VARIABLES_PAGE_MESSAGE)
+        if _qt_valid(self._placeholder):
+            self._placeholder.setText("Session ended")
+        if _qt_valid(self._stack):
+            self._stack.setCurrentIndex(DEBUG_VARIABLES_PAGE_MESSAGE)
 
     def set_idle(self) -> None:
         """Clear the tree when the debugger is idle (empty tree page)."""
+        if not _qt_valid(self._tree):
+            return
         self._tree.clear()
-        self._stack.setCurrentIndex(DEBUG_VARIABLES_PAGE_TREE)
+        if _qt_valid(self._stack):
+            self._stack.setCurrentIndex(DEBUG_VARIABLES_PAGE_TREE)
 
     def _show_tree_page(self) -> None:
         """Show the variables tree (may be empty)."""
@@ -203,6 +222,8 @@ class DebugVariablesPanel(QWidget):
         env_changes: dict[str, Any],
         global_changes: dict[str, Any],
     ) -> None:
+        if not _qt_valid(self._tree):
+            return
         self._show_tree_page()
         self._tree.clear()
         self._fill_state = TreeFillState()
@@ -277,12 +298,12 @@ class DebugVariablesPanel(QWidget):
 
 
 class DebugPanel(QWidget):
-    """Sidebar panel showing debug state: controls + step + variables (facade)."""
+    """Sidebar panel: controls, call stack, variables, and watch expressions."""
 
     step_requested = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
-        """Stack controls and variables (legacy combined sidebar widget)."""
+        """Stack controls, call stack, variables, and watch panels."""
         super().__init__(parent)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -292,8 +313,32 @@ class DebugPanel(QWidget):
         self._controls.step_requested.connect(self.step_requested.emit)
         layout.addWidget(self._controls)
 
+        self._call_stack = CallStackPanel(self)
+        self._call_stack.frame_selected.connect(self._on_frame_selected)
+        layout.addWidget(self._call_stack)
+
         self._variables = DebugVariablesPanel(self)
         layout.addWidget(self._variables, 1)
+
+        self._watch = WatchPanel(self)
+        layout.addWidget(self._watch)
+
+        self._protocol: DebugProtocol | None = None
+
+    def set_protocol(self, protocol: DebugProtocol | None) -> None:
+        """Attach the active debug protocol for watch / frame selection."""
+        self._protocol = protocol
+        self._watch.set_protocol(protocol)
+
+    def _on_frame_selected(self, index: int) -> None:
+        """Refresh variables for the selected stack frame."""
+        protocol = self._protocol
+        if protocol is None:
+            return
+        info = protocol.select_frame(index)
+        if info is not None:
+            self._variables.update_pause(info)
+            self._watch.refresh()
 
     @property
     def _position_label(self) -> QLabel:
@@ -325,16 +370,24 @@ class DebugPanel(QWidget):
         return self._variables._tree
 
     def update_pause(self, info: DebugPauseInfo) -> None:
-        """Refresh the toolbar and variable list."""
+        """Refresh the toolbar, call stack, variables, and watch list."""
         self._controls.update_pause(info)
+        self._call_stack.update_pause(info)
         self._variables.update_pause(info)
+        self._watch.update_pause()
 
     def clear_session(self) -> None:
-        """End-of-session state for both halves."""
+        """End-of-session state for all sections."""
         self._controls.clear_session()
+        self._call_stack.clear_session()
         self._variables.clear_session()
+        self._watch.clear_session()
+        self.set_protocol(None)
 
     def set_idle(self) -> None:
-        """Reset both halves to the idle state."""
+        """Reset all sections to the idle state."""
         self._controls.set_idle()
+        self._call_stack.set_idle()
         self._variables.set_idle()
+        self._watch.set_idle()
+        self.set_protocol(None)

@@ -11,6 +11,7 @@ from typing import Any
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
+from services.lsp.diagnostic_filters import should_publish_lsp_diagnostic
 from services.lsp.transport import LspFuture, LspTransport
 
 
@@ -332,8 +333,35 @@ class LspClient(QObject):
             },
         )
 
-        def _map(raw: Any) -> str | None:
-            return _parse_formatting(raw)
+        def _map(raw: Any) -> list[dict[str, Any]] | None:
+            return _parse_format_edits(raw)
+
+        return ClientFuture(fut, _map, gui_target=self)
+
+    def range_formatting(
+        self,
+        uri: str,
+        tab_size: int,
+        start_line: int,
+        start_column: int,
+        end_line: int,
+        end_column: int,
+    ) -> ClientFuture:
+        """Request formatting for a document range."""
+        fut = self._transport.send_request(
+            "textDocument/rangeFormatting",
+            {
+                "textDocument": {"uri": uri},
+                "range": {
+                    "start": {"line": start_line, "character": start_column},
+                    "end": {"line": end_line, "character": end_column},
+                },
+                "options": {"tabSize": tab_size, "insertSpaces": True},
+            },
+        )
+
+        def _map(raw: Any) -> list[dict[str, Any]] | None:
+            return _parse_format_edits(raw)
 
         return ClientFuture(fut, _map, gui_target=self)
 
@@ -345,6 +373,8 @@ class LspClient(QObject):
         out: list[Diagnostic] = []
         for d in raw_list:
             if not isinstance(d, dict):
+                continue
+            if not should_publish_lsp_diagnostic(d, document_uri=uri):
                 continue
             rng = d.get("range") or {}
             start = rng.get("start") or {}
@@ -396,6 +426,7 @@ def _client_capabilities() -> dict[str, Any]:
             },
             "definition": {},
             "formatting": {},
+            "rangeFormatting": {},
             "synchronization": {"dynamicRegistration": False},
         },
         "workspace": {},
@@ -516,10 +547,20 @@ def _parse_locations(raw: Any) -> list[Location]:
     return out
 
 
-def _parse_formatting(raw: Any) -> str | None:
+def _parse_format_edits(raw: Any) -> list[dict[str, Any]] | None:
+    """Return LSP ``TextEdit`` dicts from a formatting response, or ``None``."""
     if not isinstance(raw, list) or not raw:
         return None
-    first = raw[0]
-    if not isinstance(first, dict):
+    out: list[dict[str, Any]] = []
+    for item in raw:
+        if isinstance(item, dict) and "range" in item:
+            out.append(item)
+    return out or None
+
+
+def _parse_formatting(raw: Any) -> str | None:
+    """Legacy helper: first edit ``newText`` only (tests / simple callers)."""
+    edits = _parse_format_edits(raw)
+    if not edits:
         return None
-    return str(first.get("newText", ""))
+    return str(edits[0].get("newText", ""))

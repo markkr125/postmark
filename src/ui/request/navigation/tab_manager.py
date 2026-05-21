@@ -17,6 +17,7 @@ from PySide6.QtCore import QThread
 if TYPE_CHECKING:
     from services.environment_service import LocalOverride
     from ui.environments.environment_editor import EnvironmentEditorWidget
+    from ui.local_scripts.local_script_editor_widget import LocalScriptEditorWidget
     from ui.request.folder_editor import FolderEditorWidget
     from ui.request.http_worker import HttpSendWorker
 
@@ -33,9 +34,10 @@ class TabContext:
     """Bundle of per-tab state: widgets, thread lifecycle, and dirty flag.
 
     Attributes:
-        tab_type: ``"request"``, ``"folder"``, or ``"environments"``.
+        tab_type: ``"request"``, ``"folder"``, ``"environments"``, or ``"local_script"``.
         request_id: Database PK of the loaded request, or ``None``.
         collection_id: Database PK of the loaded folder, or ``None``.
+        local_script_id: Database PK of the loaded local script, or ``None``.
         editor: The request editor widget (request tabs only); ``None`` for environments.
         folder_editor: The folder editor widget (folder tabs only).
         environment_editor: The environments manager widget (environments tab only).
@@ -73,6 +75,8 @@ class TabContext:
         folder_editor: FolderEditorWidget | None = None,
         environment_editor: EnvironmentEditorWidget | None = None,
         response_viewer: ResponseViewerWidget | None = None,
+        local_script_id: int | None = None,
+        local_script_editor: LocalScriptEditorWidget | None = None,
         is_preview: bool = False,
         opened_order: int = 0,
     ) -> None:
@@ -80,15 +84,23 @@ class TabContext:
         self.tab_type = tab_type
         self.request_id = request_id
         self.collection_id = collection_id
+        self.local_script_id = local_script_id
         self.environment_editor = environment_editor
         if tab_type == "environments":
             self.editor = None  # type: ignore[assignment]
             self.folder_editor = None
             self.response_viewer = None  # type: ignore[assignment]
+            self.local_script_editor = None
+        elif tab_type == "local_script":
+            self.editor = None  # type: ignore[assignment]
+            self.folder_editor = None
+            self.response_viewer = None  # type: ignore[assignment]
+            self.local_script_editor = local_script_editor or LocalScriptEditorWidget()
         else:
             self.editor = editor or RequestEditorWidget()
             self.folder_editor = folder_editor
             self.response_viewer = response_viewer or ResponseViewerWidget()
+            self.local_script_editor = None
         self.thread: QThread | None = None
         self.worker: HttpSendWorker | None = None
         self.is_dirty: bool = False
@@ -196,5 +208,7 @@ class TabContext:
         self.cleanup_thread()
         self.folder_editor = None
         self.environment_editor = None
+        self.local_script_editor = None
         self.request_id = None
         self.collection_id = None
+        self.local_script_id = None

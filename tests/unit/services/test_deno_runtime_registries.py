@@ -263,7 +263,7 @@ class TestDenoArgvWithRegistries:
         argv, _env = deno_ipc_argv_and_env(
             Path("/usr/bin/deno"),
             bundle,
-            script_for_network_scan='pm.require("npm:lodash")',
+            needs_net=True,
         )
         assert not (tmp_path / ".npmrc").exists()
         # ``--allow-net`` still includes the default trio.
@@ -295,7 +295,7 @@ class TestDenoArgvWithRegistries:
         argv, _env = deno_ipc_argv_and_env(
             Path("/usr/bin/deno"),
             bundle,
-            script_for_network_scan='pm.require("npm:@mycompany/foo@1.0.0")',
+            needs_net=True,
         )
         npmrc = tmp_path / ".npmrc"
         assert npmrc.is_file()
@@ -326,7 +326,7 @@ class TestDenoArgvWithRegistries:
         argv, _env = deno_ipc_argv_and_env(
             Path("/usr/bin/deno"),
             bundle,
-            script_for_network_scan='pm.require("npm:lodash@4.17.21")',
+            needs_net=True,
         )
         body = (tmp_path / ".npmrc").read_text()
         assert "registry=https://npm.mirror.io/" in body

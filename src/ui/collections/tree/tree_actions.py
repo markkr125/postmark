@@ -9,16 +9,38 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QEvent, QObject, QPoint, Qt, Signal, Slot
+from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QAction, QKeyEvent
-from PySide6.QtWidgets import QLineEdit, QMenu, QMessageBox, QTreeWidgetItem
+from PySide6.QtWidgets import (
+    QLineEdit,
+    QMenu,
+    QMessageBox,
+    QTreeWidgetItem,
+)
 
 from ui.collections.tree.constants import (
+    ITEM_TYPE_FOLDER,
+    ITEM_TYPE_SCRIPT,
     PLACEHOLDER_MARKER,
     ROLE_ITEM_ID,
     ROLE_ITEM_TYPE,
+    ROLE_LANGUAGE,
+    ROLE_LINE_EDIT,
+    ROLE_MODULE_FORMAT,
+    ROLE_OLD_LANGUAGE,
+    ROLE_OLD_MODULE_FORMAT,
     ROLE_OLD_NAME,
     ROLE_PLACEHOLDER,
+    is_leaf_item_type,
+)
+from ui.local_scripts.script_filename import (
+    folder_name_from_input,
+    script_basename_from_stored,
+    script_display_name,
+    script_name_rect,
+    script_parse_filename_input,
+    script_rename_stem_length,
+    script_tooltip,
 )
 from ui.styling.theme import COLOR_ACCENT
 
@@ -48,6 +70,7 @@ class _TreeActionsMixin(_TreeActionsBase):
     collection_rename_requested: Signal
     collection_delete_requested: Signal
     request_rename_requested: Signal
+    script_rename_requested: Signal
     request_delete_requested: Signal
     new_collection_requested: Signal
     new_request_requested: Signal
@@ -63,7 +86,10 @@ class _TreeActionsMixin(_TreeActionsBase):
 
     def _setup_context_menus(self) -> None:
         """Create the context menus for request and folder items."""
-        # --- Request menu ---
+        tree_kind = getattr(self, "_tree_kind", "collections")
+        is_scripts = tree_kind == "local_scripts"
+
+        # --- Leaf menu (request or script) ---
         self._request_menu = QMenu(self._tree)
         for label, _icon_name in [
             ("Open", "arrow-square-out"),
@@ -76,14 +102,22 @@ class _TreeActionsMixin(_TreeActionsBase):
 
         # --- Folder menu ---
         self._folder_menu = QMenu(self._tree)
-        for label, _icon_name in [
-            ("Overview", "eye"),
-            ("Run", "play"),
-            ("Add request", "plus"),
-            ("Add folder", "folder-plus"),
-        ]:
-            action = self._folder_menu.addAction(label)
-            action.setData(label)
+        if not is_scripts:
+            for label, _icon_name in [
+                ("Overview", "eye"),
+                ("Run", "play"),
+                ("Add request", "plus"),
+                ("Add folder", "folder-plus"),
+            ]:
+                action = self._folder_menu.addAction(label)
+                action.setData(label)
+        else:
+            for label, _icon_name in [
+                ("Add script", "plus"),
+                ("Add folder", "folder-plus"),
+            ]:
+                action = self._folder_menu.addAction(label)
+                action.setData(label)
         self._folder_menu.addSeparator()
         for label, _icon_name in [
             ("Expand all", "arrows-out"),
@@ -146,7 +180,7 @@ class _TreeActionsMixin(_TreeActionsBase):
         # Grab the stored type (set in set_collections/_add_items)
         item_type = item.data(1, ROLE_ITEM_TYPE)  # "request" or "folder"
 
-        menu = self._request_menu if item_type == "request" else self._folder_menu
+        menu = self._request_menu if is_leaf_item_type(item_type) else self._folder_menu
         menu.exec(self._tree.mapToGlobal(pos))
 
     def _emit_menu_action(self, action: QAction) -> None:
@@ -166,7 +200,7 @@ class _TreeActionsMixin(_TreeActionsBase):
             self.run_collection_requested.emit(item_id)
         elif action_name == "Add folder" and item_type == "folder":
             self.new_collection_requested.emit(item_id)
-        elif action_name == "Add request" and item_type == "folder":
+        elif action_name in ("Add request", "Add script") and item_type == ITEM_TYPE_FOLDER:
             self.new_request_requested.emit(item_id)
         elif action_name == "Overview" and item_type == "folder":
             self.item_action_triggered.emit("folder", item_id, "Open")
@@ -185,7 +219,9 @@ class _TreeActionsMixin(_TreeActionsBase):
             return
         if item_type == "folder":
             self._rename_folder(item_id, self._current_item)
-        elif item_type == "request":
+        elif item_type == ITEM_TYPE_SCRIPT and getattr(self, "_tree_kind", "") == "local_scripts":
+            self._rename_script(item_id, self._current_item)
+        elif is_leaf_item_type(item_type):
             self._rename_request(item_id, self._current_item)
 
     def _handle_delete(self, item_id: int, item_type: str) -> None:
@@ -202,7 +238,8 @@ class _TreeActionsMixin(_TreeActionsBase):
             else:
                 msg = "Are you sure you want to delete this folder?"
         else:
-            msg = "Are you sure you want to delete this request?"
+            leaf_label = "script" if item_type == "script" else "request"
+            msg = f"Are you sure you want to delete this {leaf_label}?"
 
         reply = QMessageBox.question(
             self._tree,
@@ -216,7 +253,7 @@ class _TreeActionsMixin(_TreeActionsBase):
 
         if item_type == "folder":
             self.collection_delete_requested.emit(item_id)
-        elif item_type == "request":
+        elif is_leaf_item_type(item_type):
             self.request_delete_requested.emit(item_id)
         self.remove_item(item_id, item_type)
 
@@ -247,6 +284,107 @@ class _TreeActionsMixin(_TreeActionsBase):
             finally:
                 self._tree.blockSignals(False)
             self._tree.editItem(tree_item, 0)
+
+    def _rename_script(self, _item_id: int, tree_item: QTreeWidgetItem) -> None:
+        """In-place rename for a local script (full display name; stem pre-selected)."""
+        if tree_item is None:
+            return
+
+        language = tree_item.data(0, ROLE_LANGUAGE) or "javascript"
+        module_format = tree_item.data(0, ROLE_MODULE_FORMAT) or "esm"
+        old_basename = script_basename_from_stored(tree_item.text(1) or "")
+        tree_item.setData(1, ROLE_OLD_NAME, old_basename)
+        tree_item.setData(1, ROLE_OLD_LANGUAGE, language)
+        tree_item.setData(1, ROLE_OLD_MODULE_FORMAT, module_format)
+
+        item_rect = self._tree.visualItemRect(tree_item)
+        name_rect = script_name_rect(item_rect)
+        viewport = self._tree.viewport()
+
+        display = script_display_name(old_basename, language, module_format)
+        line_edit = QLineEdit(display, viewport)
+        line_edit.setObjectName("scriptTreeRenameEdit")
+        line_edit.setProperty("rename_armed", False)
+        line_edit.setGeometry(name_rect)
+        stem_len = script_rename_stem_length(display, language, module_format)
+        line_edit.setSelection(0, stem_len)
+        line_edit.show()
+        line_edit.setFocus()
+
+        tree_item.setData(1, ROLE_LINE_EDIT, line_edit)
+
+        line_edit.returnPressed.connect(
+            lambda: self._finish_script_rename(tree_item, line_edit, True)
+        )
+
+        def _arm_focus_out_commit() -> None:
+            line_edit.setProperty("rename_armed", True)
+            line_edit.editingFinished.connect(
+                lambda: self._finish_script_rename(tree_item, line_edit, False)
+            )
+
+        # Defer focus-out commit so the initial show/focus does not close the editor.
+        QTimer.singleShot(0, _arm_focus_out_commit)
+
+    def _finish_script_rename(
+        self,
+        tree_item: QTreeWidgetItem,
+        line_edit: QLineEdit,
+        from_return: bool,
+    ) -> None:
+        """Complete a local-script rename, persisting basename and optional language."""
+        if line_edit is None:
+            return
+        if not from_return and not line_edit.isVisible():
+            return
+        if not from_return and not line_edit.property("rename_armed"):
+            return
+
+        fallback = tree_item.data(1, ROLE_OLD_LANGUAGE) or tree_item.data(0, ROLE_LANGUAGE)
+        fallback_lang = fallback if isinstance(fallback, str) else "javascript"
+        fallback_fmt = tree_item.data(1, ROLE_OLD_MODULE_FORMAT) or tree_item.data(
+            0, ROLE_MODULE_FORMAT
+        )
+        fallback_module_format = fallback_fmt if isinstance(fallback_fmt, str) else "esm"
+        parsed = script_parse_filename_input(
+            line_edit.text(), fallback_lang, fallback_module_format
+        )
+        old_basename = tree_item.data(1, ROLE_OLD_NAME) or ""
+        old_language = tree_item.data(1, ROLE_OLD_LANGUAGE) or fallback_lang
+        old_module_format = tree_item.data(1, ROLE_OLD_MODULE_FORMAT) or fallback_module_format
+
+        line_edit.hide()
+        line_edit.deleteLater()
+        tree_item.setData(1, ROLE_LINE_EDIT, None)
+
+        if parsed is None:
+            tree_item.setText(1, old_basename)
+            tree_item.setData(1, ROLE_OLD_NAME, None)
+            tree_item.setData(1, ROLE_OLD_LANGUAGE, None)
+            tree_item.setData(1, ROLE_OLD_MODULE_FORMAT, None)
+            return
+
+        new_basename, new_language, new_module_format = parsed
+        name_changed = new_basename != old_basename
+        lang_changed = new_language != old_language
+        fmt_changed = new_module_format != old_module_format
+
+        if not name_changed and not lang_changed and not fmt_changed:
+            tree_item.setData(1, ROLE_OLD_NAME, None)
+            tree_item.setData(1, ROLE_OLD_LANGUAGE, None)
+            tree_item.setData(1, ROLE_OLD_MODULE_FORMAT, None)
+            return
+
+        item_id = tree_item.data(0, ROLE_ITEM_ID)
+        tree_item.setText(1, new_basename)
+        tree_item.setData(0, ROLE_LANGUAGE, new_language)
+        tree_item.setData(0, ROLE_MODULE_FORMAT, new_module_format)
+        tree_item.setToolTip(0, script_tooltip(new_basename, new_language, new_module_format))
+        self.script_rename_requested.emit(item_id, new_basename, new_language, new_module_format)
+        tree_item.setData(1, ROLE_OLD_NAME, None)
+        tree_item.setData(1, ROLE_OLD_LANGUAGE, None)
+        tree_item.setData(1, ROLE_OLD_MODULE_FORMAT, None)
+        self._tree.viewport().update()
 
     def _rename_request(self, item_id: int, tree_item: QTreeWidgetItem) -> None:
         """Initiate in-place renaming of a request item in the UI tree.
@@ -325,13 +463,18 @@ class _TreeActionsMixin(_TreeActionsBase):
 
         item_type = item.data(1, ROLE_ITEM_TYPE)
         # Skip requests as they're handled separately
-        if item_type == "request":
+        if is_leaf_item_type(item_type):
+            return
+
+        # Only finish a rename started via ``_rename_folder`` (ROLE_OLD_NAME set there).
+        # Ignore spurious ``itemChanged`` from expand/collapse (``setIcon``) and other updates.
+        old_name = item.data(1, ROLE_OLD_NAME)
+        if old_name is None:
             return
 
         self._tree.blockSignals(True)
         try:
             new_name = item.text(column).strip()
-            old_name = item.data(1, ROLE_OLD_NAME) or "Unnamed"
 
             if new_name == old_name:
                 return
@@ -339,6 +482,13 @@ class _TreeActionsMixin(_TreeActionsBase):
             if not new_name:
                 item.setText(column, old_name)
                 return
+
+            if getattr(self, "_tree_kind", "collections") == "local_scripts":
+                validated = folder_name_from_input(new_name)
+                if validated is None:
+                    item.setText(column, old_name)
+                    return
+                new_name = validated
 
             item_id = item.data(0, ROLE_ITEM_ID)
             item.setData(1, ROLE_OLD_NAME, None)

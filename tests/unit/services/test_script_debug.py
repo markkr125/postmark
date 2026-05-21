@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import threading
 import time
+from typing import cast
 
 import pytest
 
@@ -82,22 +83,22 @@ class TestDebugProtocolBreakpoints:
     def test_set_breakpoints(self) -> None:
         """set_breakpoints() replaces the entire set."""
         proto = DebugProtocol()
-        proto.set_breakpoints({1, 5, 10})
-        assert proto.breakpoints == {1, 5, 10}
+        proto.set_breakpoints({1: None, 5: None, 10: None})
+        assert proto.breakpoints == {1: None, 5: None, 10: None}
 
     def test_set_breakpoints_replaces(self) -> None:
         """A second call replaces the previous set."""
         proto = DebugProtocol()
-        proto.set_breakpoints({1, 2})
-        proto.set_breakpoints({3, 4})
-        assert proto.breakpoints == {3, 4}
+        proto.set_breakpoints({1: None, 2: None})
+        proto.set_breakpoints({3: None, 4: None})
+        assert proto.breakpoints == {3: None, 4: None}
 
     def test_update_breakpoints_matches_set(self) -> None:
         """:meth:`update_breakpoints` is the live-session equivalent of :meth:`set_breakpoints`."""
         by_set = DebugProtocol()
-        by_set.set_breakpoints({1, 2, 3})
+        by_set.set_breakpoints({1: None, 2: None, 3: None})
         by_update = DebugProtocol()
-        by_update.update_breakpoints({1, 2, 3})
+        by_update.update_breakpoints({1: None, 2: None, 3: None})
         assert by_set.breakpoints == by_update.breakpoints
 
     def test_toggle_adds(self) -> None:
@@ -110,7 +111,7 @@ class TestDebugProtocolBreakpoints:
     def test_toggle_removes(self) -> None:
         """toggle_breakpoint() removes a line already in the set."""
         proto = DebugProtocol()
-        proto.set_breakpoints({5})
+        proto.set_breakpoints({5: None})
         result = proto.toggle_breakpoint(5)
         assert result is False
         assert 5 not in proto.breakpoints
@@ -118,10 +119,109 @@ class TestDebugProtocolBreakpoints:
     def test_breakpoints_returns_copy(self) -> None:
         """The breakpoints property returns a copy, not the internal set."""
         proto = DebugProtocol()
-        proto.set_breakpoints({1, 2, 3})
+        proto.set_breakpoints({1: None, 2: None, 3: None})
         bp = proto.breakpoints
-        bp.add(99)
+        bp[99] = None
         assert 99 not in proto.breakpoints
+
+    def test_breakpoint_condition_round_trip(self) -> None:
+        """Conditional breakpoints store and return expression text per line."""
+        proto = DebugProtocol()
+        proto.set_breakpoints({4: "i > 5"})
+        assert proto.breakpoint_condition(4) == "i > 5"
+        proto.set_breakpoint_condition(4, "count < 10")
+        assert proto.breakpoint_condition(4) == "count < 10"
+        proto.set_breakpoint_condition(4, None)
+        assert proto.breakpoint_condition(4) is None
+        assert 4 in proto.breakpoints
+
+
+class TestDebugProtocolEvaluate:
+    """Watch-panel evaluate() adapter wiring."""
+
+    def test_evaluate_when_not_paused(self) -> None:
+        proto = DebugProtocol()
+        assert proto.evaluate("pm.response.code") == "<not paused>"
+
+    def test_evaluate_without_callback(self) -> None:
+        from services.scripting.debug.protocol import DebugState
+
+        proto = DebugProtocol()
+        with proto._lock:
+            proto._state = DebugState.PAUSED
+        assert proto.evaluate("x") == "<unavailable>"
+
+    def test_evaluate_uses_callback_for_selected_frame(self) -> None:
+        proto = DebugProtocol()
+        seen: list[tuple[str, int]] = []
+
+        def _cb(expr: str, frame: int) -> str:
+            seen.append((expr, frame))
+            return "42"
+
+        proto.set_evaluate_callback(_cb)
+        from services.scripting.debug.protocol import DebugState
+
+        with proto._lock:
+            proto._state = DebugState.PAUSED
+            proto._selected_frame_index = 1
+        assert proto.evaluate("pm.response.code") == "42"
+        assert seen == [("pm.response.code", 1)]
+        assert proto.evaluate("other", frame_index=0) == "42"
+        assert seen[-1] == ("other", 0)
+
+    def test_evaluate_surfaces_callback_errors(self) -> None:
+        proto = DebugProtocol()
+
+        def _boom(_expr: str, _frame: int) -> str:
+            raise RuntimeError("bad expr")
+
+        proto.set_evaluate_callback(_boom)
+        from services.scripting.debug.protocol import DebugState
+
+        with proto._lock:
+            proto._state = DebugState.PAUSED
+        assert "bad expr" in proto.evaluate("1/0")
+
+
+class TestDebugProtocolCallStack:
+    """Call-stack frame selection refreshes pause info."""
+
+    def test_select_frame_updates_line_and_locals(self) -> None:
+        from services.scripting.debug.protocol import CallFrame, DebugState
+
+        proto = DebugProtocol()
+        stack: list[CallFrame] = [
+            CallFrame(id="0", name="inner", line=3, column=0),
+            CallFrame(id="1", name="outer", line=10, column=0),
+        ]
+        info = {
+            "line": 3,
+            "source_name": "t.js",
+            "local_vars": {"a": 1},
+            "script_type": "pre_request",
+            "env_changes": {},
+            "global_changes": {},
+            "call_stack": stack,
+            "selected_frame_index": 0,
+        }
+        from services.scripting.debug import DebugPauseInfo
+
+        pause_info: DebugPauseInfo = cast(DebugPauseInfo, info)
+
+        def _locals(frame: int) -> dict[str, object]:
+            return {"frame": frame}
+
+        proto.set_frame_locals_callback(_locals)
+        with proto._lock:
+            proto._state = DebugState.PAUSED
+            proto._pause_info = pause_info
+
+        updated = proto.select_frame(1)
+        assert updated is not None
+        assert updated["line"] == 10
+        assert updated["selected_frame_index"] == 1
+        assert updated["local_vars"] == {"frame": 1}
 
 
 # ===================================================================
@@ -142,7 +242,7 @@ class TestDebugProtocolCheckpoint:
     def test_checkpoint_pauses_at_breakpoint(self) -> None:
         """checkpoint() blocks at a breakpoint and resumes when resume() is called."""
         proto = DebugProtocol()
-        proto.set_breakpoints({3})
+        proto.set_breakpoints({3: None})
         paused_info: list[DebugPauseInfo] = []
 
         def on_pause(info: DebugPauseInfo) -> None:
@@ -214,7 +314,7 @@ class TestDebugProtocolCheckpoint:
     def test_stop_unblocks_paused_checkpoint(self) -> None:
         """stop() unblocks a thread that is paused at a checkpoint."""
         proto = DebugProtocol()
-        proto.set_breakpoints({0})
+        proto.set_breakpoints({0: None})
         proto.start()
 
         result_holder: list[bool] = []
@@ -237,7 +337,7 @@ class TestDebugProtocolCheckpoint:
     def test_pause_info_recorded(self) -> None:
         """pause_info property returns the most recent pause data."""
         proto = DebugProtocol()
-        proto.set_breakpoints({5})
+        proto.set_breakpoints({5: None})
         proto.start()
 
         def worker() -> None:
@@ -452,7 +552,7 @@ class TestRunDebugChain:
         from services.scripting.engine import run_debug_chain
 
         proto = DebugProtocol()
-        proto.set_breakpoints({0})
+        proto.set_breakpoints({0: None})
         paused_lines: list[int] = []
 
         def on_pause(info: DebugPauseInfo) -> None:
@@ -488,7 +588,7 @@ class TestRunDebugChain:
         from services.scripting.engine import run_debug_chain
 
         proto = DebugProtocol()
-        proto.set_breakpoints({0})
+        proto.set_breakpoints({0: None})
 
         def on_pause(info: DebugPauseInfo) -> None:
             proto.stop()

@@ -18,43 +18,36 @@ from database.models.script_versions.script_version_repository import (
 
 
 class ScriptVersionService:
-    """Thin service facade over the script-version repository.
-
-    All methods are ``@staticmethod`` — no instance state needed.
-    """
+    """Thin service facade over the script-version repository."""
 
     @staticmethod
     def capture(
         *,
         request_id: int | None = None,
         collection_id: int | None = None,
+        local_script_id: int | None = None,
         script_type: str,
         content: str,
         language: str = "javascript",
     ) -> dict[str, Any] | None:
-        """Save a version snapshot if the content actually changed.
-
-        Returns the saved version dict, or ``None`` if the content
-        is identical to the most recent snapshot (dedup).
-        """
-        # 1. Skip empty content.
+        """Save a version snapshot if the content actually changed."""
         if not content.strip():
             return None
 
-        # 2. Dedup — don't save if identical to the latest version.
         recent = get_script_versions(
             request_id=request_id,
             collection_id=collection_id,
+            local_script_id=local_script_id,
             script_type=script_type,
             limit=1,
         )
         if recent and recent[0]["content"] == content:
             return None
 
-        # 3. Persist.
         model = save_script_version(
             request_id=request_id,
             collection_id=collection_id,
+            local_script_id=local_script_id,
             script_type=script_type,
             content=content,
             language=language,
@@ -66,6 +59,7 @@ class ScriptVersionService:
         *,
         request_id: int | None = None,
         collection_id: int | None = None,
+        local_script_id: int | None = None,
         script_type: str,
         limit: int = 100,
     ) -> list[dict[str, Any]]:
@@ -73,6 +67,7 @@ class ScriptVersionService:
         return get_script_versions(
             request_id=request_id,
             collection_id=collection_id,
+            local_script_id=local_script_id,
             script_type=script_type,
             limit=limit,
         )
@@ -84,10 +79,7 @@ class ScriptVersionService:
 
     @staticmethod
     def diff(version_a_id: int, version_b_id: int) -> str | None:
-        """Return a unified diff between two versions.
-
-        Returns ``None`` if either version is missing.
-        """
+        """Return a unified diff between two versions."""
         a = get_script_version(version_a_id)
         b = get_script_version(version_b_id)
         if a is None or b is None:
@@ -108,18 +100,15 @@ class ScriptVersionService:
         *,
         request_id: int | None = None,
         collection_id: int | None = None,
+        local_script_id: int | None = None,
         script_type: str,
         current_content: str,
     ) -> str | None:
-        """Return the content of the most recent version that differs.
-
-        Used by cross-session undo — walks backwards through versions
-        until finding one whose content differs from *current_content*,
-        or returns ``None`` if no such version exists.
-        """
+        """Return the content of the most recent version that differs."""
         versions = get_script_versions(
             request_id=request_id,
             collection_id=collection_id,
+            local_script_id=local_script_id,
             script_type=script_type,
             limit=100,
         )
@@ -133,9 +122,11 @@ class ScriptVersionService:
         *,
         request_id: int | None = None,
         collection_id: int | None = None,
+        local_script_id: int | None = None,
     ) -> int:
-        """Delete all versions for a request or collection."""
+        """Delete all versions for a request, collection, or local script."""
         return delete_script_versions(
             request_id=request_id,
             collection_id=collection_id,
+            local_script_id=local_script_id,
         )

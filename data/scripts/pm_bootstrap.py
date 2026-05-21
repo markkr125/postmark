@@ -8,6 +8,7 @@ initialises ``pm``.
 from __future__ import annotations
 
 import hmac
+import inspect
 import json
 import math
 import re
@@ -19,8 +20,38 @@ from datetime import UTC, datetime
 from hashlib import md5, sha256
 from typing import Any
 from urllib.parse import quote, urlencode
+
 _CONSOLE_LIMIT = 200
 _console_logs: list[dict[str, Any]] = []
+
+# Prelude lines prepended to ``<script>`` before user ``exec`` (see py_runtime.py).
+_PY_PRELUDE_LINE_COUNT = 0
+
+
+def _console_source_line() -> int | None:
+    """Best-effort 0-based editor line for the console call site."""
+    # ``inspect`` is imported at module load (before user ``exec``) so Pyodide
+    # does not hit file-descriptor limits when opening the stdlib module later.
+    offset = _PY_PRELUDE_LINE_COUNT
+    raw = globals().get("__pm_user_script_line0", 0) or 0
+    try:
+        offset += int(raw)
+    except (TypeError, ValueError):
+        offset += 0
+    frame = inspect.currentframe()
+    if frame is None:
+        return None
+    f = frame.f_back
+    shim_names = frozenset({"_console_emit", "_call_print", "_pm_print"})
+    while f is not None:
+        if f.f_code.co_filename == "<script>":
+            line0 = f.f_lineno - 1 - offset
+            return line0 if line0 >= 0 else None
+        if f.f_code.co_name in shim_names:
+            f = f.f_back
+            continue
+        f = f.f_back
+    return None
 
 
 def _console_emit(level: str, *args: object) -> None:
@@ -33,7 +64,16 @@ def _console_emit(level: str, *args: object) -> None:
             parts.append(str(a))
         except Exception:
             parts.append("<unprintable>")
-    _console_logs.append({"level": level, "message": " ".join(parts), "timestamp": time.time()})
+    entry: dict[str, Any] = {
+        "level": level,
+        "message": " ".join(parts),
+        "timestamp": time.time(),
+    }
+    sl = _console_source_line()
+    if sl is not None:
+        entry["source_line"] = sl
+    _console_logs.append(entry)
+
 
 class _VariableScope:
     """Mimics the JS ``pm.variables`` API."""
@@ -287,11 +327,7 @@ class _Expectation:
             actual = str(resp.get("body", "") or "")
         elif type(resp).__name__ == "_PmResponse":
             text_fn = getattr(resp, "text", None)
-            actual = (
-                str(text_fn())
-                if callable(text_fn)
-                else str(getattr(resp, "_body", "") or "")
-            )
+            actual = str(text_fn()) if callable(text_fn) else str(getattr(resp, "_body", "") or "")
         elif isinstance(resp, str):
             actual = resp
         preview = actual if len(actual) <= 80 else actual[:77] + "..."
@@ -705,18 +741,44 @@ class _PmRequest:
 
 
 _HTTP_REASON: dict[int, str] = {
-    100: "Continue", 101: "Switching Protocols",
-    200: "OK", 201: "Created", 202: "Accepted", 203: "Non-Authoritative Information",
-    204: "No Content", 205: "Reset Content", 206: "Partial Content",
-    300: "Multiple Choices", 301: "Moved Permanently", 302: "Found",
-    303: "See Other", 304: "Not Modified", 307: "Temporary Redirect", 308: "Permanent Redirect",
-    400: "Bad Request", 401: "Unauthorized", 402: "Payment Required", 403: "Forbidden",
-    404: "Not Found", 405: "Method Not Allowed", 406: "Not Acceptable", 408: "Request Timeout",
-    409: "Conflict", 410: "Gone", 411: "Length Required", 412: "Precondition Failed",
-    413: "Payload Too Large", 414: "URI Too Long", 415: "Unsupported Media Type",
-    422: "Unprocessable Entity", 429: "Too Many Requests",
-    500: "Internal Server Error", 501: "Not Implemented", 502: "Bad Gateway",
-    503: "Service Unavailable", 504: "Gateway Timeout",
+    100: "Continue",
+    101: "Switching Protocols",
+    200: "OK",
+    201: "Created",
+    202: "Accepted",
+    203: "Non-Authoritative Information",
+    204: "No Content",
+    205: "Reset Content",
+    206: "Partial Content",
+    300: "Multiple Choices",
+    301: "Moved Permanently",
+    302: "Found",
+    303: "See Other",
+    304: "Not Modified",
+    307: "Temporary Redirect",
+    308: "Permanent Redirect",
+    400: "Bad Request",
+    401: "Unauthorized",
+    402: "Payment Required",
+    403: "Forbidden",
+    404: "Not Found",
+    405: "Method Not Allowed",
+    406: "Not Acceptable",
+    408: "Request Timeout",
+    409: "Conflict",
+    410: "Gone",
+    411: "Length Required",
+    412: "Precondition Failed",
+    413: "Payload Too Large",
+    414: "URI Too Long",
+    415: "Unsupported Media Type",
+    422: "Unprocessable Entity",
+    429: "Too Many Requests",
+    500: "Internal Server Error",
+    501: "Not Implemented",
+    502: "Bad Gateway",
+    503: "Service Unavailable",
+    504: "Gateway Timeout",
 }
 
 
@@ -813,6 +875,8 @@ class _PmInfo:
         self.request_id = str(data.get("requestId", data.get("request_id", "")))
         self.iteration = int(data.get("iteration", 0))
         self.iteration_count = int(data.get("iterationCount", data.get("iteration_count", 0)))
+        raw_filter = data.get("testFilter")
+        self.test_filter = str(raw_filter) if raw_filter else None
 
 
 class _PmExecutionLocation:
@@ -966,6 +1030,9 @@ class _PmTestCallable:
         self._owner = owner
 
     def __call__(self, name: str, fn: Any) -> None:
+        filt = self._owner.info.test_filter
+        if filt is not None and str(name) != str(filt):
+            return
         start = time.time()
         result: dict[str, Any] = {
             "name": str(name),
@@ -995,17 +1062,22 @@ class _PmTestCallable:
         if skip_marker["hit"]:
             result["skipped"] = True
         result["duration_ms"] = (time.time() - start) * 1000
+        src = getattr(self._owner, "_test_source_name", None)
+        if src:
+            result["source_name"] = str(src)
         self._owner._test_results.append(result)
 
     def skip(self, name: str, _fn: Any = None) -> None:
         """Record *name* as skipped without invoking the callback."""
-        self._owner._test_results.append({
-            "name": str(name),
-            "passed": True,
-            "skipped": True,
-            "error": None,
-            "duration_ms": 0.0,
-        })
+        self._owner._test_results.append(
+            {
+                "name": str(name),
+                "passed": True,
+                "skipped": True,
+                "error": None,
+                "duration_ms": 0.0,
+            }
+        )
 
 
 class _PmVisualizer:
@@ -1028,10 +1100,22 @@ class _PmVisualizer:
 # Built-in modules accessible via ``pm.require("name")`` (Postman parity).
 # Names that can't be vendored from the Python sandbox raise a documented
 # error so users see "not supported" rather than a generic ImportError.
-_PM_BUILTIN_MODULE_NAMES: frozenset[str] = frozenset({
-    "tv4", "xml2js", "crypto-js", "chai", "lodash", "moment",
-    "cheerio", "csv-parse/lib/sync", "ajv", "atob", "btoa", "uuid",
-})
+_PM_BUILTIN_MODULE_NAMES: frozenset[str] = frozenset(
+    {
+        "tv4",
+        "xml2js",
+        "crypto-js",
+        "chai",
+        "lodash",
+        "moment",
+        "cheerio",
+        "csv-parse/lib/sync",
+        "ajv",
+        "atob",
+        "btoa",
+        "uuid",
+    }
+)
 
 
 class _Pm:
@@ -1042,12 +1126,11 @@ class _Pm:
         resp = context.get("response")
         self._is_pre_request: bool = resp is None
         self.request = _PmRequest(
-            context.get("request", {}), is_pre_request=self._is_pre_request,
+            context.get("request", {}),
+            is_pre_request=self._is_pre_request,
         )
         original_req = context.get("original_request") or context.get("request") or {}
-        self.response: _PmResponse | None = (
-            _PmResponse(resp, original_req) if resp else None
-        )
+        self.response: _PmResponse | None = _PmResponse(resp, original_req) if resp else None
         self.cookies = _PmCookies(resp)
         # Scope objects must exist before _ResolvedVariables references them.
         self.environment = _VariableScope(context.get("environment_vars", {}))
@@ -1058,6 +1141,7 @@ class _Pm:
         self.execution = _PmExecution(context.get("execution_location") or {})
         self.visualizer = _PmVisualizer()
         self._test_results: list[dict[str, Any]] = []
+        self._test_source_name: str | None = None
         self._send_count = 0
         # Bind ``test`` as a callable instance so ``pm.test.skip(name, fn)``
         # works without rewriting ``def test`` as a class. Built lazily so

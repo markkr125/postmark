@@ -25,6 +25,12 @@ from ui.styling.theme import (
     TREE_ROW_HEIGHT,
 )
 from ui.widgets.info_popup import ClickableLabel
+from ui.widgets.sidebar_section_info import (
+    ENVIRONMENTS_INTRO,
+    SidebarSectionInfoPopup,
+    make_sidebar_info_button,
+    toggle_sidebar_section_info,
+)
 
 # Inset between the QSS list frame and the scroll document (avoids hover under the border).
 _ENV_LIST_FRAME_SHIM_PX = 1
@@ -67,6 +73,8 @@ class EnvironmentSidebarPanel(QWidget):
         self.setMinimumHeight(96)
         self._active_env_id: int | None = None
         self._last_envs: list[dict[str, Any]] = []
+        self._info_btn: QToolButton | None = None
+        self._info_popup: SidebarSectionInfoPopup | None = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(
@@ -83,6 +91,13 @@ class EnvironmentSidebarPanel(QWidget):
         title = QLabel("Environments")
         title.setObjectName("sidebarSectionLabel")
         header.addWidget(title)
+
+        self._info_btn = make_sidebar_info_button(
+            self,
+            tooltip="What are environments?",
+            on_toggle=self._toggle_section_info,
+        )
+        header.addWidget(self._info_btn)
         header.addStretch()
 
         self._manage_btn = QToolButton(self)
@@ -259,3 +274,17 @@ class EnvironmentSidebarPanel(QWidget):
         self._active_env_id = None
         self._rebuild_rows(self._last_envs, emit_if_changed=False)
         self.environment_changed.emit(None)
+
+    def _toggle_section_info(self) -> None:
+        """Show or hide the Environments help popup below the info button."""
+        if self._info_btn is None:
+            return
+        holder = [self._info_popup]
+        toggle_sidebar_section_info(
+            self._info_btn,
+            holder,
+            title="Environments",
+            body=ENVIRONMENTS_INTRO,
+            parent=self,
+        )
+        self._info_popup = holder[0]

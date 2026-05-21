@@ -24,53 +24,52 @@ if TYPE_CHECKING:
     from ui.request.response_viewer import ResponseViewerWidget
     from ui.sidebar import RightSidebar
 
+from ui.main_window.send_pipeline_debug import (
+    _debug_hover_root_objects as _debug_hover_root_objects,
+    _ensure_script_host_materialized as _ensure_script_host_materialized,
+    _merge_debug_hover_values as _merge_debug_hover_values,
+)
+from ui.main_window.send_pipeline_debug_session import (
+    end_debug_ui as _impl_end_debug_ui,
+    end_inline_script_debug as _impl_end_inline_script_debug,
+    on_debug_error as _impl_on_debug_error,
+    on_debug_finished as _impl_on_debug_finished,
+    on_debug_paused as _impl_on_debug_paused,
+    on_debug_step as _impl_on_debug_step,
+)
+from ui.main_window.send_pipeline_postresponse import (
+    on_send_finished as _impl_on_send_finished,
+    run_post_response_script_with_live_response as _impl_run_post_response,
+)
+
 logger = logging.getLogger(__name__)
 
 
-def _merge_debug_hover_values(pause_info: dict) -> dict[str, Any]:
-    """Merge values for ``set_debug_locals`` hover. Later sources override on name clash.
-
-    Precedence: ``globals`` snapshot, then ``pm`` snapshot, then CDP ``locals``,
-    then env/workspace changes (last wins on name clash for the latter two).
-    """
-    merged: dict[str, Any] = {}
-    lv = pause_info.get("local_vars") or {}
-    if (
-        "globals" in lv
-        and "pm" in lv
-        and isinstance(lv.get("pm"), dict)
-        and isinstance(lv.get("globals"), dict)
-    ):
-        merged.update(lv.get("globals", {}))
-        merged.update(lv.get("pm", {}))
-    else:
-        flat = {k: v for k, v in lv.items() if k not in {"locals", "scopes"}}
-        merged.update(flat)
-    locals_ = lv.get("locals")
-    if isinstance(locals_, dict):
-        merged.update(locals_)
-    merged.update(pause_info.get("env_changes") or {})
-    merged.update(pause_info.get("global_changes") or {})
-    return merged
+def _resolve_post_response_language(
+    editor: RequestEditorWidget,
+    test_scripts: list[Any] | None,
+) -> str:
+    """Pick the language for compiled declarative assertions."""
+    scripts = editor.get_request_data().get("scripts") or {}
+    if isinstance(scripts, dict):
+        lang = scripts.get("test_language") or scripts.get("language")
+        if lang:
+            return str(lang).lower()
+    if test_scripts:
+        return str(test_scripts[0].get("language", "javascript")).lower()
+    return "javascript"
 
 
-def _debug_hover_root_objects(pause_info: dict) -> dict[str, Any]:
-    """Whole-object snapshots for hover when the flat merge omits the root name.
+def _build_declarative_test_script(
+    request_id: int,
+    editor: RequestEditorWidget,
+    test_scripts: list[Any] | None,
+) -> Any:
+    """Compile DB-backed declarative assertions for the send worker."""
+    from services.assertion_service import AssertionService
 
-    When ``globals`` and ``pm`` dicts are present, :func:`_merge_debug_hover_values`
-    flattens ``pm`` keys, so the identifier ``pm`` is not in the merged map.
-    """
-    roots: dict[str, Any] = {}
-    lv = pause_info.get("local_vars") or {}
-    pm = lv.get("pm")
-    if isinstance(pm, dict):
-        roots["pm"] = pm
-    gl = lv.get("globals")
-    if isinstance(gl, dict):
-        con = gl.get("console")
-        if isinstance(con, dict):
-            roots["console"] = con
-    return roots
+    language = _resolve_post_response_language(editor, test_scripts)
+    return AssertionService.build_declarative_script_entry(request_id, language)
 
 
 def _scripts_enabled() -> bool:
@@ -115,7 +114,7 @@ class _SendPipelineMixin:
         ctx: TabContext | None = self._current_tab_context()
 
         # Folder tabs cannot send requests
-        if ctx is not None and ctx.tab_type in ("folder", "environments"):
+        if ctx is not None and ctx.tab_type in ("folder", "environments", "local_script"):
             return
 
         # If already sending, treat as cancel
@@ -190,9 +189,15 @@ class _SendPipelineMixin:
         inline_test = getattr(self, "_inline_test_run", None)
         pre_scripts = None
         test_scripts = None
+        declarative_test_script = None
         if _scripts_enabled() and inline_test is None:
             if request_id:
                 pre_scripts, test_scripts = ScriptService.build_script_chain(request_id)
+                declarative_test_script = _build_declarative_test_script(
+                    request_id,
+                    editor,
+                    test_scripts,
+                )
             else:
                 # Draft: use inline scripts from the editor
                 scripts_data = editor.get_request_data().get("scripts")
@@ -215,6 +220,7 @@ class _SendPipelineMixin:
             else None,
             pre_scripts=pre_scripts,
             test_scripts=test_scripts,
+            declarative_test_script=declarative_test_script,
         )
 
         thread = QThread()
@@ -246,124 +252,19 @@ class _SendPipelineMixin:
         debug_btn: Any,
     ) -> None:
         """Send the active request first, then run one post-response script inline."""
-        for btn in (run_btn, debug_btn):
-            if btn is not None:
-                btn.setEnabled(False)
-        self._inline_test_run = {
-            "editor": editor,
-            "panel": panel,
-            "script": script,
-            "language": language,
-            "run_btn": run_btn,
-            "debug_btn": debug_btn,
-        }
-        panel.show_error("Sending request to fetch live response…")
-        self._on_send_request()
+        _impl_run_post_response(
+            self,
+            editor=editor,
+            panel=panel,
+            script=script,
+            language=language,
+            run_btn=run_btn,
+            debug_btn=debug_btn,
+        )
 
     def _on_send_finished(self, data: dict) -> None:
         """Handle a successful HTTP response from the worker thread."""
-        inline_test = getattr(self, "_inline_test_run", None)
-        ctx = self._current_tab_context()
-        viewer = ctx.require_response_viewer() if ctx is not None else self.response_widget
-
-        # Remember if the user was on the Pre-request tab before reload.
-        was_on_pre_request = (
-            hasattr(viewer, "_pre_tab_index")
-            and viewer._tabs.currentIndex() == viewer._pre_tab_index
-            and viewer._tabs.isTabVisible(viewer._pre_tab_index)
-        )
-
-        viewer.load_response(data)
-
-        # Pass test results to response viewer (if present)
-        test_results = data.get("test_results", [])
-        console_logs = data.get("console_logs", [])
-        if test_results:
-            viewer.load_test_results(test_results)
-
-        # Populate the Pre-request tab when scripts ran.
-        if data.get("has_pre_request_scripts"):
-            viewer.load_pre_request_data(
-                console_logs=data.get("pre_request_console_logs", []),
-                variable_changes=data.get("pre_request_variable_changes", {}),
-                errors=data.get("pre_request_errors", []),
-            )
-            # If the user was already viewing the Pre-request tab, stay.
-            if was_on_pre_request:
-                viewer._tabs.setCurrentIndex(viewer._pre_tab_index)
-
-        # Route console logs to the console panel
-        if console_logs:
-            from ui.panels.console_panel import ConsolePanel
-
-            console_panel: ConsolePanel | None = getattr(self, "_console_panel", None)
-            if console_panel is not None:
-                for log_entry in console_logs:
-                    message = log_entry.get("message", "")
-                    level = log_entry.get("level", "log")
-                    if level == "error":
-                        console_panel.append_error(f"[Script] {message}")
-                    else:
-                        console_panel.append_message(f"[Script] {message}")
-
-        # Apply variable changes to local overrides
-        var_changes = data.get("variable_changes", {})
-        if ctx and ctx.tab_type not in ("folder", "environments") and var_changes:
-            _ = ctx.require_editor()
-            for key, value in var_changes.items():
-                ctx.local_overrides[key] = {
-                    "value": str(value),
-                    "original_source": "script",
-                    "original_source_id": 0,
-                }
-
-        self._set_send_button_cancel(False)
-        if ctx is not None:
-            idx = self._tab_bar.currentIndex()
-            self._tab_bar.update_tab(idx, is_sending=False)
-            ctx.cleanup_thread()
-        else:
-            self._cleanup_send_thread()
-        # Add to history panel
-        editor = ctx.require_editor() if ctx is not None else self.request_widget
-        self._history_panel.add_entry(
-            editor._method_combo.currentText(),
-            editor._url_input.text(),
-            data.get("status_code"),
-            data.get("elapsed_ms", 0),
-        )
-        self._refresh_sidebar()
-
-        if inline_test is not None:
-            from ui.request.request_editor.scripts.script_run_worker import build_inline_context
-
-            panel = inline_test.get("panel")
-            script = str(inline_test.get("script", ""))
-            language = str(inline_test.get("language", "javascript"))
-            run_btn = inline_test.get("run_btn")
-            debug_btn = inline_test.get("debug_btn")
-            self._inline_test_run = None
-            if script and panel is not None and hasattr(panel, "run_script"):
-                response_payload = {
-                    "code": int(data.get("status_code", 0) or 0),
-                    "status": f"{data.get('status_code', '')} {data.get('status_text', '')}".strip(),
-                    "headers": data.get("headers", []),
-                    "body": str(data.get("body", "")),
-                    "responseTime": float(data.get("elapsed_ms", 0.0) or 0.0),
-                    "responseSize": int(data.get("size_bytes", 0) or 0),
-                }
-                context = build_inline_context(script_type="test", response_data=response_payload)
-                panel.run_script(
-                    script=script,
-                    language=language,
-                    context=context,
-                    run_btn=run_btn,
-                    debug_btn=debug_btn,
-                )
-            else:
-                for btn in (run_btn, debug_btn):
-                    if btn is not None:
-                        btn.setEnabled(True)
+        _impl_on_send_finished(self, data)
 
     def _on_send_error(self, message: str) -> None:
         """Handle an error from the HTTP send worker."""
@@ -405,7 +306,7 @@ class _SendPipelineMixin:
         ctx = self._current_tab_context()
         if ctx is not None:
             ctx.cancel_send()
-            if ctx.tab_type not in ("folder", "environments"):
+            if ctx.tab_type not in ("folder", "environments", "local_script"):
                 ctx.require_response_viewer().show_error("Request cancelled")
         else:
             if self._send_worker is not None:
@@ -417,7 +318,7 @@ class _SendPipelineMixin:
     def _set_send_button_cancel(self, is_cancel: bool) -> None:
         """Toggle the Send button between Send and Cancel states."""
         ctx = self._current_tab_context()
-        if ctx is not None and ctx.tab_type in ("folder", "environments"):
+        if ctx is not None and ctx.tab_type in ("folder", "environments", "local_script"):
             return
         editor = ctx.require_editor() if ctx is not None else self.request_widget
         btn = editor._send_btn
@@ -467,139 +368,46 @@ class _SendPipelineMixin:
             return self.request_widget
         if ctx.tab_type == "folder" and ctx.folder_editor is not None:
             return ctx.folder_editor
+        if ctx.tab_type == "local_script" and ctx.local_script_editor is not None:
+            return ctx.local_script_editor
         if ctx.tab_type == "request" and ctx.editor is not None:
             return ctx.editor
         return self.request_widget
 
+    def _resolve_debug_script_host(self) -> Any:
+        """Return the widget that started the current inline debug session."""
+        pinned = getattr(self, "_debug_script_host", None)
+        if pinned is not None:
+            return pinned
+        return self._active_script_host()
+
+    def _clear_debug_script_host_pin(self) -> None:
+        """Drop the inline-debug host pin (see :meth:`_resolve_debug_script_host`)."""
+        self._debug_script_host = None
+
     def _on_debug_paused(self, info: dict) -> None:
         """Handle a debug pause event from the worker thread."""
-        from services.scripting.debug import DebugPauseInfo
-
-        editor: Any = self._active_script_host()
-        pause_info: DebugPauseInfo = info  # type: ignore[assignment]
-
-        script_type = pause_info.get("script_type", "pre_request")
-        line = pause_info.get("line", 0)
-
-        # Highlight current line in the appropriate editor
-        target = (
-            editor._pre_request_edit if script_type == "pre_request" else editor._test_script_edit
-        )
-        other = (
-            editor._test_script_edit if script_type == "pre_request" else editor._pre_request_edit
-        )
-        target.set_debug_line(line)
-        merged = _merge_debug_hover_values(dict(pause_info))
-        roots = _debug_hover_root_objects(dict(pause_info))
-        target.set_debug_locals(merged, root_values=roots)
-        other.set_debug_locals({})
-
-        # Switch to the Scripts tab, then the correct sub-tab
-        scripts_idx = editor._tabs.indexOf(editor._scripts_tab)
-        if scripts_idx >= 0:
-            editor._tabs.setCurrentIndex(scripts_idx)
-        editor._scripts_sub_tabs.setCurrentIndex(
-            0 if script_type == "pre_request" else 1,
-        )
-
-        pre = getattr(editor, "_pre_output_panel", None)
-        testp = getattr(editor, "_test_output_panel", None)
-        if pre is not None and testp is not None:
-            if script_type == "pre_request":
-                pre.show_debug_controls(pause_info)
-                testp.hide_debug_controls()
-            else:
-                testp.show_debug_controls(pause_info)
-                pre.hide_debug_controls()
-
-        controls_map = getattr(editor, "_debug_controls", None)
-        if isinstance(controls_map, dict):
-            active_key = "pre_request" if script_type == "pre_request" else "test"
-            for key, ctrl in controls_map.items():
-                if key == active_key:
-                    ctrl.update_pause(pause_info)
-                    ctrl.show()
-                    pbar = ctrl.parentWidget()
-                    if pbar is not None:
-                        pbar.show()
-                else:
-                    ctrl.clear_session()
-                    ctrl.hide()
-                    pbar = ctrl.parentWidget()
-                    if pbar is not None:
-                        pbar.hide()
-
-        sched = getattr(editor, "_schedule_refresh_script_split_full_width_line", None)
-        if callable(sched):
-            sched()
+        _impl_on_debug_paused(self, info)
 
     def _on_debug_step(self, mode_name: str) -> None:
         """Handle a step request from the debug panel."""
-        if self._debug_protocol is None:
-            return
-        from services.scripting.debug import StepMode
-
-        mode_map = {
-            "continue": StepMode.CONTINUE,
-            "step_over": StepMode.STEP_OVER,
-            "step_into": StepMode.STEP_INTO,
-            "step_out": StepMode.STEP_OUT,
-            "stop": StepMode.STOP,
-        }
-        mode = mode_map.get(mode_name, StepMode.CONTINUE)
-
-        # Clear debug line highlight before resuming
-        host: Any = self._active_script_host()
-        host._pre_request_edit.set_debug_line(None)
-        host._test_script_edit.set_debug_line(None)
-        host._pre_request_edit.set_debug_locals({})
-        host._test_script_edit.set_debug_locals({})
-
-        if mode == StepMode.STOP:
-            self._debug_protocol.stop()
-        else:
-            self._debug_protocol.resume(mode)
+        _impl_on_debug_step(self, mode_name)
 
     def _on_debug_finished(self, data: dict) -> None:
         """Handle completion of a debug send."""
-        self._debug_protocol = None
-        self._on_send_finished(data)
-        self._end_debug_ui()
+        _impl_on_debug_finished(self, data)
 
     def _on_debug_error(self, message: str) -> None:
         """Handle an error during a debug send."""
-        self._debug_protocol = None
-        self._on_send_error(message)
-        self._end_debug_ui()
+        _impl_on_debug_error(self, message)
 
     def _end_debug_ui(self) -> None:
         """Clean up debug UI state after a session ends."""
-        self._clear_debug_breakpoint_listeners()
-        host: Any = self._active_script_host()
-        host._pre_request_edit.set_debug_line(None)
-        host._test_script_edit.set_debug_line(None)
-        host._pre_request_edit.set_debug_locals({})
-        host._test_script_edit.set_debug_locals({})
-        for name in ("_pre_output_panel", "_test_output_panel"):
-            p = getattr(host, name, None)
-            if p is not None and hasattr(p, "hide_debug_controls"):
-                p.hide_debug_controls()
-        controls_map = getattr(host, "_debug_controls", None)
-        if isinstance(controls_map, dict):
-            for ctrl in controls_map.values():
-                ctrl.clear_session()
-                ctrl.hide()
-                pbar = ctrl.parentWidget()
-                if pbar is not None:
-                    pbar.hide()
-        sched = getattr(host, "_schedule_refresh_script_split_full_width_line", None)
-        if callable(sched):
-            sched()
+        _impl_end_debug_ui(self)
 
     def end_inline_script_debug(self) -> None:
         """Clear inline script debug state when :class:`ScriptDebugWorker` ends."""
-        self._debug_protocol = None
-        self._end_debug_ui()
+        _impl_end_inline_script_debug(self)
 
     def _current_editor(self) -> RequestEditorWidget:
         """Return the editor for the active tab."""

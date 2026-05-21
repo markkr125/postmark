@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QLabel, QToolButton
 
 from ui.collections.collection_header import CollectionHeader
+from ui.collections.new_item_popup import NewItemPopup
+from ui.collections.new_local_script_popup import NewLocalScriptItemPopup
+from ui.widgets.sidebar_section_info import (
+    COLLECTIONS_INTRO,
+    LOCAL_SCRIPTS_INTRO,
+    SidebarSectionInfoPopup,
+)
 
 
 class TestCollectionHeader:
@@ -22,8 +29,10 @@ class TestCollectionHeader:
         header = CollectionHeader()
         qtbot.addWidget(header)
 
+        popup = header._popup
+        assert isinstance(popup, NewItemPopup)
         with qtbot.waitSignal(header.new_collection_requested, timeout=1000) as blocker:
-            header._popup.new_collection_clicked.emit()
+            popup.new_collection_clicked.emit()
 
         assert blocker.args == [None]
 
@@ -42,8 +51,10 @@ class TestCollectionHeader:
         header = CollectionHeader()
         qtbot.addWidget(header)
 
+        popup = header._popup
+        assert isinstance(popup, NewItemPopup)
         with qtbot.waitSignal(header.new_request_requested, timeout=1000) as blocker:
-            header._popup.new_request_clicked.emit()
+            popup.new_request_clicked.emit()
 
         assert blocker.args == [None]
 
@@ -57,3 +68,60 @@ class TestCollectionHeader:
 
         header.set_selected_collection_id(None)
         assert header._selected_collection_id is None
+
+    def test_collections_header_has_info_button(self, qapp: QApplication, qtbot) -> None:
+        """Collections variant shows a section info icon."""
+        header = CollectionHeader(tree_kind="collections")
+        qtbot.addWidget(header)
+
+        info_btn = header.findChild(QToolButton, "sidebarSectionInfoButton")
+        assert info_btn is not None
+
+    def test_collections_info_popup_content(self, qapp: QApplication, qtbot) -> None:
+        """Collections info button opens the collections explainer."""
+        header = CollectionHeader(tree_kind="collections")
+        qtbot.addWidget(header)
+        header.show()
+        qtbot.waitExposed(header)
+
+        header._toggle_section_info()
+        popup = header._info_popup
+        assert popup is not None
+        assert isinstance(popup, SidebarSectionInfoPopup)
+        assert popup.isVisible()
+
+        texts = [label.text() for label in popup.findChildren(QLabel)]
+        assert "Collections" in texts
+        assert COLLECTIONS_INTRO in texts
+
+        close_btn = popup.findChild(QToolButton, "infoPopupCloseButton")
+        assert close_btn is not None
+        close_btn.click()
+        assert not popup.isVisible()
+
+    def test_local_scripts_header_has_info_button(self, qapp: QApplication, qtbot) -> None:
+        """Local scripts variant shows an info icon instead of inline intro text."""
+        header = CollectionHeader(tree_kind="local_scripts")
+        qtbot.addWidget(header)
+
+        assert isinstance(header._popup, NewLocalScriptItemPopup)
+        info_btn = header.findChild(QToolButton, "sidebarSectionInfoButton")
+        assert info_btn is not None
+        assert header.findChild(QLabel, "localScriptsIntroLabel") is None
+
+    def test_local_scripts_info_popup_content(self, qapp: QApplication, qtbot) -> None:
+        """Info button opens a popup with the Local scripts explainer."""
+        header = CollectionHeader(tree_kind="local_scripts")
+        qtbot.addWidget(header)
+        header.show()
+        qtbot.waitExposed(header)
+
+        header._toggle_section_info()
+        popup = header._info_popup
+        assert popup is not None
+        assert isinstance(popup, SidebarSectionInfoPopup)
+        assert popup.isVisible()
+
+        texts = [label.text() for label in popup.findChildren(QLabel)]
+        assert "Local scripts" in texts
+        assert LOCAL_SCRIPTS_INTRO in texts

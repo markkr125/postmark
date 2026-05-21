@@ -68,6 +68,7 @@ class TestVersionHistoryDialog:
         """Restoring from the test tab produces script_type='test'."""
         ScriptVersionService.capture(request_id=1, script_type="test", content="test_old")
         dlg = self._make_dialog()
+        assert dlg._type_tabs is not None
         dlg._type_tabs.setCurrentIndex(1)
         dlg._test_list.setCurrentRow(0)
         dlg._on_restore()
@@ -107,6 +108,7 @@ class TestVersionHistoryDialog:
     def test_tabs_have_object_name(self, qapp: Any) -> None:
         """Tab widget uses 'versionTabs' objectName for QSS targeting."""
         dlg = self._make_dialog()
+        assert dlg._type_tabs is not None
         assert dlg._type_tabs.objectName() == "versionTabs"
         dlg.close()
 

@@ -422,6 +422,14 @@ class SettingsDialog(QDialog):
         self._lsp_enabled_check.setChecked(RuntimeSettings.lsp_enabled())
         layout.addWidget(self._lsp_enabled_check)
 
+        self._npm_type_resolution_check = QCheckBox("Resolve npm/jsr types for pm.require (LSP)")
+        self._npm_type_resolution_check.setChecked(RuntimeSettings.enable_npm_type_resolution())
+        layout.addWidget(self._npm_type_resolution_check)
+
+        self._format_on_save_check = QCheckBox("Format script on save (idle, 500ms)")
+        self._format_on_save_check.setChecked(RuntimeSettings.format_on_save())
+        layout.addWidget(self._format_on_save_check)
+
         note = QLabel(
             "When disabled, pre-request and test scripts are skipped\n"
             "for both single requests and collection runs."
@@ -1464,6 +1472,8 @@ class SettingsDialog(QDialog):
             self._preview_tab_check,
             self._enable_scripts_check,
             self._lsp_enabled_check,
+            self._npm_type_resolution_check,
+            self._format_on_save_check,
             self._auto_save_default_check,
         ):
             check.toggled.connect(self._mark_dirty)
@@ -1573,6 +1583,8 @@ class SettingsDialog(QDialog):
         settings = QSettings(_ORG, _APP)
         settings.setValue("scripting/enabled", self._enable_scripts_check.isChecked())
         RuntimeSettings.set_lsp_enabled(self._lsp_enabled_check.isChecked())
+        RuntimeSettings.set_enable_npm_type_resolution(self._npm_type_resolution_check.isChecked())
+        RuntimeSettings.set_format_on_save(self._format_on_save_check.isChecked())
         settings.setValue(
             "scripting/auto_save_default",
             self._auto_save_default_check.isChecked(),

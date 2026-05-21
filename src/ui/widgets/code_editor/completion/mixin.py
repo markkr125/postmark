@@ -11,9 +11,10 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QPoint, QRect, Qt, QTimer
 from PySide6.QtGui import QKeyEvent, QMouseEvent, QTextCursor
-from PySide6.QtWidgets import QPlainTextEdit
+from PySide6.QtWidgets import QApplication, QPlainTextEdit
 
 _SYMBOL_HOVER_DELAY_MS = 400
+_LSP_DEF_HOVER_DELAY_MS = 350
 
 if TYPE_CHECKING:
     from ui.widgets.code_editor.completion.engine import CompletionEngine
@@ -60,6 +61,8 @@ class _CompletionMixin(_CompletionBase):
     _symbol_hover_path: str | None
     _symbol_hover_global_pos: QPoint
     _symbol_hover_timer: QTimer
+    _lsp_def_hover_timer: QTimer
+    _lsp_def_hover_pending: bool
     _completion_engine: CompletionEngine
     _completion_prefix: str
 
@@ -74,19 +77,21 @@ class _CompletionMixin(_CompletionBase):
 
     # -- Completion methods ---------------------------------------------
 
+    def _completion_text_before_cursor(self) -> str:
+        """Document text before the cursor (for string-literal completion)."""
+        return self._text_before_cursor_document()
+
     def _trigger_completion(self) -> None:
         """Compute and show completions at the current cursor position."""
         self._parameter_hint_popup.hide_hint()
         self._symbol_doc_popup.hide_popup()
         self._completion_engine.scan_assignments(self.toPlainText())
-        cursor = self.textCursor()
-        block_text = cursor.block().text()
-        col = cursor.positionInBlock()
-        text_before = block_text[:col]
+        text_before = self._completion_text_before_cursor()
+        in_local = self._completion_engine.is_local_require_completion_context(text_before)
 
         items = self._completion_engine.complete(text_before)
         prefix = ""
-        if not items:
+        if not items and not in_local:
             prefix = self._completion_engine.identifier_prefix(text_before)
             items = self._completion_engine.top_level_filtered(prefix)
         if not items:
@@ -104,19 +109,27 @@ class _CompletionMixin(_CompletionBase):
 
     def _filter_completion(self) -> None:
         """Re-filter the completion list as the user types."""
-        cursor = self.textCursor()
-        block_text = cursor.block().text()
-        col = cursor.positionInBlock()
-        text_before = block_text[:col]
+        text_before = self._completion_text_before_cursor()
+        in_local = self._completion_engine.is_local_require_completion_context(text_before)
 
         items = self._completion_engine.complete(text_before)
-        if not items:
+        if not items and not in_local:
             prefix = self._completion_engine.identifier_prefix(text_before)
             items = self._completion_engine.top_level_filtered(prefix)
         if not items:
             self._completion_popup.dismiss()
             return
         self._completion_popup.set_items(items)
+
+    def _maybe_trigger_local_path_completion(self) -> None:
+        """Open or refresh local-script path completion after the cursor moves."""
+        text_before = self._completion_text_before_cursor()
+        if not self._completion_engine.is_local_require_completion_context(text_before):
+            return
+        if self._completion_popup.is_active():
+            self._filter_completion()
+        else:
+            self._trigger_completion()
 
     def _position_completion_popup(self) -> None:
         """Place the popup below the current cursor position."""
@@ -128,14 +141,20 @@ class _CompletionMixin(_CompletionBase):
         """Insert the accepted completion text at the cursor."""
         cursor = self.textCursor()
 
-        block_text = cursor.block().text()
-        col = cursor.positionInBlock()
-        text_before = block_text[:col]
+        if self._completion_engine.is_local_require_completion_context(
+            self._completion_text_before_cursor()
+        ):
+            text_before = self._completion_text_before_cursor()
+        else:
+            block_text = cursor.block().text()
+            col = cursor.positionInBlock()
+            text_before = block_text[:col]
 
         # Find how many chars of the completion are already typed.
         prefix_len = 0
-        for i in range(min(len(insert_text), col), 0, -1):
-            candidate = text_before[col - i :]
+        scan_len = min(len(insert_text), len(text_before))
+        for i in range(scan_len, 0, -1):
+            candidate = text_before[-i:]
             if insert_text.lower().startswith(candidate.lower()):
                 prefix_len = i
                 break
@@ -190,6 +209,9 @@ class _CompletionMixin(_CompletionBase):
                         )
                         event.accept()
                         return
+                if self._try_open_local_require_at_cursor():
+                    event.accept()
+                    return
                 adapter = getattr(self, "_lsp_adapter", None)
                 if adapter is not None:
                     cur = self.textCursor()
@@ -215,8 +237,13 @@ class _CompletionMixin(_CompletionBase):
         super().mousePressEvent(event)
 
     def _on_lsp_definition_response(self, future: object) -> None:
-        """Jump cursor to the LSP definition target when it lives in this document."""
+        """Jump to LSP definition in-buffer or open another host tab."""
+        from pathlib import Path
+        from urllib.parse import unquote, urlparse
+        from urllib.request import url2pathname
+
         from services.lsp.qt_lsp_offsets import lsp_to_qpos
+        from ui.widgets.code_editor.editor_widget import CodeEditorWidget
 
         adapter = getattr(self, "_lsp_adapter", None)
         if adapter is None:
@@ -224,17 +251,67 @@ class _CompletionMixin(_CompletionBase):
         try:
             locs = future.result(timeout_s=0.0)  # type: ignore[attr-defined]
         except Exception:
+            locs = None
+        if locs:
+            loc = locs[0]
+            uri = str(getattr(loc, "uri", ""))
+            own_uri = str(getattr(adapter, "_uri", ""))
+            if uri == own_uri:
+                target = lsp_to_qpos(self.document(), int(loc.line), int(loc.column))
+                cur = self.textCursor()
+                cur.setPosition(target)
+                self.setTextCursor(cur)
+                self.centerCursor()
+                return
+            if uri.startswith("file:"):
+                parsed = urlparse(uri)
+                fs_path = Path(url2pathname(unquote(parsed.path)))
+                parts = fs_path.parts
+                if "local" in parts:
+                    idx = parts.index("local")
+                    if idx + 1 < len(parts):
+                        stem = Path(parts[idx + 1]).stem
+                        if stem.isdigit() and CodeEditorWidget._invoke_open_local_script(int(stem)):
+                            return
+        self._try_open_local_require_at_cursor()
+
+    def _on_lsp_def_hover_timeout(self) -> None:
+        """Debounced LSP definition probe for Ctrl+hover pointer cursor."""
+        adapter = getattr(self, "_lsp_adapter", None)
+        if adapter is None or self._lsp_def_hover_pending:
             return
-        if not locs:
+        future = adapter.request_definition()
+        if future is None:
             return
-        loc = locs[0]
-        if str(getattr(loc, "uri", "")) != getattr(adapter, "_uri", ""):
+        self._lsp_def_hover_pending = True
+        future.add_done_callback(self._on_lsp_def_hover_response)
+
+    def _try_open_local_require_at_cursor(self) -> bool:
+        """Open a local script tab when the cursor sits on ``pm.require('local:…')``."""
+        from services.local_script_service import LocalScriptService
+        from services.scripting.local_script_modules import local_require_path_at_offset
+        from ui.widgets.code_editor.editor_widget import CodeEditorWidget
+
+        hit = local_require_path_at_offset(self.toPlainText(), self.textCursor().position())
+        if hit is None:
+            return False
+        rel, _, _ = hit
+        script_id = LocalScriptService.resolve_script_id_by_virtual_path(rel)
+        if script_id is None:
+            return False
+        return CodeEditorWidget._invoke_open_local_script(script_id)
+
+    def _on_lsp_def_hover_response(self, future: object) -> None:
+        """Apply pointing-hand cursor when LSP reports a definition at hover position."""
+        self._lsp_def_hover_pending = False
+        if not (QApplication.keyboardModifiers() & Qt.KeyboardModifier.ControlModifier):  # type: ignore[name-defined]
             return
-        target = lsp_to_qpos(self.document(), int(loc.line), int(loc.column))
-        cur = self.textCursor()
-        cur.setPosition(target)
-        self.setTextCursor(cur)
-        self.centerCursor()
+        try:
+            locs = future.result(timeout_s=0.0)  # type: ignore[attr-defined]
+        except Exception:
+            locs = None
+        if locs:
+            self.viewport().setCursor(Qt.CursorShape.PointingHandCursor)
 
     def keyReleaseEvent(self, event: QKeyEvent) -> None:
         """Clear the Ctrl+hover underline as soon as Ctrl is released."""
@@ -242,6 +319,8 @@ class _CompletionMixin(_CompletionBase):
             if self._symbol_hover_path is not None:
                 self._symbol_hover_path = None
                 self._symbol_hover_timer.stop()  # type: ignore[union-attr]
+            self._lsp_def_hover_timer.stop()  # type: ignore[union-attr]
+            self._lsp_def_hover_pending = False
             self.set_symbol_link_range(None, None)  # type: ignore[attr-defined]
             self.viewport().setCursor(Qt.CursorShape.IBeamCursor)
         super().keyReleaseEvent(event)
@@ -274,11 +353,19 @@ class _CompletionMixin(_CompletionBase):
                         self._symbol_hover_timer.start(_SYMBOL_HOVER_DELAY_MS)  # type: ignore[union-attr]
                     super().mouseMoveEvent(event)
                     return
+            adapter = getattr(self, "_lsp_adapter", None)
+            if adapter is not None:
+                self._lsp_def_hover_timer.stop()  # type: ignore[union-attr]
+                self._lsp_def_hover_timer.start(_LSP_DEF_HOVER_DELAY_MS)  # type: ignore[union-attr]
+                super().mouseMoveEvent(event)
+                return
         if self._symbol_hover_path is not None:
             self._symbol_hover_path = None
             self._symbol_hover_timer.stop()  # type: ignore[union-attr]
             self._symbol_doc_popup.hide_popup()
             self.set_symbol_link_range(None, None)  # type: ignore[attr-defined]
+        self._lsp_def_hover_timer.stop()  # type: ignore[union-attr]
+        self._lsp_def_hover_pending = False
 
         # 2. Variable hover tracking.
         var_name = self._var_at_cursor(pos)  # type: ignore[attr-defined]

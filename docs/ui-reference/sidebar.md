@@ -1,7 +1,8 @@
 # Sidebar
 
 Icon rails with collapsible flyout panels: **LeftSidebar** hosts the
-collections and environment picker; **RightSidebar** hosts variables,
+collections and environment picker on one stacked page and **Local scripts**
+on another (Phosphor **code** icon); **RightSidebar** hosts variables,
 snippets, and saved responses.
 
 Source: `src/ui/sidebar/`
@@ -18,8 +19,11 @@ widget height (``LEFT_RAIL_ACCENT_STRIPE_WIDTH_PX`` wide) because Fusion-style
 ``QToolButton`` stylesheets often clip ``border-left`` to the content box.  The flyout uses
 ``objectName`` ``leftSidebarFlyout``; unlike the right rail flyout it has **no**
 built-in title row (the injected ``CollectionWidget`` already owns the
-``CollectionHeader`` heading).  Horizontal inset for the collections and
-environment bodies uses ``LEFT_NAV_PANEL_MARGIN_H_LEFT_PX`` /
+``CollectionHeader`` heading).  The flyout body is a ``QStackedWidget``: page
+0 is ``MainWindow``'s vertical ``_left_nav_splitter`` (collections above
+environments); page 1 is ``LocalScriptsSidebarPanel`` (empty list shell until
+populated).  Horizontal inset for the collections and environment bodies uses
+``LEFT_NAV_PANEL_MARGIN_H_LEFT_PX`` /
 ``LEFT_NAV_PANEL_MARGIN_H_RIGHT_PX`` in ``theme.py``, applied inside
 ``CollectionWidget`` and ``EnvironmentSidebarPanel`` so the vertical splitter
 between them stays full flyout width (only the pane content is inset).
@@ -27,14 +31,16 @@ When the splitter width is 0, the flyout applies a **local** ``setStyleSheet``
 to remove borders so they are not painted on top of the main splitter handle.
 When open, the flyout uses a **left** border only (vs the rail); the **right**
 edge is the main horizontal splitter handle only, so there is no double line
-beside the editor.  Its body comes from :meth:`LeftSidebar.set_content` (in
-``MainWindow`` this is the vertical ``_left_nav_splitter``).
+beside the editor.  Page 0 is installed via :meth:`LeftSidebar.set_content`; page
+1 via :meth:`LeftSidebar.set_local_scripts_panel` (which also reveals the second
+rail icon).
 
 ### Rail Buttons
 
 | Button | Icon (Phosphor) | Panel |
 |--------|-----------------|-------|
-| Collections | `files` | Collections tree + environment rows (injected content) |
+| Collections | `files` | Collections tree + environment rows (``_left_nav_splitter``) |
+| Local scripts | `code` | ``LocalScriptsSidebarPanel`` (stacked flyout page) |
 
 ### Signals
 
@@ -46,9 +52,10 @@ beside the editor.  Its body comes from :meth:`LeftSidebar.set_content` (in
 
 | Method | Description |
 |--------|-------------|
-| `set_content(widget)` | Install the sole flyout body widget |
+| `set_content(widget)` | Install page ``"collections"`` (collections + environments splitter) |
+| `set_local_scripts_panel(widget)` | Register page ``"local_scripts"`` and show its rail icon |
 | `install_in_splitter(splitter)` | Insert rail then flyout as the first two splitter children |
-| `open_panel(key="collections")` | Expand flyout and activate the rail button |
+| `open_panel(key="collections")` | Expand flyout and activate the rail button (no-op if *key* is not registered) |
 | `close_panel()` | Collapse flyout to zero width (same end state as dragging the handle closed) |
 | `toggle_panel(key)` | Toggle the named panel |
 | `is_open` | Property: flyout width is non-zero |
@@ -56,6 +63,12 @@ beside the editor.  Its body comes from :meth:`LeftSidebar.set_content` (in
 **View → Toggle Sidebar** (``Ctrl+B``) calls :meth:`close_panel` when the flyout
 is open and :meth:`open_panel` when it is closed — it does not hide the
 activity rail, so it matches a manual resize of the flyout to zero width.
+
+## LocalScriptsSidebarPanel
+
+Placeholder flyout page for future **Local scripts** content.  Uses the same
+list-frame chrome pattern as ``EnvironmentSidebarPanel`` (scroll area + bordered
+list host).  Source: ``src/ui/sidebar/local_scripts_sidebar_panel.py``.
 
 ## RightSidebar
 
@@ -114,6 +127,34 @@ elsewhere via ``phi()``) to expand the full text.
 
 `load_variables(variables, local_overrides, has_environment)` —
 populate sections from `VariableDetail` dicts.
+
+## Script debug widgets (`debug_watch_panel`, `debug_call_stack_panel`)
+
+Source: `src/ui/sidebar/debug_watch_panel.py`,
+`src/ui/sidebar/debug_call_stack_panel.py`.  Composed into
+`ScriptOutputPanel` during inline script debug (see
+[Request Editor — Inline debug inspector](request-editor.md#inline-debug-inspector-output-tab)).
+`DebugPanel` in `debug_panel.py` still bundles the same pieces for tests.
+
+### WatchPanel
+
+| `objectName` | Description |
+|--------------|-------------|
+| `debugWatchList` | One row per watch expression; text `expr  =  value` after evaluate |
+| `sidebarSearch` | Add-expression field (Return or + button) |
+
+Calls `DebugProtocol.evaluate(expr)` on `refresh()` / `update_pause()` while the
+protocol is **paused**.
+
+### CallStackPanel
+
+| Signal | Parameters | Description |
+|--------|------------|-------------|
+| `frame_selected` | `int` | Stack frame index; host calls `select_frame` and refreshes variables |
+
+| `objectName` | Description |
+|--------------|-------------|
+| `debugCallStackList` | Frame labels `index: name  @ line N` (1-based line in UI) |
 
 ## SnippetPanel
 

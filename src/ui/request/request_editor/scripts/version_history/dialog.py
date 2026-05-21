@@ -39,10 +39,12 @@ class VersionHistoryDialog(QDialog):
     def __init__(
         self,
         *,
-        request_id: int | None,
-        collection_id: int | None,
-        current_pre: str,
-        current_test: str,
+        request_id: int | None = None,
+        collection_id: int | None = None,
+        local_script_id: int | None = None,
+        current_pre: str = "",
+        current_test: str = "",
+        current_content: str = "",
         language: str = "javascript",
         initial_tab: int = 0,
         parent: QWidget | None = None,
@@ -51,7 +53,6 @@ class VersionHistoryDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Script Version History")
 
-        # Size to 80 % of the primary screen.
         screen = QGuiApplication.primaryScreen()
         if screen is not None:
             geo = screen.availableGeometry()
@@ -63,7 +64,9 @@ class VersionHistoryDialog(QDialog):
 
         self._request_id = request_id
         self._collection_id = collection_id
-        self._current_pre = current_pre
+        self._local_script_id = local_script_id
+        self._local_script_mode = local_script_id is not None
+        self._current_pre = current_content if self._local_script_mode else current_pre
         self._current_test = current_test
         self._language = language
         self._restored: tuple[str, str] | None = None
@@ -72,42 +75,44 @@ class VersionHistoryDialog(QDialog):
         root.setContentsMargins(0, 0, 0, 4)
         root.setSpacing(0)
 
-        # Bottom button row (created early so _on_tab_changed can access)
         self._restore_btn = QPushButton("Restore Selected")
         self._restore_btn.setIcon(phi("arrow-counter-clockwise", color="#ffffff", size=14))
         self._restore_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._restore_btn.setEnabled(False)
         self._restore_btn.clicked.connect(self._on_restore)
 
-        # Script type tabs
-        self._type_tabs = QTabWidget()
-        self._type_tabs.setObjectName("versionTabs")
-        self._type_tabs.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._type_tabs.currentChanged.connect(self._on_tab_changed)
+        if self._local_script_mode:
+            local_widget = QWidget()
+            local_layout = QVBoxLayout(local_widget)
+            local_layout.setContentsMargins(0, 0, 0, 0)
+            local_layout.setSpacing(0)
+            self._pre_toolbar, self._pre_list, self._pre_viewer = self._build_tab(local_layout)
+            self._test_list = self._pre_list
+            self._test_viewer = self._pre_viewer
+            self._type_tabs = None
+            root.addWidget(local_widget, 1)
+        else:
+            self._type_tabs = QTabWidget()
+            self._type_tabs.setObjectName("versionTabs")
+            self._type_tabs.setCursor(Qt.CursorShape.PointingHandCursor)
+            self._type_tabs.currentChanged.connect(self._on_tab_changed)
 
-        # Pre-request tab
-        pre_widget = QWidget()
-        pre_layout = QVBoxLayout(pre_widget)
-        pre_layout.setContentsMargins(0, 0, 0, 0)
-        pre_layout.setSpacing(0)
-        self._pre_toolbar, self._pre_list, self._pre_viewer = self._build_tab(
-            pre_layout,
-        )
-        self._type_tabs.addTab(pre_widget, "Pre-request Script")
+            pre_widget = QWidget()
+            pre_layout = QVBoxLayout(pre_widget)
+            pre_layout.setContentsMargins(0, 0, 0, 0)
+            pre_layout.setSpacing(0)
+            self._pre_toolbar, self._pre_list, self._pre_viewer = self._build_tab(pre_layout)
+            self._type_tabs.addTab(pre_widget, "Pre-request Script")
 
-        # Test tab
-        test_widget = QWidget()
-        test_layout = QVBoxLayout(test_widget)
-        test_layout.setContentsMargins(0, 0, 0, 0)
-        test_layout.setSpacing(0)
-        self._test_toolbar, self._test_list, self._test_viewer = self._build_tab(
-            test_layout,
-        )
-        self._type_tabs.addTab(test_widget, "Test Script")
+            test_widget = QWidget()
+            test_layout = QVBoxLayout(test_widget)
+            test_layout.setContentsMargins(0, 0, 0, 0)
+            test_layout.setSpacing(0)
+            self._test_toolbar, self._test_list, self._test_viewer = self._build_tab(test_layout)
+            self._type_tabs.addTab(test_widget, "Test Script")
 
-        root.addWidget(self._type_tabs, 1)
+            root.addWidget(self._type_tabs, 1)
 
-        # Bottom button row
         btn_row = QHBoxLayout()
         btn_row.setContentsMargins(8, 8, 8, 4)
         btn_row.addStretch()
@@ -122,11 +127,9 @@ class VersionHistoryDialog(QDialog):
 
         root.addLayout(btn_row)
 
-        # Load versions
         self._load_versions()
 
-        # Select the requested initial tab
-        if initial_tab:
+        if self._type_tabs is not None and initial_tab:
             self._type_tabs.setCurrentIndex(initial_tab)
 
     # -- Layout helpers ------------------------------------------------
@@ -185,7 +188,10 @@ class VersionHistoryDialog(QDialog):
     # -- Data loading --------------------------------------------------
 
     def _load_versions(self) -> None:
-        """Fetch and display versions for both script types."""
+        """Fetch and display versions for both script types (or one local script)."""
+        if self._local_script_mode:
+            self._load_type_versions(self._pre_list, "local_script", self._current_pre)
+            return
         self._load_type_versions(self._pre_list, "pre_request", self._current_pre)
         self._load_type_versions(self._test_list, "test", self._current_test)
 
@@ -201,6 +207,7 @@ class VersionHistoryDialog(QDialog):
         versions = ScriptVersionService.list_versions(
             request_id=self._request_id,
             collection_id=self._collection_id,
+            local_script_id=self._local_script_id,
             script_type=script_type,
         )
         for v in versions:
@@ -246,13 +253,17 @@ class VersionHistoryDialog(QDialog):
 
         content = current.data(Qt.ItemDataRole.UserRole) or ""
 
-        tab_idx = self._type_tabs.currentIndex()
-        if tab_idx == 0:
+        if self._local_script_mode:
             current_text = self._current_pre
             viewer = self._pre_viewer
-        else:
-            current_text = self._current_test
-            viewer = self._test_viewer
+        elif self._type_tabs is not None:
+            tab_idx = self._type_tabs.currentIndex()
+            if tab_idx == 0:
+                current_text = self._current_pre
+                viewer = self._pre_viewer
+            else:
+                current_text = self._current_test
+                viewer = self._test_viewer
 
         viewer.show_diff(content, current_text)
         # Dynamic "Before [date]" label on the left column header
@@ -270,14 +281,18 @@ class VersionHistoryDialog(QDialog):
 
     def _on_restore(self) -> None:
         """Accept the dialog with the selected version's content."""
-        tab_idx = self._type_tabs.currentIndex()
-        list_widget = self._pre_list if tab_idx == 0 else self._test_list
+        if self._local_script_mode:
+            list_widget = self._pre_list
+            script_type = "local_script"
+        elif self._type_tabs is not None:
+            tab_idx = self._type_tabs.currentIndex()
+            list_widget = self._pre_list if tab_idx == 0 else self._test_list
+            script_type = "pre_request" if tab_idx == 0 else "test"
         item = list_widget.currentItem()
         if item is None:
             return
 
         content = item.data(Qt.ItemDataRole.UserRole) or ""
-        script_type = "pre_request" if tab_idx == 0 else "test"
         self._restored = (script_type, content)
         self.accept()
 

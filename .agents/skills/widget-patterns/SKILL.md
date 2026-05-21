@@ -37,11 +37,19 @@ semantics:
 |---|---|---|
 | **Folder** | Display name (text + icon) | Type metadata only (via data roles) |
 | **Request** | Empty text `""` (delegate paints badge + name) | Raw name text (used for rename and delegate display) |
+| **Script** (local_scripts) | Empty text `""` (delegate paints icon + basename + muted extension) | **Basename only** in column 1 (extension from `ROLE_LANGUAGE` + `ROLE_MODULE_FORMAT`) |
 
 Because of this asymmetry:
 - Folder rename uses Qt's built-in `editItem()` on column 0.
-- Request rename creates an overlay `QLineEdit` on the tree viewport.
+- Request rename creates an overlay `QLineEdit` on the full row.
+- **Script** rename (`local_scripts` tree): VS Code-style `scriptTreeRenameEdit` overlay on the name column only — single `QLineEdit` with full `basename.ext`; `script_parse_filename_input()` strips suffix and maps `.js`/`.cjs`/`.ts`/`.py` to language + `module_format` (see `ui/local_scripts/script_filename.py`).
+- **+ New** local script popup: four tiles — JavaScript (ESM), TypeScript, Python, **JavaScript (CommonJS)**; `new_script_clicked` emits `(language, module_format)`.
+
+## Sidebar section info (i)
+
+Collections, Local scripts, and Environments headers use `sidebarSectionInfoButton` + `SidebarSectionInfoPopup` from `ui/widgets/sidebar_section_info.py` (subclass of `InfoPopup`). Click toggles the popup below the icon; click again or outside closes it.
 - Reading a request's display name: use `item.text(1)` (column 1).
+- Reading a script's basename: use `item.text(1)`; full file-style label via `script_display_name(basename, item.data(0, ROLE_LANGUAGE), item.data(0, ROLE_MODULE_FORMAT))`.
 
 ## Data role layout on QTreeWidgetItems
 
@@ -56,6 +64,8 @@ All constants are defined in `ui/collections/tree/constants.py`.
 | `ROLE_NAME_LABEL` | `UserRole + 4` | Column 1 | (legacy — unused with delegate approach) |
 | `ROLE_MIME_DATA` | `UserRole + 5` | Column 3 | (legacy — unused, drag reads data roles directly) |
 | `ROLE_METHOD` | `UserRole + 6` | Column 0 | HTTP method string (requests only) |
+| `ROLE_LANGUAGE` | `UserRole + 7` | Column 0 | Script language code (`javascript` / `typescript` / `python`) |
+| `ROLE_MODULE_FORMAT` | `UserRole + 9` | Column 0 | `esm` or `commonjs` (JS only; `.cjs` virtual paths) |
 | `ROLE_PLACEHOLDER` | `UserRole + 10` | Column 1 | `"placeholder"` marker string |
 
 Gap at `+7` through `+9` is reserved for future roles.

@@ -18,6 +18,7 @@ Security layers (RestrictedPython path):
 from __future__ import annotations
 
 import contextlib
+import inspect
 import json
 import logging
 import os
@@ -44,6 +45,10 @@ _PYODIDE_VENDOR_MARKER = (
     Path(__file__).resolve().parents[3] / "data" / "scripts" / "vendor_pyodide" / "pyodide.asm.wasm"
 )
 
+# Extra lines prepended to user ``<script>`` before ``exec`` (0 today). Bootstraps
+# subtract this from captured frame lines so inline console annotations align.
+PYTHON_USER_SCRIPT_PRELUDE_LINE_COUNT = 0
+
 _PM_REQUIRE_PY_RE = re.compile(
     r"""pm\s*\.\s*require\s*\(\s*['"]"""
     r"""(?P<name>[a-z0-9][a-z0-9._-]*)"""
@@ -63,6 +68,34 @@ class PmPyRequireSpec(NamedTuple):
     def pip_spec(self) -> str:
         """Specifier passed to ``micropip.install``."""
         return f"{self.name}=={self.version}" if self.version else self.name
+
+
+def python_console_frame_to_editor_line() -> int | None:
+    """Map the innermost ``<script>`` frame to a 0-based editor line.
+
+    Walks back from :func:`_console_emit` / print shims. Uses
+    ``PYTHON_USER_SCRIPT_PRELUDE_LINE_COUNT`` and optional global
+    ``__pm_user_script_line0`` (set by Pyodide host) for bundle offsets.
+    """
+    frame = inspect.currentframe()
+    if frame is None:
+        return None
+    offset = PYTHON_USER_SCRIPT_PRELUDE_LINE_COUNT
+    g = frame.f_globals
+    if "__pm_user_script_line0" in g:
+        with contextlib.suppress(TypeError, ValueError):
+            offset += int(g["__pm_user_script_line0"])
+    f = frame.f_back
+    shim_names = frozenset({"_console_emit", "_call_print", "_pm_print"})
+    while f is not None:
+        if f.f_code.co_filename == "<script>":
+            line0 = f.f_lineno - 1 - offset
+            return line0 if line0 >= 0 else None
+        if f.f_code.co_name in shim_names:
+            f = f.f_back
+            continue
+        f = f.f_back
+    return None
 
 
 def detect_pm_require_py_specs(source: str) -> list[PmPyRequireSpec]:

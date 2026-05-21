@@ -6,7 +6,17 @@ import contextlib
 from typing import TYPE_CHECKING, Any, cast
 
 from PySide6.QtCore import QModelIndex, QPersistentModelIndex, QPoint, QSize, Qt, Signal
-from PySide6.QtGui import QAction, QBrush, QColor, QGuiApplication, QIcon, QPainter, QPalette, QPen
+from PySide6.QtGui import (
+    QAction,
+    QBrush,
+    QColor,
+    QGuiApplication,
+    QIcon,
+    QPainter,
+    QPalette,
+    QPen,
+    QTextCursor,
+)
 from PySide6.QtWidgets import (
     QFrame,
     QLabel,
@@ -261,9 +271,14 @@ class ScriptLspProblemsTab(QWidget):
         if not isinstance(raw, Diagnostic):
             return
         d = raw
-        pos = lsp_to_qpos(editor.document(), d.line, d.column)
+        start = lsp_to_qpos(editor.document(), d.line, d.column)
         cur = editor.textCursor()
-        cur.setPosition(pos)
+        if d.end_line == d.line and d.end_column > d.column:
+            end = lsp_to_qpos(editor.document(), d.end_line, d.end_column)
+            cur.setPosition(start)
+            cur.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+        else:
+            cur.setPosition(start)
         editor.setTextCursor(cur)
         editor.setFocus(Qt.FocusReason.OtherFocusReason)
         editor.centerCursor()

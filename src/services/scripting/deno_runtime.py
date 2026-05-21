@@ -25,13 +25,14 @@ from typing import TYPE_CHECKING, Any, cast
 
 from services.scripting.js_runtime import (
     _build_js_context,
-    _detect_pm_require_specs,
     _detect_required_modules,
     _get_bootstrap,
     _get_polyfills,
     _get_vendor_file,
     _pm_require_imports_block,
     _resolve_vendor_files,
+    prepare_pm_require_bundle,
+    write_local_modules_to_workdir,
 )
 from services.scripting.runtime_settings import RuntimeSettings
 
@@ -179,7 +180,7 @@ def deno_ipc_argv_and_env(
     deno: Path,
     bundle: Path,
     *,
-    script_for_network_scan: str,
+    needs_net: bool,
     inspect_brk: str | None = None,
 ) -> tuple[list[str], dict[str, str]]:
     """Build ``deno run`` argv + env for bundle IPC (permissions + optional inspect)."""
@@ -194,10 +195,6 @@ def deno_ipc_argv_and_env(
         f"--allow-read={read_paths}",
         f"--allow-write={cache}",
     ]
-    try:
-        needs_net = bool(_detect_pm_require_specs(script_for_network_scan))
-    except ValueError:
-        needs_net = True
     if needs_net:
         # Drop a per-execution ``.npmrc`` into the bundle workdir so Deno
         # picks up private-registry configuration (scope mappings + auth
@@ -276,15 +273,23 @@ class DenoRuntime:
             return _error_output(str(exc), (time.monotonic() - start) * 1000)
 
 
-def _build_bundle_text(script: str, context: ScriptInput) -> str:
-    """Concatenate polyfills, vendor, context, bootstrap, user script, drain hook."""
+def _build_bundle_text(
+    script: str,
+    context: ScriptInput,
+    *,
+    language: str = "javascript",
+) -> tuple[str, bool, dict[str, Any]]:
+    """Concatenate bundle text, ``needs_net``, and resolved local modules."""
+    from services.scripting.js_runtime import _detect_pm_require_specs
+
     parts: list[str] = []
     parts.append(_NODE_FS_IMPORT)
     try:
-        specs = _detect_pm_require_specs(script)
+        _union, needs_net, local_mods = prepare_pm_require_bundle(script, language=language)
+        specs = _detect_pm_require_specs(_union)
     except ValueError as exc:
         raise RuntimeError(f"Script bundling failed: {exc}") from exc
-    parts.append(_pm_require_imports_block(specs))
+    parts.append(_pm_require_imports_block(specs, local_mods))
     parts.append(_get_polyfills())
     for vf in _resolve_vendor_files(_detect_required_modules(script)):
         parts.append(_get_vendor_file(vf))
@@ -295,9 +300,10 @@ def _build_bundle_text(script: str, context: ScriptInput) -> str:
     # (``(function __denoIpcDrain() { ... })``) is never ASI'd onto it as a
     # call (e.g. ``console.log('x')`` + ``(function`` → invalid / TypeError).
     user_tail = script.rstrip()
-    parts.append(f"\n// -- user script --\n{user_tail}\n;\n")
+    _append_user_script_line0(parts)
+    parts.append(f"{_USER_SCRIPT_MARKER}{user_tail}\n;\n")
     parts.append(_DENO_DRAIN_FILE.read_text(encoding="utf-8"))
-    return "\n".join(parts)
+    return "\n".join(parts), needs_net, local_mods
 
 
 _DEBUG_BASELINE = (
@@ -312,19 +318,38 @@ _DEBUG_BASELINE = (
 # pm.sendRequest(...)`` (Postman-API parity). The outer call is itself
 # awaited so the drain code that follows runs **after** the user script
 # resolves, otherwise pm.test results queued post-await would be missed.
+_USER_SCRIPT_MARKER = "\n// -- user script --\n"
 _DEBUG_USER_SCRIPT_HEAD = "\n// -- user script --\nasync function __pm_debugUserScript() {"
 _DEBUG_USER_SCRIPT_TAIL = "\n}\nawait __pm_debugUserScript();\n;\n"
 
 
-def build_debug_bundle_text(user_script: str, context: ScriptInput) -> str:
+def _bundle_line_count(parts: list[str]) -> int:
+    """Return the number of lines in the bundle built from *parts* so far."""
+    return len("\n".join(parts).splitlines())
+
+
+def _append_user_script_line0(parts: list[str]) -> None:
+    """Append ``var __pm_user_script_line0 = N`` for console stack mapping."""
+    parts.append(f"var __pm_user_script_line0 = {_bundle_line_count(parts)};\n")
+
+
+def build_debug_bundle_text(
+    user_script: str,
+    context: ScriptInput,
+    *,
+    language: str = "javascript",
+) -> tuple[str, bool, dict[str, Any]]:
     """Same as :func:`_build_bundle_text` but with a ``__pm_baseline_json`` line before the user part."""
+    from services.scripting.js_runtime import _detect_pm_require_specs
+
     parts: list[str] = []
     parts.append(_NODE_FS_IMPORT)
     try:
-        specs = _detect_pm_require_specs(user_script)
+        _union, needs_net, local_mods = prepare_pm_require_bundle(user_script, language=language)
+        specs = _detect_pm_require_specs(_union)
     except ValueError as exc:
         raise RuntimeError(f"Script bundling failed: {exc}") from exc
-    parts.append(_pm_require_imports_block(specs))
+    parts.append(_pm_require_imports_block(specs, local_mods))
     parts.append(_get_polyfills())
     for vf in _resolve_vendor_files(_detect_required_modules(user_script)):
         parts.append(_get_vendor_file(vf))
@@ -333,31 +358,30 @@ def build_debug_bundle_text(user_script: str, context: ScriptInput) -> str:
     parts.append(_get_bootstrap())
     parts.append(_DEBUG_BASELINE)
     u_tail = user_script.rstrip()
+    _append_user_script_line0(parts)
     parts.append(_DEBUG_USER_SCRIPT_HEAD)
     parts.append(u_tail)
     parts.append(_DEBUG_USER_SCRIPT_TAIL)
     parts.append(_DENO_DRAIN_FILE.read_text(encoding="utf-8"))
-    return "\n".join(parts)
+    return "\n".join(parts), needs_net, local_mods
 
 
-def user_script_first_line_0_in_debug_bundle(_user_script: str, context: ScriptInput) -> int:
+def user_script_first_line_0_in_debug_bundle(
+    _user_script: str,
+    context: ScriptInput,
+    *,
+    language: str = "javascript",
+) -> int:
     """Return 0-based line number in the debug bundle where *user* source starts."""
-    parts: list[str] = []
-    parts.append(_NODE_FS_IMPORT)
-    try:
-        specs = _detect_pm_require_specs(_user_script)
-    except ValueError as exc:
-        raise RuntimeError(f"Script bundling failed: {exc}") from exc
-    parts.append(_pm_require_imports_block(specs))
-    parts.append(_get_polyfills())
-    for vf in _resolve_vendor_files(_detect_required_modules(_user_script)):
-        parts.append(_get_vendor_file(vf))
-    jctx = json.dumps(_build_js_context(context), default=str)
-    parts.append(f"var __pm_context = {jctx};\n")
-    parts.append(_get_bootstrap())
-    parts.append(_DEBUG_BASELINE)
-    parts.append(_DEBUG_USER_SCRIPT_HEAD)
-    return len("\n".join(parts).splitlines())
+    text, _needs_net, _local = build_debug_bundle_text(_user_script, context, language=language)
+    marker = _DEBUG_USER_SCRIPT_HEAD
+    idx = text.find(marker)
+    if idx < 0:
+        return 0
+    user_start = idx + len(marker)
+    while user_start < len(text) and text[user_start] in "\r\n":
+        user_start += 1
+    return text[:user_start].count("\n")
 
 
 def _apply_done_line(data: dict[str, Any], out: ScriptOutput, context: ScriptInput) -> None:
@@ -397,7 +421,11 @@ def _reap_and_read_stderr(
 
 
 def _ipc_subprocess(
-    deno: Path, bundle: Path, context: ScriptInput, script_source: str
+    deno: Path,
+    bundle: Path,
+    context: ScriptInput,
+    *,
+    needs_net: bool,
 ) -> tuple[dict[str, Any] | None, str]:
     """Stream stdout, fulfill sendRequest lines from the Deno process.
 
@@ -407,7 +435,7 @@ def _ipc_subprocess(
     from services.scripting.context import execute_sub_request
 
     wdir = bundle.parent
-    argv, env = deno_ipc_argv_and_env(deno, bundle, script_for_network_scan=script_source)
+    argv, env = deno_ipc_argv_and_env(deno, bundle, needs_net=needs_net)
     proc = subprocess.Popen(
         argv,
         stdin=subprocess.PIPE,
@@ -475,20 +503,23 @@ def _run_bundle(
     language: str = "javascript",
 ) -> ScriptOutput:
     out = _empty_output()
-    text = _build_bundle_text(script, context)
+    try:
+        text, needs_net, local_mods = _build_bundle_text(script, context, language=language)
+    except (ValueError, RuntimeError) as exc:
+        return _error_output(str(exc), (time.monotonic() - start) * 1000)
     ext = "ts" if language == "typescript" else "mjs"
     with tempfile.TemporaryDirectory(prefix="postmark-deno-") as tdir:
         tpath = Path(tdir)
+        write_local_modules_to_workdir(tpath, local_mods)
         bundle = tpath / f"bundle.{ext}"
         bundle.write_text(text, encoding="utf-8")
-        dline, err_tail = _ipc_subprocess(deno, bundle, context, script)
+        dline, err_tail = _ipc_subprocess(deno, bundle, context, needs_net=needs_net)
         if dline is not None:
             _apply_done_line(dline, out, context)
             return cast("ScriptOutput", out)
-        cap = 1_200
-        detail = err_tail.strip()
-        if len(detail) > cap:
-            detail = f"{detail[: cap - 3]}..."
+        from services.scripting.es_module_rules import format_process_stderr
+
+        detail = format_process_stderr(err_tail)
         if detail:
             msg = (
                 "Deno did not print a result line (the process may have crashed or been killed). "

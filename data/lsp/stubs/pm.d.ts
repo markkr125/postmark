@@ -22,6 +22,8 @@ declare namespace pm {
     function get(...args: any[]): any;
     /** `getAll` */
     function getAll(...args: any[]): any;
+    /** `jar` */
+    function jar(...args: any[]): any;
   }
   namespace environment {
     /** `clear` */
@@ -40,6 +42,8 @@ declare namespace pm {
     function unset(...args: any[]): any;
   }
   namespace execution {
+    /** free-form `location` */
+    const location: any;
     /** `setNextRequest` */
     function setNextRequest(...args: any[]): any;
     /** `skipRequest` */
@@ -76,7 +80,8 @@ declare namespace pm {
   /** free-form `request` */
   const request: any;
   /** `require` */
-  function require(...args: any[]): any;
+  /** Fallback when specifier is not in pm_require_index.ts */
+  function require(spec: string): unknown;
   /** free-form `response` */
   const response: any;
   /** `sendRequest` */
@@ -98,6 +103,10 @@ declare namespace pm {
     function toObject(...args: any[]): any;
     /** `unset` */
     function unset(...args: any[]): any;
+  }
+  namespace visualizer {
+    /** `set` */
+    function set(...args: any[]): any;
   }
 }
 

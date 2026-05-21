@@ -256,7 +256,7 @@ PY_SCHEMA: dict[str, SchemaNode] = {
             "require": {
                 "kind": "method",
                 "type_str": "ModuleType",
-                "doc": "Install (via micropip) and import a PyPI package (Pyodide path)",
+                "doc": ("Import PyPI (micropip) or a Local script (e.g. 'local:auth/helper.py')"),
                 "signature": "(spec: str)",
             },
             "send_request": {

@@ -79,6 +79,27 @@ cross-layer data interchange.
 | `delete_run(run_id)` | `bool` | Delete a single run (True if found) |
 | `delete_runs_for_collection(collection_id)` | `int` | Delete all runs for a collection, return count |
 
+### Local script repository (`local_script_repository.py`)
+
+| Function | Returns | Purpose |
+|----------|---------|---------|
+| `create_folder(name, parent_id?)` | `LocalScriptFolderModel` | Create folder |
+| `create_script(folder_id, name, *, language, module_format="esm", content)` | `LocalScriptModel` | Create script; ``module_format`` validated via ``_normalize_module_format`` |
+| `rename_script_and_rewrite_refs(script_id, new_name, *, language?, module_format?)` | `int` | Rename + rewrite ``pm.require("local:…")`` when virtual path changes (``.js`` ↔ ``.cjs``) |
+| `move_script_and_rewrite_refs(script_id, new_folder_id)` | `int` | Move + rewrite local refs |
+| `update_script_content(script_id, content, language?, module_format?)` | `None` | Persist editor body |
+
+``module_format="commonjs"`` is only valid when ``language=="javascript"``; otherwise
+``ValueError``. TypeScript/Python rows always store ``"esm"``.
+
+### Local script query repository (`local_script_query_repository.py`)
+
+| Function | Returns | Purpose |
+|----------|---------|---------|
+| `fetch_all_local_scripts_tree()` | `dict[str, Any]` | Nested tree; script nodes include ``module_format`` |
+| `get_script_by_id(script_id)` | `LocalScriptModel \| None` | PK lookup |
+| `get_local_script_breadcrumb(script_id)` | `list[dict[str, Any]]` | Breadcrumb segments |
+
 ## Service method catalogue
 
 ### CollectionService
@@ -190,6 +211,26 @@ history CRUD.
 | `get_results(run_id)` | Results for a run as list of dicts |
 | `delete_run(run_id)` | Delete a single run |
 | `delete_runs(collection_id)` | Delete all runs for a collection |
+
+### LocalScriptService (`services/local_script_service.py`)
+
+All methods are `@staticmethod`.  UI must use this module, not `database/`.
+
+| Method | Purpose |
+|--------|---------|
+| `fetch_all()` | Nested local-scripts tree dict (includes ``module_format`` on script nodes) |
+| `list_virtual_paths(*, language)` | Virtual paths for ``pm.require("local:…")`` autocomplete |
+| `get_script_load_dict(script_id)` | Editor open payload (see ``LocalScriptLoadDict``) |
+| `create_script(folder_id, name, *, language, module_format="esm", content)` | Create script |
+| `rename_script(script_id, new_name, *, language?, module_format?)` | Rename + ref rewrite |
+| `save_script_content(script_id, content, language?, module_format?)` | Persist buffer |
+
+**CJS policy:** ``.cjs`` local scripts are leaf modules — no ``pm.require("local:…")``
+inside CJS bodies (enforced in ``local_script_modules.resolve_required``). Consumers
+use ``pm.require("local:…/file.cjs")`` from ESM pre-request/test scripts only.
+
+**UI signals (local scripts tree):** ``new_script_clicked(str, str)`` (language,
+module_format); ``new_script_requested(object, str, str)`` on header; ``script_rename_requested(int, str, str, str)`` on ``CollectionTree`` and ``CollectionWidget``.
 
 ### GraphQLSchemaService
 
@@ -406,6 +447,17 @@ class RequestLoadDict(TypedDict, total=False):
     auth: dict[str, Any] | None
 ```
 
+### LocalScriptService TypedDicts (`services/local_script_service.py`)
+
+```python
+class LocalScriptLoadDict(TypedDict, total=False):
+    id: int
+    name: str
+    language: str
+    module_format: str  # "esm" | "commonjs"
+    content: str
+```
+
 ### EnvironmentService TypedDicts (`services/environment_service.py`)
 
 ```python
@@ -487,6 +539,7 @@ class ConsoleLog(TypedDict):
     level: str                    # "log", "warn", "error", "info"
     message: str                  # formatted message
     timestamp: float              # time.time() value
+    source_line: NotRequired[int | None]  # 0-based editor line (best-effort)
 ```
 
 ### Theme TypedDict (`ui/styling/theme.py`)

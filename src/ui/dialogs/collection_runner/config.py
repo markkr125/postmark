@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ui.dialogs.collection_runner.worker import parse_data_file
+from services.scripting.data_loader import parse_data_file
 from ui.styling.icons import phi
 from ui.styling.theme import COLOR_TEXT_MUTED, COLOR_WHITE
 

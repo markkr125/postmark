@@ -24,6 +24,7 @@ def save_script_version(
     *,
     request_id: int | None = None,
     collection_id: int | None = None,
+    local_script_id: int | None = None,
     script_type: str,
     content: str,
     language: str = "javascript",
@@ -36,6 +37,7 @@ def save_script_version(
         version = ScriptVersionModel(
             request_id=request_id,
             collection_id=collection_id,
+            local_script_id=local_script_id,
             script_type=script_type,
             content=content,
             language=language,
@@ -44,11 +46,11 @@ def save_script_version(
         session.flush()
         session.refresh(version)
 
-        # Prune old versions.
         _prune_versions(
             session,
             request_id=request_id,
             collection_id=collection_id,
+            local_script_id=local_script_id,
             script_type=script_type,
         )
 
@@ -59,18 +61,15 @@ def get_script_versions(
     *,
     request_id: int | None = None,
     collection_id: int | None = None,
+    local_script_id: int | None = None,
     script_type: str,
     limit: int = 100,
 ) -> list[dict[str, Any]]:
-    """Return recent versions for a script, newest first.
-
-    Each dict contains ``id``, ``content``, ``language``, and
-    ``created_at``.
-    """
+    """Return recent versions for a script, newest first."""
     with get_session() as session:
         stmt = (
             select(ScriptVersionModel)
-            .where(_owner_filter(request_id, collection_id))
+            .where(_owner_filter(request_id, collection_id, local_script_id))
             .where(ScriptVersionModel.script_type == script_type)
             .order_by(ScriptVersionModel.id.desc())
             .limit(limit)
@@ -100,6 +99,7 @@ def get_script_version(version_id: int) -> dict[str, Any] | None:
             "created_at": v.created_at,
             "request_id": v.request_id,
             "collection_id": v.collection_id,
+            "local_script_id": v.local_script_id,
             "script_type": v.script_type,
         }
 
@@ -108,27 +108,27 @@ def delete_script_versions(
     *,
     request_id: int | None = None,
     collection_id: int | None = None,
+    local_script_id: int | None = None,
 ) -> int:
-    """Delete all versions for a given request or collection.
-
-    Returns the number of deleted rows.
-    """
+    """Delete all versions for a given owner. Returns the number of deleted rows."""
     with get_session() as session:
-        stmt = select(ScriptVersionModel).where(_owner_filter(request_id, collection_id))
+        stmt = select(ScriptVersionModel).where(
+            _owner_filter(request_id, collection_id, local_script_id)
+        )
         rows = list(session.execute(stmt).scalars().all())
         for row in rows:
             session.delete(row)
         return len(rows)
 
 
-# -- Internal helpers --------------------------------------------------
-
-
 def _owner_filter(
     request_id: int | None,
     collection_id: int | None,
+    local_script_id: int | None = None,
 ) -> Any:
     """Return a SQLAlchemy filter clause matching the owner."""
+    if local_script_id is not None:
+        return ScriptVersionModel.local_script_id == local_script_id
     if request_id is not None:
         return ScriptVersionModel.request_id == request_id
     return ScriptVersionModel.collection_id == collection_id
@@ -139,13 +139,15 @@ def _prune_versions(
     *,
     request_id: int | None,
     collection_id: int | None,
+    local_script_id: int | None,
     script_type: str,
 ) -> None:
     """Delete the oldest versions beyond ``_MAX_VERSIONS_PER_SCRIPT``."""
+    owner = _owner_filter(request_id, collection_id, local_script_id)
     count_stmt = (
         select(func.count())
         .select_from(ScriptVersionModel)
-        .where(_owner_filter(request_id, collection_id))
+        .where(owner)
         .where(ScriptVersionModel.script_type == script_type)
     )
     total = session.execute(count_stmt).scalar() or 0
@@ -153,10 +155,9 @@ def _prune_versions(
     if total <= _MAX_VERSIONS_PER_SCRIPT:
         return
 
-    # Find the ID threshold — keep the newest N.
     keep_stmt = (
         select(ScriptVersionModel.id)
-        .where(_owner_filter(request_id, collection_id))
+        .where(owner)
         .where(ScriptVersionModel.script_type == script_type)
         .order_by(ScriptVersionModel.id.desc())
         .limit(_MAX_VERSIONS_PER_SCRIPT)
@@ -165,7 +166,7 @@ def _prune_versions(
 
     del_stmt = (
         delete(ScriptVersionModel)
-        .where(_owner_filter(request_id, collection_id))
+        .where(owner)
         .where(ScriptVersionModel.script_type == script_type)
         .where(ScriptVersionModel.id.notin_(keep_ids))
     )

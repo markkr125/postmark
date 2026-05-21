@@ -23,6 +23,11 @@ def build_inline_context(
     response_data: dict[str, Any] | None = None,
     environment_vars: dict[str, str] | None = None,
     collection_vars: dict[str, str] | None = None,
+    test_name_filter: str | None = None,
+    iteration: int = 0,
+    iteration_count: int = 1,
+    iteration_data: dict[str, Any] | None = None,
+    request_name: str = "(inline run)",
 ) -> ScriptInput:
     """Build a minimal ``ScriptInput`` for inline script execution.
 
@@ -32,7 +37,13 @@ def build_inline_context(
     ``response`` to ``None``.  For test scripts, uses the supplied
     *response_data* (or a minimal empty response).
     """
-    info: dict[str, Any] = {"requestName": "(inline run)", "iteration": 1}
+    info: dict[str, Any] = {
+        "requestName": request_name,
+        "iteration": iteration,
+        "iterationCount": iteration_count,
+    }
+    if test_name_filter:
+        info["testFilter"] = test_name_filter
     env = dict(environment_vars) if environment_vars else {}
     coll = dict(collection_vars) if collection_vars else {}
 
@@ -62,6 +73,7 @@ def build_inline_context(
             environment_vars=env,
             collection_vars=coll,
             info=info,
+            iteration_data=iteration_data,
         )
 
     return build_pre_request_context(
@@ -73,6 +85,7 @@ def build_inline_context(
         environment_vars=env,
         collection_vars=coll,
         info=info,
+        iteration_data=iteration_data,
     )
 
 
@@ -83,13 +96,15 @@ class ScriptRunWorker(QObject):
     connect signals, and start.  Single-use — discard after completion.
 
     Signals:
-        finished(object, float): ``(ScriptOutput, elapsed_ms)`` on success.
+        finished(object, float): ``(ScriptOutput | list[ScriptOutput], elapsed_ms)``.
+        iteration_finished(int, object, float): Per-row ``(index, ScriptOutput, elapsed_ms)``.
         error(str): Error message on failure.
     """
 
     # ``object`` avoids PySide6 converting ``dict`` via QVariantMap (nested
     # lists/structures can be lost when crossing the meta-object border).
     finished = Signal(object, float)
+    iteration_finished = Signal(int, object, float)
     error = Signal(str)
 
     def __init__(self) -> None:
@@ -98,6 +113,9 @@ class ScriptRunWorker(QObject):
         self._script: str = ""
         self._language: str = "javascript"
         self._context: ScriptInput | None = None
+        self._test_name_filter: str | None = None
+        self._iteration_data: list[dict[str, Any]] | None = None
+        self._iteration_count: int = 1
 
     def set_params(
         self,
@@ -105,6 +123,7 @@ class ScriptRunWorker(QObject):
         script: str,
         language: str,
         context: ScriptInput,
+        test_name_filter: str | None = None,
     ) -> None:
         """Configure the script to run.
 
@@ -113,12 +132,34 @@ class ScriptRunWorker(QObject):
         self._script = script
         self._language = language
         self._context = context
+        self._test_name_filter = test_name_filter
+        if test_name_filter and self._context is not None:
+            ctx = dict(self._context)
+            info_raw = ctx.get("info", {})
+            info = dict(info_raw) if isinstance(info_raw, dict) else {}
+            info["testFilter"] = test_name_filter
+            ctx["info"] = info
+            self._context = ctx  # type: ignore[assignment]
+
+    def set_iteration_data(
+        self,
+        data: list[dict[str, Any]],
+        *,
+        count: int | None = None,
+    ) -> None:
+        """Configure data-driven iterations (call before ``moveToThread()``)."""
+        self._iteration_data = list(data)
+        self._iteration_count = max(1, count if count is not None else len(data))
 
     @Slot()
     def run(self) -> None:
         """Execute the script and emit results."""
         if self._context is None:
             self.error.emit("No script context configured")
+            return
+
+        if self._iteration_data:
+            self._run_iterations()
             return
 
         start = time.perf_counter()
@@ -132,6 +173,51 @@ class ScriptRunWorker(QObject):
             self.finished.emit(result, elapsed)
         except Exception as exc:
             self.error.emit(str(exc))
+
+    def _run_iterations(self) -> None:
+        """Run the script once per data row and stream matrix updates."""
+        assert self._context is not None
+        assert self._iteration_data is not None
+
+        rows = self._iteration_data
+        total = max(self._iteration_count, len(rows))
+        base_ctx = dict(self._context)
+        info_raw = base_ctx.get("info", {})
+        info_base = dict(info_raw) if isinstance(info_raw, dict) else {}
+        request_name = str(info_base.get("requestName", "(inline run)"))
+        results: list[Any] = []
+        start_all = time.perf_counter()
+
+        try:
+            for idx in range(total):
+                row = rows[idx] if idx < len(rows) else {}
+                ctx = dict(base_ctx)
+                info = dict(info_base)
+                info.update(
+                    {
+                        "requestName": request_name,
+                        "iteration": idx,
+                        "iterationCount": total,
+                    }
+                )
+                ctx["info"] = info
+                ctx["iteration_data"] = row
+
+                iter_start = time.perf_counter()
+                result = ScriptEngine.run_single(
+                    self._script,
+                    self._language,
+                    ctx,  # type: ignore[arg-type]
+                )
+                elapsed = (time.perf_counter() - iter_start) * 1000.0
+                results.append(result)
+                self.iteration_finished.emit(idx, result, elapsed)
+        except Exception as exc:
+            self.error.emit(str(exc))
+            return
+
+        total_elapsed = (time.perf_counter() - start_all) * 1000.0
+        self.finished.emit(results, total_elapsed)
 
 
 class ScriptChainRunWorker(QObject):

@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
 )
 
 from services.collection_service import RequestLoadDict
+from ui.request.request_editor.assertions import _AssertionsMixin
 from ui.request.request_editor.auth import _AuthMixin
 from ui.request.request_editor.body_search import _BodySearchMixin
 from ui.request.request_editor.graphql import _GraphQLMixin
@@ -51,14 +52,15 @@ _HTTP_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS")
 _DEBOUNCE_MS = 500
 
 # Base names for the request editor section tabs (index-matched)
-_TAB_NAMES = ("Params", "Headers", "Body", "Auth", "Description", "Scripts")
+_TAB_NAMES = ("Params", "Headers", "Body", "Auth", "Description", "Scripts", "Assertions")
 
 # Dot appended to tab label when the section has content
 _CONTENT_DOT = " \u2022"
 
-# Indices in ``self._tabs`` — Params=0, Headers=1, Body=2, Auth=3, Description=4, Scripts=5
+# Indices in ``self._tabs`` — Params=0 … Scripts=5, Assertions=6
 _TAB_INDEX_BODY = 2
 _TAB_INDEX_SCRIPTS = 5
+_TAB_INDEX_ASSERTIONS = 6
 
 
 class _MethodColorDelegate(QStyledItemDelegate):
@@ -82,7 +84,9 @@ class _MethodColorDelegate(QStyledItemDelegate):
             option.font.setBold(True)
 
 
-class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, _ScriptsMixin, QWidget):
+class RequestEditorWidget(
+    _AuthMixin, _BodySearchMixin, _GraphQLMixin, _ScriptsMixin, _AssertionsMixin, QWidget
+):
     """Editable request editor with method, URL bar, and tabbed sections.
 
     Call :meth:`load_request` to populate the pane from a request dict.
@@ -208,6 +212,9 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, _ScriptsM
         self._scripts_tab_layout.addWidget(self._scripts_placeholder, 1)
         self._tabs.addTab(self._scripts_tab, "Scripts")
 
+        self._init_assertions_tab_shell()
+        self._tabs.addTab(self._assertions_tab, "Assertions")
+
         tab_header_h = self._tabs.tabBar().sizeHint().height()
         self._tabs.setMinimumHeight(tab_header_h)
         self._tabs.tabBar().setCursor(Qt.CursorShape.PointingHandCursor)
@@ -248,6 +255,8 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, _ScriptsM
             self._ensure_body_editors()
         elif index == _TAB_INDEX_SCRIPTS:
             self._ensure_scripts_editors()
+        elif index == _TAB_INDEX_ASSERTIONS:
+            self._ensure_assertions_editors()
         self._refresh_script_split_full_width_line()
         self.scripts_tab_active_changed.emit(index == _TAB_INDEX_SCRIPTS)
 
@@ -447,6 +456,8 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, _ScriptsM
             if self._scripts_editor_materialized:
                 self._load_scripts(data.get("scripts"))
 
+            self._load_assertions()
+
             self._load_auth(data.get("auth"))
             self._description_edit.setPlainText(data.get("description") or "")
             self._set_dirty(False)
@@ -457,6 +468,8 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, _ScriptsM
             self._ensure_body_editors()
         elif idx_now == _TAB_INDEX_SCRIPTS:
             self._ensure_scripts_editors()
+        elif idx_now == _TAB_INDEX_ASSERTIONS:
+            self._ensure_assertions_editors()
         self._sync_tab_indicators()
         # Script editors populate while ``_loading`` is True, so
         # ``_schedule_banner_check`` was skipped; refresh Deno prompt now.
@@ -593,6 +606,7 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, _ScriptsM
                 self._raw_format_combo.setCurrentText("Text")
             if self._scripts_editor_materialized:
                 self._clear_scripts()
+            self._clear_assertions()
             self._description_edit.clear()
             self._auth_type_combo.setCurrentText("Inherit auth from parent")
             self._bearer_token_input.clear()
@@ -625,6 +639,10 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, _ScriptsM
         self._debounce_timer.start()
         self._sync_tab_indicators()
 
+    def _assertions_lazy_indicator_active(self) -> bool:
+        """Return whether the Assertions tab has saved rows."""
+        return self.assertions_has_content()
+
     def _sync_tab_indicators(self) -> None:
         """Append a dot indicator to section tabs that contain data."""
         has_content = [
@@ -634,6 +652,7 @@ class RequestEditorWidget(_AuthMixin, _BodySearchMixin, _GraphQLMixin, _ScriptsM
             self._auth_type_combo.currentText() not in ("No Auth", "Inherit auth from parent"),
             bool(self._description_edit.toPlainText().strip()),
             self._scripts_lazy_indicator_active(),
+            self._assertions_lazy_indicator_active(),
         ]
         for i, (name, active) in enumerate(zip(_TAB_NAMES, has_content, strict=True)):
             self._tabs.setTabText(i, name + _CONTENT_DOT if active else name)

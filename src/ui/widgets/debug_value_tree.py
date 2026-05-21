@@ -309,8 +309,9 @@ def make_debug_value_tree(
     else:
         tree.setHeaderLabels(["", ""])
         tree.header().hide()
-    tree.setAlternatingRowColors(True)
+    tree.setAlternatingRowColors(False)
     tree.setRootIsDecorated(True)
+    tree.setIndentation(18)
     tree.setUniformRowHeights(False)
     tree.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
     hdr = tree.header()

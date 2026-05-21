@@ -66,6 +66,7 @@ class HttpSendWorker(QObject):
         self._cancel_event = threading.Event()
         self._pre_scripts: list[ScriptEntry] = []
         self._test_scripts: list[ScriptEntry] = []
+        self._declarative_test_script: ScriptEntry | None = None
         self._debug_protocol: DebugProtocol | None = None
 
     # -- Configuration (call before moveToThread) ----------------------
@@ -84,6 +85,7 @@ class HttpSendWorker(QObject):
         local_overrides: dict[str, str] | None = None,
         pre_scripts: list[ScriptEntry] | None = None,
         test_scripts: list[ScriptEntry] | None = None,
+        declarative_test_script: ScriptEntry | None = None,
     ) -> None:
         """Configure the HTTP request to send.
 
@@ -113,6 +115,7 @@ class HttpSendWorker(QObject):
         self._local_overrides = local_overrides or {}
         self._pre_scripts = pre_scripts or []
         self._test_scripts = test_scripts or []
+        self._declarative_test_script = declarative_test_script
 
     def set_debug_mode(self, protocol: DebugProtocol) -> None:
         """Enable debug execution mode with the given protocol.
@@ -302,7 +305,10 @@ class HttpSendWorker(QObject):
                 pre_var_changes = dict(pre_output.get("variable_changes", {}))
                 all_var_changes.update(pre_var_changes)
 
-            if self._test_scripts:
+            run_post_response = self._test_scripts or (
+                self._declarative_test_script and not self._debug_protocol
+            )
+            if run_post_response:
                 from services.scripting.context import build_test_context
                 from services.scripting.engine import ScriptEngine
 
@@ -331,6 +337,8 @@ class HttpSendWorker(QObject):
                     global_vars=global_vars,
                     info={},
                 )
+
+            if self._test_scripts:
                 test_output: dict[str, Any] | ScriptOutput
                 if self._debug_protocol:
                     from services.scripting.engine import run_debug_chain
@@ -356,6 +364,20 @@ class HttpSendWorker(QObject):
                 # Persist global variable changes from test scripts.
                 if test_output.get("global_variable_changes"):
                     save_globals(test_output["global_variable_changes"])
+
+            if self._declarative_test_script and not self._debug_protocol:
+                decl_code = self._declarative_test_script.get("code", "")
+                if decl_code.strip():
+                    decl_output = ScriptEngine.run_single(
+                        decl_code,
+                        self._declarative_test_script.get("language", "javascript"),
+                        test_ctx,
+                    )
+                    all_test_results.extend(decl_output.get("test_results", []))
+                    all_console_logs.extend(decl_output.get("console_logs", []))
+                    all_var_changes.update(decl_output.get("variable_changes", {}))
+                    if decl_output.get("global_variable_changes"):
+                        save_globals(decl_output["global_variable_changes"])
 
             # 7. Attach script results to the response dict
             final = dict(result)

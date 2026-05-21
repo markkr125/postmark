@@ -183,13 +183,17 @@ standard object names:
 | `panelTitle` | `QLabel` | Bold 12px panel title with padding |
 | `mutedLabel` | `QLabel` | Small muted text |
 | `emptyStateLabel` | `QLabel` | Italic muted empty-state message |
-| `methodBadge` | `QLabel` | HTTP method badge (tree + tabs) |
+| `methodBadge` | `QLabel` | HTTP method badge (request tree + request tabs) |
 | `monoEdit` | `QTextEdit` | Monospace text editor |
 | `consoleOutput` | `QTextEdit` | Dark console output area |
 | `importTabs` | `QTabWidget` | Box-style tabs in import dialog |
 | `codeEditor` | `QPlainTextEdit` | Syntax-highlighted code editor |
+| `scriptEditorToolbarChrome` | `QWidget` | Script editor toolbar host: find/run row + hidden ``scriptDebugBar`` (6px top / 8px bottom inset) |
+| `scriptDebugBar` | `QWidget` | Debug step row under toolbar; hidden until pause; 8px top inset + ``scriptDebugToolbarSep`` |
+| `scriptDebugToolbarSep` | `QFrame` | 1px rule between main toolbar and debug step row (inside ``scriptDebugBar``) |
+| `scriptToolbarSeparator` | `QFrame` | 1×20px vertical rule between toolbar icon groups |
 | `scriptEditorOutputSplitter` | `QSplitter` | Scripts tab: vertical editor/output split — handle chrome suppressed; full-width line from ``scriptSplitFullWidthLine`` |
-| `scriptSplitFullWidthLine` | `QFrame` | Non-layout 1px overlay on ``RequestEditorWidget`` / ``FolderEditorWidget`` — spans host width; aligned to ``scriptEditorOutputSplitter`` handle when Scripts tab shown |
+| `scriptSplitFullWidthLine` | `QFrame` | Non-layout 1px overlay on ``RequestEditorWidget`` / ``FolderEditorWidget`` / ``LocalScriptEditorWidget`` — spans host width; aligned to ``scriptEditorOutputSplitter`` seam when Scripts (or local script tab) is shown |
 | `infoPopup` | `QFrame` | Response metadata popup container |
 | `infoPopupTitle` | `QLabel` | Popup title heading |
 | `infoPopupSeparator` | `QLabel` | Popup horizontal rule |
@@ -206,12 +210,17 @@ standard object names:
 | `saveButton` | `QPushButton` | Save action button |
 | `scriptHistoryLinkButton` | `QToolButton` | Script editor status strip: version history (accent underlined link) |
 | `scriptLanguageLinkButton` | `QToolButton` | Script editor status strip: language picker (accent underlined link) |
-| `scriptOutputTabs` | `QTabWidget` | Script panel: **Output**, **Problems (n)**, and (post-response only) **Mock response**; Problems title shows diagnostic count; ``::pane`` uses **6px** top padding under the tab bar |
+| `scriptOutputTabs` | `QTabWidget` | Script panel: **Output**, **Problems (n)**, **Iterations** (post-response data runs), **Mock response**; Problems title shows diagnostic count; ``::pane`` uses **6px** top padding under the tab bar |
+| `dataRunnerPreviewTable` | `QTableWidget` | DataRunnerPanel — first N CSV/JSON rows preview |
+| `scriptOutputIterationsTable` | `QTableWidget` | Iterations tab — iteration×test pass/fail matrix |
 | `scriptMockResponseSection` | `QWidget` | Mock response tab page — bottom border matches Output page (global QSS) |
 | `scriptLspProblemsList` | `QListWidget` | Problems tab: severity **Phosphor** icons + tinted text; click jumps; context **Copy**; ``_ScriptProblemsItemDelegate`` — square **1px** accent border + light selection tint (no ``HighlightedText`` wash-out) |
 | `scriptLspProblemsEmptyFrame` | `QFrame` | Problems tab empty state — same border / ``input_bg`` as the list (global QSS) |
 | `sidebarSearch` | `QLineEdit` | Collection sidebar search input |
 | `sidebarSectionLabel` | `QLabel` | Sidebar section heading |
+| `scriptTreeRenameEdit` | `QLineEdit` | Local script inline rename: full ``basename.ext`` field over the name column |
+| `sidebarSectionInfoButton` | `QToolButton` | Sidebar section (i) icon; opens ``SidebarSectionInfoPopup`` |
+| `infoPopupCloseButton` | `QToolButton` | Dismiss (×) control on ``SidebarSectionInfoPopup`` header |
 | `sidebarToolButton` | `QToolButton` | Sidebar toolbar button |
 | `environmentSidebarPanel` | `QWidget` | MainWindow left column: environments section under collections |
 | `environmentSidebarScroll` | `QScrollArea` | Environment list viewport (no frame) |
@@ -223,6 +232,10 @@ standard object names:
 | `environmentSidebarEmptyHint` | `ClickableLabel` | Empty list: "Click here to add one." (same action as **Manage**) |
 | `environmentSidebarSetActiveButton` | `QPushButton` | Choose this environment for variable substitution |
 | `environmentSidebarClearButton` | `QPushButton` | Clear global active environment (shown on active row) |
+| `localScriptsSidebarPanel` | `QWidget` | Left flyout **Local scripts** page: section header + scroll + bordered list shell |
+| `localScriptsSidebarScroll` | `QScrollArea` | Local scripts list viewport (no frame) |
+| `localScriptsSidebarList` | `QWidget` | Bordered list frame (background + border QSS) |
+| `localScriptsSidebarListBody` | `QWidget` | Inner host inside the list frame |
 | `newItemPopup` | `QDialog` | Postman-style "Create New" dialog |
 | `newItemTile` | `QPushButton` | Tile button inside the new-item dialog |
 | `settingsDenoPathEdit` | `QLineEdit` | Scripting: Deno executable path |

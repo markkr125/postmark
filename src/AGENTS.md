@@ -100,8 +100,11 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   gutter uses Esprima via :mod:`esprima_deno` (Deno subprocess;
   :file:`data/scripts/esprima_parse.mjs`); **TypeScript** skips Esprima lint until a TS parser exists.
   `RuntimeSettings` (``scripting/deno_path``, ``scripting/python_path``,
-  ``scripting/lsp_enabled`` in QSettings) resolves/validates executables and
-  toggles IDE-style language servers for script editors. Private package
+  ``scripting/lsp_enabled``, ``scripting/npm_type_resolution`` in QSettings)
+  resolves/validates executables and toggles IDE-style language servers for
+  script editors. ``enable_npm_type_resolution`` (default on) drives debounced
+  ``pm_require_index.ts`` generation and ``deno cache`` for literal
+  ``pm.require('npm:…'|'jsr:…')`` specifiers in JS/TS script editors. Private package
   registries (`scripting/registries/entries` JSON list, `scripting/pypi/*`)
   are read by :func:`services.scripting.deno_runtime._build_npmrc_text` and
   :func:`services.scripting.pyodide_runtime._resolve_pypi_index_urls` — see
@@ -115,7 +118,11 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   ``SyntaxError_`` and drive distinct wave underlines plus line-number gutter tint
   (``gutter.normalize_validation_severity``, ``line_worst_validation_severity``).
   TypedDicts (`ScriptInput`, `ScriptOutput`, `TestResult`,
-  `ConsoleLog`, `ScriptEntry`) live in `services/scripting/__init__.py`.
+  `ConsoleLog` (optional ``source_line`` for inline editor annotations),
+  `ScriptEntry`) live in `services/scripting/__init__.py`.
+  ``CodeEditorWidget.set_inline_log_annotations`` / ``clear_inline_log_annotations``
+  paint faint trailing console output after script runs
+  (wired from ``ScriptOutputPanel`` / ``ScriptEditorPane``).
   `find_pm_tests(source, language)` in `engine.py` locates `pm.test("name", …)`
   call sites (Python AST or JavaScript/TypeScript esprima when parseable, with regex fallback) for the
   per-test script gutter.  `find_top_level_statement_lines(source, language)`
@@ -123,6 +130,11 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   the post-response editor uses it to render unreachable breakpoints with a
   muted style.  `ScriptLinter._esprima_parse_result()` shares the
   same esprima JSON round-trip as the linter.
+  `ScriptLinter.check_es_module()` (see `es_module_rules.py`) flags
+  CommonJS ``module.exports`` / non-vendor ``require()`` in script editors
+  and merges into LSP gutter + Problems tab; Deno LSP CommonJS→ESM hints
+  (TS 80001) are **not** filtered. Deno stderr is stripped via
+  ``format_process_stderr()`` before UI display.
   `DenoManager` manages a **downloaded** Deno under
   `~/.local/share/postmark/runtimes/deno-<version>/` (`managed_deno_path()`);
   full resolution also uses `PATH` and `RuntimeSettings` (see
@@ -156,7 +168,13 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   `py_debug.debug_execute` launches a subprocess with `sys.settrace` and
   uses IPC for pause/resume.
   `engine.run_debug_chain` mirrors `_run_chain` but routes through debug
-  dispatch.  TypedDicts: `DebugPauseInfo`, enums: `DebugState`, `StepMode`.
+  dispatch.  TypedDicts: `CallFrame`, `DebugPauseInfo` (includes `call_stack`,
+  `selected_frame_index`), enums: `DebugState`, `StepMode`.
+  `DebugProtocol.evaluate(expr)` and `select_frame(index)` delegate to
+  runtime adapters registered by `deno_debug` / `py_debug` while paused.
+  Breakpoints are ``dict[int, str | None]`` (line → optional condition).
+  JS conditions pass to CDP ``Debugger.setBreakpointByUrl``; Python sandbox
+  evaluates conditions fail-open in ``sys.settrace``.
   On pause, Python `debugPause` includes a `pm.response` string in
   `locals` (built from the sandbox `pm` object).  JS variable reads merge
   `pm.response` fields into the `pm` map for the debug variables panel
@@ -213,13 +231,15 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
 
 ## Snippets (script editors)
 
-Declarative **script snippets** (Postman-style one-click insert) live under
-`data/snippets/` as JSON files named after ``CodeEditorWidget.language`` (with
-TypeScript resolving to ``javascript.json``).  ``ui/widgets/snippets/loader.py``
-loads and caches them; ``ui/widgets/snippets/popup.py`` implements the searchable
-popover.  The **Snippets** control in the script status bar is built in
-``ui/request/request_editor/scripts/scripts_mixin.py`` (``_build_script_status_bar``).
-Authoring guide: ``data/snippets/README.md``.
+Declarative **script snippets** (Postman-style one-click insert) combine shipped
+JSON under `data/snippets/` with **user snippets** in the ``snippets`` table
+(``SnippetService`` / ``snippet_repository``).  ``ui/widgets/snippets/loader.py``
+merges both sources (user categories first) and memoises per
+``(language, collection_id, local_script_id)``; ``invalidate_snippet_cache()`` runs
+on CRUD and collection selection changes.  ``ui/widgets/snippets/popup.py`` is the
+searchable popover (delete control on user rows); ``snippet_capture_dialog.py`` is
+opened from ``CodeEditorWidget`` context menu **Save as snippet…**.  The **Snippets**
+toolbar control lives in ``ScriptEditorPane``.  Authoring guide: ``data/snippets/README.md``.
 
 Shipped JSON includes **Workflows**, **Variables**, **Tests** (e.g. status code or reason
 phrase, ``to.have.body``, ``to.be.oneOf`` / ``one_of``), and **Pre-request helpers**.
@@ -305,7 +325,17 @@ with SQLite auto-increment, but be aware of it.
 Key signals to know (always-on summary):
 
 - `CollectionWidget.item_action_triggered(str, int, str)` → opens
-  requests/folders in MainWindow.
+  requests/folders in MainWindow (or scripts when `variant="local_scripts"`).
+- `MainWindow.local_scripts_widget` — second `CollectionWidget` instance
+  (`tree_kind="local_scripts"`) in the left flyout; leaf type `script` opens
+  `TabContext.tab_type == "local_script"` with `LocalScriptEditorWidget`
+  (wraps `ScriptEditorPane` — same advanced editor as request Scripts tab).
+- **Local script module formats:** `LocalScriptModel.module_format` is `esm`
+  (``.js`` / ``.ts`` / ``.py`` virtual paths) or `commonjs` (JavaScript-only,
+  ``.cjs``). Create via **+ New → JavaScript (CommonJS)**; consume from ESM
+  request scripts with `pm.require("local:…/file.cjs")`. CJS bodies are leaf
+  modules (no nested `pm.require`, no vendor `require()`). Editor uses
+  `CodeEditorWidget._script_module_format` — syntax via Esprima, not ESM rules.
 - `CollectionWidget.draft_request_requested()` → opens a new draft
   (unsaved) request tab in MainWindow.
 - `CollectionWidget.run_collection_requested(int)` →
@@ -322,6 +352,13 @@ Key signals to know (always-on summary):
   environment value wins.  That map is applied to URL, headers, and body
   `{{var}}` placeholders before scripts run; `pm.iterationData` still
   reflects the current row for script APIs.
+- **Inline data-driven runner (D3):** post-response `ScriptOutputPanel` embeds
+  `DataRunnerPanel` (CSV/JSON picker) and an **Iterations** matrix tab.
+  `ScriptRunWorker.set_iteration_data()` loops rows on one QThread, emitting
+  `iteration_finished(int, ScriptOutput, float)` per row and `finished(list, float)`
+  when done.  Shared parsing lives in `services.scripting.data_loader.parse_data_file`
+  (also used by the collection runner).  This is single-request inline scope only —
+  the folder/collection runner remains separate.
 - `NewItemPopup.new_request_clicked()` / `new_collection_clicked()` →
   emitted by the icon grid popup when tiles are clicked.
 - `RequestEditorWidget.send_requested()` → triggers HTTP send flow.

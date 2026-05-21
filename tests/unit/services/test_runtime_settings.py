@@ -484,3 +484,21 @@ class TestPrivateRegistries:
             cfg = RuntimeSettings.get_pypi_config()
         assert cfg["auth_ref"] == "pypi:default"
         assert cfg["auth_kind"] == "token"
+
+
+class TestNpmTypeResolutionSetting:
+    """``RuntimeSettings.enable_npm_type_resolution`` QSettings bridge."""
+
+    def test_defaults_true(self) -> None:
+        mem = _MemoryQSettings()
+        with patch("services.scripting.runtime_settings._get_settings", return_value=mem):
+            assert RuntimeSettings.enable_npm_type_resolution() is True
+
+    def test_persist_and_read(self) -> None:
+        mem = _MemoryQSettings()
+        with patch("services.scripting.runtime_settings._get_settings", return_value=mem):
+            RuntimeSettings.set_enable_npm_type_resolution(False)
+            assert RuntimeSettings.enable_npm_type_resolution() is False
+            RuntimeSettings.set_enable_npm_type_resolution(True)
+            assert RuntimeSettings.enable_npm_type_resolution() is True
+            assert mem._d["scripting/npm_type_resolution"] == "True"

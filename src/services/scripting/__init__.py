@@ -32,6 +32,7 @@ class ConsoleLog(TypedDict):
     level: str  # "log", "warn", "error", "info"
     message: str
     timestamp: float
+    source_line: NotRequired[int | None]  # 0-based editor line; best-effort
 
 
 class ScriptInput(TypedDict):

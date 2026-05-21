@@ -373,6 +373,20 @@ class TestSettingsDialogScripting:
         dialog._on_apply()
         assert RuntimeSettings.lsp_enabled() is True
 
+    def test_apply_persists_npm_type_resolution(self, qapp: QApplication, qtbot) -> None:
+        """Apply persists scripting/npm_type_resolution via RuntimeSettings."""
+        from services.scripting.runtime_settings import RuntimeSettings
+
+        tm = ThemeManager(qapp)
+        dialog = SettingsDialog(tm)
+        qtbot.addWidget(dialog)
+        dialog._npm_type_resolution_check.setChecked(False)
+        dialog._on_apply()
+        assert RuntimeSettings.enable_npm_type_resolution() is False
+        dialog._npm_type_resolution_check.setChecked(True)
+        dialog._on_apply()
+        assert RuntimeSettings.enable_npm_type_resolution() is True
+
 
 class TestSettingsDialogPrivatePackages:
     """Private package registries: table, default-npm, PyPI."""

@@ -101,11 +101,13 @@ class ThemePalette(TypedDict):
     editor_fold_badge_text: str
     editor_whitespace_dot: str
     editor_breakpoint: str
+    editor_breakpoint_conditional: str
     editor_breakpoint_line: str
     editor_breakpoint_unreachable: str
     editor_current_line: str
     editor_debug_line: str
     editor_debug_gutter_arrow: str
+    editor_inline_log_text: str
 
     # Diff viewer
     diff_removed_bg: str
@@ -186,11 +188,13 @@ LIGHT_PALETTE: ThemePalette = {
     "editor_fold_badge_text": "#6a737d",
     "editor_whitespace_dot": "#b0b0b0",
     "editor_breakpoint": "#e74c3c",
+    "editor_breakpoint_conditional": "#f1c40f",
     "editor_breakpoint_line": "#fae9ec",
     "editor_breakpoint_unreachable": "#b0b0b0",
     "editor_current_line": "#f5f5f5",
     "editor_debug_line": "#ffe89a",
     "editor_debug_gutter_arrow": "#f39c12",
+    "editor_inline_log_text": "#7f8c8d",
     "diff_removed_bg": "#fce4e4",
     "diff_added_bg": "#d4edda",
     "diff_removed_inline": "#f5c6c6",
@@ -269,11 +273,13 @@ DARK_PALETTE: ThemePalette = {
     "editor_fold_badge_text": "#a0a0a0",
     "editor_whitespace_dot": "#606060",
     "editor_breakpoint": "#f44747",
+    "editor_breakpoint_conditional": "#dcdcaa",
     "editor_breakpoint_line": "#3d2325",
     "editor_breakpoint_unreachable": "#8a8a8a",
     "editor_current_line": "#2a2a2e",
     "editor_debug_line": "#5a4a1e",
     "editor_debug_gutter_arrow": "#f39c12",
+    "editor_inline_log_text": "#8b949e",
     "diff_removed_bg": "#4a2020",
     "diff_added_bg": "#1a3a2a",
     "diff_removed_inline": "#6b3030",
@@ -369,11 +375,13 @@ COLOR_EDITOR_FOLD_BADGE_BG: str = _active["editor_fold_badge_bg"]
 COLOR_EDITOR_FOLD_BADGE_TEXT: str = _active["editor_fold_badge_text"]
 COLOR_EDITOR_WHITESPACE_DOT: str = _active["editor_whitespace_dot"]
 COLOR_EDITOR_BREAKPOINT: str = _active["editor_breakpoint"]
+COLOR_EDITOR_BREAKPOINT_CONDITIONAL: str = _active["editor_breakpoint_conditional"]
 COLOR_EDITOR_BREAKPOINT_LINE: str = _active["editor_breakpoint_line"]
 COLOR_EDITOR_BREAKPOINT_UNREACHABLE: str = _active["editor_breakpoint_unreachable"]
 COLOR_EDITOR_CURRENT_LINE: str = _active["editor_current_line"]
 COLOR_EDITOR_DEBUG_LINE: str = _active["editor_debug_line"]
 COLOR_EDITOR_DEBUG_GUTTER_ARROW: str = _active["editor_debug_gutter_arrow"]
+COLOR_EDITOR_INLINE_LOG_TEXT: str = _active["editor_inline_log_text"]
 
 COLOR_DIFF_REMOVED_BG: str = _active["diff_removed_bg"]
 COLOR_DIFF_ADDED_BG: str = _active["diff_added_bg"]
@@ -421,10 +429,11 @@ def set_active_palette(palette: ThemePalette) -> None:
     global COLOR_EDITOR_INFO_GUTTER_BG, COLOR_EDITOR_HINT_GUTTER_BG
     global COLOR_EDITOR_FOLD_BADGE_BG, COLOR_EDITOR_FOLD_BADGE_TEXT
     global COLOR_EDITOR_WHITESPACE_DOT
-    global COLOR_EDITOR_BREAKPOINT, COLOR_EDITOR_DEBUG_LINE, COLOR_EDITOR_BREAKPOINT_LINE
+    global COLOR_EDITOR_BREAKPOINT, COLOR_EDITOR_BREAKPOINT_CONDITIONAL
+    global COLOR_EDITOR_DEBUG_LINE, COLOR_EDITOR_BREAKPOINT_LINE
     global COLOR_EDITOR_BREAKPOINT_UNREACHABLE
     global COLOR_EDITOR_CURRENT_LINE
-    global COLOR_EDITOR_DEBUG_GUTTER_ARROW
+    global COLOR_EDITOR_DEBUG_GUTTER_ARROW, COLOR_EDITOR_INLINE_LOG_TEXT
     global COLOR_DIFF_REMOVED_BG, COLOR_DIFF_ADDED_BG
     global COLOR_DIFF_REMOVED_INLINE, COLOR_DIFF_ADDED_INLINE
     global COLOR_DIFF_REMOVED_GUTTER, COLOR_DIFF_ADDED_GUTTER
@@ -504,11 +513,13 @@ def set_active_palette(palette: ThemePalette) -> None:
     COLOR_EDITOR_FOLD_BADGE_TEXT = palette["editor_fold_badge_text"]
     COLOR_EDITOR_WHITESPACE_DOT = palette["editor_whitespace_dot"]
     COLOR_EDITOR_BREAKPOINT = palette["editor_breakpoint"]
+    COLOR_EDITOR_BREAKPOINT_CONDITIONAL = palette["editor_breakpoint_conditional"]
     COLOR_EDITOR_BREAKPOINT_LINE = palette["editor_breakpoint_line"]
     COLOR_EDITOR_BREAKPOINT_UNREACHABLE = palette["editor_breakpoint_unreachable"]
     COLOR_EDITOR_CURRENT_LINE = palette["editor_current_line"]
     COLOR_EDITOR_DEBUG_LINE = palette["editor_debug_line"]
     COLOR_EDITOR_DEBUG_GUTTER_ARROW = palette["editor_debug_gutter_arrow"]
+    COLOR_EDITOR_INLINE_LOG_TEXT = palette["editor_inline_log_text"]
 
     COLOR_DIFF_REMOVED_BG = palette["diff_removed_bg"]
     COLOR_DIFF_ADDED_BG = palette["diff_added_bg"]
@@ -561,12 +572,12 @@ LEFT_NAV_PANEL_MARGIN_H_RIGHT_PX = 8
 
 # Left activity rail: width and icon size as multiples of the primary font
 # height (see ``LeftSidebar``). Keep the strip narrow; ``ICON_EM`` nudges the
-# glyph up slightly, and ``LEFT_RAIL_BUTTON_EXTRA_HEIGHT_PX`` adds a little
-# vertical room without a wide activity bar.
+# glyph up slightly, and ``LEFT_RAIL_BUTTON_EXTRA_HEIGHT_PX`` adds top/bottom
+# padding inside each rail row (hit target + air around the icon).
 LEFT_RAIL_WIDTH_EM = 2.55
 LEFT_RAIL_ICON_EM = 1.48
 # Extra vertical space on each button (hit target + room around the icon).
-LEFT_RAIL_BUTTON_EXTRA_HEIGHT_PX = 10
+LEFT_RAIL_BUTTON_EXTRA_HEIGHT_PX = 28
 # Full-height painted accent (``QToolButton`` QSS ``border-left`` clips to content).
 LEFT_RAIL_ACCENT_STRIPE_WIDTH_PX = 3
 

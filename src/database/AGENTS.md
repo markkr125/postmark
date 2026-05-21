@@ -193,7 +193,9 @@ created before new columns were added to the ORM models.
 2. Give it a sensible default (`default=None` or `server_default`) so
    existing rows with NULL values work correctly.
 3. Run the app or tests — `_migrate_add_missing_columns` will add the column
-   automatically.
+   automatically. String ``server_default`` values are emitted as SQLite
+   ``DEFAULT '…'`` plus ``NOT NULL`` when the column is non-nullable (see
+   ``_migration_default_clause`` in ``database.py``).
 
 ```python
 # Example: adding an optional "description" column to CollectionModel
@@ -202,7 +204,7 @@ description: Mapped[str | None] = mapped_column(Text, default=None)
 
 ## Database model catalogue
 
-Six ORM models, all inheriting from `Base`:
+Core ORM models, all inheriting from `Base`:
 
 | Model | Table | File |
 |-------|-------|------|
@@ -212,10 +214,26 @@ Six ORM models, all inheriting from `Base`:
 | `EnvironmentModel` | `environments` | `database/models/environments/model/environment_model.py` |
 | `RunHistoryModel` | `run_history` | `database/models/runs/model/run_history_model.py` |
 | `RunResultModel` | `run_results` | `database/models/runs/model/run_result_model.py` |
+| `LocalScriptFolderModel` | `local_script_folders` | `database/models/local_scripts/model/local_script_folder_model.py` |
+| `LocalScriptModel` | `local_scripts` | `database/models/local_scripts/model/local_script_model.py` |
+| `SnippetModel` | `snippets` | `database/models/snippets/model/snippet_model.py` |
+| `RequestAssertionModel` | `request_assertions` | `database/models/request_assertions/model/request_assertion_model.py` |
+
+### Local scripts — `module_format`
+
+``LocalScriptModel.module_format`` is ``"esm"`` (default) or ``"commonjs"``.
+Only JavaScript rows may use ``commonjs``; TypeScript/Python are coerced to
+``esm`` in ``_normalize_module_format`` (repository). CommonJS scripts use
+``.cjs`` virtual paths via ``script_virtual_extension()`` in
+``virtual_paths.py``. Validation runs in ``create_script``,
+``rename_script_and_rewrite_refs``, and ``update_script_content`` — not only
+in the service layer.
 
 ### Re-exports in database.py
 
-`database.py` re-exports all six models using the `import X as X` pattern
+`database.py` re-exports collection, environment, run-history, local-script,
+snippet, and request-assertion models using the `import X as X` pattern
 (PEP 484 explicit re-export) so that `Base.metadata.create_all()` discovers
 every table.  These imports must remain even though `database.py` itself
-does not use the models directly.
+does not use the models directly.  Include ``LocalScriptFolderModel`` and
+``LocalScriptModel`` when adding new tables under ``local_scripts/``.

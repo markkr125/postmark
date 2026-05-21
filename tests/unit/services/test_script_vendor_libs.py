@@ -523,7 +523,7 @@ class TestPmRequireBundleText:
 
         ctx = _make_context()
         script = "pm.require('npm:lodash@4.17.21');"
-        bundle = _build_bundle_text(script, ctx)
+        bundle, _needs_net, _local = _build_bundle_text(script, ctx)
         assert 'from "npm:lodash@4.17.21"' in bundle
         assert "__pm_require_modules" in bundle
 

@@ -53,27 +53,73 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QFrame,
+    QHBoxLayout,
+    QLabel,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
+from services.snippet_service import SnippetService
+from ui.styling.icons import phi
 from ui.styling.theme import COLOR_TEXT_MUTED
 from ui.widgets.snippets.loader import (
+    Snippet,
     SnippetCategory,
     load_snippets_for,
 )
 
 # Item data role for the snippet body (``None`` for category headers).
 _BODY_ROLE = Qt.ItemDataRole.UserRole + 1
+_ID_ROLE = Qt.ItemDataRole.UserRole + 2
 
 # Window-flag-locked tool windows can receive a synthetic mouse-press from the
 # very click that opened them; ``_SHOW_GRACE_MS`` swallows that initial press.
 # Aligns with :class:`ui.sidebar.snippet_panel.SnippetSettingsPopup`, which uses
 # the same ``QDateTime``-based guard.
 _SHOW_GRACE_MS = 200
+
+
+class _SnippetRowWidget(QWidget):
+    """One selectable snippet row; user rows include a delete control."""
+
+    activated = Signal()
+
+    def __init__(
+        self,
+        snip: Snippet,
+        *,
+        on_delete: Callable[[int], None] | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
+        """Build label + optional delete button for *snip*."""
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(4, 2, 8, 2)
+        layout.setSpacing(4)
+        label = QLabel(f"  {snip.name}")
+        label.setCursor(Qt.CursorShape.PointingHandCursor)
+        layout.addWidget(label, 1)
+        if snip.is_user and snip.snippet_id is not None and on_delete is not None:
+            del_btn = QToolButton()
+            del_btn.setObjectName("iconButton")
+            del_btn.setIcon(phi("x", size=14))
+            del_btn.setToolTip("Delete snippet")
+            del_btn.setFixedSize(22, 22)
+            del_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            sid = snip.snippet_id
+            del_btn.clicked.connect(lambda: on_delete(sid))
+            layout.addWidget(del_btn)
+
+        def _label_click(event: QMouseEvent) -> None:
+            if event.button() == Qt.MouseButton.LeftButton:
+                self.activated.emit()
+            QLabel.mousePressEvent(label, event)
+
+        label.mousePressEvent = _label_click  # type: ignore[method-assign]
 
 
 class SnippetsPopup(QFrame):
@@ -130,6 +176,10 @@ class SnippetsPopup(QFrame):
         self._activate_shortcut_alt.activated.connect(self._activate_current_item)
 
         self._all: tuple[SnippetCategory, ...] = ()
+        self._language = ""
+        self._script_type = ""
+        self._collection_id: int | None = None
+        self._local_script_id: int | None = None
         self._on_pick: Callable[[str], None] | None = None
         self._opened_at_ms = 0
 
@@ -145,6 +195,9 @@ class SnippetsPopup(QFrame):
         language: str,
         script_type: str,
         on_pick: Callable[[str], None],
+        *,
+        collection_id: int | None = None,
+        local_script_id: int | None = None,
     ) -> None:
         """Load snippets for *language* / *script_type*, anchor below *anchor*.
 
@@ -157,7 +210,11 @@ class SnippetsPopup(QFrame):
         app = QGuiApplication.instance()
         if app is not None and self.isVisible():
             app.removeEventFilter(self)
-        self._all = load_snippets_for(language, script_type)
+        self._language = language
+        self._script_type = script_type
+        self._collection_id = collection_id
+        self._local_script_id = local_script_id
+        self._reload_snippets()
         self._on_pick = on_pick
         self._search.clear()
         self._populate(self._all)
@@ -195,6 +252,21 @@ class SnippetsPopup(QFrame):
                 self.hidePopup()
         return super().eventFilter(obj, event)
 
+    def _reload_snippets(self) -> None:
+        """Refresh cached categories from the loader."""
+        self._all = load_snippets_for(
+            self._language,
+            self._script_type,
+            collection_id=self._collection_id,
+            local_script_id=self._local_script_id,
+        )
+
+    def _delete_user_snippet(self, snippet_id: int) -> None:
+        """Remove a user snippet and refresh the list."""
+        SnippetService.delete(snippet_id)
+        self._reload_snippets()
+        self._apply_filter(self._search.text())
+
     def _position_below(self, anchor: QWidget) -> None:
         """Move so the top-left sits just under the anchor, clamped to the screen."""
         bottom_left = anchor.mapToGlobal(QPoint(0, anchor.height()))
@@ -226,9 +298,23 @@ class SnippetsPopup(QFrame):
             header.setFont(f)
             self._list.addItem(header)
             for snip in cat.snippets:
-                item = QListWidgetItem(f"  {snip.name}")
-                item.setData(_BODY_ROLE, snip.body)
-                self._list.addItem(item)
+                if snip.is_user:
+                    row = _SnippetRowWidget(
+                        snip,
+                        on_delete=self._delete_user_snippet,
+                        parent=self._list,
+                    )
+                    row.activated.connect(lambda b=snip.body: self._pick_body(b))
+                    item = QListWidgetItem()
+                    item.setData(_BODY_ROLE, snip.body)
+                    item.setData(_ID_ROLE, snip.snippet_id)
+                    item.setSizeHint(row.sizeHint())
+                    self._list.addItem(item)
+                    self._list.setItemWidget(item, row)
+                else:
+                    item = QListWidgetItem(f"  {snip.name}")
+                    item.setData(_BODY_ROLE, snip.body)
+                    self._list.addItem(item)
 
     def _apply_filter(self, text: str) -> None:
         """Filter categories/snippets by case-insensitive substring in name or body."""
@@ -242,8 +328,17 @@ class SnippetsPopup(QFrame):
                 s for s in cat.snippets if needle in s.name.lower() or needle in s.body.lower()
             )
             if kept:
-                filtered.append(SnippetCategory(name=cat.name, snippets=kept))
+                filtered.append(
+                    SnippetCategory(name=cat.name, snippets=kept, contexts=cat.contexts)
+                )
         self._populate(tuple(filtered))
+
+    def _pick_body(self, body: str) -> None:
+        """Insert *body* and close the popover."""
+        if self._on_pick is not None:
+            self._on_pick(body)
+        self.snippet_picked.emit(body)
+        self.hidePopup()
 
     def _activate_current_item(self) -> None:
         """Insert the current list row when activated via keyboard."""
@@ -256,7 +351,4 @@ class SnippetsPopup(QFrame):
         body = item.data(_BODY_ROLE)
         if not isinstance(body, str):
             return
-        if self._on_pick is not None:
-            self._on_pick(body)
-        self.snippet_picked.emit(body)
-        self.hidePopup()
+        self._pick_body(body)

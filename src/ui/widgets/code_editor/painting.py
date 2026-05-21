@@ -17,14 +17,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, Qt
+from PySide6.QtCore import QPointF, QRect, QRectF, Qt
 from PySide6.QtGui import (
     QColor,
     QFont,
     QPainter,
     QPaintEvent,
     QPen,
-    QPolygonF,
     QTextBlock,
     QTextCursor,
 )
@@ -42,12 +41,27 @@ from ui.widgets.code_editor.gutter import (
     _MINIMAP_WIDTH,
     _WHITESPACE_DOT_RADIUS,
     SyntaxError_,
-    line_worst_validation_severity,
     _BreakpointGutterArea,
     _FoldGutterArea,
     _LineNumberArea,
     _MinimapArea,
     _TestGutterArea,
+)
+from ui.widgets.code_editor.paint_breakpoints import (
+    breakpoint_gutter_clicked as _impl_breakpoint_gutter_clicked,
+    line_at_gutter_y as _impl_line_at_gutter_y,
+    paint_breakpoint_area as _impl_paint_breakpoint_area,
+    set_breakpoint_hover_line as _impl_set_breakpoint_hover_line,
+    update_breakpoint_hover_for_gutter_y as _impl_update_breakpoint_hover_for_gutter_y,
+)
+from ui.widgets.code_editor.paint_diagnostics import (
+    paint_line_number_area as _impl_paint_line_number_area,
+)
+from ui.widgets.code_editor.paint_inline_logs import (
+    _paint_inline_log_annotations as _impl_paint_inline_log_annotations,
+)
+from ui.widgets.code_editor.paint_test_gutter import (
+    paint_test_gutter_area as _impl_paint_test_gutter_area,
 )
 
 if TYPE_CHECKING:
@@ -78,7 +92,7 @@ class _PaintingMixin(_PaintingBase):
     _errors: list[SyntaxError_]
     _fold_regions: dict[int, int]
     _fold_font: QFont | None
-    _breakpoints: set[int]
+    _breakpoints: dict[int, str | None]
     _top_level_lines: set[int]
     _debug_line: int | None
     _show_breakpoint_gutter: bool
@@ -87,6 +101,7 @@ class _PaintingMixin(_PaintingBase):
     _minimap: _MinimapArea
     _show_minimap: bool
     _diff_line_colors: dict[int, QColor]
+    _inline_log_annotations: dict[int, str]
 
     if TYPE_CHECKING:
 
@@ -285,12 +300,24 @@ class _PaintingMixin(_PaintingBase):
         return (best_col, best_start, best_end)
 
     def paintEvent(self, event: QPaintEvent) -> None:
-        """Paint indent guides and collapsed-fold badges."""
+        """Paint indent guides, inline console annotations, and fold badges."""
         super().paintEvent(event)
 
         cursor = self.textCursor()
         if cursor.hasSelection():
             self._paint_selection_whitespace(cursor)
+
+        content_offset = self.contentOffset()
+        vp_top = self.viewport().rect().top()
+        vp_bottom = self.viewport().rect().bottom()
+        base_x = self.document().documentMargin() + content_offset.x()
+
+        if self._inline_log_annotations:
+            log_painter = QPainter(self.viewport())
+            self._paint_inline_log_annotations(
+                log_painter, content_offset, vp_top, vp_bottom, base_x
+            )
+            log_painter.end()
 
         if self._language not in _FOLDABLE_LANGUAGES:
             self._fold_badge_rects = {}
@@ -303,11 +330,7 @@ class _PaintingMixin(_PaintingBase):
             return
 
         p = self._editor_palette()
-        content_offset = self.contentOffset()
-        base_x = self.document().documentMargin() + content_offset.x()
         doc = self.document()
-        vp_top = self.viewport().rect().top()
-        vp_bottom = self.viewport().rect().bottom()
 
         normal_pen = QPen(QColor(p["editor_indent_guide"]))
         normal_pen.setWidth(1)
@@ -384,89 +407,22 @@ class _PaintingMixin(_PaintingBase):
         self._fold_badge_rects = badge_rects
         painter.end()
 
+    def _paint_inline_log_annotations(
+        self,
+        painter: QPainter,
+        content_offset: QPointF,
+        vp_top: int,
+        vp_bottom: int,
+        base_x: float,
+    ) -> None:
+        """Draw faint trailing annotations for captured ``console.log`` lines."""
+        _impl_paint_inline_log_annotations(self, painter, content_offset, vp_top, vp_bottom, base_x)
+
     # -- Line number painting -------------------------------------------
 
     def paint_line_number_area(self, event: QPaintEvent) -> None:
         """Paint line numbers, error markers, and diff stripes in the gutter."""
-        p = self._editor_palette()
-        painter = QPainter(self._line_number_area)
-        painter.fillRect(event.rect(), QColor(p["editor_gutter_bg"]))
-
-        line_severity = line_worst_validation_severity(self._errors)
-        diff_colors = self._diff_line_colors
-
-        block = self.firstVisibleBlock()
-        block_number = block.blockNumber()
-        top = round(self.blockBoundingGeometry(block).translated(self.contentOffset()).top())
-        bottom = top + round(self.blockBoundingRect(block).height())
-        width = self._line_number_area.width()
-        line_height = self.fontMetrics().height()
-
-        while block.isValid() and top <= event.rect().bottom():
-            if block.isVisible() and bottom >= event.rect().top():
-                number = str(block_number + 1)
-                line_num = block_number + 1
-                sev = line_severity.get(line_num)
-
-                # Diff gutter stripe (3px on the left edge)
-                if block_number in diff_colors:
-                    painter.fillRect(0, top, 3, bottom - top, diff_colors[block_number])
-
-                if sev is not None:
-                    if sev == "warning":
-                        painter.fillRect(
-                            0,
-                            top,
-                            width,
-                            bottom - top,
-                            QColor(p["editor_warning_gutter_bg"]),
-                        )
-                        painter.setPen(QColor(p["editor_warning_underline"]))
-                    elif sev == "info":
-                        painter.fillRect(
-                            0,
-                            top,
-                            width,
-                            bottom - top,
-                            QColor(p["editor_info_gutter_bg"]),
-                        )
-                        painter.setPen(QColor(p["editor_info_underline"]))
-                    elif sev == "hint":
-                        painter.fillRect(
-                            0,
-                            top,
-                            width,
-                            bottom - top,
-                            QColor(p["editor_hint_gutter_bg"]),
-                        )
-                        painter.setPen(QColor(p["editor_hint_underline"]))
-                    else:
-                        painter.fillRect(
-                            0,
-                            top,
-                            width,
-                            bottom - top,
-                            QColor(p["editor_error_gutter_bg"]),
-                        )
-                        painter.setPen(QColor(p["editor_error_underline"]))
-                else:
-                    painter.setPen(QColor(p["editor_gutter_text"]))
-
-                painter.drawText(
-                    0,
-                    top,
-                    width - 4,
-                    line_height,
-                    Qt.AlignmentFlag.AlignRight,
-                    number,
-                )
-
-            block = block.next()
-            top = bottom
-            bottom = top + round(self.blockBoundingRect(block).height())
-            block_number += 1
-
-        painter.end()
+        _impl_paint_line_number_area(self, event)
 
     # -- Fold gutter painting -------------------------------------------
 
@@ -565,146 +521,24 @@ class _PaintingMixin(_PaintingBase):
 
     def paint_breakpoint_area(self, event: QPaintEvent) -> None:
         """Paint breakpoint circles and debug line arrow in the gutter."""
-        p = self._editor_palette()
-        painter = QPainter(self._bp_gutter_area)
-        painter.fillRect(event.rect(), QColor(p["editor_gutter_bg"]))
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-
-        bp_color = QColor(p["editor_breakpoint"])
-        arrow_color = QColor(p["editor_debug_gutter_arrow"])
-        debug_bg = QColor(p["editor_debug_line"])
-        radius = 4.0
-
-        block = self.firstVisibleBlock()
-        top = round(self.blockBoundingGeometry(block).translated(self.contentOffset()).top())
-        bottom = top + round(self.blockBoundingRect(block).height())
-
-        while block.isValid() and top <= event.rect().bottom():
-            if block.isVisible() and bottom >= event.rect().top():
-                line = block.blockNumber()
-
-                # Debug line background + arrow.
-                if self._debug_line is not None and line == self._debug_line:
-                    painter.fillRect(0, top, _BREAKPOINT_GUTTER_WIDTH, bottom - top, debug_bg)
-                    painter.setPen(Qt.PenStyle.NoPen)
-                    painter.setBrush(arrow_color)
-                    cx = _BREAKPOINT_GUTTER_WIDTH / 2.0
-                    cy = (top + bottom) / 2.0
-                    painter.drawPolygon(
-                        [
-                            QPoint(round(cx - 3), round(cy - 4)),
-                            QPoint(round(cx + 4), round(cy)),
-                            QPoint(round(cx - 3), round(cy + 4)),
-                        ]
-                    )
-
-                # Breakpoint circle (hollow + muted when not a top-level checkpoint line).
-                if line in self._breakpoints:
-                    cx = _BREAKPOINT_GUTTER_WIDTH / 2.0
-                    cy = (top + bottom) / 2.0
-                    tll: set[int] = self._top_level_lines
-                    unreachable = bool(tll) and line not in tll
-                    if unreachable:
-                        painter.setPen(QPen(QColor(p["editor_breakpoint_unreachable"]), 1.25))
-                        painter.setBrush(Qt.BrushStyle.NoBrush)
-                    else:
-                        painter.setPen(Qt.PenStyle.NoPen)
-                        painter.setBrush(bp_color)
-                    painter.drawEllipse(QRectF(cx - radius, cy - radius, radius * 2, radius * 2))
-                elif (
-                    self._breakpoint_hover_line is not None
-                    and line == self._breakpoint_hover_line
-                    and not (self._debug_line is not None and line == self._debug_line)
-                ):
-                    # Hover preview (JetBrains-style) — not shown on the active debug line.
-                    cx = _BREAKPOINT_GUTTER_WIDTH / 2.0
-                    cy = (top + bottom) / 2.0
-                    hover = QColor(bp_color)
-                    hover.setAlpha(200)
-                    painter.setPen(QPen(hover, 1.25))
-                    painter.setBrush(Qt.BrushStyle.NoBrush)
-                    painter.drawEllipse(QRectF(cx - radius, cy - radius, radius * 2, radius * 2))
-
-            block = block.next()
-            top = bottom
-            bottom = top + round(self.blockBoundingRect(block).height())
-
-        painter.end()
+        _impl_paint_breakpoint_area(self, event)
 
     def paint_test_gutter_area(self, event: QPaintEvent) -> None:
         """Paint a run marker next to each line with a ``pm.test`` call."""
-        tw = self.test_gutter_width()
-        if tw <= 0:
-            return
-        p = self._editor_palette()
-        painter = QPainter(self._test_gutter_area)
-        painter.fillRect(event.rect(), QColor(p["editor_gutter_bg"]))
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        mark = QColor(p["success"])
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(mark)
-        test_lines: dict[int, str] = {t["line"]: t["name"] for t in self._pm_tests}
-        block = self.firstVisibleBlock()
-        top = round(self.blockBoundingGeometry(block).translated(self.contentOffset()).top())
-        bottom = top + round(self.blockBoundingRect(block).height())
-        while block.isValid() and top <= event.rect().bottom():
-            if (
-                block.isVisible()
-                and bottom >= event.rect().top()
-                and block.blockNumber() + 1 in test_lines
-                and event.rect().intersects(QRect(0, int(top), tw, int(bottom - top)))
-            ):
-                h = bottom - top
-                cy = top + h / 2.0
-                side = min(10.0, max(2.0, h - 4.0))
-                left = (tw - side) / 2.0
-                painter.drawPolygon(
-                    QPolygonF(
-                        [
-                            QPointF(left, cy - side / 2.0),
-                            QPointF(left + side, cy),
-                            QPointF(left, cy + side / 2.0),
-                        ]
-                    )
-                )
-            block = block.next()
-            top = bottom
-            bottom = top + round(self.blockBoundingRect(block).height())
-        painter.end()
+        _impl_paint_test_gutter_area(self, event)
 
     def _line_at_gutter_y(self, y: float) -> int | None:
         """Return 0-based line index for *y* in gutter widget coordinates, or ``None``."""
-        block = self.firstVisibleBlock()
-        top = round(self.blockBoundingGeometry(block).translated(self.contentOffset()).top())
-        bottom = top + round(self.blockBoundingRect(block).height())
-
-        while block.isValid():
-            if top <= y <= bottom:
-                return block.blockNumber()
-            block = block.next()
-            top = bottom
-            bottom = top + round(self.blockBoundingRect(block).height())
-        return None
+        return _impl_line_at_gutter_y(self, y)
 
     def breakpoint_gutter_clicked(self, y: int) -> None:
         """Toggle breakpoint for the block at viewport y-coordinate *y*."""
-        line = self._line_at_gutter_y(float(y))
-        if line is not None and self._show_breakpoint_gutter and not self._read_only:
-            self.toggle_breakpoint(line)
+        _impl_breakpoint_gutter_clicked(self, y)
 
     def _set_breakpoint_hover_line(self, line: int | None) -> None:
         """Update breakpoint hover preview line (``None`` clears)."""
-        if self._breakpoint_hover_line == line:
-            return
-        self._breakpoint_hover_line = line
-        self._bp_gutter_area.update()
-        sched = getattr(self, "_schedule_breakpoint_hover_tooltip", None)
-        if callable(sched):
-            sched()
+        _impl_set_breakpoint_hover_line(self, line)
 
     def _update_breakpoint_hover_for_gutter_y(self, y: float) -> None:
         """Set hover preview from gutter-local *y*; clears when debugging gutter is hidden."""
-        if not self._show_breakpoint_gutter or self._read_only:
-            self._set_breakpoint_hover_line(None)
-            return
-        self._set_breakpoint_hover_line(self._line_at_gutter_y(y))
+        _impl_update_breakpoint_hover_for_gutter_y(self, y)

@@ -139,6 +139,42 @@ class TestPersistOpenTabs:
         assert saved["tabs"][0] == {"type": "request", "id": req.id, "method": "GET", "name": "X"}
         assert saved["tabs"][1] == {"type": "environments"}
 
+    def test_persist_records_left_sidebar_panel(self, qapp: QApplication, qtbot) -> None:
+        """_persist_open_tabs saves the active left-rail flyout page."""
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._left_sidebar.open_panel("local_scripts")
+        window._persist_open_tabs()
+
+        saved = window._tab_settings_manager.load_open_tabs()
+        assert saved is not None
+        assert saved.get("left_sidebar_panel") == "local_scripts"
+
+    def test_persist_records_local_script_tabs(self, qapp: QApplication, qtbot) -> None:
+        """_persist_open_tabs saves local script tab ids and names."""
+        from database.models.local_scripts.local_script_repository import (
+            create_folder,
+            create_script,
+        )
+
+        folder = create_folder("Scripts")
+        script = create_script(folder.id, "Helper", language="javascript")
+
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._open_local_script(script.id)
+
+        saved = window._tab_settings_manager.load_open_tabs()
+        assert saved is not None
+        assert len(saved["tabs"]) == 1
+        assert saved["tabs"][0] == {
+            "type": "local_script",
+            "id": script.id,
+            "name": "Helper",
+        }
+
     def test_persist_on_close_event(self, qapp: QApplication, qtbot) -> None:
         """CloseEvent persists tabs before the window is destroyed."""
         svc = CollectionService()
@@ -218,6 +254,61 @@ class TestRestoreTabs:
         ctx = window._tabs[0]
         assert ctx.tab_type == "folder"
         assert ctx.collection_id == coll.id
+
+    def test_restore_opens_left_sidebar_panel(self, qapp: QApplication, qtbot) -> None:
+        """_restore_tabs reopens the persisted left-rail flyout page."""
+        tab_settings = TabSettingsManager(qapp)
+        tab_settings.save_open_tabs(
+            {
+                "tabs": [],
+                "active": 0,
+                "left_sidebar_panel": "local_scripts",
+            }
+        )
+
+        window = MainWindow(tab_settings_manager=tab_settings)
+        qtbot.addWidget(window)
+
+        window.collection_widget.load_finished.emit()
+
+        assert window._left_sidebar.active_panel == "local_scripts"
+        assert window._left_sidebar.is_open
+
+    def test_restore_opens_local_script_tabs(self, qapp: QApplication, qtbot) -> None:
+        """_restore_tabs reopens local script tabs from the persisted session."""
+        from database.models.local_scripts.local_script_repository import (
+            create_folder,
+            create_script,
+        )
+
+        folder = create_folder("Scripts")
+        script = create_script(folder.id, "Helper", language="typescript", content="// x")
+
+        tab_settings = TabSettingsManager(qapp)
+        tab_settings.save_open_tabs(
+            {
+                "tabs": [
+                    {
+                        "type": "local_script",
+                        "id": script.id,
+                        "name": "Helper",
+                    }
+                ],
+                "active": 0,
+            }
+        )
+
+        window = MainWindow(tab_settings_manager=tab_settings)
+        qtbot.addWidget(window)
+
+        window.collection_widget.load_finished.emit()
+
+        assert window._tab_bar.count() == 1
+        ctx = window._tabs[0]
+        assert ctx.tab_type == "local_script"
+        assert ctx.local_script_id == script.id
+        assert ctx.local_script_editor is not None
+        assert ctx.local_script_editor.script_id == script.id
 
     def test_restore_opens_environments_tab_between_requests(
         self, qapp: QApplication, qtbot

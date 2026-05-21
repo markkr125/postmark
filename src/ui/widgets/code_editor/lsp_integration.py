@@ -11,6 +11,7 @@ from PySide6.QtCore import QObject, QTimer
 from PySide6.QtWidgets import QPlainTextEdit
 
 from services.lsp.client import ClientFuture, CompletionItem, Diagnostic, LspClient
+from services.lsp.pm_require_types import pm_require_index_path, sync_pm_require_types
 from services.lsp.qt_lsp_offsets import qpos_to_lsp
 from services.lsp.server_registry import LspRegistry
 from services.lsp.servers._workspace import ensure_js_workspace, ensure_py_workspace
@@ -33,8 +34,16 @@ class EditorLspAdapter(QObject):
         self._sync_timer.setSingleShot(True)
         self._sync_timer.setInterval(150)
         self._sync_timer.timeout.connect(self._flush_did_change)
+        self._npm_types_timer = QTimer(self)
+        self._npm_types_timer.setSingleShot(True)
+        self._npm_types_timer.setInterval(500)
+        self._npm_types_timer.timeout.connect(self._flush_pm_require_types)
         self._contents_slot_connected = False
         self._opened = False
+        self._index_uri: str | None = None
+        self._index_version = 0
+        self._index_opened = False
+        self._js_workspace: Path | None = None
 
     def attach(self, language: str) -> bool:
         """Bind the editor to the registry client for *language*.
@@ -54,12 +63,18 @@ class EditorLspAdapter(QObject):
         # Deno LSP only type-checks ``file://`` URIs inside its workspace,
         # so virtual buffers must live under the seeded workspace dir.
         workspace = ensure_py_workspace() if lang == "python" else ensure_js_workspace()
+        self._js_workspace = None if lang == "python" else workspace
         virtual_path = Path(workspace) / f"_buffer_{uuid.uuid4().hex}.{ext}"
         self._uri = virtual_path.as_uri()
         self._language_id = lang
         self._client = client
         self._version = 0
         self._opened = False
+        self._index_uri = None
+        self._index_version = 0
+        self._index_opened = False
+        if self._js_workspace is not None:
+            self._index_uri = pm_require_index_path(self._js_workspace).as_uri()
         client.state_changed.connect(self._on_client_state)
         client.diagnostics_published.connect(self._on_diagnostics)
         self._editor.document().contentsChanged.connect(self._on_contents_changed)
@@ -110,11 +125,17 @@ class EditorLspAdapter(QObject):
             editor.notify_lsp_diagnostics([])
         ext = {"javascript": "js", "typescript": "ts", "python": "py"}.get(new_lang, "txt")
         workspace = ensure_py_workspace() if new_lang == "python" else ensure_js_workspace()
+        self._js_workspace = None if new_lang == "python" else workspace
         virtual_path = Path(workspace) / f"_buffer_{uuid.uuid4().hex}.{ext}"
         self._uri = virtual_path.as_uri()
         self._language_id = new_lang
         self._version = 0
         self._opened = False
+        self._index_uri = None
+        self._index_version = 0
+        self._index_opened = False
+        if self._js_workspace is not None:
+            self._index_uri = pm_require_index_path(self._js_workspace).as_uri()
         if self.is_ready:
             self._send_initial_open()
         return True
@@ -139,10 +160,55 @@ class EditorLspAdapter(QObject):
         except BrokenPipeError:
             return
         self._opened = True
+        self._open_pm_require_index()
+
+    def _open_pm_require_index(self) -> None:
+        if (
+            self._client is None
+            or self._index_uri is None
+            or self._js_workspace is None
+            or self._index_opened
+            or not RuntimeSettings.enable_npm_type_resolution()
+        ):
+            return
+        index_path = pm_require_index_path(self._js_workspace)
+        if not index_path.is_file():
+            return
+        try:
+            self._client.did_open(
+                self._index_uri,
+                "typescript",
+                self._index_version,
+                index_path.read_text(encoding="utf-8"),
+            )
+        except BrokenPipeError:
+            return
+        self._index_opened = True
+        self._schedule_pm_require_types_sync()
+
+    def _notify_pm_require_index_change(self) -> None:
+        if (
+            self._client is None
+            or self._index_uri is None
+            or self._js_workspace is None
+            or not self._index_opened
+        ):
+            return
+        index_path = pm_require_index_path(self._js_workspace)
+        if not index_path.is_file():
+            return
+        self._index_version += 1
+        with contextlib.suppress(BrokenPipeError):
+            self._client.did_change(
+                self._index_uri,
+                self._index_version,
+                index_path.read_text(encoding="utf-8"),
+            )
 
     def detach(self) -> None:
         """Close the virtual document and disconnect."""
         self._sync_timer.stop()
+        self._npm_types_timer.stop()
         if self._contents_slot_connected:
             with contextlib.suppress(Exception):
                 self._editor.document().contentsChanged.disconnect(self._on_contents_changed)
@@ -152,6 +218,9 @@ class EditorLspAdapter(QObject):
                 self._client.state_changed.disconnect(self._on_client_state)
             with contextlib.suppress(Exception):
                 self._client.diagnostics_published.disconnect(self._on_diagnostics)
+            if self._index_uri is not None and self._index_opened:
+                with contextlib.suppress(Exception):
+                    self._client.did_close(self._index_uri)
             if self._uri is not None and self._opened:
                 with contextlib.suppress(Exception):
                     self._client.did_close(self._uri)
@@ -159,12 +228,38 @@ class EditorLspAdapter(QObject):
         self._uri = None
         self._language_id = None
         self._opened = False
+        self._index_uri = None
+        self._index_version = 0
+        self._index_opened = False
+        self._js_workspace = None
         editor = self._editor
         if hasattr(editor, "notify_lsp_diagnostics"):
             editor.notify_lsp_diagnostics([])
 
     def _on_contents_changed(self) -> None:
         self._sync_timer.start()
+        self._schedule_pm_require_types_sync()
+
+    def _schedule_pm_require_types_sync(self) -> None:
+        if (
+            self._js_workspace is None
+            or self._language_id not in ("javascript", "typescript")
+            or not RuntimeSettings.enable_npm_type_resolution()
+        ):
+            return
+        self._npm_types_timer.start()
+
+    def _flush_pm_require_types(self) -> None:
+        if self._js_workspace is None or not self._opened:
+            return
+        if not RuntimeSettings.enable_npm_type_resolution():
+            return
+        changed = sync_pm_require_types(self._editor.toPlainText(), self._js_workspace)
+        if changed:
+            if not self._index_opened:
+                self._open_pm_require_index()
+            else:
+                self._notify_pm_require_index_change()
 
     def _flush_did_change(self) -> None:
         if self._client is None or self._uri is None:
@@ -179,10 +274,16 @@ class EditorLspAdapter(QObject):
     def _on_diagnostics(self, uri: str, diags: list) -> None:
         if uri != self._uri:
             return
+        from services.scripting.engine import ScriptLinter
+        from services.scripting.es_module_rules import es_module_to_lsp_diagnostics
+
         lsp_only = [d for d in diags if isinstance(d, Diagnostic)]
         cast_editor = self._editor
+        script_text = cast_editor.toPlainText()
+        lang = self._language_id or "javascript"
+        problems_tab = list(lsp_only) + es_module_to_lsp_diagnostics(script_text, lang)
         if hasattr(cast_editor, "notify_lsp_diagnostics"):
-            cast_editor.notify_lsp_diagnostics(list(lsp_only))
+            cast_editor.notify_lsp_diagnostics(problems_tab)
         mapped: list[SyntaxError_] = []
         for d in diags:
             if not isinstance(d, Diagnostic):
@@ -198,6 +299,27 @@ class EditorLspAdapter(QObject):
                     severity=sev,
                 )
             )
+        mod_fmt = getattr(self._editor, "_script_module_format", "esm")
+        if lang in ("javascript", "typescript") and script_text.strip():
+            seen = {(e.line, e.column, e.message) for e in mapped}
+            legacy_items = (
+                ScriptLinter.check_commonjs_local_script(script_text)
+                if mod_fmt == "commonjs"
+                else ScriptLinter.check_es_module(script_text, lang)
+            )
+            for item in legacy_items:
+                key = (item["line"], item["column"], item["message"])
+                if key in seen:
+                    continue
+                seen.add(key)
+                mapped.append(
+                    SyntaxError_(
+                        line=item["line"],
+                        column=item["column"],
+                        message=item["message"],
+                        severity=item.get("severity", "error"),
+                    )
+                )
         if hasattr(cast_editor, "apply_validation_errors"):
             cast_editor.apply_validation_errors(mapped)
 
@@ -237,11 +359,27 @@ class EditorLspAdapter(QObject):
         """Return full-document format future, or ``None``."""
         if self._client is None or self._uri is None or not self.is_ready:
             return None
+        return self._client.formatting(self._uri, self._format_tab_size())
+
+    def request_format_range(self) -> ClientFuture | None:
+        """Return range-format future for the current selection, or ``None``."""
+        if self._client is None or self._uri is None or not self.is_ready:
+            return None
+        cur = self._editor.textCursor()
+        if not cur.hasSelection():
+            return None
+        doc = self._editor.document()
+        sl, sc = qpos_to_lsp(doc, cur.selectionStart())
+        el, ec = qpos_to_lsp(doc, cur.selectionEnd())
+        return self._client.range_formatting(self._uri, self._format_tab_size(), sl, sc, el, ec)
+
+    def _format_tab_size(self) -> int:
+        """Indent width used for LSP format requests."""
         tab = 2
         raw = getattr(self._editor, "_detected_indent", None)
         if isinstance(raw, int) and raw > 0:
             tab = raw
-        return self._client.formatting(self._uri, tab)
+        return tab
 
 
 def merge_completion_items(

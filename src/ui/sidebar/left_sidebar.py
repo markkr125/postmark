@@ -8,9 +8,9 @@ The rail is always visible and fixed-width. The flyout snaps to 0 width
 when the user drags the splitter handle past the minimum, and reopens
 when an icon is clicked.
 
-Composition: the caller injects the panel content via :meth:`set_content`
-(typically the existing collections + environments vertical splitter),
-so this widget stays decoupled from those concrete panels.
+Composition: the caller injects flyout pages via :meth:`set_content` (collections
+and environments splitter) and optionally :meth:`set_local_scripts_panel` for a
+second stacked page toggled from the activity rail.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from PySide6.QtCore import QRect, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QIcon, QPainter, QPaintEvent, QResizeEvent
 from PySide6.QtWidgets import (
     QSplitter,
+    QStackedWidget,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -36,6 +37,9 @@ from ui.styling.theme import (
 
 
 _COLLECTIONS_KEY = "collections"
+_LOCAL_SCRIPTS_KEY = "local_scripts"
+# Stacked flyout page order (left → right in internal stack indices).
+_FLYOUT_PAGE_ORDER: tuple[str, ...] = (_COLLECTIONS_KEY, _LOCAL_SCRIPTS_KEY)
 
 # Local stylesheet when the flyout splitter width is 0. Qt often does not apply
 # ``[collapsed="true"]`` from a Python ``bool`` dynamic property, so borders
@@ -89,15 +93,45 @@ class _LeftFlyoutPanel(QWidget):
         self._content_layout.setSpacing(0)
         layout.addLayout(self._content_layout, 1)
 
-        self._content_widget: QWidget | None = None
+        self._panel_stack = QStackedWidget(self)
+        self._content_layout.addWidget(self._panel_stack, 1)
+        self._widgets_by_key: dict[str, QWidget] = {}
+
+    def _stack_insert_index(self, key: str) -> int:
+        """Return the ``QStackedWidget`` index for a newly inserted *key*."""
+        if key not in _FLYOUT_PAGE_ORDER:
+            return self._panel_stack.count()
+        my_pos = _FLYOUT_PAGE_ORDER.index(key)
+        return sum(1 for k in _FLYOUT_PAGE_ORDER[:my_pos] if k in self._widgets_by_key)
+
+    def set_panel(self, key: str, widget: QWidget) -> None:
+        """Register *widget* as the flyout page for *key* (replaces any prior page)."""
+        prev = self._widgets_by_key.pop(key, None)
+        if prev is not None:
+            ix = self._panel_stack.indexOf(prev)
+            self._panel_stack.removeWidget(prev)
+            prev.setParent(None)
+            self._panel_stack.insertWidget(ix, widget)
+        else:
+            ix = self._stack_insert_index(key)
+            self._panel_stack.insertWidget(ix, widget)
+        self._widgets_by_key[key] = widget
+
+    def show_panel_key(self, key: str) -> bool:
+        """Show the page for *key* if registered. Return whether the stack switched."""
+        w = self._widgets_by_key.get(key)
+        if w is None:
+            return False
+        self._panel_stack.setCurrentWidget(w)
+        return True
+
+    def has_panel(self, key: str) -> bool:
+        """Return whether a flyout page is registered for *key*."""
+        return key in self._widgets_by_key
 
     def set_content(self, widget: QWidget) -> None:
-        """Install *widget* as the sole flyout body (no title row; header is in content)."""
-        if self._content_widget is not None:
-            self._content_layout.removeWidget(self._content_widget)
-            self._content_widget.setParent(None)
-        self._content_widget = widget
-        self._content_layout.addWidget(widget, 1)
+        """Install *widget* as the collections / environments flyout page."""
+        self.set_panel(_COLLECTIONS_KEY, widget)
 
     def set_chrome_sync(self, fn: Callable[[], None] | None) -> None:
         """Notify *fn* after geometry changes (e.g. external ``setSizes``)."""
@@ -118,8 +152,10 @@ class LeftSidebar(QWidget):
     """Always-visible icon rail on the left edge that controls a flyout panel.
 
     After construction:
-      1. Call :meth:`set_content` to install the panel content widget.
-      2. Call :meth:`install_in_splitter` to insert the rail + flyout into
+      1. Call :meth:`set_content` to install the collections / environments page.
+      2. Optionally call :meth:`set_local_scripts_panel` to register a second
+         flyout page and reveal its rail icon.
+      3. Call :meth:`install_in_splitter` to insert the rail + flyout into
          the main horizontal splitter as its first two children.
 
     :signal:`panel_state_changed` (``bool``) emits ``True`` when the flyout
@@ -130,7 +166,7 @@ class LeftSidebar(QWidget):
     panel_state_changed = Signal(bool)
 
     def __init__(self, parent: QWidget | None = None) -> None:
-        """Build the rail layout, flyout shell, and collections rail button."""
+        """Build the rail layout, flyout shell, and default collections rail button."""
         super().__init__(parent)
         self.setObjectName("leftSidebarRail")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -156,9 +192,16 @@ class LeftSidebar(QWidget):
         )
         self._collections_btn.setEnabled(True)
         rail_layout.addWidget(self._collections_btn)
+
+        self._local_scripts_btn = self._make_rail_button("code", "Local scripts")
+        self._local_scripts_btn.setVisible(False)
+        rail_layout.addWidget(self._local_scripts_btn)
         rail_layout.addStretch()
 
-        self._buttons: dict[str, QToolButton] = {_COLLECTIONS_KEY: self._collections_btn}
+        self._buttons: dict[str, QToolButton] = {
+            _COLLECTIONS_KEY: self._collections_btn,
+            _LOCAL_SCRIPTS_KEY: self._local_scripts_btn,
+        }
 
         self._active_panel: str | None = None
         self._last_panel: str | None = _COLLECTIONS_KEY
@@ -170,14 +213,22 @@ class LeftSidebar(QWidget):
         self._collections_btn.clicked.connect(
             lambda: self._toggle_panel(_COLLECTIONS_KEY),
         )
+        self._local_scripts_btn.clicked.connect(
+            lambda: self._toggle_panel(_LOCAL_SCRIPTS_KEY),
+        )
 
         self._flyout.set_chrome_sync(self._sync_left_flyout_chrome)
 
     # Composition / splitter integration
     # ------------------------------------------------------------------
     def set_content(self, widget: QWidget) -> None:
-        """Install the flyout's content widget (e.g. the collections splitter)."""
+        """Install the collections / environments flyout page."""
         self._flyout.set_content(widget)
+
+    def set_local_scripts_panel(self, widget: QWidget) -> None:
+        """Register the **Local scripts** flyout page and show its rail icon."""
+        self._flyout.set_panel(_LOCAL_SCRIPTS_KEY, widget)
+        self._local_scripts_btn.setVisible(True)
 
     def install_in_splitter(self, splitter: QSplitter) -> None:
         """Insert the rail and flyout as the leftmost children of *splitter*.
@@ -230,10 +281,15 @@ class LeftSidebar(QWidget):
             return 0
         return self._splitter.sizes()[self._flyout_idx]
 
+    def session_panel_key(self) -> str:
+        """Return the flyout page key to persist across app restarts."""
+        return self._active_panel or self._last_panel or _COLLECTIONS_KEY
+
     def open_panel(self, panel: str = _COLLECTIONS_KEY) -> None:
         """Programmatically open a panel by key."""
-        if panel in self._buttons:
-            self._show_panel(panel)
+        if not self._flyout.has_panel(panel):
+            return
+        self._show_panel(panel)
 
     def close_panel(self) -> None:
         """Collapse the flyout, keeping the icon rail visible."""
@@ -285,12 +341,16 @@ class LeftSidebar(QWidget):
         btn.setIcon(icon)
 
     def _toggle_panel(self, panel: str) -> None:
+        if not self._flyout.has_panel(panel):
+            return
         if self._active_panel == panel and self.is_open:
             self._close_panel()
         else:
             self._show_panel(panel)
 
     def _show_panel(self, panel: str, *, expand_flyout: bool = True) -> None:
+        if not self._flyout.show_panel_key(panel):
+            return
         self._active_panel = panel
         self._last_panel = panel
         for key, btn in self._buttons.items():
@@ -427,6 +487,9 @@ class LeftSidebar(QWidget):
 
         if flyout_width > 0 and not self._active_panel:
             panel = self._last_panel or _COLLECTIONS_KEY
+            if not self._flyout.has_panel(panel):
+                panel = _COLLECTIONS_KEY
+            self._flyout.show_panel_key(panel)
             self._active_panel = panel
             self._last_panel = panel
             for key, btn in self._buttons.items():

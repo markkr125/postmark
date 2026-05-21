@@ -27,7 +27,12 @@ class ScriptVersionModel(Base):
     collection_id: Mapped[int | None] = mapped_column(
         ForeignKey("collections.id", ondelete="CASCADE"), default=None, index=True
     )
-    script_type: Mapped[str] = mapped_column(String(20), index=True)  # "pre_request" | "test"
+    local_script_id: Mapped[int | None] = mapped_column(
+        ForeignKey("local_scripts.id", ondelete="CASCADE"), default=None, index=True
+    )
+    script_type: Mapped[str] = mapped_column(
+        String(20), index=True
+    )  # pre_request | test | local_script
     content: Mapped[str] = mapped_column(Text, default="")
     language: Mapped[str] = mapped_column(String(20), default="javascript")
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), index=True)

@@ -204,8 +204,10 @@ class TestCollectCallFrameScopes:
 
     def test_pm_binding_expanded_via_nested_get_properties(self) -> None:
         """Module-scope ``pm`` object is expanded with nested ``Runtime.getProperties``."""
-        from services.scripting.debug.deno_scope import _PM_CLASSNAME_KEY
-        from services.scripting.debug.deno_scope import _collect_call_frame_scopes
+        from services.scripting.debug.deno_scope import (
+            _PM_CLASSNAME_KEY,
+            _collect_call_frame_scopes,
+        )
 
         class _FakeCdp:
             def req(self, method: str, params: dict) -> dict:
@@ -436,7 +438,7 @@ class TestDebugBundleUserScriptWrapper:
     def test_debug_bundle_wraps_user_script_in_named_function(self) -> None:
         from services.scripting.deno_runtime import build_debug_bundle_text
 
-        txt = build_debug_bundle_text("const x = 1;", _make_context())
+        txt, _needs_net, _local = build_debug_bundle_text("const x = 1;", _make_context())
         assert "function __pm_debugUserScript()" in txt
         assert "const x = 1;" in txt
         assert "__pm_debugUserScript();" in txt
@@ -476,17 +478,27 @@ class TestCdpBreakEditorLines:
     def test_unions_g0s_and_in_range_editor_breakpoints(self) -> None:
         from services.scripting.debug.deno_debug import _cdp_break_editor_lines
 
-        assert _cdp_break_editor_lines({0, 10}, {3, 4}, 20) == [0, 3, 4, 10]
+        assert _cdp_break_editor_lines({0, 10}, {3: None, 4: None}, 20) == [
+            (0, None),
+            (3, None),
+            (4, None),
+            (10, None),
+        ]
 
     def test_out_of_range_breakpoints_clipped(self) -> None:
         from services.scripting.debug.deno_debug import _cdp_break_editor_lines
 
-        assert _cdp_break_editor_lines({0}, {-1, 99, 100}, 10) == [0]
+        assert _cdp_break_editor_lines({0}, {-1: None, 99: None, 100: None}, 10) == [(0, None)]
 
     def test_non_positive_n_user_lines_only_g0s(self) -> None:
         from services.scripting.debug.deno_debug import _cdp_break_editor_lines
 
-        assert _cdp_break_editor_lines({2, 0}, {5, 7}, 0) == [0, 2]
+        assert _cdp_break_editor_lines({2, 0}, {5: None, 7: None}, 0) == [(0, None), (2, None)]
+
+    def test_conditional_breakpoint_carries_condition(self) -> None:
+        from services.scripting.debug.deno_debug import _cdp_break_editor_lines
+
+        assert _cdp_break_editor_lines({0}, {3: "x > 1"}, 10) == [(0, None), (3, "x > 1")]
 
 
 class TestSourceMapDecode:

@@ -263,6 +263,7 @@ pm.test("Var set", lambda: pm.expect(pm.variables.get("my_var")).to.equal("hello
         assert len(result["console_logs"]) == 1
         assert result["console_logs"][0]["message"] == "Hello from script"
         assert result["console_logs"][0]["level"] == "log"
+        assert result["console_logs"][0].get("source_line") == 0
 
     def test_syntax_error_captured(self):
         script = "def foo(:"

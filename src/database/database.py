@@ -13,11 +13,15 @@ from sqlalchemy.orm import Session, sessionmaker
 # Import all models so Base.metadata.create_all() discovers every table.
 from .models import CollectionModel as CollectionModel
 from .models import EnvironmentModel as EnvironmentModel
+from .models import LocalScriptFolderModel as LocalScriptFolderModel
+from .models import LocalScriptModel as LocalScriptModel
+from .models import RequestAssertionModel as RequestAssertionModel
 from .models import RequestModel as RequestModel
 from .models import RunHistoryModel as RunHistoryModel
 from .models import RunResultModel as RunResultModel
 from .models import SavedResponseModel as SavedResponseModel
 from .models import ScriptVersionModel as ScriptVersionModel
+from .models import SnippetModel as SnippetModel
 from .models.base import Base
 
 logger = logging.getLogger(__name__)
@@ -87,6 +91,22 @@ _TYPE_MAP: dict[str, str] = {
 }
 
 
+def _migration_default_clause(col: object) -> str:
+    """Return a SQLite ``DEFAULT`` fragment from an ORM column ``server_default``."""
+    from sqlalchemy.schema import Column
+
+    if not isinstance(col, Column):
+        return ""
+    default = col.server_default
+    if default is None:
+        return ""
+    arg = getattr(default, "arg", None)
+    if isinstance(arg, str):
+        escaped = arg.replace("'", "''")
+        return f" DEFAULT '{escaped}'"
+    return ""
+
+
 def _migrate_add_missing_columns(engine: Engine) -> None:
     """Add missing columns to existing tables via ALTER TABLE.
 
@@ -110,8 +130,11 @@ def _migrate_add_missing_columns(engine: Engine) -> None:
 
             # Derive the SQLite type string from the compiled column type.
             col_type = col.type.compile(dialect=engine.dialect)
-
-            alter_sql = f"ALTER TABLE {table_name} ADD COLUMN {col.name} {col_type}"
+            null_sql = "" if col.nullable else " NOT NULL"
+            default_sql = _migration_default_clause(col)
+            alter_sql = (
+                f"ALTER TABLE {table_name} ADD COLUMN {col.name} {col_type}{null_sql}{default_sql}"
+            )
             logger.info("Migrating: %s", alter_sql)
 
             with engine.begin() as conn:

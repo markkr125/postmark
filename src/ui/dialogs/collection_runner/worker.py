@@ -8,12 +8,8 @@ and data-driven iteration via CSV/JSON files.
 
 from __future__ import annotations
 
-import csv
-import json
 import logging
 import re
-from io import StringIO
-from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import QObject, Signal, Slot
@@ -27,9 +23,12 @@ from services.scripting.context import (
     load_globals,
     save_globals,
 )
+from services.scripting.data_loader import parse_data_file
 from services.scripting.engine import ScriptEngine
 
 logger = logging.getLogger(__name__)
+
+__all__ = ["RunnerWorker", "_substitute", "parse_data_file", "scripts_enabled"]
 
 # Sentinel to distinguish "setNextRequest not called" from "set to None"
 _SENTINEL = object()
@@ -60,18 +59,6 @@ def scripts_enabled() -> bool:
     if isinstance(val, str):
         return val.lower() not in {"0", "false", "no", "off", ""}
     return bool(val)
-
-
-def parse_data_file(path: Path) -> list[dict[str, Any]]:
-    """Parse a CSV or JSON file into a list of row dicts."""
-    text = path.read_text(encoding="utf-8")
-    if path.suffix.lower() == ".json":
-        data = json.loads(text)
-        if isinstance(data, list):
-            return [dict(row) for row in data if isinstance(row, dict)]
-        return []
-    reader = csv.DictReader(StringIO(text))
-    return [dict(row) for row in reader]
 
 
 class RunnerWorker(QObject):

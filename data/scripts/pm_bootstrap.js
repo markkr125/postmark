@@ -39,8 +39,47 @@ var __pm_context = __pm_context || {
 };
 
 // -- Console mock (rate-limited to 200 messages) -----------------------
+// Best-effort source_line: stack frames outside _PM_INTERNAL_FRAMES are mapped
+// to 0-based editor lines via __pm_user_script_line0 (set in the Deno bundle).
 
 var __CONSOLE_LIMIT = 200;
+
+// Keep in sync with Python shims / debug wrapper names (see scripting roadmap A4).
+var _PM_INTERNAL_FRAMES = [
+    "pm_bootstrap.js",
+    "__pm_debugUserScript",
+    "__pm_runUserScript",
+    "deno_drain.mjs",
+    "pyodide_run.mjs",
+];
+
+function _parseConsoleSourceLine(stack) {
+    if (!stack) return null;
+    var base =
+        typeof __pm_user_script_line0 === "number" ? __pm_user_script_line0 : 0;
+    var lines = String(stack).split("\n");
+    for (var i = 0; i < lines.length; i++) {
+        var ln = lines[i];
+        var m = ln.match(
+            /(?:at\s+(?:[^\s]+\s+)?\(?)([^():]+):(\d+):(\d+)\)?\s*$/
+        );
+        if (!m) continue;
+        var file = m[1];
+        var lineNum = parseInt(m[2], 10);
+        if (isNaN(lineNum)) continue;
+        var internal = false;
+        for (var j = 0; j < _PM_INTERNAL_FRAMES.length; j++) {
+            if (file.indexOf(_PM_INTERNAL_FRAMES[j]) !== -1) {
+                internal = true;
+                break;
+            }
+        }
+        if (internal) continue;
+        var editorLine = lineNum - 1 - base;
+        return editorLine >= 0 ? editorLine : null;
+    }
+    return null;
+}
 
 var console = {
     _emit: function (level, args) {
@@ -57,11 +96,18 @@ var console = {
                 parts.push(String(args[i]));
             }
         }
-        __pm_state.console_logs.push({
+        var entry = {
             level: level,
             message: parts.join(" "),
             timestamp: Date.now() / 1000,
-        });
+        };
+        try {
+            var sl = _parseConsoleSourceLine(new Error().stack);
+            if (sl !== null) entry.source_line = sl;
+        } catch (_e) {
+            /* best-effort */
+        }
+        __pm_state.console_logs.push(entry);
     },
     log: function () {
         console._emit("log", arguments);
@@ -972,6 +1018,15 @@ var pm = {
 
     test: (function () {
         var fnTest = function (name, fn) {
+            var filter =
+                (typeof __pm_context !== "undefined" &&
+                    __pm_context.info &&
+                    __pm_context.info.testFilter) ||
+                globalThis.__pm_test_filter ||
+                null;
+            if (filter && String(name) !== String(filter)) {
+                return;
+            }
             var start = Date.now();
             var result = {
                 name: name,
@@ -997,6 +1052,10 @@ var pm = {
             if (didSkip) {
                 result.passed = true;
                 result.skipped = true;
+            }
+            var src = globalThis.__pm_test_source_name;
+            if (src) {
+                result.source_name = String(src);
             }
             __pm_state.test_results.push(result);
         };
@@ -1032,11 +1091,23 @@ var pm = {
             }
             return builtin;
         }
+        if (specifier.indexOf("local:") === 0) {
+            var localRegistry = globalThis.__pm_require_modules || {};
+            if (Object.prototype.hasOwnProperty.call(localRegistry, specifier)) {
+                return localRegistry[specifier];
+            }
+            throw new Error(
+                "pm.require: local script '" +
+                    specifier.slice(6) +
+                    "' was not bundled. Use a string literal and check the path in " +
+                    "Local scripts (path-safe names, case-sensitive)."
+            );
+        }
         if (specifier.indexOf("npm:") !== 0 && specifier.indexOf("jsr:") !== 0) {
             throw new Error(
                 "pm.require: unknown package '" +
                     specifier +
-                    "' (use a built-in name, npm:, or jsr:)"
+                    "' (use a built-in name, local:, npm:, or jsr:)"
             );
         }
         var registry = globalThis.__pm_require_modules || {};

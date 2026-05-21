@@ -61,10 +61,9 @@ class MainWindow(
     """Top-level application window.
 
     Sets up the menu bar, status bar, and five-pane layout
-    (left activity rail + collections / environments flyout | request editor
-    | response viewer | right sidebar rail + flyout). Back/forward navigation
-    uses ``QAction`` shortcuts
-    only (no toolbar strip).
+    (left activity rail + collections / environments or local scripts flyout
+    | request editor | response viewer | right sidebar rail + flyout).
+    Back/forward navigation uses ``QAction`` shortcuts only (no toolbar strip).
     """
 
     def __init__(
@@ -106,8 +105,10 @@ class MainWindow(
         self._send_thread: QThread | None = None
         self._send_worker: HttpSendWorker | None = None
         self._debug_protocol: DebugProtocol | None = None
+        self._debug_script_host: Any | None = None
 
         self.collection_widget = CollectionWidget(self)
+        self.local_scripts_widget = CollectionWidget(self, variant="local_scripts")
 
         # Side rails (created before _setup_ui so layout can embed them)
         self._left_sidebar = LeftSidebar()
@@ -132,6 +133,7 @@ class MainWindow(
 
         # Wire sidebar -> editor
         self.collection_widget.item_action_triggered.connect(self._on_item_action)
+        self.local_scripts_widget.item_action_triggered.connect(self._on_item_action)
 
         # Wire draft request
         self.collection_widget.draft_request_requested.connect(self._open_draft_request)
@@ -149,6 +151,12 @@ class MainWindow(
         # Wire collection runner
         self.run_action.triggered.connect(self._on_run_collection)
         self.collection_widget.run_collection_requested.connect(self._on_run_collection_by_id)
+
+        from ui.widgets.snippets.loader import invalidate_snippet_cache
+
+        self.collection_widget._tree_widget.selected_collection_changed.connect(
+            lambda _cid: invalidate_snippet_cache()
+        )
 
         # Wire environment editor
         self._env_selector.manage_requested.connect(self._on_manage_environments)
@@ -177,6 +185,10 @@ class MainWindow(
         VariablePopup.set_add_variable_callback(self._on_add_unresolved_variable)
         VariablePopup.set_has_environment(self._env_selector.current_environment_id() is not None)
 
+        from ui.widgets.code_editor.editor_widget import CodeEditorWidget
+
+        CodeEditorWidget.set_open_local_script_handler(self._open_local_script)
+
         # Wire loading screen
         self.collection_widget.load_finished.connect(self._on_load_finished)
         self._left_sidebar.panel_state_changed.connect(self._sync_sidebar_toggle_btn)
@@ -187,10 +199,13 @@ class MainWindow(
 
         # Wire tree rename -> update open tabs
         self.collection_widget.item_name_changed.connect(self._on_item_name_changed)
+        self.local_scripts_widget.item_name_changed.connect(self._on_item_name_changed)
+        self.local_scripts_widget.script_rename_requested.connect(self._on_local_script_tree_rename)
 
         # Start the collection fetch *after* all signals are connected so
         # a fast-completing fetch cannot emit load_finished before we listen.
         self.collection_widget._start_fetch()
+        self.local_scripts_widget._start_fetch()
 
         # ---- Move to the screen that contains the mouse --------------
         self._move_to_mouse_screen()
@@ -486,6 +501,7 @@ class MainWindow(
         self._env_selector.refresh()
 
         self._left_sidebar.set_content(self._left_nav_splitter)
+        self._left_sidebar.set_local_scripts_panel(self.local_scripts_widget)
         self._left_sidebar.install_in_splitter(self._main_splitter)
 
         # --- Centre: vertical splitter (request + response) ---
@@ -534,7 +550,6 @@ class MainWindow(
         QTimer.singleShot(0, self._update_request_area_min)
 
         self._sync_sidebar_toggle_btn()
-        QTimer.singleShot(0, self._left_sidebar.open_panel)
 
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
         """Recompute request_area's min when chrome geometry changes (tab wrap, etc.)."""
@@ -579,12 +594,14 @@ class MainWindow(
     # Sidebar -> editor wiring
     # ------------------------------------------------------------------
     def _on_item_action(self, item_type: str, item_id: int, action: str) -> None:
-        """Handle actions triggered from the collection tree."""
+        """Handle actions triggered from the collection or local-scripts tree."""
         if item_type == "request":
             if action == "Open":
                 self._open_request(item_id, push_history=True, is_preview=False)
             elif action == "Preview":
                 self._open_request(item_id, push_history=True, is_preview=True)
+        elif item_type == "script" and action == "Open":
+            self._open_local_script(item_id)
         elif item_type == "folder" and action == "Open":
             self._open_folder(item_id)
 
@@ -691,6 +708,10 @@ class MainWindow(
             return
 
         if ctx is not None and ctx.tab_type == "environments":
+            return
+
+        if ctx is not None and ctx.tab_type == "local_script":
+            self._on_save_local_script()
             return
 
         editor = ctx.require_editor() if ctx else self.request_widget

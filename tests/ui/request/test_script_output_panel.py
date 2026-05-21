@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 
 from PySide6.QtCore import QThread
+from shiboken6 import Shiboken
 from PySide6.QtWidgets import (
     QLabel,
     QLayout,
@@ -21,7 +22,10 @@ from PySide6.QtWidgets import (
 )
 
 from ui.widgets.code_editor import CodeEditorWidget
-from ui.request.request_editor.scripts.output_panel import ScriptOutputPanel
+from ui.request.request_editor.scripts.output_panel import (
+    ScriptOutputPanel,
+    inline_log_annotations_from_console_logs,
+)
 from ui.widgets.debug_value_tree import debug_tree_cell_text
 from services.scripting.debug import DebugProtocol
 from ui.request.request_editor.scripts.script_run_worker import (
@@ -201,7 +205,7 @@ class TestScriptDebugWorker:
 
         ctx = build_inline_context(script_type="pre_request")
         protocol = DebugProtocol()
-        protocol.set_breakpoints(set())
+        protocol.set_breakpoints({})
         worker.set_params(
             script="console.log('debug worker ok')",
             language="javascript",
@@ -234,8 +238,8 @@ class TestScriptOutputPanelConstruction:
         tabs = panel.findChild(QTabWidget, "scriptOutputTabs")
         assert tabs is not None
         assert tabs.count() == 2
-        # Hidden variable inspector + idle hint + trailing stretch.
-        assert panel._results_layout.count() == 3
+        # Hidden call stack + variables + watch + idle hint + trailing stretch.
+        assert panel._results_layout.count() == 5
 
     def test_test_panel_has_response_input(self, qtbot) -> None:
         """Test panel includes response-source selector and mock inputs."""
@@ -243,10 +247,11 @@ class TestScriptOutputPanelConstruction:
         qtbot.addWidget(panel)
         tabs = panel.findChild(QTabWidget, "scriptOutputTabs")
         assert tabs is not None
-        assert tabs.count() == 3
+        assert tabs.count() == 4
         assert tabs.tabText(0) == "Output"
         assert tabs.tabText(1).startswith("Problems")
-        assert tabs.tabText(2) == "Mock response"
+        assert tabs.tabText(2) == "Iterations"
+        assert tabs.tabText(3) == "Mock response"
         assert isinstance(panel._response_body_edit, CodeEditorWidget)
         assert hasattr(panel, "_status_spin")
         assert hasattr(panel, "_response_source_combo")
@@ -282,7 +287,66 @@ class TestScriptOutputPanelConstruction:
         panel.clear_results()
         # Elapsed label cleared; idle hint restored.
         assert panel._elapsed_label.text() == ""
-        assert panel._results_layout.count() == 3
+        assert panel._results_layout.count() == 5
+
+    def test_show_results_preserves_debug_inspector_widgets(self, qtbot) -> None:
+        """Clearing result rows must not delete the debug variables tree."""
+        panel = ScriptOutputPanel(script_type="pre_request")
+        qtbot.addWidget(panel)
+        panel.show_results(_make_output(), 1.0)
+        assert Shiboken.isValid(panel._debug_variables)
+        assert Shiboken.isValid(panel._debug_variables._tree)
+        panel.hide_debug_controls()
+
+
+class TestInlineLogAnnotations:
+    """Grouping console logs for editor inline decorations."""
+
+    def test_groups_by_source_line(self) -> None:
+        logs = [
+            {"level": "log", "message": "a", "timestamp": 0.0, "source_line": 1},
+            {"level": "log", "message": "b", "timestamp": 0.1, "source_line": 1},
+            {"level": "log", "message": "solo", "timestamp": 0.2, "source_line": 3},
+        ]
+        assert inline_log_annotations_from_console_logs(logs) == {
+            1: "a · b",
+            3: "solo",
+        }
+
+    def test_skips_missing_source_line(self) -> None:
+        logs = [
+            {"level": "log", "message": "x", "timestamp": 0.0},
+            {"level": "log", "message": "y", "timestamp": 0.1, "source_line": 0},
+        ]
+        assert inline_log_annotations_from_console_logs(logs) == {0: "y"}
+
+    def test_apply_after_show_results(self, qtbot) -> None:
+        """``show_results`` pushes annotations onto the bound editor."""
+        panel = ScriptOutputPanel(script_type="pre_request")
+        qtbot.addWidget(panel)
+        editor = CodeEditorWidget()
+        qtbot.addWidget(editor)
+        editor.setPlainText("line0\nline1\nline2")
+        panel.bind_script_editor(editor)
+        panel.show_results(
+            _make_output(
+                console_logs=[
+                    {"level": "log", "message": "hi", "timestamp": 0.0, "source_line": 1},
+                ]
+            ),
+            1.0,
+        )
+        assert editor._inline_log_annotations == {1: "hi"}
+
+    def test_clear_on_run_start(self, qtbot) -> None:
+        panel = ScriptOutputPanel(script_type="pre_request")
+        qtbot.addWidget(panel)
+        editor = CodeEditorWidget()
+        qtbot.addWidget(editor)
+        panel.bind_script_editor(editor)
+        editor.set_inline_log_annotations({0: "old"})
+        panel.clear_inline_log_annotations()
+        assert editor._inline_log_annotations == {}
 
 
 # ===================================================================
@@ -306,8 +370,8 @@ class TestScriptOutputPanelResults:
             ]
         )
         panel.show_results(output, 10.5)
-        # 1 fixed debug row + 3 log rows + stretch = 5 items.
-        assert panel._results_layout.count() == 5
+        # 3 debug rows + 3 log rows + stretch = 7 items.
+        assert panel._results_layout.count() == 7
 
     def test_show_test_results(self, qtbot) -> None:
         """Test results are rendered with pass/fail indication."""
@@ -321,8 +385,8 @@ class TestScriptOutputPanelResults:
             ]
         )
         panel.show_results(output, 5.0)
-        # 1 fixed + 2 test rows + 1 summary + stretch = 5 items.
-        assert panel._results_layout.count() == 5
+        # 3 debug + 2 test rows + 1 summary + stretch = 7 items.
+        assert panel._results_layout.count() == 7
 
     def test_elapsed_time_displayed(self, qtbot) -> None:
         """Elapsed time is shown next to the output tab content (right-aligned)."""
@@ -330,15 +394,15 @@ class TestScriptOutputPanelResults:
         qtbot.addWidget(panel)
         panel.show_results(_make_output(), 123.4)
         assert "123" in panel._elapsed_label.text()
-        # Empty output shows a "no output" note + stretch.
-        assert panel._results_layout.count() == 3
+        # 3 debug rows + "no output" note + stretch.
+        assert panel._results_layout.count() == 5
 
     def test_show_error_message(self, qtbot) -> None:
         """Error messages are displayed in red."""
         panel = ScriptOutputPanel(script_type="pre_request")
         qtbot.addWidget(panel)
         panel.show_error("SyntaxError: unexpected token")
-        assert panel._results_layout.count() == 3  # fixed 1 + error + stretch
+        assert panel._results_layout.count() == 5  # 3 debug + error + stretch
 
     def test_clear_removes_rows(self, qtbot) -> None:
         """Clearing the panel removes all result rows."""
@@ -355,7 +419,7 @@ class TestScriptOutputPanelResults:
         )
         assert panel._results_layout.count() > 1
         panel.clear_results()
-        assert panel._results_layout.count() == 3  # fixed 1 + hint + stretch
+        assert panel._results_layout.count() == 5  # 3 debug + hint + stretch
 
     def test_show_variable_changes(self, qtbot) -> None:
         """Variable changes are rendered as key=value rows."""
@@ -369,8 +433,8 @@ class TestScriptOutputPanelResults:
             "request_mutations": None,
         }
         panel.show_results(output, 5.0)
-        # 1 fixed + section header + 2 variable rows + stretch = 5 items.
-        assert panel._results_layout.count() == 5
+        # 3 debug + section header + 2 variable rows + stretch = 7 items.
+        assert panel._results_layout.count() == 7
 
 
 # ===================================================================

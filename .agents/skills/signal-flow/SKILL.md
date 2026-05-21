@@ -196,7 +196,10 @@ RequestTabBar.close_all_requested / force_close_all_requested
 ```
 BreadcrumbBar.item_clicked(type, id)
   → MainWindow._on_breadcrumb_clicked
-    → _open_request(id) or _open_folder(id)
+    → local_scripts_root → LeftSidebar.open_panel("local_scripts")
+    → folder (local_script tab) → open local_scripts flyout + local_scripts_widget.select_and_scroll_to
+    → folder (otherwise) → _open_folder(id) + collection_widget.select_and_scroll_to
+    → request → _open_request(id)
 
 BreadcrumbBar.last_segment_renamed(new_name)
   → MainWindow._on_breadcrumb_rename
@@ -279,7 +282,7 @@ MainWindow._toggle_response_action.triggered
   → _toggle_response_pane (show/hide response viewer)
 
 MainWindow._toggle_sidebar_action.triggered
-  → _toggle_sidebar (collapse/expand collections flyout; left rail stays visible)
+  → _toggle_sidebar (collapse/expand left flyout; rail stays visible; stacked page unchanged)
 
 MainWindow._toggle_bottom_action.triggered
   → _toggle_bottom_panel (show/hide console/history)

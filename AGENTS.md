@@ -113,9 +113,11 @@ Fastest paths to understand and navigate the codebase:
   `SnippetOptions`, `HttpResponseDict`, `parse_header_dict`.
   Auth header injection lives in `src/services/http/auth_handler.py`.
   OAuth 2.0 token exchange lives in `src/services/http/oauth2_service.py`.
-- **All DB models:** Read `src/database/database.py` — re-exports all six
-  ORM models (`CollectionModel`, `RequestModel`, `SavedResponseModel`,
-  `EnvironmentModel`, `RunHistoryModel`, `RunResultModel`).
+- **All DB models:** Read `src/database/database.py` — re-exports collection,
+  environment, run-history, and local-script ORM models (`CollectionModel`,
+  `RequestModel`, `SavedResponseModel`, `EnvironmentModel`, `RunHistoryModel`,
+  `RunResultModel`, `LocalScriptFolderModel`, `LocalScriptModel`,
+  `SnippetModel`).
 - **Collection CRUD vs queries:** Mutations live in
   `collection_repository.py`; read-only tree/breadcrumb/ancestor queries
   live in `collection_query_repository.py`.
@@ -162,21 +164,52 @@ src/
 │       │   └── model/
 │       │       ├── run_history_model.py   # RunHistoryModel (collection runs)
 │       │       └── run_result_model.py    # RunResultModel (per-request results)
-│       └── environments/
-│           ├── environment_repository.py  # CRUD for environments
+│       ├── environments/
+│       │   ├── environment_repository.py  # CRUD for environments
+│       │   └── model/
+│       │       └── environment_model.py   # EnvironmentModel (key-value sets)
+│       └── local_scripts/
+│           ├── local_script_repository.py       # CRUD + atomic rename/move + ref rewrite
+│           ├── local_script_query_repository.py   # Read-only script tree query
+│           ├── path_policy.py                   # Path-safe folder/script segment validation
+│           ├── virtual_paths.py                 # script_virtual_extension; .js vs .cjs paths
+│           ├── path_index.py                    # Virtual path list for pm.require local: autocomplete
+│           ├── require_refs_rewrite.py          # pm.require("local:…") reference rewriter
 │           └── model/
-│               └── environment_model.py   # EnvironmentModel (key-value sets)
+│               ├── local_script_folder_model.py
+│               └── local_script_model.py  # ``module_format`` (``esm`` | ``commonjs``)
+│       └── snippets/
+│           ├── snippet_repository.py      # CRUD for user-authored script snippets
+│           └── model/
+│               └── snippet_model.py       # SnippetModel (scope + context)
+│       └── request_assertions/
+│           ├── request_assertion_repository.py  # CRUD for declarative assertion rows
+│           └── model/
+│               └── request_assertion_model.py   # RequestAssertionModel (subject/operator/expected)
 ├── services/                      # Service layer (UI ↔ DB bridge)
 │   ├── collection_service.py      # CollectionService (static methods)
+│   ├── assertion_service.py       # AssertionService + AssertionDict — declarative tests CRUD + compile
+│   ├── local_script_service.py    # LocalScriptService + LocalScriptLoadDict
+│   ├── snippet_service.py         # SnippetService — user snippet CRUD + loader cache invalidation
 │   ├── environment_service.py     # EnvironmentService (variable substitution + TypedDicts)
 │   ├── import_service.py          # ImportService (parse + persist)
 │   ├── run_history_service.py     # RunHistoryService (run history CRUD bridge)
 │   ├── script_service.py          # ScriptService (script chain resolution)
 │   ├── scripting/                 # Script execution sub-package
+│   │   ├── local_path_policy.py   # Re-export path_policy (UI/service)
+│   │   ├── local_virtual_paths.py # Re-export virtual_paths
+│   │   ├── local_script_modules.py # pm.require("local:…") resolve + bundle
+│   │   ├── local_script_require_refs.py  # Re-export require_refs_rewrite
 │   │   ├── __init__.py            # TypedDicts (ScriptInput/Output, TestResult, etc.)
-│   │   ├── engine.py              # ScriptEngine + run_debug_chain + find_pm_tests + find_top_level_statement_lines (gutter)
+│   │   ├── engine.py              # ScriptEngine + run_debug_chain (re-exports find_pm_tests, find_top_level_statement_lines)
+│   │   ├── pm_test_finder.py      # find_pm_tests — pm.test discovery for gutter
+│   │   ├── pm_api_linter.py       # Diagnostic + pm/postman static walk helpers
+│   │   ├── script_breakpoint_analyzer.py  # find_top_level_statement_lines — debugger gutter
+│   │   ├── assertions_compiler.py # compile_to_js/py — declarative rows → pm.test blocks (source_name declarative)
+│   │   ├── data_loader.py         # parse_data_file — CSV/JSON rows for data-driven runs
 │   │   ├── context.py             # Context builders + normalize_events() + execute_sub_request() + globals persistence
 │   │   ├── deno_manager.py        # DenoManager — managed Deno download/cache; managed_deno_path() = cache only
+│   │   ├── python_format.py       # format_python_source() — Ruff format for script editors (jedi has no formatter)
 │   │   ├── runtime_settings.py   # RuntimeSettings + RuntimePathStatus + RegistryEntry + PyPIConfig — QSettings Deno/Python paths, LSP toggle, validation, private package registries (npm/JSR scope-mapped, default-npm with auth_kind, PyPI index URLs)
 │   │   ├── secret_store.py        # SecretStore (Protocol) + KeyringSecretStore / EncryptedFileSecretStore / NoopSecretStore + get_default_store() (keyring self-test fallback) + backend_status() — token storage for private package registries
 │   │   ├── deno_runtime.py        # DenoRuntime — default JS run via deno run + data/scripts/deno_drain.mjs (sendRequest IPC); _build_npmrc_text() resolves private-registry tokens into a chmod-0600 .npmrc when ``pm.require("npm:…")``/``("jsr:…")`` literals trigger network mode
@@ -184,6 +217,14 @@ src/
 │   │   ├── js_runtime.py          # JSRuntime (DenoRuntime) + bootstrap/vendor + pm.require literal detection / ESM import block for npm:/jsr:
 │   │   ├── py_runtime.py          # PyRuntime — Pyodide (Deno) when vendor present, else RestrictedPython subprocess
 │   │   ├── pyodide_runtime.py     # PyodideRuntime — data/scripts/pyodide_run.mjs + vendor_pyodide + micropip / pm.require; _resolve_pypi_index_urls() embeds auth into private PyPI index URLs (micropip.set_index_urls)
+│   │   ├── _py_sandbox.py         # RestrictedPython subprocess entry (main + _execute_restricted; re-exports for tests)
+│   │   ├── _sandbox_safe_globals.py # _SAFE_BUILTINS / _SAFE_STDLIB for RestrictedPython
+│   │   ├── _sandbox_runtime.py    # Resource limits, console capture, _write_done
+│   │   ├── _sandbox_pm_assertions.py # _Expectation chains
+│   │   ├── _sandbox_pm_models.py  # _PmRequest/_PmResponse/_HeaderList, …
+│   │   ├── _sandbox_pm_tests.py   # pm.test / pm.test.skip
+│   │   ├── _sandbox_pm.py         # _Pm root object + variable scopes
+│   │   ├── _sandbox_debug.py      # settrace debug execution (_execute_debug)
 │   │   └── debug/                 # Debug sub-package (step-through debugging)
 │   │       ├── protocol.py        # DebugProtocol state machine + DebugPauseInfo
 │   │       ├── js_debug.py        # JS: inject_checkpoints, locals readers; debug_execute → deno_debug
@@ -194,6 +235,7 @@ src/
 │   │   ├── transport.py           # LspTransport — JSON-RPC Content-Length + QThread reader
 │   │   ├── client.py              # LspClient — initialize, didOpen/Change/Close, requests
 │   │   ├── qt_lsp_offsets.py      # QTextDocument position ↔ LSP line/UTF-16 column
+│   │   ├── pm_require_types.py      # pm_require_index.ts generation + deno cache for npm/jsr specs
 │   │   ├── stubs_generator.py     # pm.d.ts / pm.pyi from pm_api_schema
 │   │   ├── server_registry.py     # LspRegistry — shared clients; shutdown on app quit
 │   │   └── servers/               # make_deno_client, make_jedi_client, workspace seed
@@ -219,17 +261,26 @@ src/
 └── ui/                            # PySide6 widgets
     ├── main_window/               # Top-level MainWindow sub-package
     │   ├── window.py              # MainWindow widget + signal wiring
-    │   ├── send_pipeline.py       # _SendPipelineMixin — HTTP send/response flow + debug pipeline
+    │   ├── send_pipeline.py       # _SendPipelineMixin — HTTP send (re-exports debug-hover helpers)
+    │   ├── send_pipeline_debug.py # _merge_debug_hover_values, _debug_hover_root_objects, …
+    │   ├── send_pipeline_postresponse.py  # on_send_finished, run_post_response_script_with_live_response
+    │   ├── send_pipeline_debug_session.py # on_debug_paused/step/finished, end_debug_ui
     │   ├── draft_controller.py    # _DraftControllerMixin — draft tab open/save
     │   ├── tab_controller.py      # _TabControllerMixin — tab open/close/switch
     │   └── variable_controller.py # _VariableControllerMixin — env variable + sidebar management
+    ├── local_scripts/             # Centre-pane local script editor
+    │   ├── local_script_editor_widget.py  # LocalScriptEditorWidget — CodeEditorWidget + DB save
+    │   └── script_filename.py     # Basename/extension display helpers for script tree + tabs
     ├── loading_screen.py          # Loading screen overlay widget
     ├── sidebar/                   # Sidebar rails + flyout panels
     │   ├── sidebar_widget.py      # RightSidebar (icon rail) + _FlyoutPanel
-    │   ├── left_sidebar.py        # LeftSidebar — VSCode-style activity rail + nav flyout
+    │   ├── left_sidebar.py        # LeftSidebar — activity rail + stacked nav flyout pages
+    │   ├── local_scripts_sidebar_panel.py  # Legacy empty shell (unused; MainWindow uses CollectionWidget)
     │   ├── variables_panel.py     # VariablesPanel — read-only variable display
     │   ├── snippet_panel.py       # SnippetPanel — inline code snippet generator
-    │   ├── debug_panel.py         # DebugPanel — step controls; DebugVariablesPanel — single QTreeWidget sections + stacked placeholder
+    │   ├── debug_panel.py         # DebugPanel facade — DebugControls + CallStackPanel + DebugVariablesPanel + WatchPanel
+    │   ├── debug_call_stack_panel.py  # CallStackPanel — frame list + frame_selected
+    │   ├── debug_watch_panel.py   # WatchPanel — watch expressions via DebugProtocol.evaluate
     │   └── saved_responses/           # Saved responses sub-package
     │       ├── panel.py               # SavedResponsesPanel — saved example list/detail flyout
     │       ├── search_filter.py       # _PanelSearchFilterMixin — body search/filter
@@ -237,20 +288,34 @@ src/
     │       └── delegate.py            # Custom delegate for saved response list items
     ├── styling/                   # Visual theming and icons
     │   ├── theme.py               # Palettes, colours, status bar / left-rail chrome, badge/tree geometry, left-nav panel margins, method_color(), status_color()
+    │   ├── language_icons.py      # Brand SVG pixmaps for JS / TS / Python tiles
     │   ├── theme_manager.py       # ThemeManager — QPalette + QSettings
     │   ├── tab_settings_manager.py # TabSettingsManager — request-tab QSettings bridge (preview, limits, activate-on-close, wrap mode)
     │   ├── global_qss.py          # build_global_qss() — global stylesheet builder
     │   └── icons.py               # Phosphor font-glyph icon provider (phi())
     ├── widgets/                   # Reusable shared components
     │   ├── code_editor/           # CodeEditorWidget sub-package
-    │   │   ├── editor_widget.py   # CodeEditorWidget (per-pm.test gutter, Shift+Enter)
+    │   │   ├── editor_widget.py   # CodeEditorWidget — core + __init__ (mixins below)
+    │   │   ├── editor_formatting.py  # _FormattingMixin — prettify, format-on-idle
+    │   │   ├── editor_snippets.py    # _SnippetMixin — save-as-snippet context menu
+    │   │   ├── editor_test_gutter.py # _TestGutterMixin — pm.test gutter
+    │   │   ├── editor_variables.py   # _VariableMixin — {{var}} + debug hover
+    │   │   ├── editor_language.py    # _LanguageMixin — set_language
+    │   │   ├── editor_keyboard.py    # _KeyboardMixin — keyPressEvent, line comment
+    │   │   ├── editor_ident.py       # _IdentMixin — identifier at position
+    │   │   ├── editor_breakpoints.py # _BreakpointMixin — breakpoint gutter
+    │   │   ├── editor_lsp_glue.py    # attach_lsp, detach_lsp, signature/hover glue
     │   │   ├── lsp_integration.py # EditorLspAdapter — LSP sync + diagnostics; optional LSP for script modes
     │   │   ├── popup_registry.py  # Shared singleton Completion/ParameterHint/SymbolDoc/DebugValue popups
     │   │   ├── debug_hover_popup.py # DebugValuePopup — expandable hover for paused script locals
     │   │   ├── highlighter.py     # Syntax highlighting engine
     │   │   ├── folding.py         # Code folding logic
     │   │   ├── gutter.py          # Gutter QWidget delegates + minimap (_MinimapArea); column order in painting.resizeEvent
-    │   │   ├── painting.py        # Custom painting helpers
+    │   │   ├── painting.py        # _PaintingMixin shims → paint_* modules
+    │   │   ├── paint_breakpoints.py
+    │   │   ├── paint_diagnostics.py
+    │   │   ├── paint_inline_logs.py
+    │   │   ├── paint_test_gutter.py
     │   │   └── completion/        # Autocomplete sub-package
     │   │       ├── schema/        # Schema sub-package
     │   │       │   ├── core.py    # SchemaNode TypedDict, expectation chain, shared helpers
@@ -262,6 +327,7 @@ src/
     │   │       ├── popup.py       # CompletionPopup — floating autocomplete widget
     │   │       └── symbol_doc_popup.py # SymbolDocPopup — Ctrl+hover / Ctrl+Q quick-doc tooltip
     │   ├── info_popup.py          # InfoPopup (QFrame) base + ClickableLabel
+    │   ├── sidebar_section_info.py # SidebarSectionInfoPopup — (i) help for sidebar sections
     │   ├── lazy_editor_placeholder.py # LazyEditorPlaceholder — progress + caption until Body/Scripts editors mount
     │   ├── key_value_column_widths.py # QSettings JSON persistence for Key/Value widths
     │   ├── key_value_table.py     # Reusable key-value editor widget
@@ -272,14 +338,16 @@ src/
     │   ├── debug_value_tree.py    # Debug tree helpers (CLASSNAME_KEY, attach_selectable_cell_widgets, debug_tree_cell_text, fill_tree_item, populate_debug_tree, source_dot_icon, make_debug_value_tree)
     │   ├── runtime_banner.py      # RuntimeBanner — Deno install/configure prompt for JS editors
     │   ├── snippets/              # Script snippet palette (loader + SnippetsPopup)
-    │   │   ├── loader.py          # load_snippets / has_snippets — data/snippets/*.json
-    │   │   └── popup.py           # SnippetsPopup — search + grouped list; singleton
+    │   │   ├── loader.py          # load_snippets — merges data/snippets/*.json + DB user snippets
+    │   │   ├── popup.py           # SnippetsPopup — search + grouped list; delete user rows
+    │   │   └── snippet_capture_dialog.py  # Save as snippet… dialog
     │   ├── variable_line_edit.py  # VariableLineEdit — QLineEdit with {{var}} highlighting + hover popup
     │   └── variable_popup.py      # VariablePopup — singleton hover popup for variable details
     ├── collections/               # Collection sidebar
     │   ├── collection_header.py
     │   ├── collection_widget.py
     │   ├── new_item_popup.py      # NewItemPopup — Postman-style icon grid popup
+    │   ├── new_local_script_popup.py  # NewLocalScriptItemPopup — Script / Folder tiles
     │   └── tree/                  # Tree widget sub-package
     │       ├── constants.py
     │       ├── draggable_tree_widget.py
@@ -291,7 +359,7 @@ src/
     │   │   ├── __init__.py        # Re-exports RunnerConfigView, RunnerResultsView, RunnerWorker
     │   │   ├── config.py          # RunnerConfigView (env selector, request checklist, data file, iterations, delay)
     │   │   ├── results.py         # RunnerResultsView (summary + results table + detail panel + export)
-    │   │   └── worker.py          # RunnerWorker (QThread), parse_data_file, env var substitution, scripts_enabled
+    │   │   └── worker.py          # RunnerWorker (QThread), env var substitution, scripts_enabled (imports parse_data_file from services)
     │   ├── import_dialog.py
     │   ├── save_request_dialog.py  # Save draft request to collection
     │   └── settings_dialog.py     # Settings (theme + request-tab + Scripting: LSP toggle, Deno/Python paths)
@@ -319,13 +387,26 @@ src/
         │   ├── auth.py              # Re-export of _AuthMixin from auth sub-package
         │   ├── body_search.py       # _BodySearchMixin — search/replace in body
         │   ├── graphql.py           # _GraphQLMixin — GraphQL mode + schema
+        │   ├── assertions/          # Declarative assertions sub-package
+        │   │   ├── assertions_tab.py    # AssertionsTab — subject/operator/expected rows
+        │   │   └── assertions_mixin.py  # _AssertionsMixin — lazy tab + AssertionService persistence
+        │   ├── data_runner/         # Inline data-driven script runner (D3)
+        │   │   └── panel.py         # DataRunnerPanel — CSV/JSON picker + Run iterations
         │   └── scripts/             # Scripts sub-package
         │       ├── script_language.py # codes: javascript | typescript | python; detect/heuristics, display, normalise
-        │       ├── scripts_mixin.py # _ScriptsMixin — dual pre-request/test script editors
+        │       ├── script_editor_pane/ # ScriptEditorPane — reusable toolbar + editor + output stack
+        │       ├── scripts_mixin.py # _ScriptsMixin — dual pre-request/test script editors (delegates to panes)
         │       ├── mock_response_tab.py # ScriptMockResponseTab — mock status + headers table + JSON CodeEditorWidget body (post-response)
-        │       ├── output_panel.py  # ScriptOutputPanel — Output | Problems [| Mock response] tabs + inline run results
+        │       ├── output_panel.py  # ScriptOutputPanel — orchestration + worker slot shims
+        │       ├── output_panel_build.py  # Tab/layout construction
+        │       ├── output_console_tab.py  # Console rows + inline_log_annotations_from_console_logs
+        │       ├── output_variable_section.py
+        │       ├── output_test_results_tab.py
+        │       ├── output_debug_bar.py
+        │       ├── output_script_runner.py  # run_script / debug worker wiring
+        │       ├── output_iterations_tab.py # ScriptOutputIterationsTab — iteration×test matrix + re-run failed
         │       ├── lsp_problems_tab.py # ScriptLspProblemsTab — LSP diagnostics list; ``problem_count_changed`` → tab title ``Problems (n)``
-        │       ├── script_run_worker.py # ScriptRunWorker — background thread for inline runs
+        │       ├── script_run_worker.py # ScriptRunWorker — inline runs; ``iteration_finished`` for data-driven matrix
         │       ├── version_history.py # _show_version_history entry point
         │       └── version_history/ # Version history dialog sub-package
         │           ├── delegate.py  # _VersionItemDelegate — two-line list item rendering
@@ -357,6 +438,11 @@ tests/
 ├── unit/                          # Repository & service layer tests
 │   ├── database/                  # Repository tests
 │   │   ├── test_repository.py
+│   │   ├── test_local_script_repository.py
+│   │   ├── test_local_script_path_policy.py
+│   │   ├── test_local_script_require_refs.py
+│   │   ├── test_request_assertion_repository.py
+│   │   ├── test_script_version_local_script.py
 │   │   ├── test_environment_repository.py
 │   │   └── test_run_history_repository.py
 │   └── services/                  # Service layer tests
@@ -374,7 +460,10 @@ tests/
 │       ├── test_script_service.py
 │       ├── test_script_vendor.py
 │       ├── test_script_vendor_libs.py
+│       ├── test_data_loader.py
+│       ├── test_script_run_worker_iterations.py
 │       ├── test_script_version_service.py
+│       ├── test_assertions_compiler.py
 │       ├── test_deno_manager.py
 │       ├── test_runtime_settings.py
 │       └── http/                  # HTTP service tests
@@ -425,7 +514,8 @@ tests/
     │   ├── test_collection_tree_actions.py
     │   ├── test_collection_tree_delegate.py
     │   ├── test_collection_widget.py
-    │   └── test_new_item_popup.py
+    │   ├── test_new_item_popup.py
+    │   └── test_new_local_script_popup.py
     ├── dialogs/                   # Dialog tests
     │   ├── test_collection_runner.py
     │   ├── test_import_dialog.py

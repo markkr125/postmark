@@ -34,6 +34,7 @@ from services.scripting.runtime_settings import RuntimeSettings
 
 from . import js_debug
 from .deno_scope import _CdpClient, _collect_call_frame_scopes
+from .protocol import CallFrame
 
 if TYPE_CHECKING:
     from services.scripting import ScriptInput, ScriptOutput
@@ -52,14 +53,15 @@ _IPC_THREAD_JOIN_S = 25.0
 
 def _cdp_break_editor_lines(
     g0s: set[int],
-    breakpoints: set[int],
+    breakpoints: dict[int, str | None],
     n_user_lines: int,
-) -> list[int]:
-    """Editor 0-based lines to bind with ``Debugger.setBreakpointByUrl`` (deduped, sorted)."""
+) -> list[tuple[int, str | None]]:
+    """Editor lines + optional conditions for ``Debugger.setBreakpointByUrl``."""
     if n_user_lines <= 0:
-        return sorted(g0s)
-    editor_bps = {b for b in breakpoints if 0 <= b < n_user_lines}
-    return sorted(g0s | editor_bps)
+        return sorted((ln, None) for ln in g0s)
+    editor_bps = {b: breakpoints[b] for b in breakpoints if 0 <= b < n_user_lines}
+    lines = sorted(g0s | set(editor_bps.keys()))
+    return [(ln, editor_bps.get(ln)) for ln in lines]
 
 
 # ---------------------------------------------------------------------------
@@ -222,15 +224,147 @@ def _line_paused(m: dict[str, Any]) -> int:
     return int(ln) if isinstance(ln, int) else -1
 
 
-def _cfid_paused(m: dict[str, Any]) -> str:
+def _cfid_paused(m: dict[str, Any], frame_index: int = 0) -> str:
     cfs = m.get("params", {}).get("callFrames")
-    if not cfs or not isinstance(cfs, list) or not cfs[0]:
+    if not cfs or not isinstance(cfs, list) or frame_index >= len(cfs):
         return ""
-    c = cfs[0]
+    c = cfs[frame_index]
     if not isinstance(c, dict):
         return ""
     cfi = c.get("callFrameId")
     return str(cfi) if cfi is not None else ""
+
+
+def _call_stack_from_paused(
+    m: dict[str, Any],
+    *,
+    u0: int,
+    gen_to_src: dict[int, int] | None,
+) -> list[CallFrame]:
+    """Build :class:`CallFrame` rows from a ``Debugger.paused`` event."""
+    cfs = m.get("params", {}).get("callFrames")
+    if not cfs or not isinstance(cfs, list):
+        return []
+    out: list[CallFrame] = []
+    for cf in cfs:
+        if not isinstance(cf, dict):
+            continue
+        loc = cf.get("location") or {}
+        fl_raw = loc.get("lineNumber", 0)
+        fl = int(fl_raw) if isinstance(fl_raw, int) else 0
+        fl = _gen_to_src_line(gen_to_src, fl) if fl >= 0 else fl
+        editor_line = max(0, fl - u0) if fl >= u0 else fl
+        col_raw = loc.get("columnNumber", 0)
+        col = int(col_raw) if isinstance(col_raw, int) else 0
+        name = cf.get("functionName")
+        fn = str(name) if isinstance(name, str) and name else "(anonymous)"
+        cfi = cf.get("callFrameId")
+        out.append(
+            CallFrame(
+                id=str(cfi) if cfi is not None else "",
+                name=fn,
+                line=editor_line,
+                column=col,
+            )
+        )
+    return out
+
+
+def _paused_with_frame(m: dict[str, Any], frame_index: int) -> dict[str, Any]:
+    """Return a copy of *m* whose ``callFrames[0]`` is ``callFrames[frame_index]``."""
+    cfs = m.get("params", {}).get("callFrames")
+    if not cfs or not isinstance(cfs, list) or not cfs:
+        return m
+    if frame_index < 0 or frame_index >= len(cfs):
+        return m
+    sel = cfs[frame_index]
+    rest = [f for i, f in enumerate(cfs) if i != frame_index]
+    params = dict(m.get("params") or {})
+    params["callFrames"] = [sel, *rest]
+    return {**m, "params": params}
+
+
+def _locals_for_paused_frame(
+    m: dict[str, Any],
+    c: _CdpClient,
+    *,
+    frame_index: int,
+    io_lock: threading.Lock,
+) -> dict[str, Any]:
+    """Read ``pm`` / scope locals for one call frame while paused."""
+    pm: dict[str, Any] = {}
+    gl: dict[str, Any] = {}
+    evc: dict[str, Any] = {}
+    gch: dict[str, Any] = {}
+    cf = _cfid_paused(m, frame_index)
+    if cf:
+        with io_lock, contextlib.suppress(OSError, TypeError, json.JSONDecodeError, KeyError):
+            rve = c.req(
+                "Debugger.evaluateOnCallFrame",
+                {
+                    "callFrameId": cf,
+                    "expression": js_debug._READ_JS_DEBUG_VARS,
+                    "returnByValue": True,
+                },
+            )
+            if isinstance(rve, dict):
+                raw = js_debug.cdp_evaluation_result_string(rve)
+                rv = js_debug.read_locals_from_iife_json_string(raw)
+                pm_val: Any = rv.get("pm", {})
+                gl_val: Any = rv.get("globals", {})
+                if isinstance(pm_val, dict):
+                    pm = pm_val
+                if isinstance(gl_val, dict):
+                    gl = gl_val
+                ev_raw: Any = rv.get("env_changes", {})
+                gc_raw: Any = rv.get("global_changes", {})
+                if isinstance(ev_raw, dict):
+                    evc = ev_raw
+                if isinstance(gc_raw, dict):
+                    gch = gc_raw
+    framed = _paused_with_frame(m, frame_index)
+    with io_lock:
+        flat_locals, scopes_list = _collect_call_frame_scopes(framed, c)
+    return {
+        "pm": pm,
+        "globals": gl,
+        "locals": flat_locals,
+        "scopes": scopes_list,
+        "env_changes": evc,
+        "global_changes": gch,
+    }
+
+
+def _register_pause_adapters(
+    m: dict[str, Any],
+    c: _CdpClient,
+    protocol: DebugProtocol,
+    io_lock: threading.Lock,
+) -> None:
+    """Wire evaluate / frame-local callbacks for the current CDP pause."""
+
+    def evaluate(expr: str, frame_index: int) -> str:
+        cf = _cfid_paused(m, frame_index)
+        if not cf:
+            return "<invalid frame>"
+        with io_lock, contextlib.suppress(OSError, TypeError, json.JSONDecodeError, KeyError):
+            rve = c.req(
+                "Debugger.evaluateOnCallFrame",
+                {
+                    "callFrameId": cf,
+                    "expression": expr,
+                    "returnByValue": True,
+                },
+            )
+            if isinstance(rve, dict):
+                return js_debug.cdp_evaluation_result_string(rve)
+        return "<error>"
+
+    def frame_locals(frame_index: int) -> dict[str, Any]:
+        return _locals_for_paused_frame(m, c, frame_index=frame_index, io_lock=io_lock)
+
+    protocol.set_evaluate_callback(evaluate)
+    protocol.set_frame_locals_callback(frame_locals)
 
 
 def _stdout_ipc(
@@ -348,7 +482,7 @@ def debug_execute(
     if not groups:
         return _e()
     try:
-        u0 = user_script_first_line_0_in_debug_bundle(ex, context)
+        u0 = user_script_first_line_0_in_debug_bundle(ex, context, language=language)
     except RuntimeError as exc:
         return _err(str(exc), (time.monotonic() - t0) * 1000)
     g0s = {a for a, _ in groups}
@@ -363,9 +497,16 @@ def debug_execute(
     with contextlib.suppress(OSError):
         (wdir / ".deno_dir").mkdir(exist_ok=True)
     furl = bundle.resolve().as_uri()
+    needs_net = False
     with contextlib.suppress(OSError):
         try:
-            bundle.write_text(build_debug_bundle_text(ex, context), encoding="utf-8", newline="\n")
+            from services.scripting.js_runtime import write_local_modules_to_workdir
+
+            dbg_text, needs_net, local_mods = build_debug_bundle_text(
+                ex, context, language=language
+            )
+            write_local_modules_to_workdir(wdir, local_mods)
+            bundle.write_text(dbg_text, encoding="utf-8", newline="\n")
         except RuntimeError as exc:
             return _err(str(exc), (time.monotonic() - t0) * 1000)
     out = _e()
@@ -375,7 +516,7 @@ def debug_execute(
         argv, env = deno_ipc_argv_and_env(
             deno,
             bundle,
-            script_for_network_scan=ex,
+            needs_net=needs_net,
             inspect_brk=f"--inspect-brk=127.0.0.1:{pport}",
         )
         proc = subprocess.Popen(
@@ -411,6 +552,7 @@ def debug_execute(
     stopped = False
     src_to_gen: dict[int, list[int]] | None = None
     gen_to_src: dict[int, int] | None = None
+    cdp_io_lock = threading.Lock()
     try:
         with connect(ws_s) as wsc:  # type: ignore[union-attr, arg-type, abstract-overlap]
             c = _Cdp(wsc, q)
@@ -454,20 +596,28 @@ def debug_execute(
                 if sm_data and isinstance(sm_data.get("mappings"), str):
                     src_to_gen, gen_to_src = _build_source_map(sm_data["mappings"])
                 break
-            for gln in cdp_break_lines:
-                c.req(
-                    "Debugger.setBreakpointByUrl",
-                    {
-                        "lineNumber": _src_to_gen_line(src_to_gen, u0 + gln),
-                        "url": furl,
-                        "columnNumber": 0,
-                    },
-                )
+            for gln, cond in cdp_break_lines:
+                params: dict[str, Any] = {
+                    "lineNumber": _src_to_gen_line(src_to_gen, u0 + gln),
+                    "url": furl,
+                    "columnNumber": 0,
+                }
+                if cond:
+                    params["condition"] = cond
+                c.req("Debugger.setBreakpointByUrl", params)
             c.req("Runtime.runIfWaitingForDebugger", {})
             while q and not stopped:
                 m0 = q.pop(0)
                 r = _process_one_paused(
-                    m0, c, protocol, u0, n_user_lines, source_name, script_type, gen_to_src
+                    m0,
+                    c,
+                    protocol,
+                    u0,
+                    n_user_lines,
+                    source_name,
+                    script_type,
+                    gen_to_src,
+                    cdp_io_lock,
                 )
                 if r is False:
                     stopped = True
@@ -492,7 +642,15 @@ def debug_execute(
                     if not isinstance(jm, dict) or jm.get("method") != "Debugger.paused":
                         continue
                     r2 = _process_one_paused(
-                        jm, c, protocol, u0, n_user_lines, source_name, script_type, gen_to_src
+                        jm,
+                        c,
+                        protocol,
+                        u0,
+                        n_user_lines,
+                        source_name,
+                        script_type,
+                        gen_to_src,
+                        cdp_io_lock,
                     )
                     if r2 is False:
                         stopped = True
@@ -541,77 +699,65 @@ def _process_one_paused(
     source_name: str,
     script_type: str,
     gen_to_src: dict[int, int] | None = None,
+    io_lock: threading.Lock | None = None,
 ) -> bool:
     """Run checkpoint for one ``Debugger.paused``; return ``False`` to stop, ``True`` to continue."""
     if protocol.is_stopped:
         return False
+    lock = io_lock or threading.Lock()
     fl_raw = _line_paused(m)
     # When the bundle is transpiled (``.ts``), V8 reports ``lineNumber`` in
     # the *generated* (transpiled) line space. Translate back to bundle source
     # space via the source map before computing the editor-relative line.
     fl = _gen_to_src_line(gen_to_src, fl_raw) if fl_raw >= 0 else fl_raw
     if fl < 0 or fl < u0:
-        with contextlib.suppress(OSError, TypeError, json.JSONDecodeError, KeyError):
+        with contextlib.suppress(OSError, TypeError, json.JSONDecodeError, KeyError), lock:
             c.req("Debugger.resume", {})
         return True
     el = fl - u0
     if n_user_lines <= 0 or el < 0 or el >= n_user_lines:
-        with contextlib.suppress(OSError, TypeError, json.JSONDecodeError, KeyError):
+        with contextlib.suppress(OSError, TypeError, json.JSONDecodeError, KeyError), lock:
             c.req("Debugger.resume", {})
         return True
-    cf = _cfid_paused(m)
-    raw = "{}"
-    if cf:
-        with contextlib.suppress(OSError, TypeError, json.JSONDecodeError, KeyError):
-            rve = c.req(
-                "Debugger.evaluateOnCallFrame",
-                {
-                    "callFrameId": cf,
-                    "expression": js_debug._READ_JS_DEBUG_VARS,
-                    "returnByValue": True,
-                },
-            )
-            if isinstance(rve, dict):
-                raw = js_debug.cdp_evaluation_result_string(rve)
-    rv = js_debug.read_locals_from_iife_json_string(raw)
-    pm: Any = rv.get("pm", {})
-    gl: Any = rv.get("globals", {})
-    if not isinstance(pm, dict):
-        pm = {}
-    if not isinstance(gl, dict):
-        gl = {}
-    flat_locals, scopes_list = _collect_call_frame_scopes(m, c)
-    loc = {
-        "pm": pm,
-        "globals": gl,
-        "locals": flat_locals,
-        "scopes": scopes_list,
-    }
-    evc: Any = rv.get("env_changes", {})
-    gch: Any = rv.get("global_changes", {})
+    stack = _call_stack_from_paused(m, u0=u0, gen_to_src=gen_to_src)
+    _register_pause_adapters(m, c, protocol, lock)
+    loc = _locals_for_paused_frame(m, c, frame_index=0, io_lock=lock)
+    evc: Any = loc.pop("env_changes", {})
+    gch: Any = loc.pop("global_changes", {})
     if not isinstance(evc, dict):
         evc = {}
     if not isinstance(gch, dict):
         gch = {}
-    if not evc:
-        fe = js_debug.cdp_runtime_evaluate_json_object(
-            c, js_debug.CDP_RUNTIME_VARIABLE_CHANGES_JSON
-        )
-        if fe:
-            evc = fe
-    if not gch:
-        fg = js_debug.cdp_runtime_evaluate_json_object(c, js_debug.CDP_RUNTIME_GLOBAL_CHANGES_JSON)
-        if fg:
-            gch = fg
-    if not protocol.checkpoint(
-        el,
-        source_name=source_name,
-        local_vars=loc,
-        script_type=script_type,
-        env_changes=evc,
-        global_changes=gch,
-    ):
-        return False
-    with contextlib.suppress(OSError, TypeError, json.JSONDecodeError, KeyError):
+    with lock:
+        if not evc:
+            fe = js_debug.cdp_runtime_evaluate_json_object(
+                c, js_debug.CDP_RUNTIME_VARIABLE_CHANGES_JSON
+            )
+            if fe:
+                evc = fe
+        if not gch:
+            fg = js_debug.cdp_runtime_evaluate_json_object(
+                c, js_debug.CDP_RUNTIME_GLOBAL_CHANGES_JSON
+            )
+            if fg:
+                gch = fg
+    try:
+        if not protocol.checkpoint(
+            el,
+            source_name=source_name,
+            local_vars=loc,
+            script_type=script_type,
+            env_changes=evc,
+            global_changes=gch,
+            call_stack=stack,
+            selected_frame_index=0,
+        ):
+            protocol.set_evaluate_callback(None)
+            protocol.set_frame_locals_callback(None)
+            return False
+    finally:
+        protocol.set_evaluate_callback(None)
+        protocol.set_frame_locals_callback(None)
+    with contextlib.suppress(OSError, TypeError, json.JSONDecodeError, KeyError), lock:
         c.req("Debugger.resume", {})
     return True

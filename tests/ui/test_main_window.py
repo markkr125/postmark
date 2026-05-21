@@ -969,6 +969,59 @@ class TestMainWindowFolderTabs:
         window._on_tab_close(0)
         assert window._tab_bar.count() == 0
 
+    def test_close_local_script_tab(self, qapp: QApplication, qtbot) -> None:
+        """Closing a local-script tab cleans up without requiring a request editor."""
+        from database.models.local_scripts.local_script_repository import (
+            create_folder,
+            create_script,
+        )
+
+        folder = create_folder("Scripts")
+        script = create_script(folder.id, "Helper", language="javascript", content="// hi")
+
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._open_local_script(script.id)
+        assert window._tab_bar.count() == 1
+        assert window._tabs[0].tab_type == "local_script"
+
+        window._on_tab_close(0)
+        assert window._tab_bar.count() == 0
+        assert not window._tabs
+
+    def test_local_script_breadcrumb_opens_rail_and_selects_folder(
+        self, qapp: QApplication, qtbot
+    ) -> None:
+        """Breadcrumb clicks open the local-scripts flyout and scroll the scripts tree."""
+        from unittest.mock import patch
+
+        from database.models.local_scripts.local_script_repository import (
+            create_folder,
+            create_script,
+        )
+
+        outer = create_folder("Outer")
+        script = create_script(outer.id, "Leaf", language="javascript")
+
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._left_sidebar.close_panel()
+        window._open_local_script(script.id)
+        window._flush_tab_change()
+
+        window._on_breadcrumb_clicked("local_scripts_root", 0)
+        assert window._left_sidebar.active_panel == "local_scripts"
+        assert window._left_sidebar._buttons["local_scripts"].isChecked()
+
+        with patch.object(
+            window.local_scripts_widget,
+            "select_and_scroll_to",
+        ) as scroll_mock:
+            window._on_breadcrumb_clicked("folder", outer.id)
+        scroll_mock.assert_called_once_with(outer.id, "folder")
+
     def test_folder_and_request_tabs_coexist(self, qapp: QApplication, qtbot) -> None:
         """Folder and request tabs can coexist in the tab bar."""
         svc = CollectionService()

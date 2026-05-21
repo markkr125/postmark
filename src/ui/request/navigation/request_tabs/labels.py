@@ -9,6 +9,8 @@ from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QSizePolicy, QWidget
 
 from ui.styling.icons import phi
+from ui.local_scripts.script_filename import script_basename_from_stored, script_display_name
+from ui.styling.language_icons import language_icon_pixmap, resolve_script_language
 from ui.styling.theme import (
     BADGE_BORDER_RADIUS,
     BADGE_FONT_SIZE,
@@ -199,6 +201,114 @@ class TabLabel(QWidget):
         font = self._name_label.font()
         font.setItalic(self._is_preview)
         self._name_label.setFont(font)
+
+
+class ScriptTabLabel(QWidget):
+    """Local-script tab label with a brand language icon and script name."""
+
+    def __init__(
+        self,
+        language: str = "javascript",
+        name: str = "",
+        *,
+        is_dirty: bool = False,
+        compact: bool = False,
+        mark_modified: bool = True,
+        parent: QWidget | None = None,
+    ) -> None:
+        """Initialise the script tab label."""
+        super().__init__(parent)
+
+        self._layout = QHBoxLayout(self)
+        self._config = layout_config(compact)
+        self._layout.setContentsMargins(*self._config.margins)
+        self._layout.setSpacing(self._config.spacing)
+
+        self._icon_label = QLabel()
+        self._language = resolve_script_language(language)
+        self._apply_language_icon()
+        self._icon_label.setFixedSize(self._config.badge_height, self._config.badge_height)
+        self._icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._layout.addWidget(self._icon_label)
+
+        self._name_label = QLabel(name)
+        self._name_label.setMaximumWidth(self._config.label_width)
+        self._name_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        _font_with_delta(self._name_label, self._config.font_delta)
+        self._layout.addWidget(self._name_label)
+
+        self._basename = script_basename_from_stored(name)
+        self._name = self._basename
+        self._module_format = "esm"
+        self._display_name = script_display_name(
+            self._basename, self._language, self._module_format
+        )
+        self._is_dirty = is_dirty
+        self._mark_modified = mark_modified
+
+        self._apply_style()
+
+    def _apply_language_icon(self) -> None:
+        """Refresh the brand icon pixmap for the current language."""
+        size = self._config.badge_height
+        self._icon_label.setPixmap(language_icon_pixmap(self._language, size=size))
+
+    def _refresh_display_name(self) -> None:
+        """Recompute the tab label from basename, language, and module format."""
+        self._display_name = script_display_name(
+            self._basename, self._language, self._module_format
+        )
+
+    def set_language(self, language: str) -> None:
+        """Update the language brand icon and tab title extension."""
+        self._language = resolve_script_language(language)
+        self._apply_language_icon()
+        self._refresh_display_name()
+        self._apply_style()
+
+    def set_module_format(self, module_format: str) -> None:
+        """Update the virtual file extension (``.js`` vs ``.cjs``)."""
+        self._module_format = module_format or "esm"
+        self._refresh_display_name()
+        self._apply_style()
+
+    def set_name(self, name: str) -> None:
+        """Update the script basename (tab shows ``name`` + extension)."""
+        self._basename = script_basename_from_stored(name)
+        self._name = self._basename
+        self._refresh_display_name()
+        self._apply_style()
+
+    def set_display_name(self, name: str) -> None:
+        """Update the rendered script name without changing the base name."""
+        self._display_name = name
+        self._apply_style()
+
+    def set_dirty(self, dirty: bool) -> None:
+        """Toggle the dirty marker."""
+        self._is_dirty = dirty
+        self._apply_style()
+
+    def apply_config(self, *, compact: bool, mark_modified: bool) -> None:
+        """Apply refreshed display config from the tab settings."""
+        self._config = layout_config(compact)
+        self._mark_modified = mark_modified
+        self._layout.setContentsMargins(*self._config.margins)
+        self._layout.setSpacing(self._config.spacing)
+        self._icon_label.setFixedSize(self._config.badge_height, self._config.badge_height)
+        self._name_label.setMaximumWidth(self._config.label_width)
+        _font_with_delta(self._name_label, self._config.font_delta)
+        self._apply_language_icon()
+        self._apply_style()
+
+    def _apply_style(self) -> None:
+        """Rebuild the display text from the current state."""
+        prefix = _DIRTY_BULLET if self._is_dirty and self._mark_modified else ""
+        full_text = f"{prefix}{self._display_name}"
+        metrics = QFontMetrics(self._name_label.font())
+        self._name_label.setText(
+            metrics.elidedText(full_text, Qt.TextElideMode.ElideRight, self._config.label_width)
+        )
 
 
 class FolderTabLabel(QWidget):

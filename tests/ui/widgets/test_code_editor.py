@@ -15,7 +15,7 @@ from PySide6.QtGui import QFocusEvent, QHelpEvent, QKeyEvent, QTextCharFormat, Q
 from PySide6.QtWidgets import QApplication, QPlainTextEdit, QTextEdit, QToolTip, QTreeWidget
 
 from ui.widgets.code_editor import CodeEditorWidget, SyntaxError_
-from ui.widgets.code_editor.editor_widget import _is_parameter_hint_shortcut
+from ui.widgets.code_editor.editor_keyboard import _is_parameter_hint_shortcut
 from ui.widgets.debug_value_tree import debug_tree_cell_text
 
 # -- Helpers -----------------------------------------------------------
@@ -125,6 +125,35 @@ class TestParameterHintShortcut:
         ev = QFocusEvent(QFocusEvent.Type.FocusOut, Qt.FocusReason.MouseFocusReason)
         editor.focusOutEvent(ev)
         assert not editor._parameter_hint_popup.isVisible()
+
+
+class TestLocalRequireCompletionPopup:
+    """``pm.require('local:…')`` opens the shared completion popup."""
+
+    def test_typing_local_prefix_shows_paths(self, qapp: QApplication, qtbot) -> None:
+        """After ``local:`` the completion popup lists DB-backed virtual paths."""
+        from database.models.local_scripts.local_script_repository import (
+            create_folder,
+            create_script,
+        )
+
+        from ui.widgets.code_editor import popup_registry
+
+        root = create_folder("auth")
+        create_script(root.id, "helper", language="javascript")
+
+        editor = CodeEditorWidget()
+        qtbot.addWidget(editor)
+        editor.set_language("javascript")
+        editor.setPlainText("pm.require('local:")
+        cur = editor.textCursor()
+        cur.setPosition(len(editor.toPlainText()))
+        editor.setTextCursor(cur)
+        editor._maybe_trigger_local_path_completion()
+        popup = popup_registry.completion_popup()
+        qtbot.waitUntil(popup.is_active, timeout=2000)
+        labels = [popup._list.item(i).text() for i in range(popup._list.count())]
+        assert "auth/helper.js" in labels
 
 
 class TestSymbolDocFeatures:
@@ -287,6 +316,42 @@ class TestPrettify:
         assert result is False
         assert editor.toPlainText() == _INVALID_JSON
 
+    def test_prettify_python(self, qapp: QApplication, qtbot) -> None:
+        """Format Document uses Ruff for Python (jedi LSP has no formatter)."""
+        editor = CodeEditorWidget()
+        qtbot.addWidget(editor)
+        editor.set_language("python")
+        editor.setPlainText('x={"a":1}')
+        assert editor.format_document() is True
+        assert editor.toPlainText() != 'x={"a":1}'
+
+    def test_format_selection_json(self, qapp: QApplication, qtbot) -> None:
+        """Format Selection replaces the selected JSON with pretty-printed text."""
+        editor = CodeEditorWidget()
+        qtbot.addWidget(editor)
+        editor.set_language("json")
+        editor.setPlainText('{"a":1,"b":[2,3]}')
+        editor.selectAll()
+        assert editor.format_selection() is True
+        assert '"a": 1' in editor.toPlainText()
+
+    def test_format_menu_after_undo_redo(self, qapp: QApplication, qtbot) -> None:
+        """Format actions appear immediately after Undo/Redo in the context menu."""
+        editor = CodeEditorWidget()
+        qtbot.addWidget(editor)
+        editor.setPlainText("x = 1")
+        menu = editor.createStandardContextMenu()
+        editor._add_format_menu_actions(menu)
+        actions = menu.actions()
+        undo_idx = next(i for i, a in enumerate(actions) if "Undo" in a.text())
+        redo_idx = next(i for i, a in enumerate(actions) if "Redo" in a.text())
+        fmt_idx = next(i for i, a in enumerate(actions) if "Format Document" in a.text())
+        cut_idx = next(i for i, a in enumerate(actions) if "Ctrl+X" in a.text())
+        assert undo_idx < fmt_idx
+        assert redo_idx < fmt_idx
+        assert fmt_idx < cut_idx
+        assert actions[cut_idx - 1].isSeparator()
+
     def test_prettify_noop_for_text(self, qapp: QApplication, qtbot) -> None:
         """Prettify does nothing for plain text language."""
         editor = CodeEditorWidget()
@@ -447,6 +512,15 @@ class TestValidation:
         editor.set_language("python")
         editor.set_text("x = 1\nprint(x)")
         assert editor.errors == []
+
+    def test_inline_log_annotations_store_and_clear(self, qapp: QApplication, qtbot) -> None:
+        """Inline console decorations can be set and cleared."""
+        editor = CodeEditorWidget()
+        qtbot.addWidget(editor)
+        editor.set_inline_log_annotations({0: "hello", 2: "world"})
+        assert editor._inline_log_annotations == {0: "hello", 2: "world"}
+        editor.clear_inline_log_annotations()
+        assert editor._inline_log_annotations == {}
 
 
 # -- Error gutter marker -----------------------------------------------

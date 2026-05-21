@@ -3,6 +3,10 @@
 ## Quick rules — read these first
 
 1. **Run `poetry run pytest` after every change** — all tests must pass.
+   Use the default addopts (`-n auto`, ~2–3 minutes). Avoid `-n0` unless
+   debugging a single file; the full suite takes ~11 minutes single-process
+   and can look hung. A **120s per-test timeout** (`pytest-timeout`) aborts
+   stuck tests instead of blocking the run indefinitely.
 2. **Also run `poetry run ruff check src/ tests/`,
    `poetry run ruff format --check src/ tests/`, and
    `poetry run mypy src/ tests/`** — see [AGENTS.md](../AGENTS.md) for the
@@ -127,8 +131,16 @@ tests/
 ├── unit/                          # Pure logic — no Qt widgets
 │   ├── database/                  # Repository layer tests
 │   │   ├── test_repository.py
+│   │   ├── test_local_script_repository.py
+│   │   ├── test_local_script_path_policy.py
+│   │   ├── test_local_script_require_refs.py
+│   │   ├── test_snippet_repository.py
+│   │   ├── test_request_assertion_repository.py
+│   │   ├── test_script_version_local_script.py
 │   │   ├── test_environment_repository.py
 │   │   └── test_run_history_repository.py
+│   ├── local_scripts/             # Script filename display helpers
+│   │   └── test_script_filename.py
 │   └── services/                  # Service layer tests
 │       ├── test_service.py
 │       ├── test_environment_service.py
@@ -136,9 +148,11 @@ tests/
 │       ├── test_import_service.py
 │       ├── test_script_bridge_globals.py
 │       ├── test_script_debug.py
+│       ├── test_assertion_service.py
 │       ├── test_script_debug_cdp.py
 │       ├── test_js_debug.py
 │       ├── test_py_debug.py
+│       ├── test_console_source_line.py
 │       ├── test_script_engine.py
 │       ├── test_pm_api_schema_drift.py  # pm_api_schema paths resolve in Deno JS
 │       ├── test_pyodide_runtime.py
@@ -146,15 +160,23 @@ tests/
 │       ├── test_script_service.py
 │       ├── test_script_vendor.py
 │       ├── test_script_vendor_libs.py
+│       ├── test_data_loader.py
+│       ├── test_script_run_worker_iterations.py
 │       ├── test_script_version_service.py
+│       ├── test_snippet_service.py
+│       ├── test_assertions_compiler.py
 │       ├── test_deno_manager.py
+│       ├── test_python_format.py
 │       ├── test_runtime_settings.py
 │       ├── test_secret_store.py     # SecretStore backends: keyring / encrypted-file / noop; default-store self-test fallback
 │       ├── test_deno_runtime_registries.py  # _build_npmrc_text + deno_ipc_argv_and_env private-registry plumbing
+│       ├── test_cjs_deno_interop.py       # Gate 0 Deno ``import *`` from ``.cjs``
+│       ├── test_local_script_pm_require.py  # pm.require("local:…") resolve + bundle + CJS runtime
 │       ├── test_pyodide_private_pypi.py     # _pypi_index_hosts + _resolve_pypi_index_urls auth embedding
 │       ├── lsp/                   # LSP transport / offset helpers
 │       │   ├── test_transport.py
 │       │   ├── test_qt_lsp_offsets.py
+│       │   ├── test_pm_require_types.py
 │       │   └── fake_server.py     # JSON-RPC test double (not collected)
 │       └── http/                  # HTTP service tests
 │           ├── test_http_service.py
@@ -172,9 +194,12 @@ tests/
     ├── test_main_window_save.py   # SaveButton + RequestSaveEndToEnd tests
     ├── test_main_window_draft.py  # Draft tab open/save lifecycle tests
     ├── test_main_window_session.py # Tab session persistence (save/restore) tests
+    ├── local_scripts/
+    │   └── test_local_script_editor_widget.py # LocalScriptEditorWidget auto-save tests
     ├── styling/                   # Theme and icon tests
     │   ├── test_theme_manager.py
-    │   └── test_icons.py
+    │   ├── test_icons.py
+    │   └── test_language_icons.py
     ├── widgets/                   # Shared component tests
     │   ├── test_code_editor.py
     │   ├── test_code_editor_folding.py
@@ -197,6 +222,7 @@ tests/
    │   ├── test_variables_panel.py
    │   ├── test_snippet_panel.py
    │   ├── test_debug_panel.py
+   │   ├── test_debug_watch_call_stack.py
    │   └── test_saved_responses_panel.py
     ├── collections/               # Collection sidebar tests
     │   ├── test_collection_header.py
@@ -204,7 +230,12 @@ tests/
     │   ├── test_collection_tree_actions.py
     │   ├── test_collection_tree_delegate.py
     │   ├── test_collection_widget.py
-    │   └── test_new_item_popup.py
+    │   ├── test_local_scripts_tree_breadcrumb.py
+    │   ├── test_local_scripts_tree_folder_expand.py  # expand must not rewrite folder label to Unnamed
+    │   ├── test_local_scripts_tree_icons.py
+    │   ├── test_local_scripts_tree_rename.py
+    │   ├── test_new_item_popup.py
+    │   └── test_new_local_script_popup.py
     ├── dialogs/                   # Dialog tests
     │   ├── test_collection_runner.py
     │   ├── test_import_dialog.py

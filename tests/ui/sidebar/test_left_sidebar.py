@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QSplitter, QToolButton, QWidget
+from PySide6.QtWidgets import QApplication, QSplitter, QStackedWidget, QToolButton, QWidget
 
 from ui.sidebar.left_sidebar import LeftSidebar
 
@@ -95,7 +95,9 @@ def test_rail_toggle_collapses_like_close_panel(qapp: QApplication, qtbot) -> No
     assert rail.is_open
 
     btn = next(
-        b for b in rail.findChildren(QToolButton) if b.objectName() == "leftSidebarRailButton"
+        b
+        for b in rail.findChildren(QToolButton)
+        if b.objectName() == "leftSidebarRailButton" and b.property("rail_icon_name") == "files"
     )
     qtbot.mouseClick(btn, Qt.MouseButton.LeftButton)
     qapp.processEvents()
@@ -103,3 +105,50 @@ def test_rail_toggle_collapses_like_close_panel(qapp: QApplication, qtbot) -> No
     assert not rail.is_open
     assert rail.flyout_width == 0
     assert rail.isVisible()
+
+
+def test_local_scripts_rail_switches_flyout_stack(qapp: QApplication, qtbot) -> None:
+    """The **code** rail icon swaps the flyout ``QStackedWidget`` to the scripts page."""
+    splitter = QSplitter(Qt.Orientation.Horizontal)
+    filler = QWidget()
+    filler.setMinimumWidth(320)
+    rail = LeftSidebar()
+    coll = QWidget()
+    coll.setObjectName("testCollPage")
+    scripts = QWidget()
+    scripts.setObjectName("testScriptsPage")
+    rail.set_content(coll)
+    rail.set_local_scripts_panel(scripts)
+    rail.install_in_splitter(splitter)
+    splitter.addWidget(filler)
+    splitter.resize(900, 400)
+    qtbot.addWidget(splitter)
+    splitter.show()
+    qapp.processEvents()
+
+    flyout = splitter.findChild(QWidget, "leftSidebarFlyout")
+    assert flyout is not None
+    stack = flyout.findChild(QStackedWidget)
+    assert stack is not None
+
+    rail.open_panel("collections")
+    qapp.processEvents()
+    assert stack.currentWidget() is coll
+
+    scripts_btn = next(
+        b
+        for b in rail.findChildren(QToolButton)
+        if b.objectName() == "leftSidebarRailButton" and b.property("rail_icon_name") == "code"
+    )
+    qtbot.mouseClick(scripts_btn, Qt.MouseButton.LeftButton)
+    qapp.processEvents()
+    assert stack.currentWidget() is scripts
+
+    coll_btn = next(
+        b
+        for b in rail.findChildren(QToolButton)
+        if b.objectName() == "leftSidebarRailButton" and b.property("rail_icon_name") == "files"
+    )
+    qtbot.mouseClick(coll_btn, Qt.MouseButton.LeftButton)
+    qapp.processEvents()
+    assert stack.currentWidget() is coll

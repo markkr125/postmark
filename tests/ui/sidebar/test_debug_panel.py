@@ -17,6 +17,8 @@ def _with_pause_keys(d: dict[str, Any]) -> DebugPauseInfo:
     out = dict(d)
     out.setdefault("env_changes", {})
     out.setdefault("global_changes", {})
+    out.setdefault("call_stack", [])
+    out.setdefault("selected_frame_index", 0)
     return cast(DebugPauseInfo, out)
 
 
@@ -157,6 +159,8 @@ class TestDebugPanel:
                 "env_changes": {"H": "sig"},
                 "global_changes": {},
                 "script_type": "pre_request",
+                "call_stack": [],
+                "selected_frame_index": 0,
             }
         )
         assert panel._tree.topLevelItemCount() >= 1

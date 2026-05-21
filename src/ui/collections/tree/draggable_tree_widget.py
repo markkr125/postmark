@@ -8,7 +8,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtGui import QDropEvent
 from PySide6.QtWidgets import QTreeWidget, QWidget
 
-from ui.collections.tree.constants import ROLE_ITEM_ID, ROLE_ITEM_TYPE
+from ui.collections.tree.constants import ROLE_ITEM_ID, ROLE_ITEM_TYPE, is_leaf_item_type
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ class DraggableTreeWidget(QTreeWidget):
         target_type = target_item.data(1, ROLE_ITEM_TYPE)
 
         # Validation: Cannot drop request or folder into a request
-        if target_type == "request":
+        if is_leaf_item_type(target_type):
             event.ignore()
             return
 
@@ -55,13 +55,13 @@ class DraggableTreeWidget(QTreeWidget):
         new_parent_id = target_id if target_type == "folder" else None
 
         # Validation: Cannot drop request at root level
-        if source_type == "request" and new_parent_id is None:
+        if is_leaf_item_type(source_type) and new_parent_id is None:
             event.ignore()
             return
 
         # Emit the appropriate signal -- the service layer will persist this
         try:
-            if source_type == "request":
+            if is_leaf_item_type(source_type):
                 self.request_moved.emit(source_id, new_parent_id)
             elif source_type == "folder":
                 self.collection_moved.emit(source_id, new_parent_id)

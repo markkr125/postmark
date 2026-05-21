@@ -177,7 +177,10 @@ JS_SCHEMA: dict[str, SchemaNode] = {
             "require": {
                 "kind": "method",
                 "type_str": "any",
-                "doc": "Import an npm or jsr package by spec (e.g. 'npm:lodash@4.17.21')",
+                "doc": (
+                    "Import npm/jsr (e.g. 'npm:lodash') or a Local script "
+                    "(e.g. 'local:auth/helper.js' or 'local:auth/helper.cjs')"
+                ),
                 "signature": "(specifier: string)",
             },
             "sendRequest": {

@@ -18,7 +18,7 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING, NamedTuple
 
 from PySide6.QtCore import QEvent, QSize, Qt
-from PySide6.QtGui import QColor, QMouseEvent, QPaintEvent, QTextBlockUserData
+from PySide6.QtGui import QColor, QContextMenuEvent, QMouseEvent, QPaintEvent, QTextBlockUserData
 from PySide6.QtWidgets import QWidget
 
 if TYPE_CHECKING:
@@ -50,6 +50,7 @@ _FOLD_BADGE_V_PAD = 1  # vertical padding inside the badge
 _FOLD_BADGE_RADIUS = 3  # corner radius of the badge pill
 _FOLD_BADGE_GAP = 6  # gap between end of line text and badge
 _WHITESPACE_DOT_RADIUS = 1.5  # px — small centered dot on selected spaces
+_INLINE_LOG_ANNOT_MAX_PX = 120  # max width for inline console.log annotations
 _BREAKPOINT_GUTTER_WIDTH = 14  # px — breakpoint indicator column
 _TEST_GUTTER_WIDTH = 16  # px — per-test run marker column
 
@@ -227,8 +228,18 @@ class _BreakpointGutterArea(QWidget):
         self._editor.paint_breakpoint_area(event)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
-        """Toggle breakpoint on click."""
-        self._editor.breakpoint_gutter_clicked(event.position().toPoint().y())
+        """Toggle breakpoint on left click."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._editor.breakpoint_gutter_clicked(event.position().toPoint().y())
+        super().mousePressEvent(event)
+
+    def contextMenuEvent(self, event: QContextMenuEvent) -> None:
+        """Right-click to edit breakpoint conditions."""
+        self._editor.breakpoint_gutter_context_menu(
+            int(event.pos().y()),
+            event.globalPos(),
+        )
+        super().contextMenuEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         """Breakpoint hover preview."""

@@ -94,6 +94,9 @@ class Snippet:
 
     name: str
     body: str
+    snippet_id: int | None = None
+    is_user: bool = False
+    context: str = "both"
 
 
 @dataclass(frozen=True)
@@ -134,9 +137,13 @@ def _strip_underscore_keys(obj: dict) -> dict:
     return {k: v for k, v in obj.items() if not k.startswith("_")}
 
 
-@lru_cache(maxsize=8)
-def load_snippets(language: str) -> tuple[SnippetCategory, ...]:
-    """Load and parse snippets for *language*; empty tuple if missing or invalid."""
+def invalidate_snippet_cache() -> None:
+    """Clear the memoised :func:`load_snippets` cache after user snippet changes."""
+    load_snippets.cache_clear()
+
+
+def _load_builtin_snippets(language: str) -> tuple[SnippetCategory, ...]:
+    """Load shipped JSON categories for *language*."""
     fname = _resolve_language(language) + ".json"
     path = _data_dir() / fname
     if not path.is_file():
@@ -182,12 +189,120 @@ def load_snippets(language: str) -> tuple[SnippetCategory, ...]:
     return tuple(out)
 
 
+def _user_context_to_loader_contexts(context: str) -> tuple[str, ...]:
+    """Map DB ``pre`` / ``test`` / ``both`` to loader ``contexts`` tags."""
+    ctx = (context or "both").lower().strip()
+    if ctx == "pre":
+        return ("pre",)
+    if ctx == "test":
+        return ("post",)
+    return ()
+
+
+def _load_user_categories(
+    language: str,
+    *,
+    collection_id: int | None = None,
+    local_script_id: int | None = None,
+) -> tuple[SnippetCategory, ...]:
+    """Group scoped user snippets into categories (user rows first)."""
+    from services.snippet_service import SnippetService
+
+    rows = SnippetService.list_all(
+        language,
+        collection_id=collection_id,
+        local_script_id=local_script_id,
+    )
+    by_cat: dict[str, list[Snippet]] = {}
+    for row in rows:
+        cat_name = str(row.get("category") or "My snippets")
+        by_cat.setdefault(cat_name, []).append(
+            Snippet(
+                name=str(row["name"]),
+                body=str(row["body"]),
+                snippet_id=int(row["id"]),
+                is_user=True,
+                context=str(row.get("context") or "both"),
+            )
+        )
+    out: list[SnippetCategory] = []
+    for cat_name, snippets in by_cat.items():
+        if not snippets:
+            continue
+        contexts: tuple[str, ...] = ()
+        for snip in snippets:
+            ctx_tuple = _user_context_to_loader_contexts(snip.context)
+            if not contexts:
+                contexts = ctx_tuple
+            elif ctx_tuple and contexts != ctx_tuple:
+                contexts = ()
+                break
+        out.append(SnippetCategory(name=cat_name, snippets=tuple(snippets), contexts=contexts))
+    return tuple(out)
+
+
+def _merge_categories(
+    user: tuple[SnippetCategory, ...],
+    builtin: tuple[SnippetCategory, ...],
+) -> tuple[SnippetCategory, ...]:
+    """Place user categories/snippets before built-in; merge same category names."""
+    merged: dict[str, SnippetCategory] = {}
+    order: list[str] = []
+
+    def _add(cat: SnippetCategory) -> None:
+        key = cat.name or ""
+        if key not in merged:
+            merged[key] = SnippetCategory(
+                name=cat.name, snippets=cat.snippets, contexts=cat.contexts
+            )
+            order.append(key)
+            return
+        prev = merged[key]
+        merged[key] = SnippetCategory(
+            name=cat.name,
+            snippets=prev.snippets + cat.snippets,
+            contexts=cat.contexts or prev.contexts,
+        )
+
+    for cat in user:
+        _add(cat)
+    for cat in builtin:
+        _add(cat)
+    return tuple(merged[k] for k in order)
+
+
+@lru_cache(maxsize=32)
+def load_snippets(
+    language: str,
+    collection_id: int | None = None,
+    local_script_id: int | None = None,
+) -> tuple[SnippetCategory, ...]:
+    """Load built-in JSON plus scoped user snippets for *language*."""
+    builtin = _load_builtin_snippets(language)
+    user = _load_user_categories(
+        language,
+        collection_id=collection_id,
+        local_script_id=local_script_id,
+    )
+    if not user:
+        return builtin
+    if not builtin:
+        return user
+    return _merge_categories(user, builtin)
+
+
 def has_snippets(language: str) -> bool:
     """Return whether any snippet rows exist for *language* (after TS fallback)."""
     return bool(load_snippets(language))
 
 
-def load_snippets_for(language: str, script_type: str) -> tuple[SnippetCategory, ...]:
+def load_snippets_for(
+    language: str,
+    script_type: str,
+    *,
+    collection_id: int | None = None,
+    local_script_id: int | None = None,
+) -> tuple[SnippetCategory, ...]:
     """Filter :func:`load_snippets` by editor *script_type*.
 
     Maps ``script_type`` (``"pre_request"`` / ``"test"``) to a
@@ -195,4 +310,23 @@ def load_snippets_for(language: str, script_type: str) -> tuple[SnippetCategory,
     a ``contexts`` field are shown in every context (back-compat).
     """
     ctx = "pre" if script_type == "pre_request" else "post"
-    return tuple(c for c in load_snippets(language) if not c.contexts or ctx in c.contexts)
+    all_cats = load_snippets(
+        language,
+        collection_id=collection_id,
+        local_script_id=local_script_id,
+    )
+    filtered: list[SnippetCategory] = []
+    for cat in all_cats:
+        if cat.contexts and ctx not in cat.contexts:
+            continue
+        kept = tuple(
+            s
+            for s in cat.snippets
+            if not s.is_user
+            or s.context == "both"
+            or (ctx == "pre" and s.context == "pre")
+            or (ctx == "post" and s.context == "test")
+        )
+        if kept:
+            filtered.append(SnippetCategory(name=cat.name, snippets=kept, contexts=cat.contexts))
+    return tuple(filtered)

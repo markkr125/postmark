@@ -46,6 +46,11 @@ _VAR_STRING_RE = re.compile(
     r'\.get\(\s*["\'](\w*)$'
 )
 
+# Cursor inside an unclosed pm.require("…") / pm.require('…') string argument.
+_PM_REQUIRE_STRING_AT_CURSOR_RE = re.compile(
+    r"""pm\s*\.\s*require\s*\(\s*(?P<q>['"])(?P<tail>[^'"]*)$""",
+)
+
 # Regex for JS variable assignments:  let/const/var x = pm.something
 _JS_ASSIGN_RE = re.compile(r"(?:let|const|var)\s+(\w+)\s*=\s*([\w.]+(?:\(\))?)\s*;?")
 
@@ -184,13 +189,42 @@ class CompletionEngine:
                 rhs = rhs[:-2]
             self._inferred_types[var_name] = rhs
 
+    def _pm_require_string_tail(self, text_before_cursor: str) -> str | None:
+        """Return the unclosed string tail for ``pm.require('…')`` at the cursor, or ``None``."""
+        m = _PM_REQUIRE_STRING_AT_CURSOR_RE.search(text_before_cursor)
+        return m.group("tail") if m is not None else None
+
+    def is_local_require_completion_context(self, text_before_cursor: str) -> bool:
+        """Return whether the cursor is inside ``pm.require`` and may complete ``local:`` paths."""
+        tail = self._pm_require_string_tail(text_before_cursor)
+        if tail is None:
+            return False
+        if not tail:
+            return True
+        return tail.startswith("local:")
+
+    def local_require_path_prefix(self, text_before_cursor: str) -> str | None:
+        """Return the typed path segment after ``local:`` (may be empty)."""
+        tail = self._pm_require_string_tail(text_before_cursor)
+        if tail is None:
+            return None
+        if tail.startswith("local:"):
+            return tail[6:]
+        return ""
+
+    def local_require_insert_prefixes_local(self, text_before_cursor: str) -> bool:
+        """Return whether accepted items must include the ``local:`` prefix."""
+        tail = self._pm_require_string_tail(text_before_cursor)
+        return tail is not None and not tail.startswith("local:")
+
     def complete(self, text_before_cursor: str) -> list[CompletionItem]:
         """Return completions for the text preceding the cursor.
 
         Checks, in order:
         1. ``{{`` variable trigger.
         2. ``pm.variables.get("`` string argument trigger.
-        3. Dot-path API completions (trailing dot: full children).
+        3. ``pm.require("local:…")`` local script path autocomplete.
+        4. Dot-path API completions (trailing dot: full children).
         4. Dot-path with a typed segment after the last dot (e.g. ``pm.v`` narrows
            ``pm`` children; ``pm.variables.s`` narrows scope methods).
 
@@ -205,6 +239,12 @@ class CompletionEngine:
         str_match = _VAR_STRING_RE.search(text_before_cursor)
         if str_match:
             return self._variable_completions(str_match.group(1))
+
+        # 3. Local script paths in pm.require("local:…") or pm.require('
+        if self.is_local_require_completion_context(text_before_cursor):
+            path_prefix = self.local_require_path_prefix(text_before_cursor) or ""
+            add_local = self.local_require_insert_prefixes_local(text_before_cursor)
+            return self._local_require_completions(path_prefix, prefix_local=add_local)
 
         # 3a. ``new ClassName().`` → instance children of ClassName.
         ni_match = _NEW_INSTANCE_DOT_RE.search(text_before_cursor)
@@ -484,6 +524,70 @@ class CompletionEngine:
             node = children
 
         return self._schema_to_items(node)
+
+    def _local_require_completions(
+        self,
+        path_prefix: str,
+        *,
+        prefix_local: bool = False,
+    ) -> list[CompletionItem]:
+        """Return virtual path completions for ``pm.require('local:…')``."""
+        from services.local_script_service import LocalScriptService
+
+        paths = LocalScriptService.list_virtual_paths(language=self._language)
+        lower = path_prefix.lower()
+        items: list[CompletionItem] = []
+        seen_labels: set[str] = set()
+
+        def _insert_text(rel: str) -> str:
+            return f"local:{rel}" if prefix_local else rel
+
+        # Offer folder prefixes (e.g. ``auth/``) when typing a partial path.
+        if path_prefix and not path_prefix.endswith("/"):
+            dir_prefix = lower
+            if "/" in dir_prefix:
+                dir_prefix = dir_prefix.rsplit("/", 1)[0] + "/"
+            else:
+                dir_prefix = f"{dir_prefix}/" if dir_prefix else ""
+            folder_hints: set[str] = set()
+            for rel in paths:
+                rl = rel.lower()
+                if dir_prefix and rl.startswith(dir_prefix):
+                    rest = rl[len(dir_prefix) :]
+                    if "/" in rest:
+                        folder_hints.add(rel[: len(dir_prefix) + rest.index("/") + 1])
+            for hint in sorted(folder_hints):
+                if hint.lower() in seen_labels:
+                    continue
+                seen_labels.add(hint.lower())
+                items.append(
+                    CompletionItem(
+                        label=hint,
+                        kind="folder",
+                        type_str="local folder",
+                        doc=f"Local scripts under {hint}",
+                        signature="",
+                        insert_text=_insert_text(hint),
+                    )
+                )
+
+        for rel in paths:
+            if lower and not rel.lower().startswith(lower):
+                continue
+            if rel.lower() in seen_labels:
+                continue
+            seen_labels.add(rel.lower())
+            items.append(
+                CompletionItem(
+                    label=rel,
+                    kind="module",
+                    type_str="local script",
+                    doc=f"Local script: local:{rel}",
+                    signature="",
+                    insert_text=_insert_text(rel),
+                )
+            )
+        return items
 
     def _variable_completions(self, prefix: str) -> list[CompletionItem]:
         """Return variable name completions filtered by *prefix*."""

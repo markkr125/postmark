@@ -32,6 +32,7 @@ and hover popup.
 | 3 | Auth | Auth type selector + field pages (via `_AuthMixin`) |
 | 4 | Description | `QTextEdit` for request documentation |
 | 5 | Scripts | Dual `CodeEditorWidget` tabs (Pre-request / Post-response) with inline output panels |
+| 6 | Assertions | Declarative assertion table (`AssertionsTab` via `_AssertionsMixin`) |
 
 ### Body Modes
 
@@ -114,6 +115,57 @@ For **JavaScript** inline debug (Deno), gutter breakpoints inside a
 `pm.test(..., function () { ... })` callback are wired to the inspector like
 any other user line; use **Debug test '…'** from the test gutter menu when you
 want to run a single named test only.
+
+### Inline debug inspector (Output tab)
+
+When a script debug session pauses, the **Output** tab shows (top to bottom):
+
+| Section | Widget | `objectName` | Role |
+|---------|--------|--------------|------|
+| Call stack | `CallStackPanel` | `debugCallStackList` | Lists frames; selecting a row calls `DebugProtocol.select_frame` and refreshes variables |
+| Variables | `DebugVariablesPanel` | *(tree)* | Locals / `pm` / globals for the selected frame |
+| Watch | `WatchPanel` | `debugWatchList` | User expressions re-evaluated via `DebugProtocol.evaluate` on each pause |
+
+Step / continue / stop controls live on the script editor toolbar, not in this
+panel. Conditional breakpoints use a yellow gutter marker; right-click the
+breakpoint gutter to edit the condition expression.
+
+### Assertions tab (_AssertionsMixin)
+
+Tab index **6** on `RequestEditorWidget`. Rows are persisted per request through
+`AssertionService` (never import `database/` from UI). Each row has:
+
+- Enabled checkbox
+- **Subject** (e.g. `res.status`, `res.body.id`, `res.headers["X-Foo"]`)
+- **Operator** (`eq`, `ne`, `gt`, `lt`, `contains`, `matches`, `exists`, `is_type`)
+- **Expected** value
+- Delete control
+
+On **Send**, enabled rows compile to `pm.test` blocks with
+`source_name = "declarative"` and run **after** user-written test scripts.
+Results appear under a **Declarative Assertions** group in the response Test
+Results tab.
+
+### Data-driven iterations (post-response Scripts)
+
+Post-response `ScriptOutputPanel` tabs: **Output**, **Problems**, **Iterations**
+(when the data runner is used), **Mock response**.
+
+| Control | Description |
+|---------|-------------|
+| `DataRunnerPanel` | CSV/JSON file picker, preview table, iteration count, **Run iterations** |
+| **Iterations** tab | Matrix: rows = data iterations, columns = `pm.test` names, cells = pass/fail; click a cell to drill into that run's output |
+| **Re-run failed only** | Re-runs rows where any test failed |
+
+Iteration runs use `ScriptRunWorker` with `iteration_data` (one worker loop, not
+N separate threads). `iteration_finished(int, object, float)` streams per-row
+results; terminal `finished` carries the full list.
+
+### Test results export and rerun (post-response)
+
+On the Output timing row (test scripts only): **Export** menu (**JSON** /
+**JUnit XML**). Per-test **Rerun** uses `test_name_filter` on
+`ScriptRunWorker` / `build_inline_context` so only one `pm.test` body runs.
 
 ## GraphQL (_GraphQLMixin)
 

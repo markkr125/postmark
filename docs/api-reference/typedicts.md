@@ -398,3 +398,4 @@ Defined in `services/scripting/__init__.py`.  See
 | `level` | `str` | `"log"`, `"warn"`, `"error"`, or `"info"` |
 | `message` | `str` | Formatted message |
 | `timestamp` | `float` | UNIX timestamp |
+| `source_line` | `int \| None` | Optional 0-based editor line (best-effort stack / frame mapping) |

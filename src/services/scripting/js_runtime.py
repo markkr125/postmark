@@ -16,6 +16,8 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
 
+from services.scripting.local_script_modules import LocalScriptModule
+
 if TYPE_CHECKING:
     from services.scripting import ScriptInput, ScriptOutput
 
@@ -145,10 +147,42 @@ def _detect_pm_require_specs(script: str) -> list[PmRequireSpec]:
     return list(seen.values())
 
 
-def _pm_require_imports_block(specs: list[PmRequireSpec]) -> str:
-    """Emit static ESM imports plus ``globalThis.__pm_require_modules`` registration."""
-    if not specs:
+def _local_module_ident(rel_path: str) -> str:
+    """Safe identifier suffix for a local virtual path."""
+    return re.sub(r"[^A-Za-z0-9_]", "_", rel_path)
+
+
+def _pm_require_local_imports_block(
+    local_modules: dict[str, LocalScriptModule],
+) -> str:
+    """Emit static imports for DB local scripts under ``./local/``."""
+    if not local_modules:
         return ""
+    lines: list[str] = []
+    entries: list[str] = []
+    for rel_path in sorted(local_modules):
+        var = f"__pm_local_{_local_module_ident(rel_path)}"
+        import_path = f"./local/{rel_path}"
+        lines.append(f"import * as {var} from {json.dumps(import_path)};")
+        spec = f"local:{rel_path}"
+        entries.append(f"  {json.dumps(spec)}: {var}.default ?? {var}")
+    lines.append("globalThis.__pm_require_modules = Object.assign(")
+    lines.append("  globalThis.__pm_require_modules || {}, {")
+    lines.append(",\n".join(entries))
+    lines.append("});")
+    return "\n".join(lines) + "\n"
+
+
+def _pm_require_imports_block(
+    specs: list[PmRequireSpec],
+    local_modules: dict[str, LocalScriptModule] | None = None,
+) -> str:
+    """Emit static ESM imports plus ``globalThis.__pm_require_modules`` registration."""
+    parts: list[str] = []
+    if local_modules:
+        parts.append(_pm_require_local_imports_block(local_modules))
+    if not specs:
+        return "".join(parts)
     lines: list[str] = []
     entries: list[str] = []
     for s in specs:
@@ -162,7 +196,36 @@ def _pm_require_imports_block(specs: list[PmRequireSpec]) -> str:
     lines.append("  globalThis.__pm_require_modules || {}, {")
     lines.append(",\n".join(entries))
     lines.append("});")
-    return "\n".join(lines) + "\n"
+    parts.append("\n".join(lines) + "\n")
+    return "".join(parts)
+
+
+def prepare_pm_require_bundle(
+    script: str,
+    *,
+    language: str,
+) -> tuple[str, bool, dict[str, LocalScriptModule]]:
+    """Resolve local closure, union-scan npm/jsr, return scan text + ``needs_net``."""
+    from services.scripting.local_script_modules import resolve_required
+
+    local_mods = resolve_required(script, language)
+    union_parts = [script, *(m.source for m in local_mods.values())]
+    union_source = "\n".join(union_parts)
+    specs = _detect_pm_require_specs(union_source)
+    needs_net = bool(specs)
+    return union_source, needs_net, local_mods
+
+
+def write_local_modules_to_workdir(
+    workdir: Path,
+    local_modules: dict[str, LocalScriptModule],
+) -> None:
+    """Materialize resolved local scripts under ``<workdir>/local/``."""
+    base = workdir / "local"
+    for mod in local_modules.values():
+        dest = base / mod.rel_path
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(mod.source, encoding="utf-8")
 
 
 def _get_bootstrap() -> str:

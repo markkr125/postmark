@@ -694,13 +694,19 @@ class _FoldingMixin(_FoldingBase):
         # :meth:`apply_validation_errors`. Clobbering with ``[]`` here
         # races with diagnostics that arrive between language switch and
         # the next ``_validate`` tick, blanking real errors.
+        text = self.toPlainText()
         if (
             self._language in ("javascript", "typescript", "python")
             and self._should_skip_script_validation()
         ):
+            # LSP publishes most diagnostics; still flag ESM/CommonJS mismatch when not CJS.
+            if text.strip() and self._language in ("javascript", "typescript"):
+                mod_fmt = getattr(self, "_script_module_format", "esm")
+                if mod_fmt != "commonjs":
+                    esm_errors = self._validate_script(text)
+                    self.apply_validation_errors(esm_errors)
             return
 
-        text = self.toPlainText()
         errors: list[SyntaxError_] = []
 
         if self._language == "json" and text.strip():
@@ -775,6 +781,21 @@ class _FoldingMixin(_FoldingBase):
         """Check syntax + pm API usage for a JavaScript or Python script."""
         from services.scripting.engine import ScriptLinter
 
+        mod_fmt = getattr(self, "_script_module_format", "esm")
+        if self._language in ("javascript", "typescript"):
+            if mod_fmt == "commonjs":
+                diags = ScriptLinter.check_commonjs_local_script(text)
+            elif self._should_skip_script_validation():
+                diags = ScriptLinter.check_es_module(text, self._language)
+            elif not self._should_skip_script_validation():
+                diags = ScriptLinter.check(text, self._language)
+            else:
+                diags = []
+        elif not self._should_skip_script_validation():
+            diags = ScriptLinter.check(text, self._language)
+        else:
+            diags = []
+
         return [
             SyntaxError_(
                 line=d["line"],
@@ -782,5 +803,5 @@ class _FoldingMixin(_FoldingBase):
                 message=d["message"],
                 severity=d["severity"],
             )
-            for d in ScriptLinter.check(text, self._language)
+            for d in diags
         ]

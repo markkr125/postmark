@@ -13,6 +13,9 @@ from typing import TYPE_CHECKING, Any, cast
 from PySide6.QtCore import QTimer
 
 from services.collection_service import CollectionService, RequestLoadDict
+from services.local_script_service import LocalScriptService
+from ui.local_scripts.local_script_editor_widget import LocalScriptEditorWidget
+from ui.local_scripts.script_filename import script_display_name
 from ui.request.navigation.tab_manager import TabContext
 from ui.request.request_editor import RequestEditorWidget
 from ui.request.response_viewer import ResponseViewerWidget
@@ -21,10 +24,11 @@ if TYPE_CHECKING:
     from PySide6.QtGui import QAction
     from PySide6.QtWidgets import QPushButton, QStackedWidget, QWidget
 
-    from ui.environments.environment_sidebar_panel import EnvironmentSidebarPanel
     from ui.collections.collection_widget import CollectionWidget
+    from ui.environments.environment_sidebar_panel import EnvironmentSidebarPanel
     from ui.request.navigation.breadcrumb_bar import BreadcrumbBar
     from ui.request.navigation.request_tab_bar import RequestTabBar
+    from ui.sidebar.left_sidebar import LeftSidebar
     from ui.sidebar.sidebar_widget import RightSidebar
     from ui.styling.tab_settings_manager import TabSettingsManager
 
@@ -60,6 +64,7 @@ class _TabControllerMixin:
     request_widget: RequestEditorWidget
     response_widget: ResponseViewerWidget
     collection_widget: CollectionWidget
+    local_scripts_widget: CollectionWidget
     back_action: QAction
     forward_action: QAction
     _tab_settings_manager: TabSettingsManager
@@ -68,6 +73,7 @@ class _TabControllerMixin:
     _restoring_session: bool
     _deferred_tabs: dict[int, dict]
     _tab_change_debounce: QTimer
+    _left_sidebar: LeftSidebar
     _right_sidebar: RightSidebar
     _env_selector: EnvironmentSidebarPanel
 
@@ -241,6 +247,62 @@ class _TabControllerMixin:
         self._persist_open_tabs()
         return idx
 
+    def _open_local_script(self, script_id: int) -> None:
+        """Open a persisted local script in a centre editor tab."""
+        if not self._enforce_tab_limit_before_open():
+            return
+
+        for idx, ctx in self._tabs.items():
+            if ctx.tab_type == "local_script" and ctx.local_script_id == script_id:
+                self._tab_bar.setCurrentIndex(idx)
+                self._flush_tab_change()
+                return
+
+        data = LocalScriptService.get_script_load_dict(script_id)
+        if data is None:
+            return
+
+        editor = LocalScriptEditorWidget()
+        self._editor_stack.addWidget(editor)
+
+        ctx = TabContext(
+            tab_type="local_script",
+            local_script_id=script_id,
+            local_script_editor=editor,
+            opened_order=self._next_tab_open_order(),
+        )
+
+        insert_index = self._next_tab_insert_index()
+        self._shift_tabs_for_insert(insert_index)
+
+        language = data.get("language", "javascript")
+        module_format = data.get("module_format", "esm") or "esm"
+        self._tab_bar.blockSignals(True)
+        try:
+            idx = self._tab_bar.add_script_tab(
+                language,
+                data.get("name", "Script"),
+                path=None,
+                module_format=module_format,
+                index=insert_index,
+            )
+        finally:
+            self._tab_bar.blockSignals(False)
+
+        self._tabs[idx] = ctx
+        editor.load_script(data)
+        self._bind_local_script_autosave(editor, script_id)
+        editor.dirty_changed.connect(self._sync_save_btn)
+        editor.dirty_changed.connect(self._on_local_script_dirty_changed)
+        editor.save_requested.connect(self._on_save_local_script)
+        editor.open_scripting_settings_requested.connect(self._on_open_scripting_settings)
+        editor.debug_step_requested.connect(self._on_debug_step)
+
+        self._tab_bar.setCurrentIndex(idx)
+        self._on_tab_changed(idx)
+        self._flush_tab_change()
+        self._persist_open_tabs()
+
     def _replace_tab(
         self,
         index: int,
@@ -318,6 +380,22 @@ class _TabControllerMixin:
                 self._tab_bar.update_tab(idx, is_dirty=dirty)
                 break
 
+    def _on_local_script_dirty_changed(self, dirty: bool) -> None:
+        """Sync dirty state from a local-script editor into tab metadata."""
+        sender_fn = cast(Any, getattr(self, "sender", None))
+        sender = sender_fn() if callable(sender_fn) else None
+        if sender is None:
+            return
+        for idx, ctx in self._tabs.items():
+            if (
+                ctx.tab_type == "local_script"
+                and ctx.local_script_editor is not None
+                and ctx.local_script_editor is sender
+            ):
+                ctx.is_dirty = dirty
+                self._tab_bar.update_tab(idx, is_dirty=dirty)
+                break
+
     def _on_editor_scripts_tab_changed(self, scripts_active: bool) -> None:
         """Hide the response area while the active editor's Scripts tab is open.
 
@@ -366,6 +444,13 @@ class _TabControllerMixin:
                 self._editor_stack.setCurrentWidget(ctx.environment_editor)
             self._response_area.hide()
             self._save_btn.setVisible(False)
+        elif ctx is not None and ctx.tab_type == "local_script":
+            if ctx.local_script_editor is not None:
+                self._editor_stack.setCurrentWidget(ctx.local_script_editor)
+            self._response_area.hide()
+            self._save_btn.setVisible(True)
+            if ctx.local_script_editor is not None:
+                self._sync_save_btn(ctx.local_script_editor.is_dirty())
         elif ctx is not None:
             editor = ctx.require_editor()
             viewer = ctx.require_response_viewer()
@@ -410,6 +495,13 @@ class _TabControllerMixin:
                 self._breadcrumb_bar.clear()
         elif ctx is not None and ctx.tab_type == "environments":
             self._breadcrumb_bar.clear()
+        elif ctx is not None and ctx.tab_type == "local_script":
+            if ctx.local_script_id is not None:
+                self._breadcrumb_bar.set_path(
+                    self._local_script_breadcrumbs_with_display(ctx.local_script_id)
+                )
+            else:
+                self._breadcrumb_bar.clear()
         elif ctx is not None:
             if ctx.request_id is not None:
                 cached = getattr(ctx, "_cached_crumbs", None)
@@ -456,6 +548,8 @@ class _TabControllerMixin:
             return
         if ctx.tab_type == "folder" and ctx.collection_id is not None:
             self.collection_widget.select_and_scroll_to(ctx.collection_id, "folder")
+        elif ctx.tab_type == "local_script" and ctx.local_script_id is not None:
+            self.local_scripts_widget.select_and_scroll_to(ctx.local_script_id, "script")
         elif ctx.request_id is not None:
             self.collection_widget.select_and_scroll_to(ctx.request_id, "request")
 
@@ -475,6 +569,15 @@ class _TabControllerMixin:
                     tabs_list.append({"type": "folder", "id": ctx.collection_id})
                 elif ctx.tab_type == "environments":
                     tabs_list.append({"type": "environments"})
+                elif ctx.tab_type == "local_script" and ctx.local_script_id is not None:
+                    _method, name = self._tab_bar.tab_request_info(idx)
+                    tabs_list.append(
+                        {
+                            "type": "local_script",
+                            "id": ctx.local_script_id,
+                            "name": name,
+                        }
+                    )
                 elif ctx.tab_type == "request" and ctx.request_id is not None:
                     method, name = self._tab_bar.tab_request_info(idx)
                     ed = ctx.require_editor()
@@ -510,6 +613,7 @@ class _TabControllerMixin:
         data: dict[str, object] = {
             "tabs": tabs_list,
             "active": self._tab_bar.currentIndex(),
+            "left_sidebar_panel": self._left_sidebar.session_panel_key(),
             "sidebar_panel": self._right_sidebar.active_panel,
             "sidebar_width": self._right_sidebar.flyout_width,
         }
@@ -529,6 +633,7 @@ class _TabControllerMixin:
         """
         data = self._tab_settings_manager.load_open_tabs()
         if data is None:
+            self._left_sidebar.open_panel()
             return
 
         tabs_list = data.get("tabs")
@@ -564,6 +669,10 @@ class _TabControllerMixin:
                     self._restore_request_deferred(entry, item_id)
                 elif tab_type == "folder":
                     self._open_folder(item_id, show_missing_warning=False)
+                elif tab_type == "local_script":
+                    if LocalScriptService.get_script(item_id) is None:
+                        continue
+                    self._open_local_script(item_id)
         finally:
             self._restoring_session = False
 
@@ -571,6 +680,12 @@ class _TabControllerMixin:
             self._tab_bar.setCurrentIndex(active)
             self._on_tab_changed(active)
             self._flush_tab_change()
+
+        left_panel = data.get("left_sidebar_panel")
+        if isinstance(left_panel, str):
+            self._left_sidebar.open_panel(left_panel)
+        elif not self._left_sidebar.is_open:
+            self._left_sidebar.open_panel()
 
         sidebar_panel = data.get("sidebar_panel")
         if isinstance(sidebar_panel, str):
@@ -769,6 +884,26 @@ class _TabControllerMixin:
                     env_ed.environments_changed.disconnect(self._on_environments_data_changed)
                 self._editor_stack.removeWidget(env_ed)
                 env_ed.setParent(None)
+            ctx.dispose()
+            del ctx
+            self._tab_bar.remove_request_tab(index)
+        elif ctx.tab_type == "local_script":
+            script_ed = ctx.local_script_editor
+            if script_ed is not None:
+                with contextlib.suppress(TypeError, RuntimeError):
+                    script_ed.dirty_changed.disconnect(self._sync_save_btn)
+                with contextlib.suppress(TypeError, RuntimeError):
+                    script_ed.dirty_changed.disconnect(self._on_local_script_dirty_changed)
+                with contextlib.suppress(TypeError, RuntimeError):
+                    script_ed.save_requested.disconnect(self._on_save_local_script)
+                with contextlib.suppress(TypeError, RuntimeError):
+                    script_ed.open_scripting_settings_requested.disconnect(
+                        self._on_open_scripting_settings
+                    )
+                with contextlib.suppress(TypeError, RuntimeError):
+                    script_ed.debug_step_requested.disconnect(self._on_debug_step)
+                self._editor_stack.removeWidget(script_ed)
+                script_ed.setParent(None)
             ctx.dispose()
             del ctx
             self._tab_bar.remove_request_tab(index)
@@ -1191,6 +1326,19 @@ class _TabControllerMixin:
     # ------------------------------------------------------------------
     def _on_breadcrumb_clicked(self, item_type: str, item_id: int) -> None:
         """Navigate to a parent breadcrumb segment and scroll in the tree."""
+        if item_type == "local_scripts_root":
+            self._left_sidebar.open_panel("local_scripts")
+            return
+
+        idx = self._tab_bar.currentIndex()
+        ctx = self._tabs.get(idx)
+        on_local_script_tab = ctx is not None and ctx.tab_type == "local_script"
+
+        if item_type == "folder" and on_local_script_tab:
+            self._left_sidebar.open_panel("local_scripts")
+            self.local_scripts_widget.select_and_scroll_to(item_id, "folder")
+            return
+
         if item_type == "folder":
             self._open_folder(item_id)
             self.collection_widget.select_and_scroll_to(item_id, "folder")
@@ -1222,16 +1370,49 @@ class _TabControllerMixin:
         # 1. Update the tab bar label
         self._sync_name_across_tabs(item_type, item_id, new_name)
         # 2. Update the collection tree sidebar
-        self.collection_widget.update_item_name(item_id, item_type, new_name)
+        if item_type == "script":
+            self.local_scripts_widget.update_item_name(item_id, item_type, new_name)
+        else:
+            self.collection_widget.update_item_name(item_id, item_type, new_name)
 
     def _on_item_name_changed(self, item_type: str, item_id: int, new_name: str) -> None:
         """Sync open tab names when the tree emits a rename."""
         self._sync_name_across_tabs(item_type, item_id, new_name)
 
+    def _on_local_script_tree_rename(
+        self,
+        script_id: int,
+        basename: str,
+        language: str,
+        module_format: str,
+    ) -> None:
+        """Sync tab label, icon, and breadcrumb after an inline tree rename."""
+        display = script_display_name(basename, language, module_format)
+        for idx, ctx in self._tabs.items():
+            if ctx.tab_type != "local_script" or ctx.local_script_id != script_id:
+                continue
+            self._tab_bar.update_tab(
+                idx, method=language, name=basename, path=display, module_format=module_format
+            )
+            if ctx.local_script_editor is not None:
+                ctx.local_script_editor._pane.editor.refresh_script_module_format(module_format)
+            if idx == self._tab_bar.currentIndex():
+                self._breadcrumb_bar.update_last_segment_text(display)
+
     def _sync_name_across_tabs(self, item_type: str, item_id: int, new_name: str) -> None:
         """Update the tab label and breadcrumb for any open tab matching the item."""
         for idx, ctx in self._tabs.items():
-            if item_type == "request" and ctx.request_id == item_id:
+            if (
+                item_type == "script"
+                and ctx.tab_type == "local_script"
+                and ctx.local_script_id == item_id
+            ):
+                lang = self._local_script_tab_language(ctx)
+                display = script_display_name(new_name, lang)
+                self._tab_bar.update_tab(idx, name=new_name, path=display)
+                if idx == self._tab_bar.currentIndex():
+                    self._breadcrumb_bar.update_last_segment_text(display)
+            elif item_type == "request" and ctx.request_id == item_id:
                 self._tab_bar.update_tab(
                     idx,
                     name=new_name,
@@ -1294,3 +1475,58 @@ class _TabControllerMixin:
         indices = sorted(set(self._tabs) | set(self._deferred_tabs), reverse=True)
         for idx in indices:
             self._on_tab_close(idx)
+
+    def _on_save_local_script(self) -> None:
+        """Persist the active local-script editor buffer."""
+        ctx = self._current_tab_context()
+        if ctx is None or ctx.tab_type != "local_script" or ctx.local_script_editor is None:
+            return
+        if not ctx.local_script_editor.is_dirty():
+            return
+        if ctx.local_script_editor.save():
+            idx = self._tab_bar.currentIndex()
+            self._tab_bar.update_tab(idx, is_dirty=False)
+            if ctx.local_script_id is not None:
+                _, lang = ctx.local_script_editor._pane.get_content()
+                mod_fmt = ctx.local_script_editor._pane.editor.script_module_format
+                self.local_scripts_widget.update_script_metadata(
+                    ctx.local_script_id,
+                    language=lang,
+                    module_format=mod_fmt,
+                )
+
+    def _bind_local_script_autosave(self, editor: LocalScriptEditorWidget, script_id: int) -> None:
+        """Wire auto-save to refresh tree language icon when the buffer language changes."""
+
+        def _persist() -> None:
+            editor._persist_for_autosave()
+            _, lang = editor._pane.get_content()
+            mod_fmt = editor._pane.editor.script_module_format
+            self.local_scripts_widget.update_script_metadata(
+                script_id,
+                language=lang,
+                module_format=mod_fmt,
+            )
+
+        editor._pane.persist_content_callback = _persist
+
+    def _local_script_tab_language(self, ctx: TabContext) -> str:
+        """Return the current language code for an open local-script tab."""
+        if ctx.local_script_editor is not None:
+            _, lang = ctx.local_script_editor._pane.get_content()
+            return lang or "javascript"
+        return "javascript"
+
+    def _local_script_breadcrumbs_with_display(self, script_id: int) -> list[dict[str, Any]]:
+        """Breadcrumb segments with a file-style name on the script leaf."""
+        crumbs = LocalScriptService.get_script_breadcrumb(script_id)
+        data = LocalScriptService.get_script_load_dict(script_id)
+        lang = (data or {}).get("language", "javascript") or "javascript"
+        mod_fmt = (data or {}).get("module_format", "esm") or "esm"
+        out: list[dict[str, Any]] = []
+        for seg in crumbs:
+            entry = dict(seg)
+            if entry.get("type") == "script":
+                entry["name"] = script_display_name(str(entry.get("name", "")), lang, mod_fmt)
+            out.append(entry)
+        return out

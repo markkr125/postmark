@@ -125,7 +125,7 @@ def test_stop_during_pause_produces_no_error_row() -> None:
 
     reached = threading.Event()
     protocol = DebugProtocol()
-    protocol.set_breakpoints({0, 1})
+    protocol.set_breakpoints({0: None, 1: None})
     protocol.start(on_pause=lambda _info: reached.set())
 
     ctx = build_inline_context(script_type="pre_request")

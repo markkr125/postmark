@@ -61,7 +61,7 @@ def debug_execute(
                 "script": script,
                 "context": context,
                 "debug": {
-                    "breakpoints": sorted(protocol.breakpoints),
+                    "breakpoints": protocol.breakpoints,
                 },
             }
         )
@@ -183,20 +183,89 @@ def _debug_ipc_loop(
             local_vars = data.get("locals", {})
             env_changes = data.get("env_changes", {}) or {}
             global_changes = data.get("global_changes", {}) or {}
+            call_stack = data.get("call_stack", []) or []
+            if not isinstance(call_stack, list):
+                call_stack = []
+            selected_frame = int(data.get("selected_frame_index", 0))
 
-            should_continue = protocol.checkpoint(
-                pause_line,
-                source_name=source_name,
-                local_vars=local_vars,
-                script_type=script_type,
-                env_changes=env_changes,
-                global_changes=global_changes,
-            )
+            proc_io_lock = threading.Lock()
+
+            def evaluate(expr: str, frame_index: int, _lock: threading.Lock = proc_io_lock) -> str:
+                stdin = proc.stdin
+                stdout = proc.stdout
+                if stdin is None or stdout is None:
+                    return "<error>"
+                with _lock:
+                    try:
+                        stdin.write(
+                            (
+                                json.dumps({"op": "eval", "expr": expr, "frame": frame_index})
+                                + "\n"
+                            ).encode()
+                        )
+                        stdin.flush()
+                        resp_line = stdout.readline()
+                    except (BrokenPipeError, OSError):
+                        return "<error>"
+                if not resp_line:
+                    return "<error>"
+                try:
+                    resp: Any = json.loads(resp_line)
+                except json.JSONDecodeError:
+                    return "<error>"
+                if isinstance(resp, dict) and resp.get("__ipc__") == "evalResult":
+                    val = resp.get("value")
+                    return str(val) if val is not None else ""
+                return "<error>"
+
+            def frame_locals(
+                frame_index: int, _lock: threading.Lock = proc_io_lock
+            ) -> dict[str, Any]:
+                stdin = proc.stdin
+                stdout = proc.stdout
+                if stdin is None or stdout is None:
+                    return {}
+                with _lock:
+                    try:
+                        stdin.write(
+                            (json.dumps({"op": "getLocals", "frame": frame_index}) + "\n").encode()
+                        )
+                        stdin.flush()
+                        resp_line = stdout.readline()
+                    except (BrokenPipeError, OSError):
+                        return {}
+                if not resp_line:
+                    return {}
+                try:
+                    resp = json.loads(resp_line)
+                except json.JSONDecodeError:
+                    return {}
+                if isinstance(resp, dict) and resp.get("__ipc__") == "localsResult":
+                    lv = resp.get("locals", {})
+                    return lv if isinstance(lv, dict) else {}
+                return {}
+
+            protocol.set_evaluate_callback(evaluate)
+            protocol.set_frame_locals_callback(frame_locals)
+            try:
+                should_continue = protocol.checkpoint(
+                    pause_line,
+                    source_name=source_name,
+                    local_vars=local_vars,
+                    script_type=script_type,
+                    env_changes=env_changes,
+                    global_changes=global_changes,
+                    call_stack=call_stack,
+                    selected_frame_index=selected_frame,
+                )
+            finally:
+                protocol.set_evaluate_callback(None)
+                protocol.set_frame_locals_callback(None)
 
             command = protocol._step_mode.value if should_continue else "stop"
             cmd: dict[str, Any] = {
                 "command": command,
-                "breakpoints": sorted(protocol.breakpoints),
+                "breakpoints": protocol.breakpoints,
             }
 
             # Sandbox may have died (timeout, abort, crash) between read and

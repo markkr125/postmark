@@ -310,6 +310,12 @@ def build_global_qss(p: ThemePalette) -> str:
         max-width: 1px;
         min-width: 1px;
     }}
+    QFrame#scriptDebugToolbarSep {{
+        background: {p["border"]};
+        border: none;
+        max-height: 1px;
+        min-height: 1px;
+    }}
     QPushButton[objectName="iconDangerButton"] {{
         border: 1px solid {p["border"]};
         padding: 0px;
@@ -776,6 +782,31 @@ def build_global_qss(p: ThemePalette) -> str:
         font-size: 13px;
         color: {p["text"]};
     }}
+    QToolButton[objectName="sidebarSectionInfoButton"] {{
+        border: none;
+        background: transparent;
+        padding: 0px;
+        margin-left: 2px;
+        min-width: 20px;
+        max-width: 20px;
+        min-height: 20px;
+        max-height: 20px;
+        color: {p["text_muted"]};
+    }}
+    QToolButton[objectName="sidebarSectionInfoButton"]:hover {{
+        color: {p["accent"]};
+        background: {"rgba(255,255,255,0.06)" if p is DARK_PALETTE else "rgba(0,0,0,0.04)"};
+        border-radius: 4px;
+    }}
+    QLineEdit[objectName="scriptTreeRenameEdit"] {{
+        background: {p["input_bg"]};
+        color: {p["text"]};
+        border: 1px solid {p["accent"]};
+        border-radius: 2px;
+        padding: 0px 2px;
+        font-size: 12px;
+        selection-background-color: {p["accent"]};
+    }}
 
     /* ---- Environment sidebar (under collections) -------------- */
     QWidget#environmentSidebarPanel {{
@@ -853,6 +884,23 @@ def build_global_qss(p: ThemePalette) -> str:
         color: {p["danger"]};
     }}
 
+    /* ---- Local scripts sidebar (left flyout) ------------------ */
+    QWidget#localScriptsSidebarPanel {{
+        border: none;
+    }}
+    QScrollArea#localScriptsSidebarScroll {{
+        border: none;
+        background: transparent;
+    }}
+    QWidget#localScriptsSidebarList {{
+        background: {p["input_bg"]};
+        border: 1px solid {p["border"]};
+        border-radius: 0px;
+    }}
+    QWidget#localScriptsSidebarListBody {{
+        background: transparent;
+    }}
+
     /* ---- Badge (method badge in tree + tabs) -------------------- */
     QLabel[objectName="methodBadge"] {{
         font-size: {BADGE_FONT_SIZE}px;
@@ -900,6 +948,21 @@ def build_global_qss(p: ThemePalette) -> str:
         color: {p["text"]};
         padding: 0px;
     }}
+    QToolButton[objectName="infoPopupCloseButton"] {{
+        border: none;
+        background: transparent;
+        padding: 0px;
+        min-width: 20px;
+        max-width: 20px;
+        min-height: 20px;
+        max-height: 20px;
+        color: {p["text_muted"]};
+    }}
+    QToolButton[objectName="infoPopupCloseButton"]:hover {{
+        color: {p["text"]};
+        background: {"rgba(255,255,255,0.08)" if p is DARK_PALETTE else "rgba(0,0,0,0.06)"};
+        border-radius: 4px;
+    }}
     QLabel[objectName="infoPopupSeparator"] {{
         background: {p["border"]};
         max-height: 1px;
@@ -915,6 +978,10 @@ def build_global_qss(p: ThemePalette) -> str:
     QTreeWidget#debugVariablesTree {{
         border: none;
         background: {p["input_bg"]};
+        outline: none;
+    }}
+    QTreeWidget#debugVariablesTree::item {{
+        padding: 2px 6px 2px 2px;
     }}
     /* Section titles use bold ``setFont`` on top-level items (see ``debug_panel._add_section``). */
     QTreeWidget#debugVariablesTree::item:selected {{

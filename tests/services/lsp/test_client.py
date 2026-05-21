@@ -277,8 +277,9 @@ def test_formatting_returns_text_edit(qapp: QApplication, tmp_path: Path) -> Non
         },
     )
     transport, client = _start_client(scenario)
-    text = client.formatting("file:///tmp/x.js", 2).result(timeout_s=2.0)
-    assert text == "let x = 1;\n"
+    edits = client.formatting("file:///tmp/x.js", 2).result(timeout_s=2.0)
+    assert edits is not None
+    assert edits[0]["newText"] == "let x = 1;\n"
     client.stop()
 
 

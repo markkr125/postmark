@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QLabel, QPushButton
+from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QToolButton
 
 from ui.environments.environment_sidebar_panel import EnvironmentSidebarPanel
+from ui.widgets.sidebar_section_info import ENVIRONMENTS_INTRO, SidebarSectionInfoPopup
 
 
 def _name_labels(panel: EnvironmentSidebarPanel) -> list[QLabel]:
@@ -95,6 +96,31 @@ class TestEnvironmentSidebarPanel:
         qtbot.addWidget(panel)
         with qtbot.waitSignal(panel.manage_requested, timeout=1000):
             panel._manage_btn.click()
+
+    def test_environments_info_popup(self, qapp: QApplication, qtbot) -> None:
+        """Info button opens the environments explainer popup."""
+        panel = EnvironmentSidebarPanel()
+        qtbot.addWidget(panel)
+        panel.show()
+        qtbot.waitExposed(panel)
+
+        info_btn = panel.findChild(QToolButton, "sidebarSectionInfoButton")
+        assert info_btn is not None
+
+        panel._toggle_section_info()
+        popup = panel._info_popup
+        assert popup is not None
+        assert isinstance(popup, SidebarSectionInfoPopup)
+        assert popup.isVisible()
+
+        texts = [label.text() for label in popup.findChildren(QLabel)]
+        assert "Environments" in texts
+        assert ENVIRONMENTS_INTRO in texts
+
+        close_btn = popup.findChild(QToolButton, "infoPopupCloseButton")
+        assert close_btn is not None
+        close_btn.click()
+        assert not popup.isVisible()
 
     def test_empty_list_shows_hint_click_emits_manage(self, qapp: QApplication, qtbot) -> None:
         """With no environments, a hint is shown; clicking it matches **Manage**."""

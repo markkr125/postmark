@@ -7,6 +7,7 @@ application names match ``src/ui/styling/theme_manager`` (``Postmark``).
 
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import os
@@ -29,6 +30,8 @@ _SETTINGS_APP = "Postmark"
 _KEY_DENO = "scripting/deno_path"
 _KEY_PYTHON = "scripting/python_path"
 _KEY_LSP_ENABLED = "scripting/lsp_enabled"
+_KEY_NPM_TYPE_RESOLUTION = "scripting/npm_type_resolution"
+_KEY_FORMAT_ON_SAVE = "scripting/format_on_save"
 # Private package registries (npm + JSR share `.npmrc` mechanics).
 _KEY_REGISTRIES = "scripting/registries/entries"
 _KEY_DEFAULT_NPM = "scripting/registries/default_npm"
@@ -62,6 +65,41 @@ class RuntimePathStatus(TypedDict):
     available: bool
     version: str
     error: str
+
+
+@functools.lru_cache(maxsize=4)
+def _validate_deno_cached(path: str, mtime: float) -> RuntimePathStatus:
+    """Spawn ``deno --version`` once per (path, mtime) tuple.
+
+    ``mtime`` is part of the key so updating the binary on disk invalidates
+    the entry without manual intervention. Bounded to 4 entries — the typical
+    set is just one path per session.
+    """
+    try:
+        result = subprocess.run(
+            [path, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=_VALIDATE_DENO_TIMEOUT_S,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {
+            "path": path,
+            "available": False,
+            "version": "",
+            "error": f"Failed to run Deno: {exc!s}",
+        }
+    if result.returncode != 0:
+        err = (result.stderr or result.stdout or "").strip()
+        return {
+            "path": path,
+            "available": False,
+            "version": "",
+            "error": err or "deno --version failed.",
+        }
+    out = (result.stdout or result.stderr or "").strip()
+    first = out.splitlines()[0] if out else "deno"
+    return {"path": path, "available": True, "version": first, "error": ""}
 
 
 class RegistryEntry(TypedDict):
@@ -225,10 +263,41 @@ class RuntimeSettings:
         s.setValue(_KEY_LSP_ENABLED, enabled)
 
     @staticmethod
+    def enable_npm_type_resolution() -> bool:
+        """Whether Deno LSP resolves npm/jsr types for ``pm.require`` literals."""
+        s = _get_settings()
+        raw = s.value(_KEY_NPM_TYPE_RESOLUTION, True)
+        if isinstance(raw, str):
+            return raw.lower() not in {"0", "false", "no", "off", ""}
+        return bool(raw)
+
+    @staticmethod
+    def set_enable_npm_type_resolution(enabled: bool) -> None:
+        """Persist npm/jsr ``pm.require`` type resolution for script LSP."""
+        s = _get_settings()
+        s.setValue(_KEY_NPM_TYPE_RESOLUTION, enabled)
+
+    @staticmethod
+    def format_on_save() -> bool:
+        """Whether script editors auto-format via LSP after idle typing."""
+        s = _get_settings()
+        raw = s.value(_KEY_FORMAT_ON_SAVE, False)
+        if isinstance(raw, str):
+            return raw.lower() not in {"0", "false", "no", "off", ""}
+        return bool(raw)
+
+    @staticmethod
+    def set_format_on_save(enabled: bool) -> None:
+        """Persist format-on-save for script editors."""
+        s = _get_settings()
+        s.setValue(_KEY_FORMAT_ON_SAVE, enabled)
+
+    @staticmethod
     def set_deno_path(path: str) -> None:
         """Persist custom Deno path to QSettings (apply from Settings UI)."""
         s = _get_settings()
         s.setValue(_KEY_DENO, path)
+        _validate_deno_cached.cache_clear()
 
     @staticmethod
     def set_python_path(path: str) -> None:
@@ -241,6 +310,7 @@ class RuntimeSettings:
         """Remove ``scripting/deno_path`` so auto-detection applies."""
         s = _get_settings()
         s.remove(_KEY_DENO)
+        _validate_deno_cached.cache_clear()
 
     @staticmethod
     def clear_python_path() -> None:
@@ -497,7 +567,15 @@ class RuntimeSettings:
 
     @staticmethod
     def validate_deno(path: str | None) -> RuntimePathStatus:
-        """Run ``deno --version`` and report availability."""
+        """Run ``deno --version`` and report availability.
+
+        Cached per (path, mtime) so repeated probes from hot paths like
+        ``py_runtime._use_pyodide()`` do not respawn ``deno --version``
+        on every script invocation. The cache invalidates automatically
+        when the binary on disk changes, and explicitly when the user
+        changes the configured path via :meth:`set_deno_path` /
+        :meth:`clear_deno_path`.
+        """
         if path is None or not str(path).strip():
             return {
                 "path": "",
@@ -514,30 +592,10 @@ class RuntimeSettings:
                 "error": "Path is missing or not executable on this system.",
             }
         try:
-            result = subprocess.run(
-                [p, "--version"],
-                capture_output=True,
-                text=True,
-                timeout=_VALIDATE_DENO_TIMEOUT_S,
-            )
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            return {
-                "path": p,
-                "available": False,
-                "version": "",
-                "error": f"Failed to run Deno: {exc!s}",
-            }
-        if result.returncode != 0:
-            err = (result.stderr or result.stdout or "").strip()
-            return {
-                "path": p,
-                "available": False,
-                "version": "",
-                "error": err or "deno --version failed.",
-            }
-        out = (result.stdout or result.stderr or "").strip()
-        first = out.splitlines()[0] if out else "deno"
-        return {"path": p, "available": True, "version": first, "error": ""}
+            mtime = os.path.getmtime(p)
+        except OSError:
+            mtime = 0.0
+        return _validate_deno_cached(p, mtime)
 
     @staticmethod
     def validate_python(path: str | None) -> RuntimePathStatus:

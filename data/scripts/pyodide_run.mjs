@@ -9,8 +9,8 @@
 // 4. Run data/scripts/pm_bootstrap.py (sets pm, init_pm, run_user_script).
 // 5. Stream sendRequest IPC on stdout / read responses on stdin (node:fs sync).
 
-import { createRequire } from "node:module";
 import { readFileSync, readSync, writeSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -188,6 +188,7 @@ async function main() {
   await pyodide.runPythonAsync(`__pm_context_json = ${JSON.stringify(ctxStr)}`);
   await pyodide.runPythonAsync(bootstrapSrc);
   await pyodide.runPythonAsync("init_pm()");
+  await pyodide.runPythonAsync("__pm_user_script_line0 = 0");
 
   try {
     await pyodide.runPythonAsync(`run_user_script(${JSON.stringify(inp.user_script || "")})`);

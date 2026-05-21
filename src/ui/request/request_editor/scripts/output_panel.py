@@ -8,16 +8,19 @@ editor; live vs manual on request tabs) beside Output and Problems.
 
 from __future__ import annotations
 
-import contextlib
 import html
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from services.environment_service import VariableDetail
+    from services.scripting import ScriptInput
+    from ui.request.request_editor.scripts.lsp_problems_tab import ScriptLspProblemsTab
+    from ui.sidebar.debug_call_stack_panel import CallStackPanel
+    from ui.sidebar.debug_panel import DebugVariablesPanel
+    from ui.sidebar.debug_watch_panel import WatchPanel
 
-from PySide6.QtCore import QObject, Qt, QThread, Slot
+from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
 from PySide6.QtWidgets import (
-    QHBoxLayout,
     QLabel,
     QPushButton,
     QScrollArea,
@@ -27,24 +30,50 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from services.scripting.debug import DebugPauseInfo, DebugProtocol
-from ui.sidebar.debug_panel import DebugVariablesPanel
-from ui.request.request_editor.scripts.lsp_problems_tab import ScriptLspProblemsTab
+from services.scripting.debug import DebugProtocol
+from ui.request.request_editor.data_runner.panel import DataRunnerPanel
 from ui.request.request_editor.scripts.mock_response_tab import ScriptMockResponseTab
-from ui.styling.icons import phi
-from ui.styling.theme import COLOR_ACCENT, COLOR_DANGER, COLOR_SUCCESS, COLOR_WARNING
+from ui.request.request_editor.scripts.output_iterations_tab import ScriptOutputIterationsTab
+from ui.styling.theme import COLOR_DANGER
 from ui.widgets.key_value_table import KeyValueTableWidget
+from ui.widgets.code_editor.editor_widget import CodeEditorWidget
+from ui.request.request_editor.scripts.output_console_tab import (
+    add_console_row,
+    inline_log_annotations_from_console_logs as inline_log_annotations_from_console_logs,
+)
+from ui.request.request_editor.scripts.output_test_results_tab import (
+    add_test_row as _add_test_row_impl,
+    add_test_summary as _add_test_summary_impl,
+    refresh_test_rows as _refresh_test_rows_impl,
+)
+from ui.request.request_editor.scripts.output_debug_bar import (
+    hide_debug_controls as _hide_debug_controls_impl,
+    set_debug_protocol as _set_debug_protocol_impl,
+    show_debug_controls as _show_debug_controls_impl,
+)
+from ui.request.request_editor.scripts.output_panel_build import (
+    build_ui as _build_ui_impl,
+    show_idle_hint as _show_idle_hint_impl,
+)
+from ui.request.request_editor.scripts.output_script_runner import (
+    cleanup_runner as _cleanup_runner_impl,
+    on_debug_worker_error as _on_debug_worker_error_impl,
+    on_debug_worker_finished as _on_debug_worker_finished_impl,
+    on_thread_finished as _on_thread_finished_impl,
+    on_worker_error as _on_worker_error_impl,
+    on_worker_finished as _on_worker_finished_impl,
+    run_script as _run_script_impl,
+    run_script_chain as _run_script_chain_impl,
+    run_script_debug as _run_script_debug_impl,
+    run_script_iterations as _run_script_iterations_impl,
+    stop_worker_thread as _stop_worker_thread_impl,
+)
+from ui.request.request_editor.scripts.output_variable_section import (
+    add_variable_section as _add_variable_section_impl,
+)
 
-# Matches the send-pipeline QThread wait budget in tab_manager.
-_THREAD_WAIT_MS = 3000
-
-# Console log level → colour mapping.
-_LOG_COLORS: dict[str, str] = {
-    "log": "",  # default text colour
-    "info": COLOR_ACCENT,
-    "warn": COLOR_WARNING,
-    "error": COLOR_DANGER,
-}
+# Call stack, variables, and watch panels (see ``build_debug_variables``).
+_OUTPUT_DEBUG_ROW_COUNT = 3
 
 
 class ScriptOutputPanel(QWidget):
@@ -53,6 +82,18 @@ class ScriptOutputPanel(QWidget):
     Post-response panels add **Mock response**, **Output**, and **Problems**
     tabs (mock tab: status, headers table, JSON body editor); pre-request panels show Output and Problems only.
     """
+
+    rerun_test_requested = Signal(str)
+
+    _problems_tab: ScriptLspProblemsTab
+    _script_output_tabs: QTabWidget
+    _elapsed_label: QLabel
+    _timing_row: QWidget
+    _results_layout: QVBoxLayout
+    _results_scroll: QScrollArea
+    _debug_call_stack: CallStackPanel
+    _debug_variables: DebugVariablesPanel
+    _debug_watch: WatchPanel
 
     def __init__(
         self,
@@ -84,118 +125,34 @@ class ScriptOutputPanel(QWidget):
         self._worker_thread: QThread | None = None
         self._current_worker: QObject | None = None
         self._is_inline_debug = False
+        self._last_test_results: list[dict[str, Any]] = []
+        self._test_row_widgets: dict[str, QWidget] = {}
+        self._export_suite_name = "(inline run)"
+        self._pending_test_filter: str | None = None
+        self._data_runner: DataRunnerPanel | None = None
+        self._iterations_tab: ScriptOutputIterationsTab | None = None
+        self._iteration_run_active = False
+        self._data_run_host_callback: Any | None = None
+        self._bound_editor: CodeEditorWidget | None = None
         self._build_ui()
 
     # -- UI construction -----------------------------------------------
 
     def _build_ui(self) -> None:
         """Build the panel layout."""
-        root = QVBoxLayout(self)
-        root.setContentsMargins(0, 4, 0, 0)
-        root.setSpacing(4)
+        _build_ui_impl(self)
 
-        # Tab strip: Output, Problems, and (post-response only) Mock response.
-        self._build_output_section(root)
-
-        # Visible before any run so users discover Run / Ctrl+Enter.
-        self._show_idle_hint()
-
-        # Minimum height for the whole panel so the splitter allocates a
-        # meaningful output band (QSplitter::setStretchFactor does not set
-        # the initial handle position).
-        if self._script_type == "test":
-            self.setMinimumHeight(280)
-        else:
-            self.setMinimumHeight(240)
-
-    def _build_output_section(self, parent_layout: QVBoxLayout) -> None:
-        """Tab strip: Output, Problems, and Mock response (post-response only)."""
-        tabs = QTabWidget()
-        tabs.setObjectName("scriptOutputTabs")
-        tabs.setCursor(Qt.CursorShape.PointingHandCursor)
-
-        output_page = QWidget()
-        output_page.setObjectName("scriptOutputSection")
-        col = QVBoxLayout(output_page)
-        col.setContentsMargins(0, 2, 0, 0)
-        col.setSpacing(2)
-
-        self._build_output_timing_row(col)
-        self._build_results_area(col)
-
-        tabs.addTab(output_page, "Output")
-
-        self._problems_tab = ScriptLspProblemsTab(tabs)
-        tabs.addTab(self._problems_tab, "Problems (0)")
-
-        if self._script_type == "test":
-            self._mock_response_tab = ScriptMockResponseTab(host_kind=self._host_kind, parent=tabs)
-            tabs.addTab(self._mock_response_tab, "Mock response")
-            self._response_source_combo = self._mock_response_tab.response_source_combo
-            self._live_response_hint = self._mock_response_tab.live_response_hint
-            self._manual_response_container = self._mock_response_tab.manual_response_container
-            self._status_spin = self._mock_response_tab.status_spin
-            self._mock_headers_table = self._mock_response_tab.headers_table
-            self._response_body_edit = self._mock_response_tab.response_body_edit
-
-        self._script_output_tabs = tabs
-        self._problems_tab.problem_count_changed.connect(self._update_problems_tab_label)
-        self._update_problems_tab_label(self._problems_tab.diagnostic_count())
-
-        parent_layout.addWidget(tabs, 1)
-
-    def _update_problems_tab_label(self, count: int) -> None:
-        """Keep the Problems tab title in sync with the LSP diagnostic count."""
-        tabs = getattr(self, "_script_output_tabs", None)
-        if tabs is None:
-            return
-        idx = tabs.indexOf(self._problems_tab)
-        if idx < 0:
-            return
-        tabs.setTabText(idx, f"Problems ({count})")
-
-    def _build_debug_variables(self, parent_layout: QVBoxLayout) -> None:
-        """Variable inspector (hidden until a debug session pauses)."""
-        self._debug_variables = DebugVariablesPanel(self)
-        self._debug_variables.setSizePolicy(
-            QSizePolicy.Policy.Preferred,
-            QSizePolicy.Policy.Expanding,
-        )
-        self._debug_variables.hide()
-        # Large stretch vs trailing addStretch(1) so almost all spare height goes
-        # to the inspector (``DebugVariablesPanel`` fills with a single ``QTreeWidget``).
-        parent_layout.addWidget(self._debug_variables, 100)
+    def set_debug_protocol(self, protocol: DebugProtocol | None) -> None:
+        """Attach the active :class:`DebugProtocol` for watch / frame selection."""
+        _set_debug_protocol_impl(self, protocol)
 
     def show_debug_controls(self, info: dict[str, Any]) -> None:
-        """Show the debug variable list for the current pause payload.
-
-        Step/continue/stop controls now live in the editor toolbar
-        (see :class:`_ScriptsMixin`); this panel only surfaces the
-        variable inspector here.
-        """
-        self._clear_result_rows()
-        self._elapsed_label.setText("")
-        self._timing_row.hide()
-        pause: DebugPauseInfo = cast(DebugPauseInfo, info)
-        self._debug_variables.update_pause(pause)
-        self._debug_variables.setVisible(True)
-        self._schedule_script_split_line_refresh_on_host()
+        """Show the debug variable list for the current pause payload."""
+        _show_debug_controls_impl(self, info)
 
     def hide_debug_controls(self) -> None:
-        """Hide the debug variable list."""
-        self._debug_variables.set_idle()
-        self._debug_variables.hide()
-        self._schedule_script_split_line_refresh_on_host()
-
-    def _schedule_script_split_line_refresh_on_host(self) -> None:
-        """Reposition the scripts full-width split line after output-pane layout changes."""
-        w: QWidget | None = self
-        while w is not None:
-            sched = getattr(w, "_schedule_refresh_script_split_full_width_line", None)
-            if callable(sched):
-                sched()
-                return
-            w = w.parentWidget()
+        """Hide the debug inspector sections."""
+        _hide_debug_controls_impl(self)
 
     def response_source_mode(self) -> str:
         """Return selected test response source: ``live`` or ``manual``."""
@@ -215,84 +172,99 @@ class ScriptOutputPanel(QWidget):
             return
         self._mock_response_tab.set_variable_map(variables)
 
-    def _build_output_timing_row(self, parent_layout: QVBoxLayout) -> None:
-        """Right-aligned run timing — hidden until a run supplies elapsed ms."""
-        self._timing_row = QWidget()
-        row = QHBoxLayout(self._timing_row)
-        row.setContentsMargins(0, 0, 0, 0)
-
-        row.addStretch()
-
-        self._elapsed_label = QLabel()
-        self._elapsed_label.setObjectName("mutedLabel")
-        row.addWidget(self._elapsed_label)
-
-        parent_layout.addWidget(self._timing_row)
-        self._timing_row.hide()
-
-    def _build_results_area(self, parent_layout: QVBoxLayout) -> None:
-        """Build the scrollable body: variable inspector, dynamic rows, stretch.
-
-        The first layout item is always :attr:`_debug_variables` (hidden
-        when no debug session is paused).  Step controls live in the
-        editor toolbar, not here.  Hint text and console log rows are
-        inserted at index 1+ so the variable inspector stays pinned to
-        the top of the output box during a debug pause.
-        """
-        scroll = QScrollArea()
-        scroll.setObjectName("scriptOutputScroll")
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-        scroll.setMinimumHeight(180)
-        scroll.setSizePolicy(
-            QSizePolicy.Policy.Preferred,
-            QSizePolicy.Policy.Expanding,
-        )
-        self._results_scroll = scroll
-
-        container = QWidget()
-        container.setObjectName("scriptOutputInner")
-        self._results_layout = QVBoxLayout(container)
-        self._results_layout.setContentsMargins(4, 2, 4, 2)
-        self._results_layout.setSpacing(2)
-
-        self._build_debug_variables(self._results_layout)
-        # When the inspector is visible it should win almost all extra height; when
-        # hidden, the trailing stretch absorbs flex so log rows still breathe.
-        self._results_layout.addStretch(1)
-
-        scroll.setWidget(container)
-        parent_layout.addWidget(scroll, 1)
-
     def _show_idle_hint(self) -> None:
         """Show placeholder text when there is no output yet (or after clear)."""
-        if self._script_type == "pre_request":
-            msg = "Execute the script with the Run button or Ctrl+Enter to see output here."
-        elif self._host_kind == "request":
-            msg = (
-                "Execute the script with the Run button or Ctrl+Enter — output and tests "
-                "use the mock body from the Mock response tab (when using manual mock)."
-            )
-        else:
-            msg = (
-                "Execute the script with the Run button or Ctrl+Enter — output and tests "
-                "use the mock body from the Mock response tab for pm.response."
-            )
-        hint = QLabel(f"<span style='font-size:12px;'>{html.escape(msg)}</span>")
-        hint.setObjectName("mutedLabel")
-        hint.setTextFormat(Qt.TextFormat.RichText)
-        hint.setWordWrap(True)
-        self._insert_row(hint)
+        _show_idle_hint_impl(self)
 
     # -- Public API ----------------------------------------------------
 
     if TYPE_CHECKING:
         from services.scripting import ScriptInput
-        from ui.widgets.code_editor.editor_widget import CodeEditorWidget
 
     def bind_script_editor(self, editor: CodeEditorWidget) -> None:
         """Wire language-server diagnostics into the Problems tab for *editor*."""
+        self._bound_editor = editor
         self._problems_tab.set_editor(editor)
+
+    def clear_inline_log_annotations(self) -> None:
+        """Clear inline console decorations on the bound script editor."""
+        if self._bound_editor is not None:
+            self._bound_editor.clear_inline_log_annotations()
+
+    def apply_inline_log_annotations(self, output: dict[str, Any]) -> None:
+        """Show grouped console output on the bound editor after a run."""
+        if self._bound_editor is None:
+            return
+        logs = output.get("console_logs", [])
+        if not isinstance(logs, list):
+            return
+        self._bound_editor.set_inline_log_annotations(
+            inline_log_annotations_from_console_logs(logs)
+        )
+
+    def bind_data_run_callback(self, callback: Any) -> None:
+        """Wire :class:`DataRunnerPanel` **Run iterations** to *callback*."""
+        if self._data_runner is None:
+            return
+        self._data_runner.run_requested.connect(callback)
+
+    def run_script_iterations(
+        self,
+        *,
+        script: str,
+        language: str,
+        context: ScriptInput,
+        iteration_data: list[dict[str, Any]],
+        iteration_count: int,
+        run_btn: QPushButton | None = None,
+        debug_btn: QPushButton | None = None,
+    ) -> None:
+        """Launch a background thread to run *script* once per data row."""
+        _run_script_iterations_impl(
+            self,
+            script=script,
+            language=language,
+            context=context,
+            iteration_data=iteration_data,
+            iteration_count=iteration_count,
+            run_btn=run_btn,
+            debug_btn=debug_btn,
+        )
+
+    @Slot(int, object, float)
+    def _on_iteration_finished(self, index: int, output: dict, elapsed_ms: float) -> None:
+        """Stream one iteration result into the matrix tab."""
+        if self._iterations_tab is not None:
+            self._iterations_tab.update_iteration(index, output)
+
+    @Slot(object, float)
+    def _on_iterations_worker_finished(self, _outputs: object, _elapsed_ms: float) -> None:
+        """Handle completion of a multi-iteration inline run."""
+        self._iteration_run_active = False
+        _stop_worker_thread_impl(self)
+
+    def _show_iteration_drilldown(self, index: int) -> None:
+        """Switch to Output and show the full result for one iteration."""
+        if self._iterations_tab is None:
+            return
+        output = self._iterations_tab.iteration_result(index)
+        if output is None:
+            return
+        tabs = getattr(self, "_script_output_tabs", None)
+        if tabs is not None:
+            output_page = tabs.widget(0)
+            if output_page is not None:
+                tabs.setCurrentWidget(output_page)
+        self.show_results(output, 0.0)
+
+    def _rerun_failed_iterations(self, filtered_rows: list[dict[str, Any]]) -> None:
+        """Re-run only the failed data rows (handled by the host callback)."""
+        if self._data_run_host_callback is not None:
+            self._data_run_host_callback(filtered_rows, len(filtered_rows))
+
+    def set_data_rerun_callback(self, callback: Any) -> None:
+        """Set ``(iteration_data, count) -> None`` for re-run failed only."""
+        self._data_run_host_callback = callback
 
     def run_script(
         self,
@@ -302,36 +274,18 @@ class ScriptOutputPanel(QWidget):
         context: ScriptInput,
         run_btn: QPushButton | None = None,
         debug_btn: QPushButton | None = None,
+        test_name_filter: str | None = None,
     ) -> None:
-        """Launch a background thread to execute *script* and show results.
-
-        Disables *run_btn* and *debug_btn* (when provided) for this panel
-        while the worker is active and re-enables them on completion.
-        """
-        from ui.request.request_editor.scripts.script_run_worker import ScriptRunWorker
-
-        if self._worker_thread is not None and self._worker_thread.isRunning():
-            return
-
-        self._busy_buttons = [b for b in (run_btn, debug_btn) if b is not None]
-        for b in self._busy_buttons:
-            b.setEnabled(False)
-
-        thread = QThread()
-        worker = ScriptRunWorker()
-        worker.set_params(script=script, language=language, context=context)
-        worker.moveToThread(thread)
-
-        # Connect to @Slot methods (not closures) so Qt can resolve
-        # receiver thread affinity and marshal to the main thread.
-        worker.finished.connect(self._on_worker_finished)
-        worker.error.connect(self._on_worker_error)
-        thread.finished.connect(self._on_thread_finished)
-        thread.started.connect(worker.run)
-
-        self._worker_thread = thread
-        self._current_worker = worker
-        thread.start()
+        """Launch a background thread to execute *script* and show results."""
+        _run_script_impl(
+            self,
+            script=script,
+            language=language,
+            context=context,
+            run_btn=run_btn,
+            debug_btn=debug_btn,
+            test_name_filter=test_name_filter,
+        )
 
     def run_script_chain(
         self,
@@ -342,37 +296,15 @@ class ScriptOutputPanel(QWidget):
         run_btn: QPushButton | None = None,
         debug_btn: QPushButton | None = None,
     ) -> None:
-        """Run an inherited script chain (collection→folder→request) inline.
-
-        Uses :class:`~services.scripting.ScriptEngine` chain execution so
-        variable changes propagate between scripts in the same way they do
-        during a real Send. ``script_type`` is ``"pre_request"`` or ``"test"``
-        — the engine handles the order; this method just dispatches.
-        """
-        from ui.request.request_editor.scripts.script_run_worker import (
-            ScriptChainRunWorker,
+        """Run an inherited script chain inline."""
+        _run_script_chain_impl(
+            self,
+            chain=chain,
+            script_type=script_type,
+            context=context,
+            run_btn=run_btn,
+            debug_btn=debug_btn,
         )
-
-        if self._worker_thread is not None and self._worker_thread.isRunning():
-            return
-
-        self._busy_buttons = [b for b in (run_btn, debug_btn) if b is not None]
-        for b in self._busy_buttons:
-            b.setEnabled(False)
-
-        thread = QThread()
-        worker = ScriptChainRunWorker()
-        worker.set_params(chain=chain, script_type=script_type, context=context)
-        worker.moveToThread(thread)
-
-        worker.finished.connect(self._on_worker_finished)
-        worker.error.connect(self._on_worker_error)
-        thread.finished.connect(self._on_thread_finished)
-        thread.started.connect(worker.run)
-
-        self._worker_thread = thread
-        self._current_worker = worker
-        thread.start()
 
     def run_script_debug(
         self,
@@ -386,110 +318,45 @@ class ScriptOutputPanel(QWidget):
         debug_btn: QPushButton | None = None,
     ) -> None:
         """Run *script* with :class:`DebugProtocol` and show output on completion."""
-        from ui.request.request_editor.scripts.script_run_worker import ScriptDebugWorker
-
-        if self._worker_thread is not None and self._worker_thread.isRunning():
-            return
-
-        self._busy_buttons = [b for b in (run_btn, debug_btn) if b is not None]
-        for b in self._busy_buttons:
-            b.setEnabled(False)
-        self._is_inline_debug = True
-
-        thread = QThread()
-        worker = ScriptDebugWorker()
-        worker.set_params(
+        _run_script_debug_impl(
+            self,
             script=script,
             language=language,
             context=context,
             protocol=protocol,
             script_type=script_type,
+            run_btn=run_btn,
+            debug_btn=debug_btn,
         )
-        worker.moveToThread(thread)
-
-        main = self.window()
-        on_pause = getattr(main, "_on_debug_paused", None)
-        if callable(on_pause):
-            worker.debug_paused.connect(on_pause)
-
-        worker.finished.connect(self._on_debug_worker_finished)
-        worker.error.connect(self._on_debug_worker_error)
-        thread.finished.connect(self._on_thread_finished)
-        thread.started.connect(worker.run)
-
-        self._worker_thread = thread
-        self._current_worker = worker
-        thread.start()
 
     @Slot(object, float)
     def _on_debug_worker_finished(self, output: dict, elapsed_ms: float) -> None:
         """Handle successful inline debug run."""
-        self.show_results(output, elapsed_ms)
-        self._end_inline_debug_if_current()
-        self._stop_worker_thread()
+        _on_debug_worker_finished_impl(self, output, elapsed_ms)
 
     @Slot(str)
     def _on_debug_worker_error(self, msg: str) -> None:
         """Handle inline debug run error."""
-        self.show_error(msg)
-        self._end_inline_debug_if_current()
-        self._stop_worker_thread()
-
-    def _end_inline_debug_if_current(self) -> None:
-        if not self._is_inline_debug:
-            return
-        self._is_inline_debug = False
-        end = getattr(self.window(), "end_inline_script_debug", None)
-        if callable(end):
-            end()
+        _on_debug_worker_error_impl(self, msg)
 
     @Slot(object, float)
     def _on_worker_finished(self, output: dict, elapsed_ms: float) -> None:
         """Handle successful script execution on the main thread."""
-        self.show_results(output, elapsed_ms)
-        self._stop_worker_thread()
+        _on_worker_finished_impl(self, output, elapsed_ms)
 
     @Slot(str)
     def _on_worker_error(self, msg: str) -> None:
         """Handle script execution error on the main thread."""
-        self.show_error(msg)
-        self._stop_worker_thread()
-
-    def _stop_worker_thread(self) -> None:
-        """Quit and join the worker QThread, if any."""
-        thread = self._worker_thread
-        if thread is None:
-            return
-        thread.quit()
-        thread.wait(_THREAD_WAIT_MS)
+        _on_worker_error_impl(self, msg)
 
     def cleanup(self) -> None:
-        """Tear down any running script/debug worker before the app closes.
-
-        Called from ``MainWindow.closeEvent`` so a worker still running
-        at close does not pin the process (non-daemon timers + blocked
-        subprocess reads).
-        """
-        worker = self._current_worker
-        if worker is not None:
-            protocol = getattr(worker, "_protocol", None)
-            if protocol is not None:
-                with contextlib.suppress(Exception):
-                    protocol.stop()
-        self._stop_worker_thread()
+        """Tear down any running script/debug worker before the app closes."""
+        _cleanup_runner_impl(self)
 
     @Slot()
     def _on_thread_finished(self) -> None:
         """Clean up worker and thread after completion."""
-        if self._current_worker:
-            self._current_worker.deleteLater()
-            self._current_worker = None
-        if self._worker_thread:
-            self._worker_thread.deleteLater()
-            self._worker_thread = None
-        for b in self._busy_buttons:
-            b.setEnabled(True)
-        self._busy_buttons = []
+        _on_thread_finished_impl(self)
 
     def show_results(
         self,
@@ -497,45 +364,102 @@ class ScriptOutputPanel(QWidget):
         elapsed_ms: float,
     ) -> None:
         """Populate the panel with *output* from a script run."""
+        test_results: list[dict[str, Any]] = output.get("test_results", [])
+        filt = self._pending_test_filter
+        self._pending_test_filter = None
+        if filt and self._last_test_results:
+            merged = list(self._last_test_results)
+            new_by_name = {str(r.get("name", "")): r for r in test_results}
+            merged = [new_by_name.get(str(r.get("name", "")), r) for r in merged]
+            known = {str(r.get("name", "")) for r in merged}
+            for r in test_results:
+                if str(r.get("name", "")) not in known:
+                    merged.append(r)
+            _refresh_test_rows_impl(self, merged, elapsed_ms=elapsed_ms)
+            return
+
         self._clear_result_rows()
         self._elapsed_label.setText(f"{elapsed_ms:.0f} ms")
         self._timing_row.show()
 
-        # 1. Console logs.
         logs = output.get("console_logs", [])
         for log in logs:
             self._add_console_row(log)
 
-        # 2. Test results.
-        test_results: list[dict[str, Any]] = output.get("test_results", [])
+        self._last_test_results = list(test_results)
+        self._test_row_widgets.clear()
         for result in test_results:
             self._add_test_row(result)
 
-        # 3. Summary line.
         if test_results:
             self._add_test_summary(test_results)
 
-        # 4. Variable changes.
         var_changes: dict[str, str] = output.get("variable_changes", {})
         if var_changes:
             self._add_variable_section(var_changes)
 
-        # 5. Runtime-error-only output with no logs/tests — show message.
         if not logs and not test_results and not var_changes:
             note = QLabel("<span style='font-size:12px;'>Script executed with no output.</span>")
             note.setObjectName("mutedLabel")
             note.setTextFormat(Qt.TextFormat.RichText)
             self._insert_row(note)
 
+        self.apply_inline_log_annotations(output)
         self.setVisible(True)
+
+    def _export_results_json(self) -> None:
+        """Save last test results as JSON."""
+        from PySide6.QtWidgets import QFileDialog
+
+        from ui.request.request_editor.scripts.test_export import export_test_results_json
+
+        if not self._last_test_results:
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export test results",
+            f"{self._export_suite_name}.json",
+            "JSON (*.json)",
+        )
+        if not path:
+            return
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(export_test_results_json(self._last_test_results))
+
+    def _export_results_junit(self) -> None:
+        """Save last test results as JUnit XML."""
+        from PySide6.QtWidgets import QFileDialog
+
+        from ui.request.request_editor.scripts.test_export import export_test_results_junit
+
+        if not self._last_test_results:
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export test results",
+            f"{self._export_suite_name}.xml",
+            "JUnit XML (*.xml)",
+        )
+        if not path:
+            return
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(
+                export_test_results_junit(
+                    self._last_test_results,
+                    suite_name=self._export_suite_name,
+                )
+            )
 
     def show_error(self, message: str) -> None:
         """Display a single error message."""
+        from services.scripting.es_module_rules import strip_ansi
+
         self._clear_result_rows()
         self._elapsed_label.setText("")
         self._timing_row.hide()
 
-        row = QLabel(f"<span style='color:{COLOR_DANGER};'>{html.escape(message)}</span>")
+        clean = strip_ansi(message)
+        row = QLabel(f"<span style='color:{COLOR_DANGER};'>{html.escape(clean)}</span>")
         row.setWordWrap(True)
         row.setTextFormat(Qt.TextFormat.RichText)
         self._insert_row(row)
@@ -546,7 +470,9 @@ class ScriptOutputPanel(QWidget):
         self._clear_result_rows()
         self._elapsed_label.setText("")
         self._timing_row.hide()
-        self._show_idle_hint()
+        if self._iterations_tab is not None:
+            self._iterations_tab.clear()
+        _show_idle_hint_impl(self)
 
     def get_response_data(self) -> dict[str, Any]:
         """Return mock response data from the input fields.
@@ -584,12 +510,10 @@ class ScriptOutputPanel(QWidget):
             label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
 
     def _clear_result_rows(self) -> None:
-        """Remove dynamic rows: keep debug variables and trailing stretch."""
+        """Remove dynamic result rows; keep debug inspector widgets and stretch."""
         layout = self._results_layout
-        # [0]: debug variables. Last: stretch. [1..-2]: hint / log rows.
-        # Stop at count 2 so we never remove the stretch.
-        while layout.count() > 2:
-            item = layout.takeAt(1)
+        while layout.count() > _OUTPUT_DEBUG_ROW_COUNT + 1:
+            item = layout.takeAt(_OUTPUT_DEBUG_ROW_COUNT)
             if item is not None:
                 w = item.widget()
                 if w is not None:
@@ -597,110 +521,20 @@ class ScriptOutputPanel(QWidget):
 
     def _add_console_row(self, log: dict[str, Any]) -> None:
         """Add a single console-log row."""
-        level = log.get("level", "log")
-        message = log.get("message", "")
-        color = _LOG_COLORS.get(level, "")
-        style = f"color:{color};" if color else ""
-
-        # Prefix for warn/error.
-        prefix = ""
-        if level == "warn":
-            prefix = "\u26a0 "
-        elif level == "error":
-            prefix = "\u2716 "
-
-        label = QLabel(
-            f"<span style='{style}font-size:12px;'>{prefix}{html.escape(message)}</span>"
-        )
-        label.setTextFormat(Qt.TextFormat.RichText)
-        label.setWordWrap(True)
-        self._insert_row(label)
+        add_console_row(self, log)
 
     def _add_test_row(self, result: dict[str, Any]) -> None:
         """Add a single test-result row."""
-        passed = result.get("passed", False)
-        is_error = result.get("name") == "(runtime error)"
-        icon_name = "warning" if is_error else ("check-circle" if passed else "x-circle")
-        color = COLOR_DANGER if (is_error or not passed) else COLOR_SUCCESS
+        _add_test_row_impl(self, result)
 
-        row = QWidget()
-        row_layout = QHBoxLayout(row)
-        row_layout.setContentsMargins(0, 1, 0, 1)
-        row_layout.setSpacing(6)
-
-        icon_label = QLabel()
-        icon_label.setPixmap(phi(icon_name, color=color).pixmap(14, 14))
-        icon_label.setFixedSize(16, 16)
-        row_layout.addWidget(icon_label)
-
-        display = result.get("name", "unnamed")
-        if is_error:
-            source = result.get("source_name", "")
-            display = f"Script error in \u2018{source}\u2019" if source else "Script error"
-        name_label = QLabel(display)
-        name_label.setStyleSheet("font-size: 12px;")
-        row_layout.addWidget(name_label, 1)
-
-        duration = result.get("duration_ms", 0.0)
-        if duration > 0:
-            dur_label = QLabel(f"{duration:.0f} ms")
-            dur_label.setObjectName("mutedLabel")
-            dur_label.setStyleSheet("font-size: 11px;")
-            row_layout.addWidget(dur_label)
-
-        error_msg = result.get("error")
-        if error_msg and not passed:
-            name_label.setToolTip(str(error_msg))
-
-            err_label = QLabel(str(error_msg))
-            err_label.setStyleSheet(f"color: {COLOR_DANGER}; font-size: 11px;")
-            err_label.setWordWrap(True)
-
-            outer = QWidget()
-            outer_layout = QVBoxLayout(outer)
-            outer_layout.setContentsMargins(0, 0, 0, 0)
-            outer_layout.setSpacing(0)
-            outer_layout.addWidget(row)
-            outer_layout.addWidget(err_label)
-            self._insert_row(outer)
-        else:
-            self._insert_row(row)
+    def _on_rerun_test_clicked(self, test_name: str) -> None:
+        """Emit so the script pane can rerun one ``pm.test`` by name."""
+        self.rerun_test_requested.emit(test_name)
 
     def _add_test_summary(self, results: list[dict[str, Any]]) -> None:
         """Add a summary line for test results."""
-        runtime_errors = [r for r in results if r.get("name") == "(runtime error)"]
-        real_tests = [r for r in results if r.get("name") != "(runtime error)"]
-
-        if runtime_errors and not real_tests:
-            text = f"<span style='color:{COLOR_DANGER};font-weight:bold;'>Script error</span>"
-        else:
-            passed = sum(1 for r in results if r.get("passed"))
-            total = len(results)
-            color = COLOR_SUCCESS if passed == total else COLOR_DANGER
-            text = (
-                f"<span style='color:{color};font-weight:bold;'>"
-                f"{passed}/{total} tests passed</span>"
-            )
-
-        summary = QLabel(text)
-        summary.setTextFormat(Qt.TextFormat.RichText)
-        summary.setStyleSheet("font-size: 12px; padding-top: 4px;")
-        self._insert_row(summary)
+        _add_test_summary_impl(self, results)
 
     def _add_variable_section(self, changes: dict[str, str]) -> None:
         """Add a section showing variable changes from the script."""
-        header = QLabel("<span style='font-weight:bold;font-size:12px;'>Variable changes</span>")
-        header.setObjectName("mutedLabel")
-        header.setTextFormat(Qt.TextFormat.RichText)
-        header.setStyleSheet("padding-top: 6px;")
-        self._insert_row(header)
-
-        for key, value in changes.items():
-            row = QLabel(
-                f"<span style='font-size:12px;'>"
-                f"<b>{html.escape(str(key))}</b> = "
-                f"{html.escape(str(value))}</span>"
-            )
-            row.setTextFormat(Qt.TextFormat.RichText)
-            row.setWordWrap(True)
-            self._insert_row(row)
+        _add_variable_section_impl(self, changes)
