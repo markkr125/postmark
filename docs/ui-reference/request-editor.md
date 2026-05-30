@@ -20,7 +20,13 @@ Inherits `_AuthMixin`, `_BodySearchMixin`, `_GraphQLMixin`.
 Method dropdown: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS.
 
 URL input is a `VariableLineEdit` with `{{variable}}` highlighting
-and hover popup.
+and hover popup. The query string is **canonical in the URL bar**; the
+Params tab is a synced view (edits either side update the other; disabled
+rows are omitted from the URL but kept in the table; flag-style params like
+`?verbose` stay without `=`). On load, if the URL contains `?`, its query
+wins; otherwise enabled stored `request_parameters` are promoted into the URL.
+While Params bulk-edit is open, the URL bar is read-only; leaving bulk syncs
+the query into the URL.
 
 ### Tabs (6)
 
@@ -163,11 +169,18 @@ right-click the breakpoint gutter to edit the condition expression.
 
 ### Assertions tab (_AssertionsMixin)
 
-Tab index **6** on `RequestEditorWidget`. Rows are persisted per request through
+Tab index **6** on `RequestEditorWidget`. A heading (**Response checks without
+script code**) and **How it works** button (`assertionsHowItWorksButton` on
+`assertionsHelpRow`) open `AssertionsHelpDialog` with fully selectable text
+explaining declarative checks, when they run, common **Subject** values, and
+where pass/fail results appear. Rows are persisted per request through
 `AssertionService` (never import `database/` from UI). Each row has:
 
 - Enabled checkbox
-- **Subject** (e.g. `res.status`, `res.body.id`, `res.headers["X-Foo"]`)
+- **Subject** (e.g. `res.status`, `res.body.id`, `res.headers["X-Foo"]`) — the
+  input has a case-insensitive, contains-matching auto-complete sourced from
+  `SUBJECT_SUGGESTIONS` (`assertions_compiler.py`) covering status, time, body,
+  the `res.body.` JSON-path prefix, and common header names, plus a tooltip.
 - **Operator** (`eq`, `ne`, `gt`, `lt`, `contains`, `matches`, `exists`, `is_type`)
 - **Expected** value
 - Delete control

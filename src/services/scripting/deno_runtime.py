@@ -23,6 +23,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+from services.scripting._subprocess_env import safe_subprocess_env
 from services.scripting.js_runtime import (
     append_js_pm_preamble,
     _pm_require_imports_block,
@@ -213,7 +214,9 @@ def deno_ipc_argv_and_env(
     if inspect_brk:
         args.append(inspect_brk)
     args.append(str(bundle))
-    env = {**os.environ, "DENO_DIR": str(cache / ".deno_dir")}
+    # Minimal env: never forward host secrets to untrusted scripts. Postman
+    # {{vars}} travel in the script payload, not the process environment.
+    env = safe_subprocess_env({"DENO_DIR": str(cache / ".deno_dir")})
     return args, env
 
 

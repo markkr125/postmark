@@ -365,6 +365,7 @@ src/
     │   ├── key_value_column_widths.py # QSettings JSON persistence for Key/Value widths
     │   ├── key_value_table.py     # Reusable key-value editor widget
     │   ├── key_value_bulk.py      # Bulk text serialize/parse for key-value tables
+    │   ├── query_string.py        # URL query parse/build (raw; no encode/decode)
     │   ├── key_value_table_delegate.py # Variable {{…}} highlight delegate for key-value cells
     │   ├── search_replace_bar.py  # SearchReplaceBar — find/replace + go-to-line for CodeEditorWidget
     │   ├── deno_download_worker.py # DenoDownloadWorker — QThread background Deno download (banner + settings)
@@ -422,7 +423,8 @@ src/
         │   ├── body_search.py       # _BodySearchMixin — search/replace in body
         │   ├── graphql.py           # _GraphQLMixin — GraphQL mode + schema
         │   ├── assertions/          # Declarative assertions sub-package
-        │   │   ├── assertions_tab.py    # AssertionsTab — subject/operator/expected rows
+        │   │   ├── assertions_guide.py  # AssertionsHelpDialog + How this works button
+        │   │   ├── assertions_tab.py    # AssertionsTab — subject/operator/expected rows + guide
         │   │   └── assertions_mixin.py  # _AssertionsMixin — lazy tab + AssertionService persistence
         │   ├── data_runner/         # Inline data-driven script runner (D3)
         │   │   └── panel.py         # DataRunnerPanel — CSV/JSON picker + Run iterations

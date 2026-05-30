@@ -241,6 +241,7 @@ tests/
     │   ├── test_completion_popup.py
     │   ├── test_info_popup.py
     │   ├── test_key_value_table.py
+    │   ├── test_query_string.py   # URL query parse/build helpers (no encoding)
     │   ├── test_variable_line_edit.py
     │   ├── test_variable_popup.py
     │   ├── test_variable_popup_local.py
@@ -295,6 +296,7 @@ tests/
         ├── test_request_editor_binary.py
         ├── test_request_editor_graphql.py
         ├── test_request_editor_search.py
+        ├── test_assertions_tab.py
         ├── test_response_viewer.py
         ├── test_response_viewer_search.py
         ├── test_response_viewer_tests.py

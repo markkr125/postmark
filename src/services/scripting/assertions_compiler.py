@@ -22,6 +22,31 @@ VALID_OPERATORS: frozenset[str] = frozenset(
     {"eq", "ne", "gt", "lt", "contains", "matches", "exists", "is_type"}
 )
 
+# Common response-header names offered as ``res.headers[...]`` subject suggestions.
+_COMMON_HEADER_NAMES: tuple[str, ...] = (
+    "Content-Type",
+    "Content-Length",
+    "Cache-Control",
+    "ETag",
+    "Location",
+    "Set-Cookie",
+    "Authorization",
+    "Date",
+    "Server",
+    "Access-Control-Allow-Origin",
+)
+
+# Ordered subject suggestions for the Assertions tab auto-complete. Covers every
+# subject kind accepted by :func:`_parse_subject` (status, time, body, JSON path
+# prefix, and common headers).
+SUBJECT_SUGGESTIONS: tuple[str, ...] = (
+    "res.status",
+    "res.time",
+    "res.body",
+    "res.body.",
+    *tuple(f'res.headers["{name}"]' for name in _COMMON_HEADER_NAMES),
+)
+
 _HEADER_SUBJECT_RE = re.compile(
     r"""^res\.headers(?:\["([^"]+)"\]|\.([A-Za-z0-9_-]+))$""",
 )

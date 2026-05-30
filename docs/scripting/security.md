@@ -51,6 +51,25 @@ and vendor loading.
 
 ## Python Sandbox (Three-Layer Defense)
 
+> **Two Python runtimes — same outer containment.** When Deno and the bundled
+> Pyodide assets are present (the default desktop setup), Python scripts run on
+> **Pyodide** (CPython compiled to WebAssembly) hosted by a Deno subprocess.
+> Otherwise Postmark falls back to a **RestrictedPython** subprocess.  Both are
+> contained by the same outer boundary: a child process with a **scrubbed
+> environment** (no host secrets — see [Environment isolation](#environment-isolation)),
+> no inherited network, and a scoped, read-only temp directory.
+>
+> - **RestrictedPython** (fallback) also blocks escapes at the *Python* layer —
+>   `compile_restricted` + attribute/item guards + a builtins whitelist
+>   (Layers 2–3 below); `import` and raw `getattr` are unavailable.
+> - **Pyodide** (default) runs user code with a restricted builtin set (no
+>   `__import__`, so `import` fails) but does **not** apply RestrictedPython's
+>   AST guards, so it is *not* a hard Python-level boundary on its own.  Its
+>   security rests on the **outer** Deno/WASM container: even a script that
+>   reaches Python internals cannot read your files, host environment/secrets,
+>   or open arbitrary network connections — it can only act inside that
+>   sandbox and call the rate-limited, host-mediated `pm.sendRequest`.
+
 ### Layer 1: Subprocess Isolation
 
 Python scripts run in a separate subprocess
@@ -114,6 +133,21 @@ functions is pre-injected into the script namespace.  See
 Both runtimes cap console output at 200 messages per execution.
 Messages beyond the limit are silently dropped.
 
+## Environment isolation
+
+Script subprocesses receive a **minimal environment** — only the operational
+variables the Deno / Pyodide / npm toolchain needs to run (`PATH`, `HOME`,
+locale, temp dirs, …).  Host secrets in the parent process (cloud credentials,
+API tokens, …) are **never forwarded**, so a script cannot read them via
+`Deno.env` / `os.environ` and exfiltrate them through `pm.sendRequest`.
+
+Postman-style variables (`pm.environment`, `pm.variables`, `pm.globals`,
+`{{var}}`) are unaffected — they travel in the script payload, not the process
+environment.
+
+Implementation: `src/services/scripting/_subprocess_env.py`
+(`safe_subprocess_env`).
+
 ## What Scripts CAN Do
 
 - Read request/response data via `pm.request` / `pm.response`.
@@ -131,13 +165,17 @@ Messages beyond the limit are silently dropped.
 ## What Scripts CANNOT Do
 
 - Access the filesystem.
-- Make network requests (only via `pm.sendRequest()`, rate-limited,
-  http/https only, 10 MB response cap).
-- Import arbitrary modules (Python) or require arbitrary packages
-  (JavaScript — only pre-bundled libraries are available).
+- Make network requests except via `pm.sendRequest()` (http/https only,
+  rate-limited, 10 MB response cap) — which is also **blocked from
+  loopback / private / link-local / cloud-metadata hosts by default** (SSRF
+  protection; opt in with `scripting/allow_local_subrequests`).
+- Import arbitrary modules (Python) or require arbitrary packages.  Python
+  `pm.require` is allowlisted to bundled modules; JavaScript `require` serves
+  pre-bundled libraries, and `pm.require('npm:…')` resolves declared packages.
 - Access Postmark's internal state or database.
 - Spawn processes.
-- Access environment variables or OS information.
+- Read host OS/shell environment variables or secrets — the subprocess
+  environment is scrubbed (Postman `{{variables}}` remain available).
 - Persist data outside of variables.
 - Run longer than the timeout allows.
 

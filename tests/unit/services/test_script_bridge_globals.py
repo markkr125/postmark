@@ -49,6 +49,16 @@ def _make_context(
 class TestExecuteSubRequest:
     """Tests for the HTTP sub-request bridge function."""
 
+    @pytest.fixture(autouse=True)
+    def _allow_local(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # These cover parsing/size/errors, not SSRF; allow local targets so the
+        # tests stay hermetic (no DNS resolution) and the host policy doesn't
+        # short-circuit the mocked httpx call. SSRF policy is covered separately.
+        monkeypatch.setattr(
+            "services.scripting.runtime_settings.RuntimeSettings.allow_local_subrequests",
+            lambda: True,
+        )
+
     def test_rejects_file_scheme(self) -> None:
         result = execute_sub_request({"url": "file:///etc/passwd"})
         assert "error" in result
@@ -180,6 +190,47 @@ class TestExecuteSubRequest:
             result = execute_sub_request({"url": "https://example.com"})
             assert "error" in result
             assert "too large" in result["error"].lower()
+
+
+class TestSubRequestSSRF:
+    """pm.sendRequest must not reach non-public hosts by default (SSRF)."""
+
+    def test_blocks_loopback(self) -> None:
+        with patch("httpx.request") as mock_req:
+            result = execute_sub_request({"url": "http://127.0.0.1:8080/x"})
+        assert "error" in result
+        assert "non-public" in result["error"].lower()
+        mock_req.assert_not_called()
+
+    def test_blocks_cloud_metadata_endpoint(self) -> None:
+        with patch("httpx.request") as mock_req:
+            result = execute_sub_request({"url": "http://169.254.169.254/latest/meta-data/"})
+        assert "error" in result
+        mock_req.assert_not_called()
+
+    def test_blocks_private_ip(self) -> None:
+        with patch("httpx.request") as mock_req:
+            result = execute_sub_request({"url": "http://10.0.0.5/admin"})
+        assert "error" in result
+        mock_req.assert_not_called()
+
+    def test_opt_in_allows_local(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            "services.scripting.runtime_settings.RuntimeSettings.allow_local_subrequests",
+            lambda: True,
+        )
+        with patch("httpx.request") as mock_req:
+            mock_resp = MagicMock()
+            mock_resp.status_code = 200
+            mock_resp.reason_phrase = "OK"
+            mock_resp.headers = {}
+            mock_resp.text = "ok"
+            mock_resp.content = b"ok"
+            mock_req.return_value = mock_resp
+            result = execute_sub_request({"url": "http://127.0.0.1:8080/x"})
+        assert "error" not in result
+        assert result["code"] == 200
+        mock_req.assert_called_once()
 
 
 # ===================================================================

@@ -310,6 +310,22 @@ standard object names:
 | `keyValueBulkEnter` | `QPushButton` | Key-value table: ``Bulk`` accent link + list icon in header → bulk text editor |
 | `keyValueBulkEdit` | `QTextEdit` | Key-value bulk editor (monospace; ``:`` / ``=`` lines, ``//`` disabled) |
 | `keyValueCheckCell` | `QWidget` | Key-value table checkbox cell wrapper: left edge (widget cells omit gridlines) |
+| `assertionsHelpRow` | `QWidget` | Assertions tab: heading + **How it works** button (`assertionsHowItWorksButton`) |
+| `assertionsHowItWorksButton` | `QPushButton` | Opens `AssertionsHelpDialog` (outline-style, question icon) |
+| `assertionsHelpBody` | `QTextBrowser` | Selectable HTML help text in the assertions guide dialog |
+| `assertionsTab` | `QWidget` | Declarative assertion editor (subject/operator/expected rows) |
+
+**URL ↔ Params sync (`RequestEditorWidget`):** The URL bar holds the
+canonical query string; the Params `KeyValueTableWidget` mirrors it via
+``_on_url_text_changed_sync`` / ``_on_params_changed_sync`` (helpers in
+``ui.widgets.query_string`` — brace-aware ``{{…}}`` parsing; flag-style
+segments without ``=`` round-trip via row ``flag``). On load, if the URL
+contains ``?``, parse the query into the table (disabled rows from stored
+params are kept at the bottom); otherwise promote enabled stored params
+into the URL. Params bulk-edit mode sets the URL bar read-only and syncs
+the query when leaving bulk (`bulk_mode_changed`). Do not build HTTP query
+strings from ``get_params_text()`` or ``KeyValueTableWidget.to_text()`` —
+use ``query_string.build_query`` / ``build_url_with_query``.
 
 `RequestEditorWidget` and `FolderEditorWidget` call
 `_update_runtime_banners()` at the end of their load/clear entry points

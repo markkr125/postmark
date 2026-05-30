@@ -40,6 +40,7 @@ from services.scripting._sandbox_runtime import (
     _console_logs,
     _error_output,
     _getattr_guard,
+    _getitem_guard,
     _write_done,
 )
 from services.scripting._sandbox_safe_globals import _SAFE_BUILTINS, _SAFE_STDLIB
@@ -100,7 +101,7 @@ def _execute_restricted(script: str, pm: _Pm) -> dict[str, Any]:
     restricted_globals["__builtins__"] = _SAFE_BUILTINS
     restricted_globals["_getattr_"] = _getattr_guard
     restricted_globals["_getiter_"] = iter
-    restricted_globals["_getitem_"] = lambda obj, key: obj[key]
+    restricted_globals["_getitem_"] = _getitem_guard
     restricted_globals["_write_"] = lambda obj: obj
     restricted_globals["_inplacevar_"] = lambda op, x, y: op(x, y)
 

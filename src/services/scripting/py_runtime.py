@@ -265,10 +265,12 @@ def _run_restricted_subprocess(script: str, context: ScriptInput) -> ScriptOutpu
 def _ipc_loop(proc: subprocess.Popen[bytes]) -> dict[str, Any] | None:
     """Read lines from the sandbox, fulfilling IPC requests."""
     from services.scripting.context import execute_sub_request
+    from services.scripting.js_runtime import _MAX_TOTAL_SUBREQUESTS
 
     assert proc.stdout is not None
     assert proc.stdin is not None
 
+    total = 0
     while True:
         line = proc.stdout.readline()
         if not line:
@@ -283,7 +285,13 @@ def _ipc_loop(proc: subprocess.Popen[bytes]) -> dict[str, Any] | None:
             return data
 
         if data.get("__ipc__") == "sendRequest":
-            resp = execute_sub_request(data.get("spec", {}))
+            total += 1
+            if total > _MAX_TOTAL_SUBREQUESTS:
+                resp: dict[str, Any] = {
+                    "error": f"Sub-request host limit ({_MAX_TOTAL_SUBREQUESTS}) exceeded."
+                }
+            else:
+                resp = execute_sub_request(data.get("spec", {}))
             proc.stdin.write(json.dumps(resp).encode() + b"\n")
             proc.stdin.flush()
 

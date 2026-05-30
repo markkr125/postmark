@@ -64,6 +64,9 @@ _BULK_PAGE_HEADER_HEIGHT = 32
 _PAGE_TABLE = 0
 _PAGE_BULK = 1
 
+# True on the key cell when the param came from a flag-style URL segment (no ``=``).
+_ROW_FLAG_ROLE = Qt.ItemDataRole.UserRole + 1
+
 
 class KeyValueTableWidget(QWidget):
     """Editable key-value table with enable checkboxes and inline delete.
@@ -78,9 +81,11 @@ class KeyValueTableWidget(QWidget):
 
     Signals:
         data_changed(): Emitted when any cell value or checkbox changes.
+        bulk_mode_changed(bool): Emitted when bulk-edit mode is entered (True) or left (False).
     """
 
     data_changed = Signal()
+    bulk_mode_changed = Signal(bool)
 
     def __init__(
         self,
@@ -257,12 +262,14 @@ class KeyValueTableWidget(QWidget):
         self._bulk_text.setPlainText(serialize_for_bulk(self.get_data()))
         self._stack.setCurrentIndex(_PAGE_BULK)
         self._bulk_text.setFocus(Qt.FocusReason.OtherFocusReason)
+        self.bulk_mode_changed.emit(True)
 
     def _on_bulk_back_clicked(self) -> None:
         """Apply bulk text to the table and return to the grid."""
         rows = parse_bulk_text(self._bulk_text.toPlainText())
         self.set_data(rows)
         self.data_changed.emit()
+        self.bulk_mode_changed.emit(False)
 
     def _on_header_section_resized(self, logical_index: int, _old: int, _new: int) -> None:
         """Debounce persisting Key/Value widths after a header drag."""
@@ -323,12 +330,17 @@ class KeyValueTableWidget(QWidget):
                     row.get("value", ""),
                     row.get("description", ""),
                     enabled=row.get("enabled", True),
+                    flag=bool(row.get("flag")),
                 )
             # Always end with a ghost row
             self._append_ghost_row()
         finally:
             self._updating = False
         self._position_bulk_header_button()
+
+    def is_bulk_mode(self) -> bool:
+        """Return True when the bulk-edit text page is currently shown."""
+        return self._stack.currentIndex() == _PAGE_BULK
 
     def get_data(self) -> list[dict]:
         """Return the table data as a list of row dicts.
@@ -349,6 +361,9 @@ class KeyValueTableWidget(QWidget):
             row: dict = {"key": key, "value": value, "enabled": enabled}
             if desc:
                 row["description"] = desc
+            key_item = self._table.item(r, _COL_KEY)
+            if key_item is not None and key_item.data(_ROW_FLAG_ROLE):
+                row["flag"] = True
             rows.append(row)
         return rows
 
@@ -516,6 +531,7 @@ class KeyValueTableWidget(QWidget):
         *,
         enabled: bool = True,
         ghost: bool = False,
+        flag: bool = False,
     ) -> None:
         """Insert a row at the given position."""
         self._table.blockSignals(True)
@@ -535,6 +551,8 @@ class KeyValueTableWidget(QWidget):
             self._table.setCellWidget(row, _COL_ENABLED, container)
 
             key_item = QTableWidgetItem(key)
+            if flag:
+                key_item.setData(_ROW_FLAG_ROLE, True)
             self._table.setItem(row, _COL_KEY, key_item)
 
             value_item = QTableWidgetItem(value)
@@ -564,10 +582,14 @@ class KeyValueTableWidget(QWidget):
             return True
         return cb.isChecked()
 
-    def _on_cell_changed(self, row: int, _col: int) -> None:
+    def _on_cell_changed(self, row: int, col: int) -> None:
         """Forward cell edits and auto-promote ghost rows."""
         if self._updating:
             return
+        if col == _COL_VALUE and self._cell_text(row, _COL_VALUE):
+            key_item = self._table.item(row, _COL_KEY)
+            if key_item is not None:
+                key_item.setData(_ROW_FLAG_ROLE, None)
         # If the user typed into the ghost row, promote it
         if self._is_ghost_row(row) and self._cell_text(row, _COL_KEY):
             self._promote_ghost(row)

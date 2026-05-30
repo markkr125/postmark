@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import copy
 import json
+from collections import defaultdict, deque
 from typing import TYPE_CHECKING, Any, cast
 
 from PySide6.QtCore import QModelIndex, QPersistentModelIndex, Qt, QTimer, Signal
@@ -40,6 +41,12 @@ from ui.styling.icons import phi
 from ui.styling.theme import method_color
 from ui.widgets.key_value_table import KeyValueTableWidget
 from ui.widgets.lazy_editor_placeholder import LazyEditorPlaceholder
+from ui.widgets.query_string import (
+    QueryPair,
+    build_url_with_query,
+    parse_query,
+    url_has_query,
+)
 from ui.widgets.variable_line_edit import VariableLineEdit
 
 if TYPE_CHECKING:
@@ -116,6 +123,7 @@ class RequestEditorWidget(
         self._request_id: int | None = None
         self._is_dirty: bool = False
         self._loading: bool = False  # suppress signals during load_request
+        self._syncing_query: bool = False  # guards URL<->Params mutual updates
 
         # Body / Scripts editors materialise on first visit (see ``_ensure_*``).
         self._body_editor_materialized = False
@@ -150,6 +158,7 @@ class RequestEditorWidget(
         self._url_input.setPlaceholderText("Enter request URL")
         self._url_input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self._url_input.textChanged.connect(self._on_field_changed)
+        self._url_input.textChanged.connect(self._on_url_text_changed_sync)
         top_bar.addWidget(self._url_input)
 
         self._send_btn = QPushButton("Send")
@@ -171,6 +180,8 @@ class RequestEditorWidget(
             settings_profile="params",
         )
         self._params_table.data_changed.connect(self._on_field_changed)
+        self._params_table.data_changed.connect(self._on_params_changed_sync)
+        self._params_table.bulk_mode_changed.connect(self._on_params_bulk_mode_changed)
         self._tabs.addTab(self._params_table, "Params")
 
         self._headers_table = KeyValueTableWidget(
@@ -434,6 +445,7 @@ class RequestEditorWidget(
         ``body_mode``, ``body_options``.
         """
         self._loading = True
+        self._url_input.blockSignals(True)
         try:
             self._request_id = request_id
             self._set_content_visible(True)
@@ -448,6 +460,20 @@ class RequestEditorWidget(
 
             self._load_key_value_data(self._params_table, data.get("request_parameters"))
             self._load_key_value_data(self._headers_table, data.get("headers"))
+
+            # Keep the URL bar and Params table consistent on load.
+            _loaded_url = self._url_input.text()
+            if url_has_query(_loaded_url):
+                # URL string is the source of truth: rebuild the table from it,
+                # preserving disabled rows + descriptions from request_parameters.
+                self._params_table.set_data(
+                    self._reconcile_params_from_url(parse_query(_loaded_url))
+                )
+            else:
+                # No query in the URL: promote any enabled stored params into it.
+                _rows = self._params_table.get_data()
+                if any(r.get("enabled", True) for r in _rows):
+                    self._url_input.setText(build_url_with_query(_loaded_url, _rows))
 
             if self._body_editor_materialized:
                 body_mode = data.get("body_mode") or "none"
@@ -471,6 +497,9 @@ class RequestEditorWidget(
             self._description_edit.setPlainText(data.get("description") or "")
             self._set_dirty(False)
         finally:
+            # ``set_data`` leaves bulk mode without emitting ``bulk_mode_changed``.
+            self._url_input.setReadOnly(False)
+            self._url_input.blockSignals(False)
             self._loading = False
         idx_now = self._tabs.currentIndex()
         if idx_now == _TAB_INDEX_BODY:
@@ -628,7 +657,9 @@ class RequestEditorWidget(
             self._close_body_search()
             self._set_dirty(False)
         finally:
+            self._url_input.setReadOnly(False)
             self._loading = False
+            self._syncing_query = False
         self._update_runtime_banners()
         self._refresh_script_split_full_width_line()
 
@@ -744,6 +775,20 @@ class RequestEditorWidget(
     # -- Key-value table helpers ---------------------------------------
 
     @staticmethod
+    def _kv_row_from_stored(item: dict) -> dict:
+        """Normalise a stored key-value dict (``enabled`` or legacy ``disabled``)."""
+        enabled = bool(item["enabled"]) if "enabled" in item else not item.get("disabled", False)
+        row: dict = {
+            "key": item.get("key", ""),
+            "value": item.get("value", ""),
+            "description": item.get("description", ""),
+            "enabled": enabled,
+        }
+        if item.get("flag"):
+            row["flag"] = True
+        return row
+
+    @staticmethod
     def _load_key_value_data(table: KeyValueTableWidget, raw: str | list | None) -> None:
         """Parse stored data into a ``KeyValueTableWidget``.
 
@@ -757,12 +802,7 @@ class RequestEditorWidget(
         # 1. Already a list (JSON column returns Python list directly)
         if isinstance(raw, list):
             rows = [
-                {
-                    "key": item.get("key", ""),
-                    "value": item.get("value", ""),
-                    "description": item.get("description", ""),
-                    "enabled": not item.get("disabled", False),
-                }
+                RequestEditorWidget._kv_row_from_stored(item)
                 for item in raw
                 if isinstance(item, dict)
             ]
@@ -774,12 +814,7 @@ class RequestEditorWidget(
             parsed = json.loads(raw)
             if isinstance(parsed, list):
                 rows = [
-                    {
-                        "key": item.get("key", ""),
-                        "value": item.get("value", ""),
-                        "description": item.get("description", ""),
-                        "enabled": not item.get("disabled", False),
-                    }
+                    RequestEditorWidget._kv_row_from_stored(item)
                     for item in parsed
                     if isinstance(item, dict)
                 ]
@@ -790,6 +825,70 @@ class RequestEditorWidget(
 
         # 3. Fall back to plain text parsing
         table.from_text(raw)
+
+    def _reconcile_params_from_url(self, parsed: list[QueryPair]) -> list[dict]:
+        """Build table rows from parsed URL pairs, keeping disabled rows + descriptions.
+
+        Enabled rows come straight from the URL (URL wins). Descriptions are
+        re-attached by key (FIFO). Disabled rows in the current table are kept
+        and appended at the end (they are not represented in the URL).
+        """
+        current = self._params_table.get_data()
+        desc_by_key: dict[str, deque[str]] = defaultdict(deque)
+        for row in current:
+            if row.get("description"):
+                desc_by_key[row["key"]].append(row["description"])
+        disabled = [row for row in current if not row.get("enabled", True)]
+
+        merged: list[dict] = []
+        for key, value in parsed:
+            out_row: dict = {
+                "key": key,
+                "value": "" if value is None else value,
+                "enabled": True,
+            }
+            if value is None:
+                out_row["flag"] = True
+            if desc_by_key[key]:
+                out_row["description"] = desc_by_key[key].popleft()
+            merged.append(out_row)
+        merged.extend(disabled)
+        return merged
+
+    def _on_params_bulk_mode_changed(self, in_bulk: bool) -> None:
+        """Lock the URL bar during bulk edit; sync query when returning to the grid."""
+        self._url_input.setReadOnly(in_bulk)
+        if not in_bulk and not self._loading:
+            self._on_params_changed_sync()
+
+    def _on_url_text_changed_sync(self) -> None:
+        """URL edited -> rebuild the Params table from the URL's query string."""
+        if self._loading or self._syncing_query:
+            return
+        if self._params_table.is_bulk_mode():
+            return  # don't discard unsaved bulk-edit text
+        merged = self._reconcile_params_from_url(parse_query(self._url_input.text()))
+        self._syncing_query = True
+        try:
+            self._params_table.set_data(merged)  # set_data does NOT emit data_changed
+        finally:
+            self._syncing_query = False
+        self._sync_tab_indicators()
+
+    def _on_params_changed_sync(self) -> None:
+        """Params edited -> rebuild the URL's query string from enabled rows."""
+        if self._loading or self._syncing_query or self._params_table.is_bulk_mode():
+            return
+        rows = self._params_table.get_data()
+        new_url = build_url_with_query(self._url_input.text(), rows)
+        if new_url == self._url_input.text():
+            return
+        self._syncing_query = True
+        try:
+            self._url_input.setText(new_url)
+        finally:
+            self._syncing_query = False
+        self._sync_tab_indicators()
 
     def get_headers_text(self) -> str | None:
         """Return enabled headers as newline-separated ``Key: Value`` text.

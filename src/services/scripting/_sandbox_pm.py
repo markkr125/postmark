@@ -226,19 +226,32 @@ class _Pm:
         return self.send_request(spec, callback)
 
     def require(self, spec: str) -> Any:
-        """Postman-style ``pm.require``: bare names map to vendor table."""
-        import importlib
+        """Postman-style ``pm.require`` restricted to bundled modules.
 
-        if spec.split("==", 1)[0].strip().lower() == "cheerio":
-            msg = (
-                "pm.require('cheerio') is not bundled; use pm.require('npm:cheerio') in JavaScript"
-            )
-            raise RuntimeError(msg)
+        Only names in :data:`_PM_BUILTIN_MODULE_NAMES` may be imported.  Without
+        this allowlist a script could call ``pm.require("os")`` /
+        ``pm.require("subprocess")`` and reach arbitrary host modules, escaping
+        the RestrictedPython sandbox (AST-level ``import`` blocking does not
+        cover ``importlib`` invoked on the script's behalf).
+        """
+        import importlib
 
         if not isinstance(spec, str):
             msg = "pm.require: specifier must be a string"
             raise RuntimeError(msg)
         name_part = spec.split("==", 1)[0].strip().lower()
+        if name_part == "cheerio":
+            msg = (
+                "pm.require('cheerio') is not bundled; use pm.require('npm:cheerio') in JavaScript"
+            )
+            raise RuntimeError(msg)
+        if name_part not in _PM_BUILTIN_MODULE_NAMES:
+            allowed = ", ".join(sorted(_PM_BUILTIN_MODULE_NAMES))
+            msg = (
+                f"pm.require({spec!r}) is not available: only bundled modules may be "
+                f"required on this runtime ({allowed})."
+            )
+            raise RuntimeError(msg)
         candidates = [name_part.replace("-", "_"), name_part]
         last_err: Exception | None = None
         for mod in candidates:

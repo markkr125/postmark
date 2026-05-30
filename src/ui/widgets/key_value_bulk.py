@@ -21,9 +21,12 @@ def serialize_for_bulk(rows: list[dict]) -> str:
         key = str(row.get("key", "")).strip()
         if not key:
             continue
-        value = str(row.get("value", ""))
         enabled = bool(row.get("enabled", True))
         prefix = "// " if not enabled else ""
+        if row.get("flag"):
+            lines.append(f"{prefix}{key}")
+            continue
+        value = str(row.get("value", ""))
         lines.append(f"{prefix}{key}: {value}")
     return "\n".join(lines)
 
@@ -56,5 +59,8 @@ def parse_bulk_text(text: str) -> list[dict]:
         key = key.strip()
         if not key:
             continue
-        rows.append({"key": key, "value": value.strip(), "enabled": enabled})
+        row: dict = {"key": key, "value": value.strip(), "enabled": enabled}
+        if ": " not in line and "=" not in line:
+            row["flag"] = True
+        rows.append(row)
     return rows

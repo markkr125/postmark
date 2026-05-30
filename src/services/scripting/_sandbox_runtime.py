@@ -80,6 +80,20 @@ def _getattr_guard(obj: object, name: str, default: Any = None) -> Any:
     return getattr(obj, name, default)
 
 
+def _getitem_guard(obj: Any, key: Any) -> Any:
+    """Block subscript access to dunder keys (e.g. ``obj["__class__"]``).
+
+    Mirrors :func:`_getattr_guard` for the ``x[y]`` path so the dunder-walk
+    escape can't be reached via subscription.  Only **dunder** string keys are
+    blocked (not single-underscore), so common JSON keys like ``_id`` / ``_links``
+    in API responses keep working.
+    """
+    if isinstance(key, str) and key.startswith("__"):
+        msg = f"Item access denied: {key}"
+        raise KeyError(msg)
+    return obj[key]
+
+
 class _ConsolePrintCollector:
     """Print collector for RestrictedPython's rewritten ``print()`` calls."""
 

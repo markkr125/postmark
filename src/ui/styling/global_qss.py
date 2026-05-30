@@ -277,6 +277,45 @@ def build_global_qss(p: ThemePalette) -> str:
         background: transparent;
         color: {p["text"]};
     }}
+    QWidget[objectName="assertionsHelpRow"] {{
+        background: {p["bg_alt"]};
+        border: 1px solid {p["border"]};
+        border-radius: 6px;
+    }}
+    QLabel[objectName="assertionsHelpHeading"] {{
+        font-size: 12px;
+        font-weight: 600;
+        color: {p["text"]};
+        background: transparent;
+        border: none;
+    }}
+    QLabel[objectName="assertionsHelpIcon"] {{
+        background: transparent;
+        border: none;
+    }}
+    QPushButton[objectName="assertionsHowItWorksButton"] {{
+        border: 1px solid {p["accent"]};
+        padding: 4px 12px;
+        font-size: 11px;
+        font-weight: 600;
+        border-radius: 4px;
+        background: transparent;
+        color: {p["accent"]};
+    }}
+    QPushButton[objectName="assertionsHowItWorksButton"]:hover {{
+        background: {p["accent"]};
+        color: {p["solid_button_fg"]};
+    }}
+    QLineEdit[objectName="assertionSubjectEdit"],
+    QLineEdit[objectName="assertionExpectedEdit"] {{
+        font-family: monospace;
+    }}
+    QTextBrowser[objectName="assertionsHelpBody"] {{
+        background: transparent;
+        border: none;
+        color: {p["text"]};
+        font-size: 12px;
+    }}
     QPushButton[objectName="outlineButton"]:hover {{
         background: {"rgba(255,255,255,0.08)" if p is DARK_PALETTE else "rgba(0,0,0,0.06)"};
         border-color: {p["accent"]};

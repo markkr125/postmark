@@ -5,10 +5,11 @@ from __future__ import annotations
 from unittest.mock import Mock
 
 import pytest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QCheckBox
 
 from services.environment_service import VariableDetail
 from ui.request.request_editor import RequestEditorWidget
+from ui.widgets.key_value_table import _COL_KEY, _COL_VALUE
 
 
 class TestRequestEditorWidget:
@@ -48,7 +49,7 @@ class TestRequestEditorWidget:
 
         assert editor._empty_label.isHidden()
         assert not editor._tabs.isHidden()
-        assert editor._url_input.text() == "https://api.example.com/users"
+        assert editor._url_input.text() == "https://api.example.com/users?page=1"
         assert editor._method_combo.currentText() == "GET"
         # Params and headers are now key-value tables
         params_data = editor._params_table.get_data()
@@ -795,3 +796,280 @@ class TestRequestEditorScriptSearchBar:
         editor._tabs.setCurrentIndex(5)
         assert editor._scripts_editor_materialized
         assert hasattr(editor, "_pre_request_edit")
+
+
+class TestUrlParamsSync:
+    """Bidirectional URL bar ↔ Params table sync (Postman-style)."""
+
+    @staticmethod
+    def _editor(qapp: QApplication, qtbot) -> RequestEditorWidget:
+        """Construct a loaded request editor for sync tests."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
+        return editor
+
+    def test_url_edit_updates_params_table(self, qapp: QApplication, qtbot) -> None:
+        """Editing the URL query rebuilds the Params table."""
+        editor = self._editor(qapp, qtbot)
+        editor.load_request({"name": "T", "method": "GET", "url": "https://h/p"})
+        editor._url_input.setText("https://h/p?foo=bar&baz=2")
+        rows = editor._params_table.get_data()
+        assert [r["key"] for r in rows] == ["foo", "baz"]
+        assert rows[0]["value"] == "bar"
+        assert rows[1]["value"] == "2"
+
+    def test_params_data_changed_updates_url(self, qapp: QApplication, qtbot) -> None:
+        """Table ``data_changed`` (ghost-row key entry) updates the URL."""
+        editor = self._editor(qapp, qtbot)
+        editor.load_request({"name": "T", "method": "GET", "url": "https://h/p"})
+        ghost = editor._params_table.row_count() - 1
+        key_item = editor._params_table._table.item(ghost, _COL_KEY)
+        assert key_item is not None
+        with qtbot.waitSignal(editor._params_table.data_changed, timeout=1000):
+            key_item.setText("page")
+        value_item = editor._params_table._table.item(0, _COL_VALUE)
+        assert value_item is not None
+        value_item.setText("1")
+        editor._params_table._on_cell_changed(0, _COL_VALUE)
+        assert editor._url_input.text() == "https://h/p?page=1"
+
+    def test_on_params_changed_sync_direct(self, qapp: QApplication, qtbot) -> None:
+        """``_on_params_changed_sync`` rebuilds the URL after programmatic ``set_data``."""
+        editor = self._editor(qapp, qtbot)
+        editor.load_request({"name": "T", "method": "GET", "url": "https://h/p"})
+        editor._params_table.set_data(
+            [
+                {"key": "a", "value": "1", "enabled": True},
+                {"key": "b", "value": "2", "enabled": True},
+            ]
+        )
+        editor._on_params_changed_sync()
+        assert editor._url_input.text() == "https://h/p?a=1&b=2"
+
+    def test_load_promotes_params_when_url_has_no_query(self, qapp: QApplication, qtbot) -> None:
+        """Stored params are merged into the URL when the loaded URL has no ``?``."""
+        editor = self._editor(qapp, qtbot)
+        editor.load_request(
+            {
+                "name": "T",
+                "method": "GET",
+                "url": "https://api.example.com/users",
+                "request_parameters": [{"key": "page", "value": "1", "enabled": True}],
+            }
+        )
+        assert editor._url_input.text() == "https://api.example.com/users?page=1"
+
+    def test_load_url_query_wins_over_stored_params(self, qapp: QApplication, qtbot) -> None:
+        """When the URL already has a query, its pairs override stored param values."""
+        editor = self._editor(qapp, qtbot)
+        editor.load_request(
+            {
+                "name": "T",
+                "method": "GET",
+                "url": "https://h/p?token=from_url",
+                "request_parameters": [
+                    {"key": "token", "value": "from_db", "enabled": True},
+                ],
+            }
+        )
+        assert editor._url_input.text() == "https://h/p?token=from_url"
+        assert editor._params_table.get_data()[0]["value"] == "from_url"
+
+    def test_disabled_param_omitted_from_url(self, qapp: QApplication, qtbot) -> None:
+        """Disabled rows stay in the table but are not written into the URL."""
+        editor = self._editor(qapp, qtbot)
+        editor.load_request({"name": "T", "method": "GET", "url": "https://h/p"})
+        editor._params_table.set_data(
+            [
+                {"key": "on", "value": "1", "enabled": True},
+                {"key": "off", "value": "2", "enabled": False},
+            ]
+        )
+        editor._on_params_changed_sync()
+        url = editor._url_input.text()
+        assert "on=1" in url
+        assert "off=" not in url
+        keys = [r["key"] for r in editor._params_table.get_data()]
+        assert "off" in keys
+
+    def test_uncheck_param_removes_from_url(self, qapp: QApplication, qtbot) -> None:
+        """Unchecking a param drops it from the URL via ``data_changed``."""
+        editor = self._editor(qapp, qtbot)
+        editor.load_request(
+            {
+                "name": "T",
+                "method": "GET",
+                "url": "https://h/p?keep=1&drop=2",
+            }
+        )
+        container = editor._params_table._table.cellWidget(1, 0)
+        cb = container.findChild(QCheckBox)
+        assert cb is not None
+        with qtbot.waitSignal(editor._params_table.data_changed, timeout=1000):
+            cb.setChecked(False)
+        assert "keep=1" in editor._url_input.text()
+        assert "drop=" not in editor._url_input.text()
+
+    def test_variable_placeholder_preserved(self, qapp: QApplication, qtbot) -> None:
+        """``{{…}}`` placeholders survive URL ↔ Params sync."""
+        editor = self._editor(qapp, qtbot)
+        url = "https://h/p?token={{api_key}}"
+        editor.load_request({"name": "T", "method": "GET", "url": url})
+        assert editor._params_table.get_data()[0]["value"] == "{{api_key}}"
+        editor._url_input.setText("https://h/p?token={{api_key}}&x=1")
+        assert "{{api_key}}" in editor._url_input.text()
+        assert "%" not in editor._url_input.text()
+
+    def test_fragment_preserved_on_params_sync(self, qapp: QApplication, qtbot) -> None:
+        """Rebuilding the query from Params keeps the URL fragment."""
+        editor = self._editor(qapp, qtbot)
+        editor.load_request({"name": "T", "method": "GET", "url": "https://h/p#frag"})
+        editor._params_table.set_data([{"key": "q", "value": "1", "enabled": True}])
+        editor._on_params_changed_sync()
+        assert editor._url_input.text() == "https://h/p?q=1#frag"
+
+    def test_url_edit_keeps_disabled_rows_at_bottom(self, qapp: QApplication, qtbot) -> None:
+        """A manual URL edit keeps disabled table rows appended after URL pairs."""
+        editor = self._editor(qapp, qtbot)
+        editor.load_request(
+            {
+                "name": "T",
+                "method": "GET",
+                "url": "https://h/p?a=1",
+                "request_parameters": [
+                    {"key": "a", "value": "1", "enabled": True},
+                    {"key": "b", "value": "2", "enabled": False},
+                ],
+            }
+        )
+        editor._url_input.setText("https://h/p?x=9")
+        rows = editor._params_table.get_data()
+        assert [r["key"] for r in rows] == ["x", "b"]
+        assert rows[0]["value"] == "9"
+        assert rows[1]["enabled"] is False
+
+    def test_editing_one_param_preserves_flag_sibling(self, qapp: QApplication, qtbot) -> None:
+        """Changing one table row must not rewrite flag-style siblings in the URL."""
+        editor = self._editor(qapp, qtbot)
+        editor.load_request({"name": "T", "method": "GET", "url": "https://h/p?verbose&a=1"})
+        assert editor._params_table.get_data()[0].get("flag") is True
+        value_item = editor._params_table._table.item(1, _COL_VALUE)
+        assert value_item is not None
+        value_item.setText("2")
+        editor._params_table._on_cell_changed(1, _COL_VALUE)
+        assert editor._url_input.text() == "https://h/p?verbose&a=2"
+
+    def test_mustache_ampersand_in_value_survives_sync(self, qapp: QApplication, qtbot) -> None:
+        """``&`` inside ``{{…}}`` is not split when syncing URL to Params."""
+        editor = self._editor(qapp, qtbot)
+        url = "https://h/p?token={{a&b}}"
+        editor.load_request({"name": "T", "method": "GET", "url": url})
+        assert editor._params_table.get_data()[0]["value"] == "{{a&b}}"
+        editor._params_table.set_data([{"key": "token", "value": "{{a&b}}", "enabled": True}])
+        editor._on_params_changed_sync()
+        assert editor._url_input.text() == url
+
+    def test_bulk_mode_locks_url_and_syncs_on_exit(self, qapp: QApplication, qtbot) -> None:
+        """Bulk mode makes the URL read-only; leaving bulk applies params to the URL."""
+        editor = self._editor(qapp, qtbot)
+        editor.load_request({"name": "T", "method": "GET", "url": "https://h/p?a=1"})
+        assert not editor._url_input.isReadOnly()
+        editor._params_table._bulk_enter_btn.click()
+        assert editor._params_table.is_bulk_mode()
+        assert editor._url_input.isReadOnly()
+        editor._url_input.setText("https://h/p?a=1&ignored=while_locked")
+        editor._params_table._bulk_text.setPlainText("a: 1\nnew: 2")
+        editor._params_table._bulk_back_btn.click()
+        assert not editor._params_table.is_bulk_mode()
+        assert not editor._url_input.isReadOnly()
+        assert "new=2" in editor._url_input.text()
+        assert "ignored=while_locked" not in editor._url_input.text()
+
+    def test_url_edit_skipped_while_params_bulk_mode(self, qapp: QApplication, qtbot) -> None:
+        """URL edits do not clobber unsaved bulk text."""
+        editor = self._editor(qapp, qtbot)
+        editor.load_request({"name": "T", "method": "GET", "url": "https://h/p?a=1"})
+        editor._params_table._bulk_enter_btn.click()
+        editor._params_table._bulk_text.setPlainText("draft: 9")
+        editor._url_input.setText("https://h/p?only=url")
+        assert editor._params_table._bulk_text.toPlainText() == "draft: 9"
+
+    def test_load_request_unlocks_url_after_bulk_mode(self, qapp: QApplication, qtbot) -> None:
+        """Loading another request restores URL editability after bulk mode."""
+        editor = self._editor(qapp, qtbot)
+        editor.load_request({"name": "T", "method": "GET", "url": "https://h/p?a=1"})
+        editor._params_table._bulk_enter_btn.click()
+        assert editor._url_input.isReadOnly()
+        editor.load_request({"name": "U", "method": "GET", "url": "https://other/p?q=1"})
+        assert not editor._params_table.is_bulk_mode()
+        assert not editor._url_input.isReadOnly()
+        assert editor._url_input.text() == "https://other/p?q=1"
+
+    def test_clear_request_unlocks_url_after_bulk_mode(self, qapp: QApplication, qtbot) -> None:
+        """``clear_request`` restores URL editability after bulk mode."""
+        editor = self._editor(qapp, qtbot)
+        editor.load_request({"name": "T", "method": "GET", "url": "https://h/p?a=1"})
+        editor._params_table._bulk_enter_btn.click()
+        assert editor._url_input.isReadOnly()
+        editor.clear_request()
+        assert not editor._params_table.is_bulk_mode()
+        assert not editor._url_input.isReadOnly()
+
+    def test_reconcile_preserves_description_fifo(self, qapp: QApplication, qtbot) -> None:
+        """Descriptions for duplicate keys are re-attached in FIFO order on URL sync."""
+        editor = self._editor(qapp, qtbot)
+        editor.load_request(
+            {
+                "name": "T",
+                "method": "GET",
+                "url": "https://h/p",
+                "request_parameters": [
+                    {"key": "x", "value": "1", "description": "first", "enabled": True},
+                    {"key": "x", "value": "2", "description": "second", "enabled": True},
+                ],
+            }
+        )
+        editor._url_input.setText("https://h/p?x=9&x=8")
+        rows = editor._params_table.get_data()
+        assert rows[0]["description"] == "first"
+        assert rows[1]["description"] == "second"
+
+    def test_load_respects_enabled_field(self, qapp: QApplication, qtbot) -> None:
+        """``enabled: false`` on stored params is honoured (not only ``disabled``)."""
+        editor = self._editor(qapp, qtbot)
+        editor.load_request(
+            {
+                "name": "T",
+                "method": "GET",
+                "url": "https://h/p?a=1",
+                "request_parameters": [
+                    {"key": "b", "value": "2", "enabled": False},
+                ],
+            }
+        )
+        rows = editor._params_table.get_data()
+        assert any(r["key"] == "b" and not r.get("enabled", True) for r in rows)
+
+    def test_clear_request_resets_syncing_query(self, qapp: QApplication, qtbot) -> None:
+        """``clear_request`` leaves ``_syncing_query`` false and the URL bar editable."""
+        editor = self._editor(qapp, qtbot)
+        editor.load_request({"name": "T", "method": "GET", "url": "https://h/p?a=1"})
+        editor._syncing_query = True
+        editor._url_input.setReadOnly(True)
+        editor.clear_request()
+        assert editor._syncing_query is False
+        assert not editor._url_input.isReadOnly()
+
+    def test_sync_no_infinite_loop(self, qapp: QApplication, qtbot) -> None:
+        """URL→Params→URL round-trip settles without repeated URL rewrites."""
+        editor = self._editor(qapp, qtbot)
+        editor.load_request({"name": "T", "method": "GET", "url": "https://h/p?verbose&a=1"})
+        changes: list[str] = []
+        editor._url_input.textChanged.connect(lambda: changes.append(editor._url_input.text()))
+        changes.clear()
+        editor._url_input.setText("https://h/p?verbose&a=2")
+        assert editor._url_input.text() == "https://h/p?verbose&a=2"
+        assert not editor._syncing_query
+        assert changes.count("https://h/p?verbose&a=2") == 1

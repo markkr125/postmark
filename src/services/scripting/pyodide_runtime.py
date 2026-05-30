@@ -17,6 +17,7 @@ import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from services.scripting._subprocess_env import safe_subprocess_env
 from services.scripting.runtime_settings import RuntimeSettings
 
 if TYPE_CHECKING:
@@ -109,11 +110,14 @@ def _deno_argv_and_env(
         args.append(f"--allow-net={','.join(hosts)}")
     args.append("--allow-env")
     args.append(str(_PYODIDE_ENTRY))
-    env = {
-        **os.environ,
-        "DENO_DIR": str(cache / "deno_dir"),
-        "PM_PYODIDE_CACHE": str(cache / "pkgs"),
-    }
+    # Minimal env: never forward host secrets to untrusted scripts (PM_PYODIDE_CACHE
+    # and HOME, read by pyodide_run.mjs, are preserved; secrets are not).
+    env = safe_subprocess_env(
+        {
+            "DENO_DIR": str(cache / "deno_dir"),
+            "PM_PYODIDE_CACHE": str(cache / "pkgs"),
+        }
+    )
     return args, env
 
 
@@ -271,10 +275,12 @@ def _kill_proc(proc: subprocess.Popen[bytes]) -> None:
 def _ipc_loop(proc: subprocess.Popen[bytes]) -> dict[str, Any] | None:
     """Read stdout lines, fulfill ``sendRequest`` IPC on stdin."""
     from services.scripting.context import execute_sub_request
+    from services.scripting.js_runtime import _MAX_TOTAL_SUBREQUESTS
 
     assert proc.stdout is not None
     assert proc.stdin is not None
 
+    total = 0
     while True:
         raw = proc.stdout.readline()
         if not raw:
@@ -286,7 +292,13 @@ def _ipc_loop(proc: subprocess.Popen[bytes]) -> dict[str, Any] | None:
         if data.get("__done__"):
             return data
         if data.get("__ipc__") == "sendRequest":
-            resp = execute_sub_request(data.get("spec", {}))
+            total += 1
+            if total > _MAX_TOTAL_SUBREQUESTS:
+                resp: dict[str, Any] = {
+                    "error": f"Sub-request host limit ({_MAX_TOTAL_SUBREQUESTS}) exceeded."
+                }
+            else:
+                resp = execute_sub_request(data.get("spec", {}))
             proc.stdin.write(json.dumps(resp, default=str).encode("utf-8") + b"\n")
             proc.stdin.flush()
 

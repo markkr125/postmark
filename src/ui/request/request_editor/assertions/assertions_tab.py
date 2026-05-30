@@ -6,6 +6,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QCompleter,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -17,7 +18,8 @@ from PySide6.QtWidgets import (
 )
 
 from services.assertion_service import AssertionDict
-from services.scripting.assertions_compiler import VALID_OPERATORS
+from services.scripting.assertions_compiler import SUBJECT_SUGGESTIONS, VALID_OPERATORS
+from ui.request.request_editor.assertions.assertions_guide import build_assertions_help_button_row
 from ui.styling.icons import phi
 
 _OPERATOR_LABELS: dict[str, str] = {
@@ -30,6 +32,15 @@ _OPERATOR_LABELS: dict[str, str] = {
     "exists": "exists",
     "is_type": "is type",
 }
+
+_SUBJECT_TOOLTIP = (
+    "What to check on the response. Start typing to pick a field:\n"
+    "  res.status                      HTTP status code\n"
+    "  res.time                        response time (ms)\n"
+    "  res.body                        whole response body\n"
+    "  res.body.<path>                 JSON field, e.g. res.body.data.id\n"
+    '  res.headers["Header-Name"]      a response header'
+)
 
 
 class AssertionsTab(QWidget):
@@ -46,6 +57,8 @@ class AssertionsTab(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 6, 0, 0)
         root.setSpacing(8)
+
+        root.addWidget(build_assertions_help_button_row(self))
 
         header = QHBoxLayout()
         header.setSpacing(8)
@@ -87,11 +100,6 @@ class AssertionsTab(QWidget):
         add_btn.clicked.connect(self._on_add_clicked)
         root.addWidget(add_btn, 0, Qt.AlignmentFlag.AlignLeft)
 
-        self._empty_hint = QLabel("Add declarative checks that compile to pm.test blocks on send.")
-        self._empty_hint.setObjectName("mutedLabel")
-        self._empty_hint.setWordWrap(True)
-        root.addWidget(self._empty_hint)
-
     def set_rows(self, rows: list[AssertionDict]) -> None:
         """Replace all rows from persisted assertion dicts."""
         self._loading = True
@@ -102,7 +110,6 @@ class AssertionsTab(QWidget):
                     self._append_row_widget(row)
             else:
                 self._append_row_widget(self._blank_row())
-            self._sync_empty_hint()
         finally:
             self._loading = False
 
@@ -157,6 +164,8 @@ class AssertionsTab(QWidget):
         subject = QLineEdit(str(data.get("subject", "")), row)
         subject.setPlaceholderText("res.status")
         subject.setObjectName("assertionSubjectEdit")
+        subject.setToolTip(_SUBJECT_TOOLTIP)
+        subject.setCompleter(self._make_subject_completer(subject))
         subject.editingFinished.connect(self._emit_rows_changed)
         layout.addWidget(subject, 3)
 
@@ -193,6 +202,15 @@ class AssertionsTab(QWidget):
         self._rows_layout.insertWidget(self._rows_layout.count() - 1, row)
         self._update_expected_enabled(row)
 
+    def _make_subject_completer(self, parent: QWidget) -> QCompleter:
+        """Build a case-insensitive, contains-matching subject auto-complete."""
+        completer = QCompleter(list(SUBJECT_SUGGESTIONS), parent)
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        completer.activated.connect(lambda _text: self._emit_rows_changed())
+        return completer
+
     def _row_from_widget(self, row: QWidget) -> AssertionDict | None:
         subject = getattr(row, "_subject", None)
         operator = getattr(row, "_operator", None)
@@ -215,12 +233,10 @@ class AssertionsTab(QWidget):
         else:
             self._rows_layout.removeWidget(row)
             row.deleteLater()
-        self._sync_empty_hint()
         self._emit_rows_changed()
 
     def _on_add_clicked(self) -> None:
         self._append_row_widget(self._blank_row())
-        self._sync_empty_hint()
         self._emit_rows_changed()
 
     def _on_operator_changed(self) -> None:
@@ -244,10 +260,6 @@ class AssertionsTab(QWidget):
             expected.setPlaceholderText("—")
         else:
             expected.setPlaceholderText("200")
-
-    def _sync_empty_hint(self) -> None:
-        has_rows = self._rows_layout.count() > 1
-        self._empty_hint.setVisible(not has_rows)
 
     def _emit_rows_changed(self) -> None:
         if self._loading:

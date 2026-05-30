@@ -13,10 +13,13 @@ from typing import Any
 
 from PySide6.QtCore import QObject, Signal, Slot
 
+from services.assertion_service import AssertionService
 from services.http.http_service import HttpService
 from services.script_service import ScriptService
 from services.scripting import ScriptEntry
 from services.scripting.context import (
+    apply_request_mutations,
+    apply_variable_changes,
     build_pre_request_context,
     build_script_info,
     build_test_context,
@@ -39,6 +42,18 @@ def _substitute(text: str, variables: dict[str, str]) -> str:
     from services.environment_service import EnvironmentService
 
     return EnvironmentService.substitute(text, variables)
+
+
+def _declarative_language(req: dict[str, Any], test_scripts: list[ScriptEntry]) -> str:
+    """Resolve the language for compiled declarative assertions (mirrors Send)."""
+    scripts = req.get("scripts")
+    if isinstance(scripts, dict):
+        lang = scripts.get("test_language") or scripts.get("language")
+        if lang:
+            return str(lang).lower()
+    if test_scripts:
+        return str(test_scripts[0].get("language", "javascript")).lower()
+    return "javascript"
 
 
 def scripts_enabled() -> bool:
@@ -190,8 +205,12 @@ class RunnerWorker(QObject):
 
         pre_scripts: list[ScriptEntry] = []
         test_scripts: list[ScriptEntry] = []
+        declarative_entry: ScriptEntry | None = None
         if request_id is not None and scripts_enabled():
             pre_scripts, test_scripts = ScriptService.build_script_chain(int(request_id))
+            declarative_entry = AssertionService.build_declarative_script_entry(
+                int(request_id), _declarative_language(req, test_scripts)
+            )
 
         method: str = req.get("method", "GET")
         url: str = req.get("url", "")
@@ -222,7 +241,7 @@ class RunnerWorker(QObject):
         pre_console_logs: list[Any] = []
         pre_var_changes: dict[str, str] = {}
         skip_request = False
-        global_vars = load_globals() if (pre_scripts or test_scripts) else {}
+        global_vars = load_globals() if (pre_scripts or test_scripts or declarative_entry) else {}
 
         if pre_scripts:
             ctx = build_pre_request_context(
@@ -256,15 +275,24 @@ class RunnerWorker(QObject):
                     )
             mutations = pre_out.get("request_mutations")
             if mutations:
-                url = mutations.get("url", url)
-                method = mutations.get("method", method)
-                headers = mutations.get("headers", headers)
-                body = mutations.get("body", body)
+                # Reuse the same normalizer as Send: handles Postman-style header
+                # *arrays* (``[{"key","value"}]``) emitted by the JS/Deno runtime,
+                # which a raw ``dict`` assignment would later crash on (``.items()``).
+                method, url, headers, body = apply_request_mutations(
+                    mutations,
+                    method=method,
+                    url=url,
+                    headers=headers,
+                    body=body,
+                )
             if pre_out.get("global_variable_changes"):
                 save_globals(pre_out["global_variable_changes"])
                 global_vars.update(pre_out["global_variable_changes"])
             if pre_out.get("variable_changes"):
                 pre_var_changes = dict(pre_out["variable_changes"])
+                # Parity with Send: pre-request variable mutations must be visible
+                # to the test context (http_worker does the same merge).
+                variables = apply_variable_changes(pre_var_changes, variables)
             if pre_out.get("skip_request"):
                 skip_request = True
 
@@ -294,7 +322,7 @@ class RunnerWorker(QObject):
 
         all_test_results: list[Any] = []
         next_request: Any = _SENTINEL
-        if test_scripts and not skip_request:
+        if (test_scripts or declarative_entry) and not skip_request:
             test_info = build_script_info(
                 event_name="test",
                 request_name=req_name,
@@ -318,13 +346,23 @@ class RunnerWorker(QObject):
                 iteration_data=iter_data or None,
                 environment_name=self._environment_name,
             )
-            test_out = ScriptEngine.run_test_scripts(test_scripts, test_ctx)
-            all_test_results.extend(test_out.get("test_results", []))
-            all_console.extend(test_out.get("console_logs", []))
-            if test_out.get("global_variable_changes"):
-                save_globals(test_out["global_variable_changes"])
-            if "next_request" in test_out:
-                next_request = test_out.get("next_request")
+            if test_scripts:
+                test_out = ScriptEngine.run_test_scripts(test_scripts, test_ctx)
+                all_test_results.extend(test_out.get("test_results", []))
+                all_console.extend(test_out.get("console_logs", []))
+                if test_out.get("global_variable_changes"):
+                    save_globals(test_out["global_variable_changes"])
+                if "next_request" in test_out:
+                    next_request = test_out.get("next_request")
+            if declarative_entry:
+                # Parity with Send: run Assertions-tab checks compiled by AssertionService.
+                decl_out = ScriptEngine.run_single(
+                    declarative_entry.get("code", ""),
+                    declarative_entry.get("language", "javascript"),
+                    test_ctx,
+                )
+                all_test_results.extend(decl_out.get("test_results", []))
+                all_console.extend(decl_out.get("console_logs", []))
 
         result_dict["test_results"] = all_test_results
         result_dict["console_logs"] = all_console

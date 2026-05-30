@@ -488,15 +488,25 @@ def get_script_chain(request_id: int) -> list[dict[str, Any]]:
 
         # 3. Append the request itself.
         from services.script_service import normalize_disabled_inherited
+        from services.scripting.context import normalize_events
 
         req_scripts_dict: dict[str, Any] = req.scripts if isinstance(req.scripts, dict) else {}
         disabled = normalize_disabled_inherited(req_scripts_dict.get("disabled_inherited"))
+        # Prefer executable scripts in ``scripts``; fall back to imported Postman
+        # ``events`` only when ``scripts`` carries no script *body* (e.g. it holds
+        # just ``disabled_inherited`` metadata after a disable-only save), so those
+        # imported bodies aren't silently masked by the metadata dict.
+        normalized_scripts = normalize_events(req.scripts)
+        has_script_body = bool(
+            normalized_scripts.get("pre_request") or normalized_scripts.get("test")
+        )
+        scripts_payload = req.scripts if has_script_body else (req.events or req.scripts)
         ancestor_layers.append(
             {
                 "source": "request",
                 "id": req.id,
                 "name": req.name,
-                "scripts": req.scripts or req.events,
+                "scripts": scripts_payload,
                 "disabled_inherited": disabled,
             }
         )

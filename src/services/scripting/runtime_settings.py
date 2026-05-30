@@ -31,6 +31,7 @@ _KEY_DENO = "scripting/deno_path"
 _KEY_PYTHON = "scripting/python_path"
 _KEY_LSP_ENABLED = "scripting/lsp_enabled"
 _KEY_FORMAT_ON_SAVE = "scripting/format_on_save"
+_KEY_ALLOW_LOCAL_SUBREQUESTS = "scripting/allow_local_subrequests"
 _KEY_LSP_DID_CHANGE_DEBOUNCE_MS = "scripting/lsp_did_change_debounce_ms"
 _KEY_LSP_PM_REQUIRE_DEBOUNCE_MS = "scripting/lsp_pm_require_debounce_ms"
 _KEY_LSP_DIAG_CLEAR_DEBOUNCE_MS = "scripting/lsp_diag_clear_debounce_ms"
@@ -283,6 +284,26 @@ class RuntimeSettings:
         """Persist format-on-save for script editors."""
         s = _get_settings()
         s.setValue(_KEY_FORMAT_ON_SAVE, enabled)
+
+    @staticmethod
+    def allow_local_subrequests() -> bool:
+        """Whether ``pm.sendRequest`` may target loopback/private/link-local hosts.
+
+        Defaults to ``False``: scripts from untrusted/imported collections must
+        not be able to reach internal services or the cloud metadata endpoint
+        (SSRF).  Power users testing local APIs from scripts can opt in.
+        """
+        s = _get_settings()
+        raw = s.value(_KEY_ALLOW_LOCAL_SUBREQUESTS, False)
+        if isinstance(raw, str):
+            return raw.lower() not in {"0", "false", "no", "off", ""}
+        return bool(raw)
+
+    @staticmethod
+    def set_allow_local_subrequests(enabled: bool) -> None:
+        """Persist the local-subrequest (SSRF) opt-in."""
+        s = _get_settings()
+        s.setValue(_KEY_ALLOW_LOCAL_SUBREQUESTS, enabled)
 
     @staticmethod
     def _int_setting(key: str, default: int) -> int:

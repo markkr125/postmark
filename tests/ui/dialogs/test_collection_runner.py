@@ -262,6 +262,68 @@ class TestRunnerWorkerRun:
         assert results[0].get("_skipped") is True
         assert results[0]["status_code"] == 0
 
+    def test_pre_request_array_header_mutation_applied(self) -> None:
+        """Array header mutations apply cleanly; pre-request var changes recorded.
+
+        Covers F4 (Postman-style header arrays normalized via apply_request_mutations
+        instead of crashing on ``.items()``) and the F5 variable-merge path.
+        """
+        worker = RunnerWorker()
+        worker.set_requests(
+            [{"name": "R1", "id": 1, "method": "GET", "url": "http://x", "headers": {}}]
+        )
+
+        captured: dict[str, Any] = {}
+
+        def fake_send(**kwargs: Any) -> dict[str, Any]:
+            captured.update(kwargs)
+            return {"status_code": 200, "elapsed_ms": 5, "body": "", "headers": []}
+
+        pre_out = {
+            "console_logs": [],
+            "test_results": [],
+            "request_mutations": {
+                "method": "GET",
+                "url": "http://x",
+                "headers": [{"key": "Authorization", "value": "Bearer t"}],
+                "body": "",
+            },
+            "variable_changes": {"tok": "t"},
+        }
+
+        with (
+            patch(
+                "ui.dialogs.collection_runner.worker.HttpService.send_request",
+                side_effect=fake_send,
+            ),
+            patch(
+                "ui.dialogs.collection_runner.worker.ScriptService.build_script_chain",
+                return_value=([{"code": "x", "language": "javascript", "source_name": ""}], []),
+            ),
+            patch(
+                "ui.dialogs.collection_runner.worker.ScriptEngine.run_pre_request_scripts",
+                return_value=pre_out,
+            ),
+            patch(
+                "ui.dialogs.collection_runner.worker.AssertionService"
+                ".build_declarative_script_entry",
+                return_value=None,
+            ),
+            patch(
+                "ui.dialogs.collection_runner.worker.scripts_enabled",
+                return_value=True,
+            ),
+        ):
+            results: list[dict[str, Any]] = []
+            worker.progress.connect(lambda _idx, r: results.append(r))
+            worker.run()
+
+        assert len(results) == 1
+        # Array header normalized into the sent header string (no '.items()' crash on a list).
+        assert "Authorization: Bearer t" in (captured.get("headers") or "")
+        # Pre-request variable change surfaced for reporting (F5 merge path executed).
+        assert results[0].get("pre_request_variable_changes", {}).get("tok") == "t"
+
     def test_flow_control_next_request(self) -> None:
         """Flow control: setNextRequest jumps to the named request."""
         worker = RunnerWorker()

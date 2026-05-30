@@ -86,15 +86,17 @@ class ScriptService:
         normalized = normalize_events(events)
         pre: list[ScriptEntry] = []
         test: list[ScriptEntry] = []
-        language = str(normalized.get("language", _DEFAULT_LANGUAGE))
+        default_language = str(normalized.get("language") or _DEFAULT_LANGUAGE)
+        pre_language = str(normalized.get("pre_language") or default_language)
+        test_language = str(normalized.get("test_language") or default_language)
 
         pre_code = (normalized.get("pre_request") or "").strip()
         if pre_code:
-            pre.append({"code": pre_code, "language": language, "source_name": name})
+            pre.append({"code": pre_code, "language": pre_language, "source_name": name})
 
         test_code = (normalized.get("test") or "").strip()
         if test_code:
-            test.append({"code": test_code, "language": language, "source_name": name})
+            test.append({"code": test_code, "language": test_language, "source_name": name})
 
         return pre, test
 
@@ -121,7 +123,13 @@ def _build_chains(
     for layer in raw_chain:
         normalized = normalize_events(layer.get("scripts"))
         source_name = layer.get("name", "")
-        language = str(normalized.get("language", _DEFAULT_LANGUAGE))
+        # Resolve per-phase languages: the UI persists separate pre_language /
+        # test_language, falling back to a shared ``language`` then the default.
+        # Using one language for both phases breaks mixed-language requests
+        # (e.g. JS pre-request + Python tests).
+        default_language = str(normalized.get("language") or _DEFAULT_LANGUAGE)
+        pre_language = str(normalized.get("pre_language") or default_language)
+        test_language = str(normalized.get("test_language") or default_language)
         is_collection = layer.get("source") == "collection"
         layer_id = layer.get("id")
         coll_id: int | None = int(layer_id) if isinstance(layer_id, int) else None
@@ -133,7 +141,7 @@ def _build_chains(
             pre_entries.append(
                 {
                     "code": pre_code,
-                    "language": language,
+                    "language": pre_language,
                     "source_name": source_name,
                 }
             )
@@ -145,7 +153,7 @@ def _build_chains(
             test_entries.append(
                 {
                     "code": test_code,
-                    "language": language,
+                    "language": test_language,
                     "source_name": source_name,
                 }
             )

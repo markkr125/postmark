@@ -249,6 +249,7 @@ class TestRequestSaveEndToEnd:
             {"key": "limit", "value": "10", "enabled": True},
         ]
         window.request_widget._params_table.set_data(params)
+        window.request_widget._on_params_changed_sync()
         window.request_widget._set_dirty(True)
         window._on_save_request()
 
@@ -258,6 +259,9 @@ class TestRequestSaveEndToEnd:
         keys = [p["key"] for p in saved.request_parameters if p.get("key")]
         assert "page" in keys
         assert "limit" in keys
+        assert saved.url is not None
+        assert "page=1" in saved.url
+        assert "limit=10" in saved.url
 
     # -- Description ---------------------------------------------------
 

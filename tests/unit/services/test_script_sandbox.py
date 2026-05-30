@@ -87,6 +87,33 @@ class TestPySandboxSecurity:
         failed = [r for r in result["test_results"] if not r["passed"]]
         assert len(failed) >= 1
 
+    def test_getitem_guard_blocks_dunder_keys(self):
+        """Subscript access to dunder keys is blocked; normal keys still work."""
+        from services.scripting._sandbox_runtime import _getitem_guard
+
+        with pytest.raises(KeyError):
+            _getitem_guard({"__class__": 1}, "__class__")
+        # Single-underscore JSON keys (e.g. Mongo _id, HAL _links) keep working.
+        assert _getitem_guard({"_id": 5}, "_id") == 5
+        assert _getitem_guard([10, 20], 1) == 20
+
+    def test_pm_require_host_module_blocked(self):
+        """pm.require must not import arbitrary host modules (sandbox escape)."""
+        for mod in ("os", "subprocess", "sys", "importlib"):
+            result = PyRuntime.execute_restricted(f'pm.require("{mod}")', _make_context())
+            failed = [r for r in result["test_results"] if not r["passed"]]
+            assert len(failed) >= 1, f"pm.require({mod!r}) should be blocked"
+            assert "not available" in failed[0]["error"].lower()
+
+    def test_pm_require_bundled_module_allowed(self):
+        """pm.require still resolves an allowlisted bundled module (uuid)."""
+        script = (
+            'pm.test("uuid", lambda: pm.expect(len(str(pm.require("uuid").uuid4()))).to.equal(36))'
+        )
+        result = PyRuntime.execute_restricted(script, _make_context())
+        for r in result["test_results"]:
+            assert r["passed"] is True, f"{r['name']} failed: {r['error']}"
+
     def test_pm_send_request_rate_limit(self):
         """Verify that more than 10 pm.send_request calls raise an error."""
         script = """

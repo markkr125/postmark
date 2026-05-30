@@ -2,7 +2,32 @@
 
 from __future__ import annotations
 
-from services.scripting.assertions_compiler import compile_to_js, compile_to_py
+from services.scripting.assertions_compiler import (
+    SUBJECT_SUGGESTIONS,
+    compile_to_js,
+    compile_to_py,
+)
+
+
+class TestSubjectSuggestions:
+    """The auto-complete suggestion list maps onto real subject grammar."""
+
+    def test_concrete_suggestions_compile(self) -> None:
+        """Every concrete suggestion (not the body-path prefix) yields a pm.test."""
+        for subject in SUBJECT_SUGGESTIONS:
+            if subject == "res.body.":
+                continue
+            rows = [
+                {
+                    "subject": subject,
+                    "operator": "exists",
+                    "expected": "",
+                    "enabled": True,
+                    "order_index": 0,
+                }
+            ]
+            code = compile_to_js(rows)
+            assert "pm.test" in code, f"suggestion did not compile: {subject}"
 
 
 class TestAssertionsCompilerJs:

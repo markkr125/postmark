@@ -283,3 +283,44 @@ class TestBuildCollectionScriptChain:
         events: dict[str, str] = {"pre_request": "  ", "test": ""}
         pre, test = ScriptService.build_collection_script_chain(events)
         assert pre == [] and test == []
+
+
+class TestPerPhaseLanguage:
+    """Pre-request and test phases honour their own language (mixed-language requests)."""
+
+    def test_build_chains_uses_per_phase_language(self) -> None:
+        raw = [
+            {
+                "source": "request",
+                "id": 1,
+                "name": "R1",
+                "scripts": {
+                    "pre_request": "a = 1",
+                    "test": "b = 2",
+                    "pre_language": "javascript",
+                    "test_language": "python",
+                },
+                "disabled_inherited": [],
+            }
+        ]
+        pre, test = _build_chains(raw)
+        assert pre[0]["language"] == "javascript"
+        assert test[0]["language"] == "python"
+
+    def test_collection_chain_uses_per_phase_language(self) -> None:
+        events = {
+            "pre_request": "a = 1",
+            "test": "b = 2",
+            "pre_language": "javascript",
+            "test_language": "python",
+        }
+        pre, test = ScriptService.build_collection_script_chain(events)
+        assert pre[0]["language"] == "javascript"
+        assert test[0]["language"] == "python"
+
+    def test_shared_language_fallback(self) -> None:
+        """When only a single ``language`` is set, both phases use it."""
+        events = {"pre_request": "a = 1", "test": "b = 2", "language": "python"}
+        pre, test = ScriptService.build_collection_script_chain(events)
+        assert pre[0]["language"] == "python"
+        assert test[0]["language"] == "python"

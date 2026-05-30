@@ -7,9 +7,11 @@ Also provides ``execute_sub_request()`` for ``pm.sendRequest()``.
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import re
+import socket
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -315,6 +317,47 @@ _PER_CALL_TIMEOUT = 10
 # Maximum response body size (bytes) — prevents memory exhaustion.
 _MAX_RESPONSE_BYTES = 10 * 1024 * 1024  # 10 MB
 
+# HTTP status codes that trigger a redirect.
+_REDIRECT_CODES = frozenset({301, 302, 303, 307, 308})
+
+# Maximum redirect hops to follow (each hop is re-validated for SSRF).
+_MAX_REDIRECTS = 10
+
+
+def _is_blocked_subrequest_host(hostname: str) -> bool:
+    """Return ``True`` if *hostname* points at a non-public address.
+
+    Blocks loopback, private (RFC1918), link-local (incl. the cloud-metadata
+    endpoint ``169.254.169.254``), reserved, multicast, and unspecified
+    addresses — the targets of script-driven SSRF.  IP literals are checked
+    directly; host names are resolved via DNS.  A resolution failure returns
+    ``False`` so the underlying network error surfaces from httpx instead.
+    """
+    if not hostname:
+        return True
+    try:
+        candidates = [str(ipaddress.ip_address(hostname))]
+    except ValueError:
+        try:
+            candidates = [str(info[4][0]) for info in socket.getaddrinfo(hostname, None)]
+        except OSError:
+            return False
+    for cand in candidates:
+        try:
+            addr = ipaddress.ip_address(cand)
+        except ValueError:
+            continue
+        if (
+            addr.is_loopback
+            or addr.is_private
+            or addr.is_link_local
+            or addr.is_reserved
+            or addr.is_multicast
+            or addr.is_unspecified
+        ):
+            return True
+    return False
+
 
 def execute_sub_request(spec: dict[str, Any]) -> dict[str, Any]:
     """Execute a single HTTP sub-request for ``pm.sendRequest()``.
@@ -331,15 +374,12 @@ def execute_sub_request(spec: dict[str, Any]) -> dict[str, Any]:
     (list), ``body``, ``responseTime``, and ``responseSize``.  On
     failure returns an ``error`` key instead.
 
-    Raises nothing — all errors are captured in the returned dict.
+    Redirects are followed manually so every hop is re-checked against the
+    SSRF host policy (an open redirect can't bounce the request to a private
+    or metadata address).  Raises nothing — all errors are captured.
     """
     url = str(spec.get("url", ""))
     method = str(spec.get("method", "GET")).upper()
-
-    # -- Scheme whitelist ----------------------------------------------
-    parsed = urlparse(url)
-    if parsed.scheme.lower() not in _ALLOWED_SCHEMES:
-        return {"error": f"Scheme not allowed: {parsed.scheme or '(empty)'}"}
 
     # -- Parse headers -------------------------------------------------
     raw_headers = spec.get("header", spec.get("headers", []))
@@ -361,36 +401,65 @@ def execute_sub_request(spec: dict[str, Any]) -> dict[str, Any]:
         if body is not None:
             body = str(body)
 
-    # -- Execute -------------------------------------------------------
+    from services.scripting.runtime_settings import RuntimeSettings
+
+    block_local = not RuntimeSettings.allow_local_subrequests()
+
+    # -- Execute (manual redirect loop; every hop is re-validated) ------
     try:
         import httpx
 
+        cur_url = url
+        cur_method = method
+        cur_content = body.encode("utf-8") if body else None
         start = time.monotonic()
-        resp = httpx.request(
-            method,
-            url,
-            headers=headers,
-            content=body.encode("utf-8") if body else None,
-            timeout=_PER_CALL_TIMEOUT,
-            follow_redirects=True,
-        )
-        elapsed_ms = (time.monotonic() - start) * 1000
+        for _hop in range(_MAX_REDIRECTS + 1):
+            parsed = urlparse(cur_url)
+            if parsed.scheme.lower() not in _ALLOWED_SCHEMES:
+                return {"error": f"Scheme not allowed: {parsed.scheme or '(empty)'}"}
+            if block_local and _is_blocked_subrequest_host(parsed.hostname or ""):
+                return {
+                    "error": (
+                        f"Blocked sub-request to non-public host "
+                        f"'{parsed.hostname or '(none)'}'. Enable "
+                        f"scripting/allow_local_subrequests to permit local targets."
+                    )
+                }
+            resp = httpx.request(
+                cur_method,
+                cur_url,
+                headers=headers,
+                content=cur_content,
+                timeout=_PER_CALL_TIMEOUT,
+                follow_redirects=False,
+            )
+            location = resp.headers.get("location")
+            if resp.status_code in _REDIRECT_CODES and location:
+                cur_url = str(httpx.URL(cur_url).join(location))
+                if resp.status_code in (301, 302, 303) and cur_method not in ("GET", "HEAD"):
+                    cur_method = "GET"
+                    cur_content = None
+                    headers.pop("Content-Length", None)
+                    headers.pop("content-length", None)
+                continue
 
-        if len(resp.content) > _MAX_RESPONSE_BYTES:
+            if len(resp.content) > _MAX_RESPONSE_BYTES:
+                return {
+                    "error": (
+                        f"Response too large ({len(resp.content)} bytes, "
+                        f"limit {_MAX_RESPONSE_BYTES})"
+                    ),
+                }
+            elapsed_ms = (time.monotonic() - start) * 1000
             return {
-                "error": (
-                    f"Response too large ({len(resp.content)} bytes, limit {_MAX_RESPONSE_BYTES})"
-                ),
+                "code": resp.status_code,
+                "status": resp.reason_phrase or "",
+                "headers": [{"key": k, "value": v} for k, v in resp.headers.items()],
+                "body": resp.text,
+                "responseTime": round(elapsed_ms, 2),
+                "responseSize": len(resp.content),
             }
-
-        return {
-            "code": resp.status_code,
-            "status": resp.reason_phrase or "",
-            "headers": [{"key": k, "value": v} for k, v in resp.headers.items()],
-            "body": resp.text,
-            "responseTime": round(elapsed_ms, 2),
-            "responseSize": len(resp.content),
-        }
+        return {"error": f"Too many redirects (limit {_MAX_REDIRECTS})"}
     except Exception as exc:
         logger.warning("pm.sendRequest failed: %s", exc)
         return {"error": str(exc)}
