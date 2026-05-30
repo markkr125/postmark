@@ -29,6 +29,15 @@ logger = logging.getLogger(__name__)
 # Maximum wait (ms) when shutting down a worker thread.
 _THREAD_WAIT_MS = 3000
 
+_tab_nav_token_seq: int = 0
+
+
+def allocate_tab_nav_token() -> int:
+    """Return a new stable id for tab activation history stacks."""
+    global _tab_nav_token_seq
+    _tab_nav_token_seq += 1
+    return _tab_nav_token_seq
+
 
 class TabContext:
     """Bundle of per-tab state: widgets, thread lifecycle, and dirty flag.
@@ -63,6 +72,7 @@ class TabContext:
         last_activated_order: Monotonic token tracking recent activation.
             Used by policies such as "Close unused" and
             "Activate most recently used tab on close".
+        nav_token: Stable id for tab activation back/forward stacks.
     """
 
     def __init__(
@@ -79,6 +89,7 @@ class TabContext:
         local_script_editor: LocalScriptEditorWidget | None = None,
         is_preview: bool = False,
         opened_order: int = 0,
+        nav_token: int | None = None,
     ) -> None:
         """Create a new tab context with optional pre-built widgets."""
         self.tab_type = tab_type
@@ -110,6 +121,7 @@ class TabContext:
         self.local_overrides: dict[str, LocalOverride] = {}
         self.opened_order: int = opened_order
         self.last_activated_order: int = 0
+        self.nav_token: int = nav_token if nav_token is not None else allocate_tab_nav_token()
 
     def require_editor(self) -> RequestEditorWidget:
         """Return the request editor when this tab mounts one.

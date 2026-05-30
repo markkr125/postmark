@@ -43,6 +43,9 @@ _REQUIRE_MAP: dict[str, list[str] | None] = {
     "ajv": ["ajv.js"],
     "xml2js": ["xml2js.js"],
     "csv-parse/sync": ["buffer-polyfill.js", "csv-parse.js"],
+    "csv-parse/lib/sync": ["buffer-polyfill.js", "csv-parse.js"],
+    "atob": None,
+    "btoa": None,
     "uuid": None,  # built into bootstrap
 }
 
@@ -57,6 +60,9 @@ _GLOBAL_IMPLIES: dict[str, str] = {
 # Cached sources — loaded once on first use.
 _bootstrap_source: str | None = None
 _polyfills_source: str | None = None
+_dynvar_json: str | None = None
+_dynamic_vars_js: str | None = None
+_json_schema_js: str | None = None
 _vendor_cache: dict[str, str] = {}
 
 
@@ -75,6 +81,53 @@ def _get_vendor_file(name: str) -> str:
         path = _VENDOR_DIR / name
         _vendor_cache[name] = path.read_text(encoding="utf-8")
     return _vendor_cache[name]
+
+
+def _get_dynvar_json() -> str:
+    """Return cached ``dynamic_variables.json`` text for bundle injection."""
+    global _dynvar_json
+    if _dynvar_json is None:
+        _dynvar_json = (_SCRIPTS_DIR / "dynamic_variables.json").read_text(encoding="utf-8")
+    return _dynvar_json
+
+
+def _get_dynamic_vars_fragment() -> str:
+    """Return cached ``pm_dynamic_vars.js`` source."""
+    global _dynamic_vars_js
+    if _dynamic_vars_js is None:
+        _dynamic_vars_js = (_SCRIPTS_DIR / "pm_dynamic_vars.js").read_text(encoding="utf-8")
+    return _dynamic_vars_js
+
+
+def _get_json_schema_fragment() -> str:
+    """Return cached ``pm_json_schema.js`` source (WS3)."""
+    global _json_schema_js
+    if _json_schema_js is None:
+        path = _SCRIPTS_DIR / "pm_json_schema.js"
+        _json_schema_js = path.read_text(encoding="utf-8") if path.is_file() else ""
+    return _json_schema_js
+
+
+def append_js_pm_preamble(
+    parts: list[str],
+    script: str,
+    context: ScriptInput,
+    *,
+    include_json_schema: bool = False,
+) -> None:
+    """Append dynvar, fragments, polyfills, vendor, context, and bootstrap to *parts*."""
+    parts.append(f"globalThis.__pm_dynvar = {_get_dynvar_json()};\n")
+    parts.append(_get_dynamic_vars_fragment())
+    if include_json_schema:
+        fragment = _get_json_schema_fragment()
+        if fragment:
+            parts.append(fragment)
+    parts.append(_get_polyfills())
+    for vf in _resolve_vendor_files(_detect_required_modules(script)):
+        parts.append(_get_vendor_file(vf))
+    jctx = json.dumps(_build_js_context(context), default=str)
+    parts.append(f"var __pm_context = {jctx};\n")
+    parts.append(_get_bootstrap())
 
 
 def _detect_required_modules(script: str) -> set[str]:
@@ -312,29 +365,38 @@ def _build_js_context(context: ScriptInput) -> dict[str, Any]:
             "response_size": response_size,
         }
 
+    request_out: dict[str, Any] = {
+        "url": req.get("url", ""),
+        "method": req.get("method", "GET"),
+        "headers": header_list,
+        "body": req.get("body", ""),
+    }
+    auth_raw = req.get("auth")
+    if auth_raw is not None:
+        request_out["auth"] = auth_raw
+
     out: dict[str, Any] = {
-        "request": {
-            "url": req.get("url", ""),
-            "method": req.get("method", "GET"),
-            "headers": header_list,
-            "body": req.get("body", ""),
-        },
+        "request": request_out,
         "response": resp_data,
         "variables": context.get("variables", {}),
         "environment_vars": context.get("environment_vars", {}),
         "collection_vars": context.get("collection_vars", {}),
         "global_vars": context.get("global_vars", {}),
         "info": context.get("info", {}),
+        "environment_name": context.get("environment_name", ""),
         "is_pre_request": resp is None,
         "iteration_data": context.get("iteration_data", {}),
     }
     if resp_data is not None:
-        out["original_request"] = {
+        original: dict[str, Any] = {
             "url": req.get("url", ""),
             "method": req.get("method", "GET"),
             "headers": header_list,
             "body": req.get("body", ""),
         }
+        if auth_raw is not None:
+            original["auth"] = auth_raw
+        out["original_request"] = original
     loc = context.get("execution_location")
     if isinstance(loc, dict):
         out["execution_location"] = loc

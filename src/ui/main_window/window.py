@@ -34,6 +34,7 @@ from ui.loading_screen import LoadingScreen
 from ui.main_window.draft_controller import _DraftControllerMixin
 from ui.main_window.send_pipeline import _SendPipelineMixin
 from ui.main_window.tab_controller import _TabControllerMixin
+from ui.main_window.tab_nav import _TabNavHistoryMixin
 from ui.main_window.variable_controller import _VariableControllerMixin
 from ui.panels.console_panel import ConsolePanel
 from ui.panels.history_panel import HistoryPanel
@@ -55,6 +56,7 @@ class MainWindow(
     _SendPipelineMixin,
     _VariableControllerMixin,
     _DraftControllerMixin,
+    _TabNavHistoryMixin,
     _TabControllerMixin,
     QMainWindow,
 ):
@@ -63,7 +65,9 @@ class MainWindow(
     Sets up the menu bar, status bar, and five-pane layout
     (left activity rail + collections / environments or local scripts flyout
     | request editor | response viewer | right sidebar rail + flyout).
-    Back/forward navigation uses ``QAction`` shortcuts only (no toolbar strip).
+
+    Navigation: request open history (Alt+Left/Right), tab activation history
+    (Go menu, Ctrl+Alt+Left/Right), and cyclic tab deck (View, Ctrl+Tab).
     """
 
     def __init__(
@@ -100,6 +104,7 @@ class MainWindow(
         self._tabs: dict[int, TabContext] = {}
         # Deferred (not-yet-materialised) request tabs restored from session
         self._deferred_tabs: dict[int, dict] = {}
+        self._init_tab_activation_history()
 
         # Legacy single-send state (used when no tab is found)
         self._send_thread: QThread | None = None
@@ -151,12 +156,6 @@ class MainWindow(
         # Wire collection runner
         self.run_action.triggered.connect(self._on_run_collection)
         self.collection_widget.run_collection_requested.connect(self._on_run_collection_by_id)
-
-        from ui.widgets.snippets.loader import invalidate_snippet_cache
-
-        self.collection_widget._tree_widget.selected_collection_changed.connect(
-            lambda _cid: invalidate_snippet_cache()
-        )
 
         # Wire environment editor
         self._env_selector.manage_requested.connect(self._on_manage_environments)
@@ -281,6 +280,24 @@ class MainWindow(
         run_act.setShortcut(QKeySequence("Ctrl+Shift+R"))
         self.run_action = run_act
         coll_menu.addAction(run_act)
+
+        # Go menu — tab activation history
+        go_menu = menubar.addMenu("&Go")
+        self.tab_back_action = QAction(phi("arrow-left", size=20), "&Back", self)
+        self.tab_back_action.setToolTip("Go to previously activated tab")
+        self.tab_back_action.setShortcut(QKeySequence("Ctrl+Alt+Left"))
+        self.tab_back_action.setEnabled(False)
+        self.tab_back_action.triggered.connect(self._navigate_tab_back)
+        go_menu.addAction(self.tab_back_action)
+        self.addAction(self.tab_back_action)
+
+        self.tab_forward_action = QAction(phi("arrow-right", size=20), "&Forward", self)
+        self.tab_forward_action.setToolTip("Go forward in tab activation history")
+        self.tab_forward_action.setShortcut(QKeySequence("Ctrl+Alt+Right"))
+        self.tab_forward_action.setEnabled(False)
+        self.tab_forward_action.triggered.connect(self._navigate_tab_forward)
+        go_menu.addAction(self.tab_forward_action)
+        self.addAction(self.tab_forward_action)
 
         # View menu
         view_menu = menubar.addMenu("&View")
@@ -410,14 +427,16 @@ class MainWindow(
     # Navigation shortcuts (no visible toolbar)
     # ------------------------------------------------------------------
     def _create_nav_actions(self) -> None:
-        """Register back/forward actions on the window for Alt+Left / Alt+Right."""
+        """Register request open-history actions for Alt+Left / Alt+Right."""
         self.back_action = QAction(phi("arrow-left", size=20), "Go back", self)
+        self.back_action.setToolTip("Go back to previously opened request")
         self.back_action.setShortcut(QKeySequence("Alt+Left"))
         self.back_action.setEnabled(False)
         self.back_action.triggered.connect(self._navigate_back)
         self.addAction(self.back_action)
 
         self.forward_action = QAction(phi("arrow-right", size=20), "Go forward", self)
+        self.forward_action.setToolTip("Go forward in request open history")
         self.forward_action.setShortcut(QKeySequence("Alt+Right"))
         self.forward_action.setEnabled(False)
         self.forward_action.triggered.connect(self._navigate_forward)
@@ -770,6 +789,7 @@ class MainWindow(
         if self._debug_protocol is not None:
             self._debug_protocol.stop()
             self._debug_protocol = None
+        self._end_debug_ui()
         self._persist_open_tabs()
         for ctx in self._tabs.values():
             ctx.cancel_send()

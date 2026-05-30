@@ -7,6 +7,11 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QLabel, QListWidget, QListWidgetItem, QVBoxLayout, QWidget
 
 from services.scripting.debug import CallFrame, DebugPauseInfo
+from ui.styling.theme import (
+    DEBUG_INSPECTOR_LEFT_PANE_H_LEFT_PX,
+    DEBUG_INSPECTOR_LEFT_PANE_H_RIGHT_PX,
+    DEBUG_INSPECTOR_LEFT_PANE_SECTION_TOP_PX,
+)
 
 
 class CallStackPanel(QWidget):
@@ -18,7 +23,12 @@ class CallStackPanel(QWidget):
         """Build the call-stack list widget."""
         super().__init__(parent)
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(12, 4, 12, 4)
+        outer.setContentsMargins(
+            DEBUG_INSPECTOR_LEFT_PANE_H_LEFT_PX,
+            DEBUG_INSPECTOR_LEFT_PANE_SECTION_TOP_PX,
+            DEBUG_INSPECTOR_LEFT_PANE_H_RIGHT_PX,
+            0,
+        )
         outer.setSpacing(4)
 
         title = QLabel("Call stack")

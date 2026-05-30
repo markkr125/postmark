@@ -18,20 +18,16 @@ class _SnippetMixin(_SnippetBase):
     """Mixin providing Save as snippet… context-menu integration."""
 
     _snippet_script_type: str | None
-    _snippet_collection_id: int | None
-    _snippet_local_script_id: int | None
+    _read_only: bool
 
-    def set_snippet_capture_context(
-        self,
-        *,
-        script_type: str | None = None,
-        collection_id: int | None = None,
-        local_script_id: int | None = None,
-    ) -> None:
-        r"""Configure scope for the script editor "Save as snippet…" action."""
+    if TYPE_CHECKING:
+
+        @property
+        def language(self) -> str: ...
+
+    def set_snippet_capture_context(self, *, script_type: str | None = None) -> None:
+        r"""Configure the script editor "Save as snippet…" action."""
         self._snippet_script_type = script_type
-        self._snippet_collection_id = collection_id
-        self._snippet_local_script_id = local_script_id
 
     def _add_snippet_menu_action(self, menu: QMenu) -> None:
         """Append Save as snippet… when selection and capture context allow it."""
@@ -57,8 +53,6 @@ class _SnippetMixin(_SnippetBase):
             body=body,
             language=self.language,
             script_type=self._snippet_script_type or "pre_request",
-            collection_id=self._snippet_collection_id,
-            local_script_id=self._snippet_local_script_id,
             parent=self.window(),
         )
         from PySide6.QtWidgets import QDialog

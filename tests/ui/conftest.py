@@ -6,7 +6,6 @@ from collections.abc import Iterator
 from typing import Any
 
 import pytest
-from PySide6.QtCore import QEvent
 from PySide6.QtWidgets import QApplication, QTreeWidgetItem
 
 from ui.collections.collection_widget import CollectionWidget
@@ -74,28 +73,14 @@ def _reset_popup_and_flush_widgets(qapp: QApplication) -> Iterator[None]:
     VariablePopup._reset_local_override_callback = None
     VariablePopup._add_variable_callback = None
 
-    # 2. Reset code-editor popup singletons. The four popups in
-    # ``ui.widgets.code_editor.popup_registry`` are app-wide; visible state
-    # (``isVisible``, connected slots, anchor) leaks between tests otherwise.
-    from shiboken6 import Shiboken
+    # 2. Reset code-editor popup singletons (see ``tests/qt_popup_cleanup.py``).
+    from tests.qt_popup_cleanup import (
+        flush_deferred_widget_deletes,
+        reset_code_editor_popups,
+    )
 
-    from ui.widgets.code_editor import popup_registry
-
-    for getter in (
-        popup_registry.completion_popup,
-        popup_registry.parameter_hint_popup,
-        popup_registry.symbol_doc_popup,
-        popup_registry.debug_value_popup,
-    ):
-        popup = getter()
-        if not Shiboken.isValid(popup):
-            continue
-        if hasattr(popup, "clear_target"):
-            popup.clear_target()
-        popup.hide()
-
-    # 3. Dispatch every queued DeferredDelete so C++ widgets are freed.
-    qapp.sendPostedEvents(None, int(QEvent.Type.DeferredDelete))
+    reset_code_editor_popups()
+    flush_deferred_widget_deletes(qapp)
 
 
 # ------------------------------------------------------------------

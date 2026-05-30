@@ -36,6 +36,13 @@ class _BreakpointMixin(_BreakpointBase):
     _bp_hover_tip_target_line: int | None
     breakpoints_changed: Any
 
+    if TYPE_CHECKING:
+
+        def _set_breakpoint_hover_line(self, line: int | None) -> None: ...
+        def _update_gutter_width(self) -> None: ...
+        def _refresh_extra_selections(self) -> None: ...
+        def _line_at_gutter_y(self, y: float) -> int | None: ...
+
     def set_breakpoint_gutter_visible(self, visible: bool) -> None:
         """Show or hide the breakpoint gutter column."""
         self._show_breakpoint_gutter = visible
@@ -120,6 +127,20 @@ class _BreakpointMixin(_BreakpointBase):
     def breakpoints(self) -> dict[int, str | None]:
         """Return a copy of the current breakpoint map (line → condition)."""
         return dict(self._breakpoints)
+
+    def replace_breakpoints(
+        self,
+        mapping: dict[int, str | None],
+        *,
+        emit: bool = False,
+    ) -> None:
+        """Replace all breakpoints with *mapping* (0-based line → condition)."""
+        self._breakpoints = dict(mapping)
+        self._bp_gutter_area.update()
+        self._refresh_extra_selections()
+        if emit:
+            self.breakpoints_changed.emit()
+        self._schedule_breakpoint_hover_tooltip()
 
     def set_breakpoint_condition(self, line: int, condition: str | None) -> None:
         """Set or update the condition for a breakpoint on *line* (0-based)."""

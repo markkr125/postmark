@@ -525,7 +525,8 @@ pm.variables.set("request_id", id);
 
 Postman-style module loader. Bare specifiers map to bundled vendor
 modules (`crypto-js`, `lodash`, `moment`, `chai`, `tv4`, `ajv`,
-`xml2js`, `csv-parse/lib/sync`, `cheerio`, `atob`, `btoa`, `uuid`).
+`xml2js`, `csv-parse/sync`, `csv-parse/lib/sync`, `atob`, `btoa`, `uuid`).
+Use `pm.require("npm:cheerio")` for Cheerio — bare `cheerio` is not bundled.
 
 ```javascript
 const _ = pm.require("lodash");

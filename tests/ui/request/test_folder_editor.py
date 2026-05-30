@@ -91,7 +91,9 @@ class TestFolderEditorLoad:
         editor.show()
         qtbot.waitExposed(editor)
         editor._tabs.setCurrentIndex(2)
-        assert editor._pre_runtime_banner.isVisible()
+        # The Deno probe runs off the UI thread and updates the banner via a
+        # queued signal, so wait for the event loop to deliver it.
+        qtbot.waitUntil(editor._pre_runtime_banner.isVisible)
 
     def test_load_description(self, qapp: QApplication, qtbot) -> None:
         """Loading populates the description field."""

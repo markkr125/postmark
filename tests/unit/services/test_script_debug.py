@@ -135,9 +135,74 @@ class TestDebugProtocolBreakpoints:
         assert proto.breakpoint_condition(4) is None
         assert 4 in proto.breakpoints
 
+    def test_breakpoints_enabled_gates_effective_map(self) -> None:
+        """Disabling breakpoints clears the map sent to runtimes."""
+        proto = DebugProtocol()
+        proto.set_breakpoints({2: None})
+        proto.set_breakpoints_enabled(False)
+        assert proto.effective_breakpoints() == {}
+        assert proto.breakpoints == {2: None}
+        proto.set_breakpoints_enabled(True)
+        assert proto.effective_breakpoints() == {2: None}
+
+    def test_checkpoint_skips_breakpoints_when_disabled(self) -> None:
+        """Line breakpoints do not pause when breakpoints_enabled is False."""
+        proto = DebugProtocol()
+        proto.start()
+        proto.set_breakpoints({1: None})
+        proto.set_breakpoints_enabled(False)
+        assert proto.checkpoint(1) is True
+        assert proto.state == DebugState.RUNNING
+
+    def test_checkpoint_force_pause_on_exception(self) -> None:
+        """force_pause pauses even without a line breakpoint."""
+        paused: list[DebugPauseInfo] = []
+
+        def on_pause(info: DebugPauseInfo) -> None:
+            paused.append(info)
+            proto.resume()
+
+        proto = DebugProtocol()
+        proto.start(on_pause=on_pause)
+        assert proto.checkpoint(0, force_pause=True) is True
+        assert len(paused) == 1
+
 
 class TestDebugProtocolEvaluate:
-    """Watch-panel evaluate() adapter wiring."""
+    """Watch evaluate() adapter wiring."""
+
+    def test_is_watch_eval_error_sentinels(self) -> None:
+        from services.scripting.debug.protocol import is_watch_eval_error
+
+        assert is_watch_eval_error("<not paused>")
+        assert is_watch_eval_error("<unavailable>")
+        assert is_watch_eval_error("<error: boom>")
+        assert not is_watch_eval_error("42")
+
+    def test_normalize_watch_eval_multiline_reference_error(self) -> None:
+        from services.scripting.debug.protocol import (
+            WATCH_EVAL_ERROR_PREFIX,
+            is_watch_eval_error,
+            normalize_watch_eval_result,
+        )
+
+        raw = "ReferenceError: randomId is not defined\n    at eval (eval at foo)"
+        norm = normalize_watch_eval_result(raw)
+        assert norm.startswith(WATCH_EVAL_ERROR_PREFIX)
+        assert "randomId is not defined" in norm
+        assert is_watch_eval_error(norm)
+
+    def test_cdp_evaluation_result_string_maps_exception_details(self) -> None:
+        from services.scripting.debug.js_debug import cdp_evaluation_result_string
+
+        res = {
+            "exceptionDetails": {
+                "text": "ReferenceError: x is not defined\n    at <anonymous>:1:1",
+            }
+        }
+        out = cdp_evaluation_result_string(res)
+        assert out.startswith("<error:")
+        assert "x is not defined" in out
 
     def test_evaluate_when_not_paused(self) -> None:
         proto = DebugProtocol()
@@ -159,7 +224,7 @@ class TestDebugProtocolEvaluate:
             seen.append((expr, frame))
             return "42"
 
-        proto.set_evaluate_callback(_cb)
+        proto.set_evaluate_callback_sync(_cb)
         from services.scripting.debug.protocol import DebugState
 
         with proto._lock:
@@ -176,12 +241,79 @@ class TestDebugProtocolEvaluate:
         def _boom(_expr: str, _frame: int) -> str:
             raise RuntimeError("bad expr")
 
-        proto.set_evaluate_callback(_boom)
+        proto.set_evaluate_callback_sync(_boom)
         from services.scripting.debug.protocol import DebugState
 
         with proto._lock:
             proto._state = DebugState.PAUSED
         assert "bad expr" in proto.evaluate("1/0")
+
+
+class TestDebugProtocolAsyncEval:
+    """Async watch evaluation queue and cache."""
+
+    def test_submit_evaluate_emits_signal(self, qapp, qtbot) -> None:
+        from services.scripting.debug.protocol import DebugState
+
+        proto = DebugProtocol()
+        seen: list[tuple[str, str]] = []
+
+        def on_eval(expr: str, value: str) -> None:
+            seen.append((expr, value))
+
+        proto.evaluated.connect(on_eval)
+        proto.set_evaluate_callback_sync(lambda expr, frame: f"v({expr},{frame})")
+        with proto._lock:
+            proto._state = DebugState.PAUSED
+        proto.set_evaluate_callback(lambda expr, frame: f"v({expr},{frame})")
+        proto.submit_evaluate("x")
+        qtbot.waitUntil(lambda: seen == [("x", "v(x,0)")], timeout=3000)
+        assert proto.cached_evaluate("x") == "v(x,0)"
+        proto.set_evaluate_callback(None)
+
+    def test_evaluate_cache_invalidated_on_pause(self) -> None:
+        from services.scripting.debug.protocol import WATCH_VALUE_PLACEHOLDER, DebugState
+
+        proto = DebugProtocol()
+        proto.set_evaluate_callback_sync(lambda expr, _frame: "v1")
+        with proto._lock:
+            proto._state = DebugState.PAUSED
+        assert proto.evaluate("a") == "v1"
+        with proto._lock:
+            proto._pause_info = {
+                "line": 1,
+                "source_name": "",
+                "local_vars": {},
+                "script_type": "pre_request",
+                "env_changes": {},
+                "global_changes": {},
+                "call_stack": [],
+                "selected_frame_index": 0,
+            }
+        proto.clear_eval_cache()
+        assert proto.cached_evaluate("a") == WATCH_VALUE_PLACEHOLDER
+        proto.set_evaluate_callback(None)
+
+    def test_batch_eval_one_roundtrip(self, qapp, qtbot) -> None:
+        from services.scripting.debug.protocol import DebugState
+
+        proto = DebugProtocol()
+        calls: list[list[tuple[str, int]]] = []
+
+        def batch_cb(items: list[tuple[str, int]]) -> list[str]:
+            calls.append(list(items))
+            return [f"batch:{expr}" for expr, _ in items]
+
+        proto.set_evaluate_callback(lambda expr, frame: f"solo:{expr}")
+        proto.set_evaluate_batch_callback(batch_cb)
+        with proto._lock:
+            proto._state = DebugState.PAUSED
+        proto.submit_evaluate("a")
+        proto.submit_evaluate("b")
+        qtbot.waitUntil(lambda: len(calls) == 1, timeout=3000)
+        assert len(calls[0]) == 2
+        proto.set_evaluate_batch_callback(None)
+        proto.set_evaluate_callback(None)
 
 
 class TestDebugProtocolCallStack:

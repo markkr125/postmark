@@ -134,6 +134,13 @@ def _resolve_required_from_index(
     index: dict[str, LocalScriptModule],
 ) -> dict[str, LocalScriptModule]:
     """DFS transitive resolve using a pre-built *index*."""
+    # Deferred import: ``import_graph`` imports this module at top level.
+    from services.scripting.local_scripts_project.import_graph import (
+        _resolve_specifier,
+        _resolve_specifier_with_extension,
+        iter_static_relative_import_specs,
+    )
+
     reachable: dict[str, LocalScriptModule] = {}
     on_stack: set[str] = set()
 
@@ -166,6 +173,19 @@ def _resolve_required_from_index(
         else:
             for nested_path in _scan_local_paths_in_source(mod.source):
                 visit(nested_path)
+            # Follow static ESM imports too, so a required module's sibling deps
+            # are mirrored (matches the editor-run closure in import_graph).
+            for spec in iter_static_relative_import_specs(mod.source):
+                target_key = _resolve_specifier_with_extension(
+                    _resolve_specifier(rel_path, spec),
+                    index,
+                )
+                if target_key is None:
+                    raise ValueError(
+                        f"pm.require: cannot resolve import {spec!r} from {rel_path!r} "
+                        "(check the Local scripts tree; paths are case-sensitive)"
+                    )
+                visit(target_key)
         on_stack.remove(rel_path)
         reachable[rel_path] = mod
         if len(reachable) > MAX_LOCAL_MODULES:
@@ -182,6 +202,16 @@ def lookup_script_id_by_rel_path(rel_path: str) -> int | None:
         index = build_module_index(session)
     mod = index.get(rel_path.strip())
     return mod.script_id if mod is not None else None
+
+
+def lookup_rel_path_by_script_id(script_id: int) -> str | None:
+    """Map a database script id to its virtual path, or ``None`` if missing."""
+    with get_session() as session:
+        index = build_module_index(session)
+    for rel_path, mod in index.items():
+        if mod.script_id == script_id:
+            return rel_path
+    return None
 
 
 def local_require_path_at_offset(source: str, offset: int) -> tuple[str, int, int] | None:

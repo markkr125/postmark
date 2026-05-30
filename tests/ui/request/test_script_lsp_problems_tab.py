@@ -166,12 +166,13 @@ class TestScriptOutputPanelProblemsBinding:
 
         tabs = panel.findChild(QTabWidget, "scriptOutputTabs")
         assert tabs is not None
-        assert tabs.count() == 2
+        assert tabs.count() == 3
         assert tabs.tabText(0) == "Output"
-        assert tabs.tabText(1) == "Problems (0)"
+        assert tabs.tabText(1) == "Debugger"
+        assert tabs.tabText(2) == "Problems (0)"
 
-        tabs.setCurrentIndex(1)
+        tabs.setCurrentIndex(2)
         d = Diagnostic(0, 0, 0, 1, "error", "x", "src")
         editor.notify_lsp_diagnostics([d])
         assert panel._problems_tab._list.count() == 1
-        assert tabs.tabText(1) == "Problems (1)"
+        assert tabs.tabText(2) == "Problems (1)"

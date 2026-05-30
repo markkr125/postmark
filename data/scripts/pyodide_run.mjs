@@ -156,6 +156,13 @@ async function main() {
       for (const spec of pmReq) {
         await micropip.install(spec);
       }
+      // Pyodide ships several CPython stdlib modules as separate packages
+      // (ssl, sqlite3, lzma …). Common PyPI packages assume they exist
+      // because they're stdlib in CPython but must be loaded explicitly
+      // here, e.g. PyJWT's ``jwks_client`` does ``from ssl import ...``.
+      // Pre-load the cheap ones so transitive imports inside installed
+      // packages don't fail with ``ModuleNotFoundError: 'ssl'``.
+      await pyodide.loadPackage(["ssl"]).catch(() => {});
     } catch (e) {
       writeDone({
         error: `micropip install failed: ${String(e)}`,
@@ -180,6 +187,18 @@ async function main() {
       return respLine;
     },
   });
+
+  const dynvarPath = join(_here, "dynamic_variables.json");
+  const dynvarSrc = readFileSync(dynvarPath, { encoding: "utf-8" });
+  await pyodide.runPythonAsync(`__pm_dynvar_json = ${JSON.stringify(dynvarSrc)}`);
+
+  const dynFragPath = join(_here, "pm_dynamic_vars.py");
+  const dynFragSrc = readFileSync(dynFragPath, { encoding: "utf-8" });
+  await pyodide.runPythonAsync(dynFragSrc);
+
+  const jsonSchemaPath = join(_here, "pm_json_schema.py");
+  const jsonSchemaSrc = readFileSync(jsonSchemaPath, { encoding: "utf-8" });
+  await pyodide.runPythonAsync(jsonSchemaSrc);
 
   const bootstrapPath = join(_here, "pm_bootstrap.py");
   const bootstrapSrc = readFileSync(bootstrapPath, { encoding: "utf-8" });

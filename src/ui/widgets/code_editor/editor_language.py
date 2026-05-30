@@ -29,6 +29,12 @@ class _LanguageMixin(_LanguageBase):
     _fold_timer: Any
     _validate_timer: Any
 
+    if TYPE_CHECKING:
+
+        def apply_validation_errors(self, errors: list[Any]) -> None: ...
+        def clear_inline_log_annotations(self) -> None: ...
+        def _recompute_folds(self) -> None: ...
+
     @property
     def language(self) -> str:
         """Return the active language."""
@@ -59,8 +65,13 @@ class _LanguageMixin(_LanguageBase):
         self._highlighter.set_language(lang)
         self._completion_engine.set_language(lang)
         adapter = getattr(self, "_lsp_adapter", None)
+        # Local-script editors fully detach + re-attach on every language change
+        # (swap_language is refused for them), so the JS↔TS "same family" swap
+        # optimisation does not apply — their stale diagnostics must be cleared,
+        # otherwise old problems/squiggles survive a TS→JS switch.
         same_family = (
             adapter is not None
+            and getattr(self, "_local_script_id", None) is None
             and prev_lang in ("javascript", "typescript")
             and lang in ("javascript", "typescript")
         )

@@ -173,6 +173,8 @@ class TestPersistOpenTabs:
             "type": "local_script",
             "id": script.id,
             "name": "Helper",
+            "language": "javascript",
+            "module_format": "esm",
         }
 
     def test_persist_on_close_event(self, qapp: QApplication, qtbot) -> None:

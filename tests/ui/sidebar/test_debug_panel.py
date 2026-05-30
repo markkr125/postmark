@@ -8,7 +8,11 @@ from typing import Any, cast
 from PySide6.QtWidgets import QApplication, QTreeWidget, QTreeWidgetItem
 
 from services.scripting.debug import DebugPauseInfo
-from ui.sidebar.debug_panel import DEBUG_VARIABLES_PAGE_MESSAGE, DebugPanel
+from ui.sidebar.debug_panel import (
+    DEBUG_VARIABLES_PAGE_MESSAGE,
+    DEBUG_VARIABLES_PAGE_TREE,
+    DebugPanel,
+)
 from ui.widgets.debug_value_tree import debug_tree_cell_text
 
 
@@ -90,7 +94,9 @@ class TestDebugPanel:
         """DebugPanel can be instantiated without errors."""
         panel = DebugPanel()
         qtbot.addWidget(panel)
-        assert panel._position_label.text() == "Idle"
+        pos_lbl = panel._position_label
+        assert pos_lbl is not None
+        assert pos_lbl.text() == "Idle"
 
     def test_buttons_start_disabled(self, qapp: QApplication, qtbot) -> None:
         """Step buttons are disabled when no session is active."""
@@ -118,9 +124,11 @@ class TestDebugPanel:
         )
         assert panel._continue_btn.isEnabled()
         assert panel._stop_btn.isEnabled()
-        assert "line 6" in panel._position_label.text()
-        assert "pre_request" in panel._position_label.text()
-        assert panel._position_label.objectName() == "sidebarTitleLabel"
+        pos_lbl = panel._position_label
+        assert pos_lbl is not None
+        assert "line 6" in pos_lbl.text()
+        assert "pre_request" in pos_lbl.text()
+        assert pos_lbl.objectName() == "sidebarTitleLabel"
 
     def test_update_pause_shows_variables(self, qapp: QApplication, qtbot) -> None:
         """update_pause() populates the variable list."""
@@ -176,6 +184,35 @@ class TestDebugPanel:
             "Variables set by script",
         ):
             assert chunk in texts
+
+    def test_internal_pm_globals_hidden_by_default_and_toggleable(
+        self, qapp: QApplication, qtbot
+    ) -> None:
+        """Internal ``__pm_*`` keys stay hidden unless Show internals is enabled."""
+        panel = DebugPanel()
+        qtbot.addWidget(panel)
+        pause = {
+            "line": 0,
+            "source_name": "",
+            "local_vars": {
+                "pm": {},
+                "globals": {"__pm_internal": "secret", "userVisible": 1},
+            },
+            "env_changes": {},
+            "global_changes": {},
+            "script_type": "pre_request",
+            "call_stack": [],
+            "selected_frame_index": 0,
+        }
+        panel.update_pause(_with_pause_keys(pause))
+        hidden_keys = _keys_under(panel, "globalThis (script)")
+        assert "__pm_internal" not in hidden_keys
+        assert "userVisible" in hidden_keys
+
+        panel._variables.set_show_internal_debug_vars(True)
+        shown_keys = _keys_under(panel, "globalThis (script)")
+        assert "__pm_internal" in shown_keys
+        assert "userVisible" in shown_keys
 
     def test_structured_empty_pm_globals_shows_lexical_flat(
         self, qapp: QApplication, qtbot
@@ -259,8 +296,10 @@ class TestDebugPanel:
         assert "Locals (call frame): Module" in texts_joined
         assert "Lexical locals" not in texts_joined
 
-    def test_update_pause_empty_vars(self, qapp: QApplication, qtbot) -> None:
-        """update_pause() shows placeholder when no variables exist."""
+    def test_update_pause_empty_vars_shows_tree_for_first_watch(
+        self, qapp: QApplication, qtbot
+    ) -> None:
+        """Empty locals on pause still show the tree page so the user can add watches."""
         panel = DebugPanel()
         qtbot.addWidget(panel)
         panel.update_pause(
@@ -273,8 +312,14 @@ class TestDebugPanel:
                 }
             )
         )
-        assert panel._variables._stack.currentIndex() == DEBUG_VARIABLES_PAGE_MESSAGE
-        assert "No local variables" in panel._variables._placeholder.text()
+        assert panel._variables._stack.currentIndex() == DEBUG_VARIABLES_PAGE_TREE
+        assert panel._tree.topLevelItemCount() == 0
+        panel._inspector.watches._watch_add_edit.setText("pm.only")
+        panel._inspector.watches._add_watch_expression()
+        assert panel._inspector.watches._tree.topLevelItemCount() == 1
+        top = panel._inspector.watches._tree.topLevelItem(0)
+        assert top is not None
+        assert top.text(0) == "Watches"
 
     def test_clear_session(self, qapp: QApplication, qtbot) -> None:
         """clear_session() disables buttons and shows ended message."""
@@ -292,15 +337,19 @@ class TestDebugPanel:
         )
         panel.clear_session()
         assert not panel._continue_btn.isEnabled()
-        assert "ended" in panel._position_label.text().lower()
-        assert panel._position_label.objectName() == "mutedLabel"
+        pos_lbl = panel._position_label
+        assert pos_lbl is not None
+        assert "ended" in pos_lbl.text().lower()
+        assert pos_lbl.objectName() == "mutedLabel"
         assert panel._variables._stack.currentIndex() == DEBUG_VARIABLES_PAGE_MESSAGE
         assert "Session ended" in panel._variables._placeholder.text()
 
     def test_set_idle(self, qapp: QApplication, qtbot) -> None:
-        """set_idle() resets to initial idle state."""
+        """set_idle() keeps watch expressions and shows Watches with placeholder values."""
         panel = DebugPanel()
         qtbot.addWidget(panel)
+        panel._inspector.watches._watch_add_edit.setText("pm.z")
+        panel._inspector.watches._add_watch_expression()
         panel.update_pause(
             _with_pause_keys(
                 {
@@ -312,10 +361,13 @@ class TestDebugPanel:
             )
         )
         panel.set_idle()
-        assert panel._position_label.text() == "Idle"
+        pos_lbl = panel._position_label
+        assert pos_lbl is not None
+        assert pos_lbl.text() == "Idle"
         assert not panel._continue_btn.isEnabled()
-        assert panel._position_label.objectName() == "mutedLabel"
-        assert panel._tree.topLevelItemCount() == 0
+        assert pos_lbl.objectName() == "mutedLabel"
+        assert len(panel._inspector.watch_state.expressions) == 1
+        assert panel._inspector.watches._tree.topLevelItemCount() >= 1
 
     def test_step_signal_emitted(self, qapp: QApplication, qtbot) -> None:
         """Clicking a step button emits step_requested with the mode name."""

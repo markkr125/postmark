@@ -37,8 +37,11 @@ Rules:
 - The call **must** be a string literal — host-side regex detection
   happens at bundle build time. `const s = "npm:lodash"; pm.require(s);`
   will fail with "package was not bundled".
-- Versions must be exact `X.Y.Z` — no ranges (`^`, `~`, `>=`), no tags
-  (`latest`, `next`).
+- Omitting `@version` (`npm:lodash`) is allowed — Deno resolves the registry
+  **current** release at run time. LSP pins the same via a registry lookup for
+  IntelliSense.
+- When you include `@version`, it must be exact `X.Y.Z` — no ranges (`^`,
+  `~`, `>=`), no tags (`latest`, `next`).
 
 Resolution flow:
 
@@ -154,6 +157,18 @@ delete either cache to force a re-fetch.
 - JS: no top-level `await` in user scripts.
 - Python (Pyodide): C-extension packages must ship Pyodide-built wheels.
 - Sub-requests via `pm.sendRequest`: max 10 per script run.
+
+## LSP types for `pm.require` (JS / TS)
+
+When script LSP is enabled, Postmark always:
+
+1. Copies **`stubs/pm.d.ts`** into the Deno workspace (base `pm.*` API; `pm.require` fallback is `unknown`).
+2. Scans the open script for `pm.require('npm:…')` / `pm.require('jsr:…')` string literals and writes **`pm_require_index.ts`** with `import type * as … from "npm:…"` plus **`declare global { namespace pm { … } }`** overloads so Deno narrows each literal specifier to that package's types.
+3. Runs **`deno cache`** for newly seen specifiers (needs a configured Deno binary).
+
+Unversioned `npm:lodash` uses the registry **latest** for LSP types (npm
+`dist-tags.latest` / JSR `meta.json`). Pin `npm:lodash@4.17.21` when you need
+a fixed version across machines and CI.
 
 ## How resolution works internally
 

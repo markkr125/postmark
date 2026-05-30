@@ -61,6 +61,7 @@ class HttpSendWorker(QObject):
         self._timeout: float = 30.0
         self._env_id: int | None = None
         self._request_id: int | None = None
+        self._request_name: str = ""
         self._auth_data: dict | None = None
         self._local_overrides: dict[str, str] = {}
         self._cancel_event = threading.Event()
@@ -81,6 +82,7 @@ class HttpSendWorker(QObject):
         timeout: float = 30.0,
         env_id: int | None = None,
         request_id: int | None = None,
+        request_name: str = "",
         auth_data: dict | None = None,
         local_overrides: dict[str, str] | None = None,
         pre_scripts: list[ScriptEntry] | None = None,
@@ -111,6 +113,7 @@ class HttpSendWorker(QObject):
         self._timeout = timeout
         self._env_id = env_id
         self._request_id = request_id
+        self._request_name = request_name or ""
         self._auth_data = auth_data
         self._local_overrides = local_overrides or {}
         self._pre_scripts = pre_scripts or []
@@ -174,12 +177,11 @@ class HttpSendWorker(QObject):
             if self._local_overrides:
                 variables.update(self._local_overrides)
 
-            if variables:
-                url = EnvironmentService.substitute(url, variables)
-                if headers:
-                    headers = EnvironmentService.substitute(headers, variables)
-                if body:
-                    body = EnvironmentService.substitute(body, variables)
+            url = EnvironmentService.substitute(url, variables)
+            if headers:
+                headers = EnvironmentService.substitute(headers, variables)
+            if body:
+                body = EnvironmentService.substitute(body, variables)
 
             # 3. Apply auth configuration
             if self._auth_data:
@@ -198,9 +200,18 @@ class HttpSendWorker(QObject):
                 apply_request_mutations,
                 apply_variable_changes,
                 build_pre_request_context,
+                build_script_info,
                 load_globals,
                 save_globals,
             )
+
+            env_name = ""
+            if self._env_id is not None:
+                from services.environment_service import EnvironmentService
+
+                env = EnvironmentService.get_environment(self._env_id)
+                if env is not None:
+                    env_name = str(env.name or "")
 
             global_vars = load_globals() if (self._pre_scripts or self._test_scripts) else {}
 
@@ -216,7 +227,13 @@ class HttpSendWorker(QObject):
                     environment_vars={},
                     collection_vars={},
                     global_vars=global_vars,
-                    info={},
+                    info=build_script_info(
+                        event_name="prerequest",
+                        request_name=self._request_name,
+                        request_id=str(self._request_id or ""),
+                    ),
+                    auth=self._auth_data,
+                    environment_name=env_name,
                 )
                 from services.scripting.engine import ScriptEngine
 
@@ -309,7 +326,7 @@ class HttpSendWorker(QObject):
                 self._declarative_test_script and not self._debug_protocol
             )
             if run_post_response:
-                from services.scripting.context import build_test_context
+                from services.scripting.context import build_script_info, build_test_context
                 from services.scripting.engine import ScriptEngine
 
                 test_ctx = build_test_context(
@@ -335,7 +352,12 @@ class HttpSendWorker(QObject):
                     environment_vars={},
                     collection_vars={},
                     global_vars=global_vars,
-                    info={},
+                    info=build_script_info(
+                        event_name="test",
+                        request_name=self._request_name,
+                        request_id=str(self._request_id or ""),
+                    ),
+                    environment_name=env_name,
                 )
 
             if self._test_scripts:

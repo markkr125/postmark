@@ -202,6 +202,17 @@ class LspTransport(QObject):
         if self._test_read_fn is not None:
             self._proc = self._external_proc
             read_fn = self._test_read_fn
+        elif self._external_proc is not None:
+            self._proc = self._external_proc
+            proc = self._proc
+            assert proc.stdout is not None
+
+            def read_fn(n: int) -> bytes:
+                return proc.stdout.read(n)  # type: ignore[union-attr]
+
+            assert proc.stderr is not None
+            self._stderr_thread = _StderrDrainThread(proc.stderr, self._stderr_ring, self)
+            self._stderr_thread.start()
         else:
             self._proc = subprocess.Popen(
                 self._argv,
@@ -211,6 +222,7 @@ class LspTransport(QObject):
                 stderr=subprocess.PIPE,
                 bufsize=0,
                 text=False,
+                close_fds=True,
             )
             proc = self._proc
             assert proc.stdout is not None

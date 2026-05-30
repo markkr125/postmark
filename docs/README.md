@@ -99,6 +99,8 @@
 | [Postman API parity](scripting/postman-parity.md) | Full matrix of `pm.*` surface vs Postman SDK; migration notes |
 | [Snippets](scripting/snippets.md) | In-editor snippet palette; JSON shape; how to add a category or language |
 | [External Packages](scripting/external-packages.md) | `pm.require` (npm, jsr, PyPI), vendored `require()` allowlist, and **private package registries** (scope-mapped npm / JSR + PyPI index override; secrets in OS keychain) |
+| [Local script modules](scripting/local-modules.md) | ESM `import` between local scripts, Deno mirror/LSP project, Run/Debug entry module |
+| [Local scripts (UI)](ui-reference/local-scripts.md) | Local scripts sidebar tree, editor pane, Run/Debug, Problems |
 | [JavaScript API](scripting/javascript-api.md) | Complete JS `pm` object reference |
 | [Python API](scripting/python-api.md) | Complete Python `pm` object reference |
 | [Examples](scripting/examples.md) | Side-by-side JS/Python real-world patterns |

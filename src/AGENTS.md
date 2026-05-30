@@ -100,11 +100,19 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   gutter uses Esprima via :mod:`esprima_deno` (Deno subprocess;
   :file:`data/scripts/esprima_parse.mjs`); **TypeScript** skips Esprima lint until a TS parser exists.
   `RuntimeSettings` (``scripting/deno_path``, ``scripting/python_path``,
-  ``scripting/lsp_enabled``, ``scripting/npm_type_resolution`` in QSettings)
-  resolves/validates executables and toggles IDE-style language servers for
-  script editors. ``enable_npm_type_resolution`` (default on) drives debounced
+  ``scripting/lsp_enabled`` in QSettings) resolves/validates executables and
+  toggles IDE-style language servers for script editors. LSP/editor debounce
+  intervals (ms, QSettings keys under ``scripting/lsp_*_debounce_ms``):
+  ``lsp_did_change_debounce_ms`` (default 250),
+  ``lsp_pm_require_debounce_ms`` (350),
+  ``lsp_diag_clear_debounce_ms`` (250),
+  ``lsp_dep_diag_debounce_ms`` (300); read by
+  ``EditorLspAdapter`` timers in ``lsp_integration.py``. Debounced
   ``pm_require_index.ts`` generation and ``deno cache`` for literal
-  ``pm.require('npm:…'|'jsr:…')`` specifiers in JS/TS script editors. Private package
+  ``pm.require('npm:…'|'jsr:…')`` specifiers in JS/TS script editors.
+  :mod:`services.lsp.js_lsp_preamble` prepends triple-slash references to
+  ``stubs/pm.d.ts`` and ``pm_require_index.ts`` on virtual buffers sent to Deno LSP
+  (without this, ``pm`` and npm return types are invisible to completions). Private package
   registries (`scripting/registries/entries` JSON list, `scripting/pypi/*`)
   are read by :func:`services.scripting.deno_runtime._build_npmrc_text` and
   :func:`services.scripting.pyodide_runtime._resolve_pypi_index_urls` — see
@@ -114,6 +122,42 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   ``CodeEditorWidget.notify_lsp_diagnostics`` / ``lsp_diagnostics_changed`` expose
   ``textDocument/publishDiagnostics`` to the script **Problems** tab (see
   ``ui/widgets/code_editor/lsp_integration.py`` ``EditorLspAdapter``).
+  Local script editors (JS/TS) also offer deterministic **ESM relative import path**
+  auto-suggest inside ``import`` / ``export … from`` string literals
+  (``completion/path_completions``; requires ``CompletionEngine._local_script_id``).
+  During an active debug session, ``editor_lsp_glue.set_debug_session_active``
+  suspends LSP ``didChange``, fold/validate timers, format-on-idle, test-gutter
+  rescans, and LSP completion/hover (schema completion still works).
+  ``LspRegistry.warm_async(bucket)`` spawns Deno/jedi on a worker thread
+  (``services.lsp.servers.spawn``); ``warm(bucket=None)`` schedules both buckets.
+  First script attach calls ``warm_async`` for that bucket only. Editors may set
+  ``set_lsp_attach_deferred(True)`` until visible (request pre/test sub-tabs).
+  **Local script tabs (JS/TS):** ``ScriptEditorPane.load_content`` starts
+  ``LocalScriptLspPrepWorker`` (``prepare_local_script_lsp_attach`` on a
+  background thread: mirror, one ``build_module_index``, import closure,
+  ``pm_require_index.ts``) and calls ``finalize_local_script_lsp_attach`` on the
+  GUI thread when prep and the Deno bucket are both ready. ``EditorLspAdapter.attach(prep=…)``
+  skips redundant sync when prep succeeded. ``CodeEditorWidget._lsp_attach_token``
+  invalidates stale worker callbacks on tab close/switch. Set
+  ``ASYNC_LOCAL_LSP_PREP = False`` in ``local_script_lsp_prep`` to restore
+  synchronous attach. Request/folder script editors are unchanged.
+  Script output strip tab (Output / Debugger / …) is persisted per script type
+  under ``scripting/output_sub_tab/{pre_request|test}`` via
+  ``script_output_tab_prefs``; ``hide_debug_controls`` no longer forces Output;
+  Inline debug completion never auto-switches to Output (``focus_output=False``);
+  use **Run** or open the Output tab to view console/tests. Tab choice is persisted.
+  ``end_debug_ui`` / ``resume_all_debug_suspended_editors`` must run on every
+  session exit (tracked via a WeakSet) so LSP is not left suspended after crash
+  or tab close.
+  Direct ``pm.require('local:…')`` dependencies are linted via
+  ``local_dependency_diagnostics.collect_direct_local_dependency_diagnostics``
+  (Problems rows prefixed ``[local:path]``; gutter squiggles on the require line).
+  ``services.lsp.client.Diagnostic`` optional ``related_local_*`` fields drive
+  Problems-tab navigation to the local script editor.
+  ``pm_require_types.prune_orphan_specs`` / ``reset_workspace`` drop stale
+  ``pm_require_index.ts`` workspace keys; ``DebugWatchesPane.set_idle`` prunes
+  against ``EditorLspAdapter.live_js_buffer_keys()`` (settings dialog **Reset
+  LSP workspace caches** calls ``reset_workspace``).
   Diagnostic severities ``error`` / ``warning`` / ``info`` / ``hint`` map through to
   ``SyntaxError_`` and drive distinct wave underlines plus line-number gutter tint
   (``gutter.normalize_validation_severity``, ``line_worst_validation_severity``).
@@ -158,8 +202,19 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   ``__Expectation`` / :class:`_Expectation` for ``.have.status`` / ``.header`` /
   ``.jsonBody`` (Python also ``json_body``) on the mock/live response.
 - **Debug sub-package** (`services/scripting/debug/`):
-  `DebugProtocol` is a thread-safe state machine that coordinates
-  pause/resume between the worker thread and the UI.
+  `DebugProtocol` (:class:`QObject`) is a thread-safe state machine that coordinates
+  pause/resume between the worker thread and the UI.   Watch re-evaluation uses :class:`_EvalWorker` (``threading.Thread``, not
+  ``QThread`` — evaluate callbacks are registered from the debug worker thread
+  while :class:`DebugProtocol` stays on the GUI thread): UI calls
+  :meth:`submit_evaluate` / :meth:`cached_evaluate`; results arrive on
+  :attr:`evaluated` (``expr``, ``value``) via a queued main-thread invoke.
+  :meth:`set_evaluate_callback` starts the worker;
+  :meth:`set_evaluate_callback_sync` registers a callback without a worker
+  (unit tests). :meth:`set_evaluate_batch_callback` batches multiple expressions
+  per drain (Python sandbox ``evalMany`` IPC; Deno pipelined CDP in
+  ``evaluate_many``). :meth:`clear_eval_cache` on pause/frame change and
+  ``DebugWatchesPane.set_idle``. Display placeholder: ``WATCH_VALUE_PLACEHOLDER``
+  (em dash) in ``protocol.py``.
   `js_debug.debug_execute` delegates to `deno_debug.debug_execute`, which
   runs Deno with ``--inspect-brk``, drives the V8 debugger over CDP
   (WebSocket), sets breakpoints, and steps with
@@ -170,8 +225,10 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   `engine.run_debug_chain` mirrors `_run_chain` but routes through debug
   dispatch.  TypedDicts: `CallFrame`, `DebugPauseInfo` (includes `call_stack`,
   `selected_frame_index`), enums: `DebugState`, `StepMode`.
-  `DebugProtocol.evaluate(expr)` and `select_frame(index)` delegate to
-  runtime adapters registered by `deno_debug` / `py_debug` while paused.
+  Runtime adapters registered by `deno_debug` / `py_debug` while paused:
+  :meth:`submit_evaluate` / batch callback for watches;
+  :meth:`evaluate` remains for sync callers and tests;
+  :meth:`select_frame(index)` refreshes locals via the frame-locals callback.
   Breakpoints are ``dict[int, str | None]`` (line → optional condition).
   JS conditions pass to CDP ``Debugger.setBreakpointByUrl``; Python sandbox
   evaluates conditions fail-open in ``sys.settrace``.
@@ -218,10 +275,10 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   ``js_debug.cdp_runtime_evaluate_json_object`` reads ``variable_changes`` /
   ``global_variable_changes`` via ``Runtime.evaluate`` when the call-frame read
   is empty.
-  ``deno_scope._collect_call_frame_scopes`` walks CDP ``scopeChain``; for
-  ``module`` bindings named ``pm`` or ``console`` it issues nested
-  ``Runtime.getProperties`` so the inspector and merged hover locals receive
-  JSON-like dicts instead of the RemoteObject description string ``Object``.
+  ``deno_scope._collect_call_frame_scopes`` walks CDP ``scopeChain`` and deep
+  expands object bindings (all scope types) via nested ``Runtime.getProperties``
+  so the inspector and merged hover locals receive JSON-like dicts instead of
+  RemoteObject description strings like ``Object`` / ``Array(...)``.
   Deno binds ``Debugger.setBreakpointByUrl`` at the union of top-level group
   starts (``js_debug._split_into_groups``) and ``DebugProtocol`` editor lines
   (``deno_debug._cdp_break_editor_lines``); pauses mapped into the user-script
@@ -235,8 +292,8 @@ Declarative **script snippets** (Postman-style one-click insert) combine shipped
 JSON under `data/snippets/` with **user snippets** in the ``snippets`` table
 (``SnippetService`` / ``snippet_repository``).  ``ui/widgets/snippets/loader.py``
 merges both sources (user categories first) and memoises per
-``(language, collection_id, local_script_id)``; ``invalidate_snippet_cache()`` runs
-on CRUD and collection selection changes.  ``ui/widgets/snippets/popup.py`` is the
+``(language)``; ``invalidate_snippet_cache()`` runs
+on user-snippet CRUD.  ``ui/widgets/snippets/popup.py`` is the
 searchable popover (delete control on user rows); ``snippet_capture_dialog.py`` is
 opened from ``CodeEditorWidget`` context menu **Save as snippet…**.  The **Snippets**
 toolbar control lives in ``ScriptEditorPane``.  Authoring guide: ``data/snippets/README.md``.
@@ -377,10 +434,15 @@ Key signals to know (always-on summary):
 - `TabSettingsManager.settings_changed()` → `MainWindow` / `RequestTabBar`
   refresh tab behaviour and label presentation, including switching
   between single-row and wrapped-row layouts.
-- `MainWindow` View menu exposes `Next Tab` (`Ctrl+Tab`, `Ctrl+PgDown`)
-  and `Previous Tab` (`Ctrl+Shift+Tab`, `Ctrl+PgUp`) so the wrapped deck
-  keeps editor-style keyboard navigation even though it is no longer a
-  native `QTabBar`. `CodeEditorWidget` uses `Ctrl+P` for parameter-info
+- `MainWindow` exposes three tab navigation models: **request open history**
+  (`back_action` / `forward_action`, Alt+Left/Right — requests opened from
+  the collection tree, `_history` in `_TabControllerMixin`); **tab activation
+  history** (Go → Back/Forward, `tab_back_action` / `tab_forward_action`,
+  Ctrl+Alt+Left/Right — `_TabNavHistoryMixin` in `main_window/tab_nav/`,
+  stable `TabContext.nav_token` from `allocate_tab_nav_token()` in
+  `tab_manager.py`, in-memory stacks cleared on quit, empty after session
+  restore); **cyclic deck** (View → Next/Previous Tab, Ctrl+Tab /
+  Ctrl+Shift+Tab). `CodeEditorWidget` uses `Ctrl+P` for parameter-info
   hints when the script editor has focus.  Autocomplete, parameter-hint,
   symbol-doc, and debug-hover popups are **app-wide singletons**
   (`ui/widgets/code_editor/popup_registry.py`); ``CompletionPopup`` signals
@@ -504,8 +566,9 @@ into `%Y-%m-%d %H:%M` strings for the UI.
 4. ~~**Send not implemented**~~ — Fixed: `RequestEditorWidget.send_requested`
    is wired to `MainWindow._on_send_request` which uses `HttpSendWorker` +
    `HttpService.send_request()`.
-5. **Navigation history is in-memory only** — back/forward stack in
-   `MainWindow` is lost on restart.
+5. **Navigation history is in-memory only** — request `_history` and tab
+   activation stacks (`_tab_nav_back` / `_tab_nav_forward`) are lost on
+   restart; open tabs still restore from `TabSettingsManager` session JSON.
 6. **`TabContext.local_overrides` are in-memory only** —
    `TabContext` (in `tab_manager.py`) stores per-request variable overrides
    in `local_overrides: dict[str, LocalOverride]`.  These do **not** persist

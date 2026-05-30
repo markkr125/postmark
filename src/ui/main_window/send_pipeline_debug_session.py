@@ -9,10 +9,7 @@ from typing import Any
 
 from shiboken6 import Shiboken
 
-from ui.main_window.send_pipeline_debug import (
-    _debug_hover_root_objects,
-    _merge_debug_hover_values,
-)
+from ui.main_window.send_pipeline_debug import _debug_hover_root_objects, _merge_debug_hover_values
 
 
 def _script_editors_for_host(host: Any) -> tuple[Any | None, Any | None]:
@@ -23,6 +20,25 @@ def _script_editors_for_host(host: Any) -> tuple[Any | None, Any | None]:
     pre = getattr(host, "_pre_request_edit", None)
     test = getattr(host, "_test_script_edit", None)
     return pre, test
+
+
+def _set_debug_session_active_for_host(host: Any, active: bool) -> None:
+    """Suspend or resume LSP/fold/validation work on script editors under *host*."""
+    from ui.widgets.code_editor import editor_lsp_glue as lsp_glue
+
+    seen: set[int] = set()
+    for editor in _script_editors_for_host(host):
+        if editor is None:
+            continue
+        key = id(editor)
+        if key in seen:
+            continue
+        seen.add(key)
+        lsp_glue.set_debug_session_active(editor, active)
+    pane = getattr(host, "_pane", None)
+    pane_editor = getattr(pane, "_editor", None) if pane is not None else None
+    if pane_editor is not None and id(pane_editor) not in seen:
+        lsp_glue.set_debug_session_active(pane_editor, active)
 
 
 def _clear_script_debug_highlights(host: Any) -> None:
@@ -44,6 +60,8 @@ def on_debug_paused(window: Any, info: dict) -> None:
     from services.scripting.debug import DebugPauseInfo
 
     editor: Any = window._resolve_debug_script_host()
+    if editor is not None:
+        _set_debug_session_active_for_host(editor, True)
     pause_info: DebugPauseInfo = info  # type: ignore[assignment]
 
     script_type = pause_info.get("script_type", "pre_request")
@@ -81,22 +99,6 @@ def on_debug_paused(window: Any, info: dict) -> None:
             testp.show_debug_controls(pause_info)
         if pre is not None:
             pre.hide_debug_controls()
-
-    controls_map = getattr(editor, "_debug_controls", None)
-    if isinstance(controls_map, dict):
-        active_key = "pre_request" if script_type == "pre_request" else "test"
-        for key, ctrl in controls_map.items():
-            pbar = ctrl.parentWidget()
-            if key == active_key:
-                ctrl.update_pause(pause_info)
-                ctrl.show()
-                if pbar is not None:
-                    pbar.show()
-            else:
-                ctrl.clear_session()
-                ctrl.hide()
-                if pbar is not None:
-                    pbar.hide()
 
     sched = getattr(editor, "_schedule_refresh_script_split_full_width_line", None)
     if callable(sched):
@@ -143,24 +145,21 @@ def on_debug_error(window: Any, message: str) -> None:
 
 def end_debug_ui(window: Any) -> None:
     """Clean up debug UI state after a session ends."""
+    from ui.widgets.code_editor import editor_lsp_glue as lsp_glue
+
+    # Always resume LSP first — host pin may already be cleared on crash/tab close.
+    lsp_glue.resume_all_debug_suspended_editors()
     window._clear_debug_breakpoint_listeners()
     host: Any = window._resolve_debug_script_host()
     if host is None or not Shiboken.isValid(host):
         window._clear_debug_script_host_pin()
         return
+    _set_debug_session_active_for_host(host, False)
     _clear_script_debug_highlights(host)
     for name in ("_pre_output_panel", "_test_output_panel"):
         p = getattr(host, name, None)
         if p is not None and hasattr(p, "hide_debug_controls"):
             p.hide_debug_controls()
-    controls_map = getattr(host, "_debug_controls", None)
-    if isinstance(controls_map, dict):
-        for ctrl in controls_map.values():
-            ctrl.clear_session()
-            ctrl.hide()
-            pbar = ctrl.parentWidget()
-            if pbar is not None:
-                pbar.hide()
     pane = getattr(host, "_pane", None)
     if pane is not None and hasattr(pane, "hide_debug_toolbar"):
         pane.hide_debug_toolbar()

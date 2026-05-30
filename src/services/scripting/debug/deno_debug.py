@@ -215,6 +215,17 @@ def _ws_http_list(port: int, deadline: float) -> str | None:
     return None
 
 
+def _paused_reason(m: dict[str, Any]) -> str:
+    """Return the CDP ``Debugger.paused`` reason string, or empty."""
+    reason = (m.get("params") or {}).get("reason")
+    return str(reason) if reason else ""
+
+
+def _cdp_pause_on_exceptions_state(enabled: bool) -> str:
+    """CDP ``Debugger.setPauseOnExceptions`` state for uncaught vs none."""
+    return "uncaught" if enabled else "none"
+
+
 def _line_paused(m: dict[str, Any]) -> int:
     cfs = m.get("params", {}).get("callFrames")
     if not cfs or not isinstance(cfs, list):
@@ -337,7 +348,7 @@ def _locals_for_paused_frame(
 
 def _register_pause_adapters(
     m: dict[str, Any],
-    c: _CdpClient,
+    c: _Cdp,
     protocol: DebugProtocol,
     io_lock: threading.Lock,
 ) -> None:
@@ -360,11 +371,75 @@ def _register_pause_adapters(
                 return js_debug.cdp_evaluation_result_string(rve)
         return "<error>"
 
+    def evaluate_many(items: list[tuple[str, int]]) -> list[str]:
+        if not items:
+            return []
+        ids: list[int] = []
+        with io_lock:
+            for expr, frame_index in items:
+                cf = _cfid_paused(m, frame_index)
+                if not cf:
+                    ids.append(-1)
+                    continue
+                mid = c._n()
+                ids.append(mid)
+                c._ws.send(
+                    json.dumps(
+                        {
+                            "id": mid,
+                            "method": "Debugger.evaluateOnCallFrame",
+                            "params": {
+                                "callFrameId": cf,
+                                "expression": expr,
+                                "returnByValue": True,
+                            },
+                        },
+                    ),
+                )
+            pending = {i for i in ids if i >= 0}
+            results: dict[int, str] = {}
+            while pending:
+                try:
+                    raw = c._ws.recv(8.0)
+                except TimeoutError:
+                    break
+                msg = json.loads(str(raw))
+                if not isinstance(msg, dict):
+                    continue
+                rid = msg.get("id")
+                if isinstance(rid, int) and rid in pending:
+                    pending.discard(rid)
+                    if "result" in msg and isinstance(msg["result"], dict):
+                        results[rid] = js_debug.cdp_evaluation_result_string(msg["result"])
+                    else:
+                        results[rid] = "<error>"
+                elif msg.get("method") == "Debugger.paused":
+                    c.q.append(msg)
+                elif msg.get("method") == "Debugger.scriptParsed":
+                    c.dedupe_script_parsed(msg)
+        out: list[str] = []
+        for mid in ids:
+            if mid < 0:
+                out.append("<invalid frame>")
+            else:
+                out.append(results.get(mid, "<error>"))
+        return out
+
     def frame_locals(frame_index: int) -> dict[str, Any]:
         return _locals_for_paused_frame(m, c, frame_index=frame_index, io_lock=io_lock)
 
     protocol.set_evaluate_callback(evaluate)
+    protocol.set_evaluate_batch_callback(evaluate_many)
     protocol.set_frame_locals_callback(frame_locals)
+
+    def apply_pause_on_exceptions(enabled: bool) -> None:
+        with io_lock, contextlib.suppress(OSError, TypeError, json.JSONDecodeError, KeyError):
+            c.req(
+                "Debugger.setPauseOnExceptions",
+                {"state": _cdp_pause_on_exceptions_state(enabled)},
+            )
+
+    protocol.set_pause_on_exceptions_cdp_hook(apply_pause_on_exceptions)
 
 
 def _stdout_ipc(
@@ -430,6 +505,17 @@ class _Cdp:
         self._i += 1
         return self._i
 
+    def dedupe_script_parsed(self, event: dict[str, Any]) -> None:
+        """Keep only the latest ``Debugger.scriptParsed`` per script URL."""
+        params = event.get("params") or {}
+        url = params.get("url") or ""
+        self.script_parsed = [
+            e
+            for e in self.script_parsed
+            if not isinstance(e, dict) or (e.get("params") or {}).get("url") != url
+        ]
+        self.script_parsed.append(event)
+
     def req(self, method: str, params: dict[str, Any] | None) -> Any:
         mid = self._n()
         self._ws.send(
@@ -455,7 +541,7 @@ class _Cdp:
             if method_name == "Debugger.paused":
                 self.q.append(m)
             elif method_name == "Debugger.scriptParsed":
-                self.script_parsed.append(m)
+                self.dedupe_script_parsed(m)
 
 
 def debug_execute(
@@ -466,6 +552,11 @@ def debug_execute(
     script_type: str = "pre_request",
     source_name: str = "",
     language: str = "javascript",
+    preamble_bundle_text: str | None = None,
+    needs_net: bool | None = None,
+    breakpoint_url: str | None = None,
+    user_first_line_0: int | None = None,
+    extra_read_paths: tuple[str, ...] = (),
 ) -> ScriptOutput:
     """Run *script* under the Deno inspector with CDP breakpoints and pauses."""
     t0 = time.monotonic()
@@ -481,10 +572,13 @@ def debug_execute(
     groups = js_debug._split_into_groups(ex)
     if not groups:
         return _e()
-    try:
-        u0 = user_script_first_line_0_in_debug_bundle(ex, context, language=language)
-    except RuntimeError as exc:
-        return _err(str(exc), (time.monotonic() - t0) * 1000)
+    if user_first_line_0 is not None:
+        u0 = user_first_line_0
+    else:
+        try:
+            u0 = user_script_first_line_0_in_debug_bundle(ex, context, language=language)
+        except RuntimeError as exc:
+            return _err(str(exc), (time.monotonic() - t0) * 1000)
     g0s = {a for a, _ in groups}
     n_user_lines = len(ex.splitlines())
     cdp_break_lines = _cdp_break_editor_lines(g0s, protocol.breakpoints, n_user_lines)
@@ -496,19 +590,26 @@ def debug_execute(
     wdir = bundle.parent
     with contextlib.suppress(OSError):
         (wdir / ".deno_dir").mkdir(exist_ok=True)
-    furl = bundle.resolve().as_uri()
-    needs_net = False
+    furl = breakpoint_url or bundle.resolve().as_uri()
+    bundle_needs_net = False
     with contextlib.suppress(OSError):
         try:
             from services.scripting.js_runtime import write_local_modules_to_workdir
 
-            dbg_text, needs_net, local_mods = build_debug_bundle_text(
-                ex, context, language=language
-            )
-            write_local_modules_to_workdir(wdir, local_mods)
+            if preamble_bundle_text is not None:
+                dbg_text = preamble_bundle_text
+                bundle_needs_net = bool(needs_net)
+                local_mods: dict[str, Any] = {}
+            else:
+                dbg_text, bundle_needs_net, local_mods = build_debug_bundle_text(
+                    ex, context, language=language
+                )
+                write_local_modules_to_workdir(wdir, local_mods)
             bundle.write_text(dbg_text, encoding="utf-8", newline="\n")
         except RuntimeError as exc:
             return _err(str(exc), (time.monotonic() - t0) * 1000)
+    if needs_net is not None:
+        bundle_needs_net = bool(needs_net)
     out = _e()
     done: list[dict[str, Any]] = []
     done_e = threading.Event()
@@ -516,8 +617,9 @@ def debug_execute(
         argv, env = deno_ipc_argv_and_env(
             deno,
             bundle,
-            needs_net=needs_net,
+            needs_net=bundle_needs_net,
             inspect_brk=f"--inspect-brk=127.0.0.1:{pport}",
+            extra_read_paths=extra_read_paths,
         )
         proc = subprocess.Popen(
             argv,
@@ -558,6 +660,10 @@ def debug_execute(
             c = _Cdp(wsc, q)
             c.req("Runtime.enable", {})
             c.req("Debugger.enable", {})
+            c.req(
+                "Debugger.setPauseOnExceptions",
+                {"state": _cdp_pause_on_exceptions_state(protocol.pause_on_exceptions)},
+            )
             # Find our bundle's ``Debugger.scriptParsed`` event (collected by
             # ``_Cdp`` during the ``enable`` handshake) and decode its inline
             # source map. Deno emits a source map only when it transpiles
@@ -588,7 +694,7 @@ def debug_execute(
                         if m_drain.get("method") == "Debugger.paused":
                             q.append(m_drain)
                         elif m_drain.get("method") == "Debugger.scriptParsed":
-                            c.script_parsed.append(m_drain)
+                            c.dedupe_script_parsed(m_drain)
                     continue
                 p_sp = bundle_event.get("params") or {}
                 sm_url = p_sp.get("sourceMapURL") or ""
@@ -692,7 +798,7 @@ def debug_execute(
 
 def _process_one_paused(
     m: dict[str, Any],
-    c: _CdpClient,
+    c: _Cdp,
     protocol: DebugProtocol,
     u0: int,
     n_user_lines: int,
@@ -719,6 +825,13 @@ def _process_one_paused(
         with contextlib.suppress(OSError, TypeError, json.JSONDecodeError, KeyError), lock:
             c.req("Debugger.resume", {})
         return True
+    reason = _paused_reason(m)
+    is_exception = reason in ("exception", "promiseRejection", "assert")
+    if is_exception and not protocol.pause_on_exceptions:
+        with contextlib.suppress(OSError, TypeError, json.JSONDecodeError, KeyError), lock:
+            c.req("Debugger.resume", {})
+        return True
+
     stack = _call_stack_from_paused(m, u0=u0, gen_to_src=gen_to_src)
     _register_pause_adapters(m, c, protocol, lock)
     loc = _locals_for_paused_frame(m, c, frame_index=0, io_lock=lock)
@@ -742,6 +855,7 @@ def _process_one_paused(
             if fg:
                 gch = fg
     try:
+        force_pause = is_exception and protocol.pause_on_exceptions
         if not protocol.checkpoint(
             el,
             source_name=source_name,
@@ -751,12 +865,15 @@ def _process_one_paused(
             global_changes=gch,
             call_stack=stack,
             selected_frame_index=0,
+            force_pause=force_pause,
         ):
             protocol.set_evaluate_callback(None)
+            protocol.set_evaluate_batch_callback(None)
             protocol.set_frame_locals_callback(None)
             return False
     finally:
         protocol.set_evaluate_callback(None)
+        protocol.set_evaluate_batch_callback(None)
         protocol.set_frame_locals_callback(None)
     with contextlib.suppress(OSError, TypeError, json.JSONDecodeError, KeyError), lock:
         c.req("Debugger.resume", {})

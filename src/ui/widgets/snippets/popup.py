@@ -178,8 +178,7 @@ class SnippetsPopup(QFrame):
         self._all: tuple[SnippetCategory, ...] = ()
         self._language = ""
         self._script_type = ""
-        self._collection_id: int | None = None
-        self._local_script_id: int | None = None
+        self._host_kind = "request"
         self._on_pick: Callable[[str], None] | None = None
         self._opened_at_ms = 0
 
@@ -196,14 +195,13 @@ class SnippetsPopup(QFrame):
         script_type: str,
         on_pick: Callable[[str], None],
         *,
-        collection_id: int | None = None,
-        local_script_id: int | None = None,
+        host_kind: str = "request",
     ) -> None:
         """Load snippets for *language* / *script_type*, anchor below *anchor*.
 
         ``script_type`` is ``"pre_request"`` or ``"test"`` and filters
-        out categories tagged for the other context (e.g. the
-        ``Tests`` category never shows on a pre-request editor).
+        built-in categories by context. ``host_kind`` ``"local_script"``
+        further hides ``pm.response`` snippets that cannot run on local Run.
         ``on_pick`` is invoked with the snippet body when the user
         picks a row; the caller inserts text and manages editor focus.
         """
@@ -212,8 +210,7 @@ class SnippetsPopup(QFrame):
             app.removeEventFilter(self)
         self._language = language
         self._script_type = script_type
-        self._collection_id = collection_id
-        self._local_script_id = local_script_id
+        self._host_kind = host_kind
         self._reload_snippets()
         self._on_pick = on_pick
         self._search.clear()
@@ -257,8 +254,7 @@ class SnippetsPopup(QFrame):
         self._all = load_snippets_for(
             self._language,
             self._script_type,
-            collection_id=self._collection_id,
-            local_script_id=self._local_script_id,
+            host_kind=self._host_kind,
         )
 
     def _delete_user_snippet(self, snippet_id: int) -> None:

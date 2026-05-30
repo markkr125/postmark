@@ -223,3 +223,39 @@ def test_javascript_snippets_use_modern_let_const() -> None:
     """JS / TS snippet bodies must not contain bare ``var`` declarations."""
     bodies = "\n".join(s.body for c in load_snippets("javascript") for s in c.snippets)
     assert re.search(r"\bvar\s+\w", bodies) is None, "JS snippets should use const/let"
+
+
+def test_local_script_filter_excludes_tests_and_response_snippets() -> None:
+    """Local script editors hide Tests and any built-in snippet using ``pm.response``."""
+    from ui.widgets.snippets.loader import (
+        load_snippets_for,
+        snippet_compatible_with_local_script,
+    )
+
+    assert snippet_compatible_with_local_script("pm.globals.get('x')")
+    assert not snippet_compatible_with_local_script("pm.response.json()")
+
+    for language in ("javascript", "python"):
+        cats = load_snippets_for(language, "pre_request", host_kind="local_script")
+        names = {c.name for c in cats}
+        assert "Tests" not in names
+        assert "Send requests" in names
+        assert "Variables" in names
+        assert "Request setup" in names
+        for cat in cats:
+            for snip in cat.snippets:
+                assert snippet_compatible_with_local_script(snip.body), (
+                    f"{language}/{cat.name}/{snip.name}"
+                )
+        if language == "javascript":
+            npm = next(c for c in cats if c.name == "Import npm / JSR packages")
+            npm_names = {s.name for s in npm.snippets}
+            assert "Import a public npm package" not in npm_names
+            assert "Decode a JWT response with jose" not in npm_names
+            assert "Import a public JSR package" in npm_names
+        else:
+            pypi = next(c for c in cats if c.name == "Import PyPI packages")
+            pypi_names = {s.name for s in pypi.snippets}
+            assert "Import from public PyPI" not in pypi_names
+            assert "Decode a JWT response with PyJWT" not in pypi_names
+            assert "Import several pinned packages" in pypi_names

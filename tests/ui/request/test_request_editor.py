@@ -129,7 +129,9 @@ class TestRequestEditorWidget:
         # Pre-request runtime banner is inside the Scripts section tab; it is not
         # top-level visible until that tab (index 5) is active.
         editor._tabs.setCurrentIndex(5)
-        assert editor._pre_runtime_banner.isVisible()
+        # The Deno probe runs off the UI thread and updates the banner via a
+        # queued signal, so wait for the event loop to deliver it.
+        qtbot.waitUntil(editor._pre_runtime_banner.isVisible)
 
 
 class TestRequestEditorDirtyTracking:

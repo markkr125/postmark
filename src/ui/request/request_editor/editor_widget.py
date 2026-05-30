@@ -328,6 +328,7 @@ class RequestEditorWidget(
 
         self._scripts_tab_layout.addWidget(self._scripts_sub_tabs, 1)
         self._scripts_editor_materialized = True
+        self._wire_deferred_script_lsp()
 
         holding = self._loading
         self._loading = True
@@ -340,6 +341,10 @@ class RequestEditorWidget(
         self._sync_tab_indicators()
 
         self._wire_script_split_full_width_line()
+        self._bind_debug_metadata_persist()
+        draft_blob = getattr(self, "_draft_debug_session_blob", None)
+        if draft_blob:
+            self.apply_draft_debug_blob(draft_blob)
         QTimer.singleShot(0, self._refresh_script_split_full_width_line)
         QTimer.singleShot(80, self._refresh_script_split_full_width_line)
 
@@ -351,6 +356,10 @@ class RequestEditorWidget(
         if isinstance(scripts, str) and scripts.strip():
             return True
         if isinstance(scripts, dict):
+            from services.scripting.debug_script_metadata import scripts_dict_has_debug
+
+            if scripts_dict_has_debug(scripts):
+                return True
             pre = (scripts.get("pre_request") or "").strip()
             test = (scripts.get("test") or "").strip()
             dis = scripts.get("disabled_inherited")
@@ -518,6 +527,7 @@ class RequestEditorWidget(
 
     def get_request_data(self) -> dict:
         """Return the current editor state as a dict suitable for saving."""
+        self.cancel_debug_metadata_persist()
         body_mode: str
         body_options: dict | None
         body_text: str

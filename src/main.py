@@ -21,6 +21,8 @@ from ui.styling.theme_manager import ThemeManager
 if __name__ == "__main__":
     configure_before_qapplication()
     app = QApplication(sys.argv)
+    app.setApplicationName("Postmark")
+    app.setApplicationDisplayName("Postmark")
 
     # Apply theme (reads QSettings, sets style + palette + global QSS)
     theme_manager = ThemeManager(app)
@@ -33,6 +35,9 @@ if __name__ == "__main__":
 
     # Initialise the database before any widget accesses it
     init_db()
+    from services.scripting.local_scripts_project.deno_config import ensure_local_project_config
+
+    ensure_local_project_config()
 
     window = MainWindow(
         theme_manager=theme_manager,

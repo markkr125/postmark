@@ -3,7 +3,7 @@
 Displays console logs, test results, and errors from running a script
 in the editor without sending an actual HTTP request.  Post-response
 scripts add a **Mock response** tab (status, headers table, JSON body
-editor; live vs manual on request tabs) beside Output and Problems.
+editor; live vs manual on request tabs) beside Output, Debugger, and Problems.
 """
 
 from __future__ import annotations
@@ -16,8 +16,7 @@ if TYPE_CHECKING:
     from services.scripting import ScriptInput
     from ui.request.request_editor.scripts.lsp_problems_tab import ScriptLspProblemsTab
     from ui.sidebar.debug_call_stack_panel import CallStackPanel
-    from ui.sidebar.debug_panel import DebugVariablesPanel
-    from ui.sidebar.debug_watch_panel import WatchPanel
+    from ui.sidebar.debug_inspector_split import DebugInspectorSplit
 
 from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
 from PySide6.QtWidgets import (
@@ -44,7 +43,9 @@ from ui.request.request_editor.scripts.output_console_tab import (
 from ui.request.request_editor.scripts.output_test_results_tab import (
     add_test_row as _add_test_row_impl,
     add_test_summary as _add_test_summary_impl,
+    apply_run_elapsed_header,
     refresh_test_rows as _refresh_test_rows_impl,
+    sync_timing_row,
 )
 from ui.request.request_editor.scripts.output_debug_bar import (
     hide_debug_controls as _hide_debug_controls_impl,
@@ -72,28 +73,39 @@ from ui.request.request_editor.scripts.output_variable_section import (
     add_variable_section as _add_variable_section_impl,
 )
 
-# Call stack, variables, and watch panels (see ``build_debug_variables``).
-_OUTPUT_DEBUG_ROW_COUNT = 3
+# Trailing stretch only (debugger lives on its own tab).
+_OUTPUT_DEBUG_ROW_COUNT = 0
 
 
 class ScriptOutputPanel(QWidget):
     """Panel displaying inline script execution results.
 
-    Post-response panels add **Mock response**, **Output**, and **Problems**
-    tabs (mock tab: status, headers table, JSON body editor); pre-request panels show Output and Problems only.
+    Post-response panels add **Mock response**, **Output**, **Debugger**, and **Problems**
+    tabs (mock tab: status, headers table, JSON body editor); pre-request panels show
+    Output, Debugger, and Problems.
     """
 
     rerun_test_requested = Signal(str)
+    debug_step_requested = Signal(str)
 
     _problems_tab: ScriptLspProblemsTab
     _script_output_tabs: QTabWidget
+    _output_tab_page: QWidget
+    _debugger_tab_page: QWidget
     _elapsed_label: QLabel
     _timing_row: QWidget
     _results_layout: QVBoxLayout
     _results_scroll: QScrollArea
     _debug_call_stack: CallStackPanel
-    _debug_variables: DebugVariablesPanel
-    _debug_watch: WatchPanel
+    _debug_inspector: DebugInspectorSplit
+    _debug_controls: Any  # DebugControls — step row on Debugger tab
+    _debug_variables: Any  # scopes pane alias set in build_debug_variables
+    # Mock response (test panels only) — wired by output_panel_build._build_ui_impl.
+    _response_body_edit: Any
+    _response_source_combo: Any
+    _live_response_hint: Any
+    _manual_response_container: Any
+    _status_spin: Any
 
     def __init__(
         self,
@@ -134,6 +146,9 @@ class ScriptOutputPanel(QWidget):
         self._iteration_run_active = False
         self._data_run_host_callback: Any | None = None
         self._bound_editor: CodeEditorWidget | None = None
+        self._host_pane: QWidget | None = None
+        self._restoring_output_tab = False
+        self._output_tab_prefs_wired = False
         self._build_ui()
 
     # -- UI construction -----------------------------------------------
@@ -141,6 +156,11 @@ class ScriptOutputPanel(QWidget):
     def _build_ui(self) -> None:
         """Build the panel layout."""
         _build_ui_impl(self)
+
+    @property
+    def debug_controls(self) -> Any:
+        """Step/continue toolbar on the Debugger tab."""
+        return self._debug_controls
 
     def set_debug_protocol(self, protocol: DebugProtocol | None) -> None:
         """Attach the active :class:`DebugProtocol` for watch / frame selection."""
@@ -181,10 +201,42 @@ class ScriptOutputPanel(QWidget):
     if TYPE_CHECKING:
         from services.scripting import ScriptInput
 
+    @property
+    def debug_scopes(self) -> Any:
+        """Variables/watches tree host for this output panel."""
+        return self._debug_inspector._scopes
+
+    def bind_host_pane(self, pane: QWidget | None) -> None:
+        """Attach the owning :class:`ScriptEditorPane` for run-busy overlay updates."""
+        self._host_pane = pane
+
     def bind_script_editor(self, editor: CodeEditorWidget) -> None:
         """Wire language-server diagnostics into the Problems tab for *editor*."""
         self._bound_editor = editor
         self._problems_tab.set_editor(editor)
+
+    def focus_output_tab(self) -> None:
+        """Switch the tab strip to **Output**."""
+        self._script_output_tabs.setCurrentWidget(self._output_tab_page)
+        self._persist_output_sub_tab_choice()
+
+    def focus_debugger_tab(self) -> None:
+        """Switch the tab strip to **Debugger**."""
+        self._script_output_tabs.setCurrentWidget(self._debugger_tab_page)
+        self._persist_output_sub_tab_choice()
+
+    def focus_problems_tab(self) -> None:
+        """Switch the output stack to the Problems tab."""
+        self._script_output_tabs.setCurrentWidget(self._problems_tab)
+        self._persist_output_sub_tab_choice()
+
+    def _persist_output_sub_tab_choice(self) -> None:
+        """Save the active output-strip tab after programmatic focus."""
+        from ui.request.request_editor.scripts.script_output_tab_prefs import (
+            persist_current_output_sub_tab,
+        )
+
+        persist_current_output_sub_tab(self)
 
     def clear_inline_log_annotations(self) -> None:
         """Clear inline console decorations on the bound script editor."""
@@ -250,11 +302,7 @@ class ScriptOutputPanel(QWidget):
         output = self._iterations_tab.iteration_result(index)
         if output is None:
             return
-        tabs = getattr(self, "_script_output_tabs", None)
-        if tabs is not None:
-            output_page = tabs.widget(0)
-            if output_page is not None:
-                tabs.setCurrentWidget(output_page)
+        self.focus_output_tab()
         self.show_results(output, 0.0)
 
     def _rerun_failed_iterations(self, filtered_rows: list[dict[str, Any]]) -> None:
@@ -362,8 +410,14 @@ class ScriptOutputPanel(QWidget):
         self,
         output: dict[str, Any],
         elapsed_ms: float,
+        *,
+        focus_output: bool = True,
     ) -> None:
         """Populate the panel with *output* from a script run."""
+        from ui.request.request_editor.scripts.script_output_tab_prefs import (
+            output_has_visible_content,
+        )
+
         test_results: list[dict[str, Any]] = output.get("test_results", [])
         filt = self._pending_test_filter
         self._pending_test_filter = None
@@ -378,15 +432,17 @@ class ScriptOutputPanel(QWidget):
             _refresh_test_rows_impl(self, merged, elapsed_ms=elapsed_ms)
             return
 
+        if focus_output and output_has_visible_content(output):
+            self.focus_output_tab()
         self._clear_result_rows()
-        self._elapsed_label.setText(f"{elapsed_ms:.0f} ms")
-        self._timing_row.show()
+        apply_run_elapsed_header(self, elapsed_ms, test_results)
 
         logs = output.get("console_logs", [])
         for log in logs:
             self._add_console_row(log)
 
         self._last_test_results = list(test_results)
+        sync_timing_row(self)  # reveal/hide Export now that results are stored
         self._test_row_widgets.clear()
         for result in test_results:
             self._add_test_row(result)
@@ -407,6 +463,18 @@ class ScriptOutputPanel(QWidget):
         self.apply_inline_log_annotations(output)
         self.setVisible(True)
 
+    def _no_results_to_export_msg(self) -> None:
+        """Tell the user why Export has nothing to do, instead of failing silently."""
+        from PySide6.QtWidgets import QMessageBox
+
+        QMessageBox.information(
+            self,
+            "Nothing to export",
+            "There are no test results from the last run.\n\n"
+            "Add pm.test(name, fn) calls to the script and run it — "
+            "their pass/fail outcome is what Export saves.",
+        )
+
     def _export_results_json(self) -> None:
         """Save last test results as JSON."""
         from PySide6.QtWidgets import QFileDialog
@@ -414,6 +482,7 @@ class ScriptOutputPanel(QWidget):
         from ui.request.request_editor.scripts.test_export import export_test_results_json
 
         if not self._last_test_results:
+            self._no_results_to_export_msg()
             return
         path, _ = QFileDialog.getSaveFileName(
             self,
@@ -433,6 +502,7 @@ class ScriptOutputPanel(QWidget):
         from ui.request.request_editor.scripts.test_export import export_test_results_junit
 
         if not self._last_test_results:
+            self._no_results_to_export_msg()
             return
         path, _ = QFileDialog.getSaveFileName(
             self,
@@ -450,13 +520,16 @@ class ScriptOutputPanel(QWidget):
                 )
             )
 
-    def show_error(self, message: str) -> None:
+    def show_error(self, message: str, *, focus_output: bool = True) -> None:
         """Display a single error message."""
         from services.scripting.es_module_rules import strip_ansi
 
+        if focus_output and message.strip():
+            self.focus_output_tab()
         self._clear_result_rows()
         self._elapsed_label.setText("")
-        self._timing_row.hide()
+        self._last_test_results = []
+        sync_timing_row(self)
 
         clean = strip_ansi(message)
         row = QLabel(f"<span style='color:{COLOR_DANGER};'>{html.escape(clean)}</span>")
@@ -469,7 +542,8 @@ class ScriptOutputPanel(QWidget):
         """Clear all result rows and restore the idle placeholder."""
         self._clear_result_rows()
         self._elapsed_label.setText("")
-        self._timing_row.hide()
+        self._last_test_results = []
+        sync_timing_row(self)
         if self._iterations_tab is not None:
             self._iterations_tab.clear()
         _show_idle_hint_impl(self)

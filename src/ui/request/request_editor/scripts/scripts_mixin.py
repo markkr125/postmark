@@ -13,6 +13,7 @@ from database.models.collections.collection_query_repository import get_script_c
 from services.script_service import normalize_disabled_inherited
 from services.script_version_service import ScriptVersionService
 from services.scripting.context import normalize_events as _normalize_events
+from ui.request.request_editor.scripts.debug_metadata_persist import _DebugMetadataPersistMixin
 from ui.request.request_editor.scripts.inherited_banner import InheritedScriptsBanner
 from ui.request.request_editor.scripts.script_editor_pane import (
     ScriptEditorPane,
@@ -34,7 +35,7 @@ _SCRIPT_SPLIT_FULL_WIDTH_LINE_HEIGHT = 1
 _SCRIPT_SPLIT_FULL_WIDTH_LINE_TOP_MARGIN = 5
 
 
-class _ScriptsMixin:
+class _ScriptsMixin(_DebugMetadataPersistMixin):
     """Mixin building and managing pre-request / test script editors."""
 
     # Host flag: request editors want the inherited-scripts banner; folder
@@ -221,9 +222,54 @@ class _ScriptsMixin:
             self._scripts_sub_tabs.currentChanged.connect(self._on_script_splitter_context_shown)
         if hasattr(self, "_tabs") and hasattr(self, "_scripts_tab"):
             self._tabs.currentChanged.connect(self._on_script_splitter_context_shown)
+        self._wire_deferred_script_lsp()
+
+    def _wire_deferred_script_lsp(self) -> None:
+        """Connect sub-tab LSP deferral once both script editors exist (request + folder)."""
+        if getattr(self, "_deferred_script_lsp_wired", False):
+            return
+        if not hasattr(self, "_pre_request_edit") or not hasattr(self, "_test_script_edit"):
+            return
+        sub_tabs = getattr(self, "_scripts_sub_tabs", None)
+        if sub_tabs is None:
+            return
+        self._deferred_script_lsp_wired = True
+        sub_tabs.currentChanged.connect(self._on_scripts_sub_tab_lsp)
+        self._pre_request_edit.set_lsp_attach_deferred(True)
+        self._test_script_edit.set_lsp_attach_deferred(True)
+        self._sync_active_script_pane_lsp()
+
+    def _is_scripts_section_active(self) -> bool:
+        """True when the host's top-level Scripts section tab is selected."""
+        tabs = getattr(self, "_tabs", None)
+        scripts_tab = getattr(self, "_scripts_tab", None)
+        if tabs is None or scripts_tab is None:
+            return True
+        return bool(tabs.currentIndex() == tabs.indexOf(scripts_tab))
+
+    def _on_scripts_sub_tab_lsp(self, index: int) -> None:
+        """Attach LSP only to the visible pre-request / post-response script editor."""
+        _ = index
+        self._sync_active_script_pane_lsp()
+
+    def _sync_active_script_pane_lsp(self) -> None:
+        """Defer LSP on the hidden script sub-pane; warm only the visible language bucket."""
+        if not getattr(self, "_scripts_editor_materialized", False):
+            return
+        sub = getattr(self, "_scripts_sub_tabs", None)
+        if sub is None or not hasattr(self, "_pre_request_edit"):
+            return
+        if not self._is_scripts_section_active():
+            self._pre_request_edit.set_lsp_attach_deferred(True)
+            self._test_script_edit.set_lsp_attach_deferred(True)
+            return
+        idx = sub.currentIndex()
+        self._pre_request_edit.set_lsp_attach_deferred(idx != 0)
+        self._test_script_edit.set_lsp_attach_deferred(idx != 1)
 
     def _on_script_splitter_context_shown(self, *_args: object) -> None:
         """Sub-tab or top-level section changed; refresh split when Scripts is shown."""
+        self._sync_active_script_pane_lsp()
         for sp in (
             getattr(self, "_pre_script_splitter", None),
             getattr(self, "_test_script_splitter", None),
@@ -355,14 +401,13 @@ class _ScriptsMixin:
         seam = top_pane.mapTo(host, QPoint(top_pane.width() // 2, top_pane.height()))
         lh = line.height()
         y = seam.y() + _SCRIPT_SPLIT_FULL_WIDTH_LINE_TOP_MARGIN
-        split_geo = splitter.geometry()
         split_top = splitter.mapTo(host, QPoint(0, 0)).y()
         if y < split_top + 24:
             line.hide()
             return
-        x = split_geo.x()
-        w = max(1, split_geo.width())
-        line.setGeometry(x, y, w, lh)
+        # Span the host's full width so the seam matches the request/response
+        # splitter line; splitter.geometry() is inset by tab chrome + root margins.
+        line.setGeometry(0, y, host_w, lh)
         line.show()
         line.raise_()
 
@@ -483,6 +528,8 @@ class _ScriptsMixin:
         self._restore_auto_save_state()
         self._refresh_inherited_banners()
         self._refresh_pm_test_gutter_markers()
+        if isinstance(scripts, dict):
+            self._apply_debug_from_scripts_raw(scripts)
 
     def _get_scripts_data(self) -> dict[str, str | int | list | bool | None] | None:
         """Build the scripts dict from the editor contents."""
@@ -494,23 +541,24 @@ class _ScriptsMixin:
         if rid is not None:
             disabled = normalize_disabled_inherited(self._disabled_inherited)
 
+        data: dict[str, str | int | list | bool | None] | None = None
         if not has_body and not disabled:
-            return None
-        if not has_body and disabled:
-            return {"disabled_inherited": disabled}
-
-        pre_lang = self._pre_request_edit.language
-        test_lang = self._test_script_edit.language
-        data: dict[str, str | int | list | bool | None] = {
-            "pre_request": pre or None,
-            "test": test or None,
-            "pre_language": pre_lang,
-            "test_language": test_lang,
-            "language": pre_lang,  # backward compat
-        }
-        if disabled:
-            data["disabled_inherited"] = disabled
-        return data
+            data = None
+        elif not has_body and disabled:
+            data = {"disabled_inherited": disabled}
+        else:
+            pre_lang = self._pre_request_edit.language
+            test_lang = self._test_script_edit.language
+            data = {
+                "pre_request": pre or None,
+                "test": test or None,
+                "pre_language": pre_lang,
+                "test_language": test_lang,
+                "language": pre_lang,  # backward compat
+            }
+            if disabled:
+                data["disabled_inherited"] = disabled
+        return self.merge_debug_into_scripts_output(data)
 
     def _clear_scripts(self) -> None:
         """Reset both script editors and language selectors."""
@@ -735,7 +783,9 @@ class _ScriptsMixin:
         self._refresh_inherited_banners()
 
     def _has_scripts_content(self) -> bool:
-        """Return whether either script editor has text or per-request disable entries."""
+        """Return whether scripts tab has text, disable entries, or persisted debug."""
+        if self._get_scripts_data() is not None:
+            return True
         return bool(
             self._pre_request_edit.toPlainText().strip()
             or self._test_script_edit.toPlainText().strip()

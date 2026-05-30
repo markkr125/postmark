@@ -13,6 +13,7 @@ from PySide6.QtGui import QTextCharFormat
 from PySide6.QtWidgets import QApplication
 
 from services.lsp.client import LspClient
+from services.lsp.js_lsp_preamble import JS_LSP_PREAMBLE_LINE_COUNT
 from services.lsp.transport import LspTransport
 from services.scripting.runtime_settings import RuntimeSettings
 from ui.widgets.code_editor import CodeEditorWidget
@@ -106,6 +107,7 @@ def test_lsp_diagnostic_renders_squiggle(
     qapp: QApplication, qtbot, tmp_path: Path, monkeypatch
 ) -> None:
     """LSP publishDiagnostics → editor.apply_validation_errors with mapped error."""
+    lsp_diag_line = JS_LSP_PREAMBLE_LINE_COUNT
     scenario = _scenario(
         tmp_path,
         {
@@ -121,8 +123,14 @@ def test_lsp_diagnostic_renders_squiggle(
                         "diagnostics": [
                             {
                                 "range": {
-                                    "start": {"line": 1, "character": 0},
-                                    "end": {"line": 1, "character": 5},
+                                    "start": {
+                                        "line": lsp_diag_line,
+                                        "character": 0,
+                                    },
+                                    "end": {
+                                        "line": lsp_diag_line,
+                                        "character": 5,
+                                    },
                                 },
                                 "severity": 1,
                                 "message": "boom",
@@ -160,8 +168,8 @@ def test_lsp_diagnostic_renders_squiggle(
             "diagnostics": [
                 {
                     "range": {
-                        "start": {"line": 1, "character": 0},
-                        "end": {"line": 1, "character": 5},
+                        "start": {"line": lsp_diag_line, "character": 0},
+                        "end": {"line": lsp_diag_line, "character": 5},
                     },
                     "severity": 1,
                     "message": "boom",
@@ -197,6 +205,7 @@ def test_lsp_hint_diagnostic_preserves_severity(
     editor = CodeEditorWidget()
     qtbot.addWidget(editor)
     editor.setPlainText("function f() {}\n")
+    lsp_diag_line = JS_LSP_PREAMBLE_LINE_COUNT
     editor.attach_lsp("javascript")
     adapter = editor._lsp_adapter
     assert adapter is not None
@@ -208,8 +217,8 @@ def test_lsp_hint_diagnostic_preserves_severity(
             "diagnostics": [
                 {
                     "range": {
-                        "start": {"line": 1, "character": 0},
-                        "end": {"line": 1, "character": 5},
+                        "start": {"line": lsp_diag_line, "character": 0},
+                        "end": {"line": lsp_diag_line, "character": 5},
                     },
                     "severity": 4,
                     "message": "nudge",
@@ -278,3 +287,43 @@ def test_attach_lsp_unsupported_language_no_op(qapp: QApplication, qtbot) -> Non
     editor.set_language("json")
     qapp.processEvents()
     assert editor._lsp_adapter is None
+
+
+def test_request_completion_flushes_pending_did_change(qtbot) -> None:
+    """Completion flushes a debounced ``didChange`` before querying.
+
+    Otherwise Deno sees stale text and member completion (e.g. ``r.`` on an ESM
+    import) returns globals instead of the module's exports.
+    """
+    from PySide6.QtWidgets import QPlainTextEdit
+
+    from ui.widgets.code_editor.lsp_integration import EditorLspAdapter
+
+    editor = QPlainTextEdit()
+    qtbot.addWidget(editor)
+    editor.setPlainText("r.")
+    adapter = EditorLspAdapter(editor)
+    calls: list[str] = []
+
+    class _StubClient:
+        is_ready = True
+
+        def did_change(self, uri: str, version: int, text: str) -> None:
+            calls.append("did_change")
+
+        def completion(self, uri: str, line: int, column: int) -> object:
+            calls.append("completion")
+            return object()
+
+    adapter._client = _StubClient()  # type: ignore[assignment]
+    adapter._uri = "file:///tmp/x.js"
+    adapter._language_id = "javascript"
+    adapter._js_workspace = None
+    adapter._opened = True
+    adapter._sync_timer.start()  # a debounced edit is pending
+
+    future = adapter.request_completion()
+
+    assert future is not None
+    assert calls == ["did_change", "completion"]  # flush happened before the query
+    assert not adapter._sync_timer.isActive()

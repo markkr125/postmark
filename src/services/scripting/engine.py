@@ -154,6 +154,14 @@ def _dispatch(script: str, language: str, context: ScriptInput) -> ScriptOutput:
     """Route a script to the correct runtime."""
     if language == "python":
         return PyRuntime.execute(script, context)
+    from services.scripting.local_scripts_project.runner import (
+        local_script_id_from_context,
+        run_local_entry,
+    )
+
+    local_id = local_script_id_from_context(context)
+    if local_id is not None and language in ("javascript", "typescript"):
+        return run_local_entry(local_id, script, language, context)
     return DenoRuntime.execute(script, context, language=language)
 
 
@@ -172,6 +180,22 @@ def _debug_dispatch(
     if language == "python":
         return py_debug_execute(
             script,
+            context,
+            protocol,
+            script_type=script_type,
+            source_name=source_name,
+        )
+    from services.scripting.local_scripts_project.runner import (
+        debug_local_entry,
+        local_script_id_from_context,
+    )
+
+    local_id = local_script_id_from_context(context)
+    if local_id is not None and language in ("javascript", "typescript"):
+        return debug_local_entry(
+            local_id,
+            script,
+            language,
             context,
             protocol,
             script_type=script_type,

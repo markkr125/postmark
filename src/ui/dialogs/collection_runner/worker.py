@@ -9,7 +9,6 @@ and data-driven iteration via CSV/JSON files.
 from __future__ import annotations
 
 import logging
-import re
 from typing import Any
 
 from PySide6.QtCore import QObject, Signal, Slot
@@ -19,6 +18,7 @@ from services.script_service import ScriptService
 from services.scripting import ScriptEntry
 from services.scripting.context import (
     build_pre_request_context,
+    build_script_info,
     build_test_context,
     load_globals,
     save_globals,
@@ -33,20 +33,12 @@ __all__ = ["RunnerWorker", "_substitute", "parse_data_file", "scripts_enabled"]
 # Sentinel to distinguish "setNextRequest not called" from "set to None"
 _SENTINEL = object()
 
-# Variable substitution pattern for {{variable}}
-_VAR_PATTERN = re.compile(r"\{\{(.+?)\}\}")
-
 
 def _substitute(text: str, variables: dict[str, str]) -> str:
-    """Replace ``{{variable}}`` placeholders in *text*."""
-    if not variables or "{{" not in text:
-        return text
+    """Replace ``{{variable}}`` placeholders in *text* (delegates to service)."""
+    from services.environment_service import EnvironmentService
 
-    def _replace(match: re.Match[str]) -> str:
-        key = match.group(1).strip()
-        return variables.get(key, match.group(0))
-
-    return _VAR_PATTERN.sub(_replace, text)
+    return EnvironmentService.substitute(text, variables)
 
 
 def scripts_enabled() -> bool:
@@ -89,6 +81,7 @@ class RunnerWorker(QObject):
         self._iteration_count: int = 1
         self._delay_ms: int = 0
         self._environment_vars: dict[str, str] = {}
+        self._environment_name: str = ""
         self._cancelled = False
 
     def set_requests(self, requests: list[dict[str, Any]]) -> None:
@@ -111,6 +104,10 @@ class RunnerWorker(QObject):
     def set_environment_vars(self, env_vars: dict[str, str]) -> None:
         """Set the environment variables for variable substitution."""
         self._environment_vars = dict(env_vars)
+
+    def set_environment_name(self, name: str) -> None:
+        """Set the active environment display name for ``pm.environment.name``."""
+        self._environment_name = str(name or "")
 
     def cancel(self) -> None:
         """Cancel the runner."""
@@ -208,17 +205,18 @@ class RunnerWorker(QObject):
             scope.update({str(k): str(v) for k, v in iter_data.items()})
         if env:
             scope.update(env)
-        if scope:
-            url = _substitute(url, scope)
-            headers = {_substitute(k, scope): _substitute(v, scope) for k, v in headers.items()}
-            body = _substitute(body, scope)
+        url = _substitute(url, scope)
+        headers = {_substitute(k, scope): _substitute(v, scope) for k, v in headers.items()}
+        body = _substitute(body, scope)
 
-        info: dict[str, Any] = {
-            "requestName": req.get("name", ""),
-            "requestId": str(request_id or ""),
-            "iteration": iteration,
-            "iterationCount": iteration_count,
-        }
+        req_name = str(req.get("name", "") or "")
+        info = build_script_info(
+            event_name="prerequest",
+            request_name=req_name,
+            request_id=str(request_id or ""),
+            iteration=iteration,
+            iteration_count=iteration_count,
+        )
         all_console: list[Any] = []
         pre_request_errors: list[Any] = []
         pre_console_logs: list[Any] = []
@@ -238,6 +236,7 @@ class RunnerWorker(QObject):
                 global_vars=global_vars,
                 info=info,
                 iteration_data=iter_data or None,
+                environment_name=self._environment_name,
             )
             pre_out = ScriptEngine.run_pre_request_scripts(pre_scripts, ctx)
             pre_console_logs = list(pre_out.get("console_logs", []))
@@ -296,6 +295,13 @@ class RunnerWorker(QObject):
         all_test_results: list[Any] = []
         next_request: Any = _SENTINEL
         if test_scripts and not skip_request:
+            test_info = build_script_info(
+                event_name="test",
+                request_name=req_name,
+                request_id=str(request_id or ""),
+                iteration=iteration,
+                iteration_count=iteration_count,
+            )
             test_ctx = build_test_context(
                 request_data={
                     "url": url,
@@ -308,8 +314,9 @@ class RunnerWorker(QObject):
                 environment_vars=self._environment_vars,
                 collection_vars={},
                 global_vars=global_vars,
-                info=info,
+                info=test_info,
                 iteration_data=iter_data or None,
+                environment_name=self._environment_name,
             )
             test_out = ScriptEngine.run_test_scripts(test_scripts, test_ctx)
             all_test_results.extend(test_out.get("test_results", []))

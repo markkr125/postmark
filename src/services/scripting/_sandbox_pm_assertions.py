@@ -6,6 +6,8 @@ import json
 import re
 from typing import Any
 
+from services.scripting.json_schema_mini import validate as _validate_json_schema
+
 _HTTP_REASON: dict[int, str] = {
     100: "Continue",
     101: "Switching Protocols",
@@ -187,7 +189,11 @@ class _Expectation:
             headers = h if isinstance(h, dict) else None
         elif type(resp).__name__ == "_PmResponse" and hasattr(resp, "headers"):
             h = getattr(resp, "headers", None)
-            headers = dict(h) if isinstance(h, dict) else None
+            to_object = getattr(h, "to_object", None)
+            if callable(to_object):
+                headers = to_object()
+            elif isinstance(h, dict):
+                headers = dict(h)
         if not headers:
             return self._assert(False, "expected a response object with headers")
         lower = name.lower()
@@ -299,9 +305,39 @@ class _Expectation:
         ok = len(self._value) == 0 if isinstance(self._value, str | list | tuple | dict) else False
         return self._assert(ok, f"expected {self._value!r} to be empty")
 
+    def json_schema(self, schema: dict[str, Any]) -> _Expectation:
+        """Assert value (or response JSON body) matches a JSON Schema subset."""
+        resp = self._value
+        data: Any = resp
+        if type(resp).__name__ == "_PmResponse" and hasattr(resp, "_body"):
+            raw = str(getattr(resp, "_body", "") or "").strip()
+            if not raw:
+                return self._assert(False, "jsonSchema: response body is empty")
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError as e:
+                return self._assert(False, f"jsonSchema: invalid JSON ({e.msg})")
+        elif isinstance(resp, dict) and "body" in resp:
+            b = resp.get("body")
+            if isinstance(b, str):
+                try:
+                    data = json.loads(b) if b.strip() else {}
+                except json.JSONDecodeError as e:
+                    return self._assert(False, f"jsonSchema: invalid JSON ({e.msg})")
+            else:
+                data = b
+        ok, errors = _validate_json_schema(data, schema)
+        if not ok:
+            return self._assert(
+                False,
+                "expected value to match schema: " + ", ".join(errors),
+            )
+        return self
+
 
 # Postman / JS naming alias for :meth:`_Expectation.json_body`.
 _Expectation.jsonBody = _Expectation.json_body  # type: ignore[attr-defined, misc]
+_Expectation.jsonSchema = _Expectation.json_schema  # type: ignore[attr-defined, misc]
 
 # Alias so scripts can call ``pm.expect(x).to.have.property("key")``
 # without shadowing Python's built-in ``property`` descriptor inside the class.

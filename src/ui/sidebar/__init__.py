@@ -8,6 +8,7 @@ Re-exports :class:`LeftSidebar`, :class:`LocalScriptsSidebarPanel`, and
 
 from __future__ import annotations
 
+from ui.sidebar.debug_inspector_split import DebugInspectorSplit
 from ui.sidebar.debug_panel import (
     DEBUG_VARIABLES_PAGE_MESSAGE,
     DEBUG_VARIABLES_PAGE_TREE,
@@ -16,7 +17,6 @@ from ui.sidebar.debug_panel import (
     DebugVariablesPanel,
 )
 from ui.sidebar.debug_call_stack_panel import CallStackPanel
-from ui.sidebar.debug_watch_panel import WatchPanel
 from ui.sidebar.saved_responses.panel import SavedResponsesPanel
 from ui.sidebar.left_sidebar import LeftSidebar
 from ui.sidebar.local_scripts_sidebar_panel import LocalScriptsSidebarPanel
@@ -27,11 +27,11 @@ __all__ = [
     "DEBUG_VARIABLES_PAGE_TREE",
     "CallStackPanel",
     "DebugControls",
+    "DebugInspectorSplit",
     "DebugPanel",
     "DebugVariablesPanel",
     "LeftSidebar",
     "LocalScriptsSidebarPanel",
     "RightSidebar",
     "SavedResponsesPanel",
-    "WatchPanel",
 ]

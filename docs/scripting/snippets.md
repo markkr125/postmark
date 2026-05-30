@@ -42,10 +42,11 @@ categories with matching counts:
 
 | Category          | Contexts        | Items | Purpose                                                           |
 |-------------------|-----------------|-------|-------------------------------------------------------------------|
-| Send requests     | `pre` + `post`  | 1     | `pm.sendRequest` / `pm.send_request` workflow scaffold.           |
-| Variables         | `pre` + `post`  | 12    | Get / set / unset across globals, collection, environment, local. |
-| Request setup     | `pre` only      | 6     | Bearer / basic auth, ISO timestamp header, UUID, login flow…     |
+| Send requests     | `pre` + `post` + `local` | 1     | `pm.sendRequest` / `pm.send_request` workflow scaffold.           |
+| Variables         | `pre` + `post` + `local` | 12    | Get / set / unset across globals, collection, environment, local. |
+| Request setup     | `pre` + `local` | 6     | Bearer / basic auth, ISO timestamp header, UUID, login flow…     |
 | Tests             | `post` only     | 15    | Postman-style `pm.test(...)` assertions for status / body / etc.  |
+| Import npm / PyPI | `pre` + `post` + `local` | varies | `pm.require` examples; `pm.response` rows hidden on local scripts. |
 
 ## Authoring (adding a snippet, category, or language)
 
@@ -85,8 +86,9 @@ filter where it appears:
 ```
 
 `contexts` accepts `"pre"` (pre-request editor), `"post"` (post-response
-editor), or both. Omit the field for back-compat default (shows
-everywhere).
+editor), `"local"` (local script tabs), or any combination. Omit the field
+for back-compat default (request pre/post editors only). Built-in snippets
+whose bodies contain `pm.response` are also hidden on local scripts.
 
 ### Adding a new language
 
@@ -121,7 +123,7 @@ everywhere).
 | `language`                         | No (v1)  | Documentary; not strictly validated.                                                                          |
 | `categories[]`                     | Yes      | Ordered list of groups.                                                                                       |
 | `categories[].name`                | Yes      | Bold non-selectable header in the popover.                                                                    |
-| `categories[].contexts`            | No       | Array of `"pre"` and/or `"post"`. Omit for back-compat (visible in both).                                      |
+| `categories[].contexts`            | No       | Array of `"pre"`, `"post"`, and/or `"local"`. Omit for request editors only.                                  |
 | `categories[].snippets[]`          | Yes      | Ordered snippet rows.                                                                                         |
 | `categories[].snippets[].name`     | Yes      | Visible row label.                                                                                            |
 | `categories[].snippets[].body`     | Yes      | Inserted **verbatim** at the cursor (selection replaced).                                                      |

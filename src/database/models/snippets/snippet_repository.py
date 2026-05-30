@@ -17,29 +17,12 @@ from .model.snippet_model import SnippetModel
 logger = logging.getLogger(__name__)
 
 
-def list_snippets(
-    *,
-    language: str,
-    collection_id: int | None = None,
-    local_script_id: int | None = None,
-) -> list[dict[str, Any]]:
-    """Return snippets for *language* visible in the current scope.
-
-    Includes global rows (both scope columns ``None``) plus rows scoped to
-    *collection_id* or *local_script_id* when provided.
-    """
+def list_snippets(*, language: str) -> list[dict[str, Any]]:
+    """Return all snippets for *language*."""
     with get_session() as session:
-        scope_clause = SnippetModel.scope_collection_id.is_(None) & (
-            SnippetModel.scope_local_script_id.is_(None)
-        )
-        if collection_id is not None:
-            scope_clause = scope_clause | (SnippetModel.scope_collection_id == collection_id)
-        if local_script_id is not None:
-            scope_clause = scope_clause | (SnippetModel.scope_local_script_id == local_script_id)
         stmt = (
             select(SnippetModel)
             .where(SnippetModel.language == language)
-            .where(scope_clause)
             .order_by(SnippetModel.category.asc(), SnippetModel.name.asc(), SnippetModel.id.asc())
         )
         rows = list(session.execute(stmt).scalars().all())
@@ -53,8 +36,6 @@ def create_snippet(
     category: str,
     body: str,
     context: str,
-    scope_collection_id: int | None = None,
-    scope_local_script_id: int | None = None,
 ) -> SnippetModel:
     """Insert a new snippet and return the persisted row."""
     with get_session() as session:
@@ -64,8 +45,6 @@ def create_snippet(
             category=category,
             body=body,
             context=context,
-            scope_collection_id=scope_collection_id,
-            scope_local_script_id=scope_local_script_id,
         )
         session.add(row)
         session.flush()
@@ -121,8 +100,6 @@ def _row_to_dict(row: SnippetModel) -> dict[str, Any]:
         "category": row.category,
         "body": row.body,
         "context": row.context,
-        "scope_collection_id": row.scope_collection_id,
-        "scope_local_script_id": row.scope_local_script_id,
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "is_user": True,
     }

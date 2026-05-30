@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -18,12 +18,23 @@ from PySide6.QtWidgets import (
 )
 
 from ui.styling.icons import phi
-from ui.styling.theme import COLOR_DANGER, COLOR_SUCCESS, COLOR_TEXT_MUTED
+from ui.styling.theme import COLOR_DANGER, COLOR_SUCCESS, COLOR_TEXT, COLOR_TEXT_MUTED
 
 _PASS_MARK = "\u2713"
 _FAIL_MARK = "\u2716"
 _SKIP_MARK = "\u2014"
 _RUNTIME_ERROR = "(runtime error)"
+
+_IDLE_SUMMARY = (
+    "Results matrix appears here after you click \u201cRun iterations\u201d. "
+    "Rows are iterations, columns are pm.test() names; click a cell for the "
+    "full output of that iteration."
+)
+_RERUN_DISABLED_TIP = (
+    "Disabled \u2014 runs once you\u2019ve done a full iteration run and at least one "
+    "iteration has failing tests.\nRe-runs only those failing rows using the "
+    "originally loaded data file."
+)
 
 
 class ScriptOutputIterationsTab(QWidget):
@@ -35,10 +46,12 @@ class ScriptOutputIterationsTab(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         """Build the matrix table and re-run toolbar."""
         super().__init__(parent)
+        self.setCursor(Qt.CursorShape.ArrowCursor)
         self._results: list[dict[str, Any]] = []
         self._test_names: list[str] = []
         self._source_data: list[dict[str, Any]] = []
         self._build_ui()
+        self._refresh_rerun_button_state()
 
     def _build_ui(self) -> None:
         """Lay out toolbar and matrix table."""
@@ -47,15 +60,17 @@ class ScriptOutputIterationsTab(QWidget):
         root.setSpacing(4)
 
         toolbar = QHBoxLayout()
-        self._summary = QLabel("Run with a data file to see iteration results.")
+        toolbar.setSpacing(8)
+        self._summary = QLabel(_IDLE_SUMMARY)
         self._summary.setObjectName("mutedLabel")
+        self._summary.setWordWrap(True)
         toolbar.addWidget(self._summary, 1)
 
         self._rerun_failed_btn = QPushButton("Re-run failed only")
-        self._rerun_failed_btn.setIcon(phi("arrow-clockwise"))
+        self._rerun_failed_btn.setIcon(phi("arrow-clockwise", color=COLOR_TEXT, size=14))
+        self._rerun_failed_btn.setIconSize(QSize(14, 14))
         self._rerun_failed_btn.setObjectName("outlineButton")
         self._rerun_failed_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._rerun_failed_btn.setEnabled(False)
         self._rerun_failed_btn.clicked.connect(self._on_rerun_failed)
         toolbar.addWidget(self._rerun_failed_btn)
         root.addLayout(toolbar)
@@ -86,7 +101,7 @@ class ScriptOutputIterationsTab(QWidget):
             for col in range(len(self._test_names)):
                 self._set_cell(row, col, _SKIP_MARK, COLOR_TEXT_MUTED)
         self._summary.setText(f"Running {iteration_count} iteration(s)…")
-        self._rerun_failed_btn.setEnabled(False)
+        self._refresh_rerun_button_state()
 
     def update_iteration(self, index: int, output: dict[str, Any]) -> None:
         """Merge one iteration result into the matrix."""
@@ -151,8 +166,21 @@ class ScriptOutputIterationsTab(QWidget):
         self._source_data = []
         self._table.setRowCount(0)
         self._table.setColumnCount(0)
-        self._summary.setText("Run with a data file to see iteration results.")
-        self._rerun_failed_btn.setEnabled(False)
+        self._summary.setText(_IDLE_SUMMARY)
+        self._refresh_rerun_button_state()
+
+    def _refresh_rerun_button_state(self) -> None:
+        """Enable re-run only when a prior run left failing iterations."""
+        failed = self.failed_row_indices()
+        enabled = bool(failed and self._source_data)
+        self._rerun_failed_btn.setEnabled(enabled)
+        if enabled:
+            self._rerun_failed_btn.setToolTip(
+                f"Re-run {len(failed)} iteration(s) whose tests failed, using "
+                "the same rows from the loaded data file."
+            )
+        else:
+            self._rerun_failed_btn.setToolTip(_RERUN_DISABLED_TIP)
 
     def _lookup_test(
         self,
@@ -182,7 +210,7 @@ class ScriptOutputIterationsTab(QWidget):
             if r and all(t.get("passed") for t in r.get("test_results", []))
         )
         self._summary.setText(f"{passed_iters}/{total} iteration(s) passed all tests")
-        self._rerun_failed_btn.setEnabled(bool(self.failed_row_indices()))
+        self._refresh_rerun_button_state()
 
     def _on_cell_clicked(self, row: int, _col: int) -> None:
         if row < len(self._results) and self._results[row]:

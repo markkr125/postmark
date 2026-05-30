@@ -8,6 +8,7 @@ if TYPE_CHECKING:
     from PySide6.QtCore import QPoint
     from services.environment_service import VariableDetail
     from ui.widgets.code_editor.completion.engine import CompletionEngine
+    from ui.widgets.code_editor.debug_hover_popup import DebugValuePopup
     from ui.widgets.code_editor.highlighter import PygmentsHighlighter
     from PySide6.QtWidgets import QPlainTextEdit
 
@@ -32,6 +33,11 @@ class _VariableMixin(_VariableBase):
     _highlighter: PygmentsHighlighter
     _completion_engine: CompletionEngine
     _read_only: bool
+
+    if TYPE_CHECKING:
+
+        @property
+        def _debug_popup(self) -> DebugValuePopup: ...
 
     def set_variable_map(self, variables: dict[str, VariableDetail]) -> None:
         """Update the variable resolution map and rehighlight."""

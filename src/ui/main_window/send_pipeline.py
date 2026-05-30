@@ -167,6 +167,15 @@ class _SendPipelineMixin:
         env_id = self._env_selector.current_environment_id()
 
         request_id = ctx.request_id if ctx else None
+        request_name = ""
+        if ctx and ctx.request_id:
+            from services.collection_service import CollectionService
+
+            req_model = CollectionService.get_request(ctx.request_id)
+            if req_model is not None:
+                request_name = str(req_model.name or "")
+        elif ctx and ctx.draft_name:
+            request_name = str(ctx.draft_name)
 
         # 3. Tear down any previous send thread
         if ctx is not None:
@@ -206,6 +215,21 @@ class _SendPipelineMixin:
                         scripts_data, name="Draft"
                     )
 
+        if pre_scripts:
+            from ui.request.request_editor.scripts.local_dependency_warn import (
+                warn_local_dependency_errors,
+            )
+
+            pre_pairs = [(e["code"], e["language"]) for e in pre_scripts]
+            panel = getattr(editor, "_pre_output_panel", None)
+            status_fn = getattr(self, "statusBar", None)
+            warn_local_dependency_errors(
+                scripts=pre_pairs,
+                output_panel=panel,
+                status_bar=status_fn() if callable(status_fn) else None,
+                message_prefix="Pre-request script",
+            )
+
         worker = HttpSendWorker()
         worker.set_request(
             method=method,
@@ -214,6 +238,7 @@ class _SendPipelineMixin:
             body=body,
             env_id=env_id,
             request_id=request_id,
+            request_name=request_name,
             auth_data=auth_data,
             local_overrides={k: v["value"] for k, v in ctx.local_overrides.items()}
             if ctx

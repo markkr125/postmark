@@ -126,6 +126,13 @@ CollectionWidget.item_action_triggered("request", id, "Open")
 MainWindow back_action / forward_action
   → _navigate_back / _navigate_forward
     → _open_request(history[index])
+
+MainWindow._on_tab_changed
+  → _record_tab_activation(index)   # _TabNavHistoryMixin
+
+MainWindow tab_back_action / tab_forward_action  (Go menu, Ctrl+Alt+arrows)
+  → _navigate_tab_back / _navigate_tab_forward
+    → setCurrentIndex(_index_for_nav_token(...))
 ```
 
 ### Import operations
@@ -599,8 +606,10 @@ All connections made in `MainWindow.__init__` (and `_create_menus`):
 - `_env_selector.manage_requested` → `_on_manage_environments`
 
 **From window shortcuts (no toolbar strip):**
-- `back_action.triggered` → `_navigate_back`
+- `back_action.triggered` → `_navigate_back` (request open history)
 - `forward_action.triggered` → `_navigate_forward`
+- `tab_back_action.triggered` → `_navigate_tab_back` (tab activation history)
+- `tab_forward_action.triggered` → `_navigate_tab_forward`
 
 **From menus:**
 - `import_act.triggered` → `_on_import`

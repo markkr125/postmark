@@ -18,6 +18,20 @@ if TYPE_CHECKING:
 _THREAD_WAIT_MS = 3000
 
 
+def _set_host_run_busy(panel: Any, busy: bool, message: str = "") -> None:
+    """Show or hide the script editor busy overlay on the bound pane."""
+    pane = getattr(panel, "_host_pane", None)
+    if pane is None:
+        return
+    set_busy = getattr(pane, "set_run_busy", None)
+    if not callable(set_busy):
+        return
+    if busy:
+        set_busy(True, message or "Running script\u2026")
+    else:
+        set_busy(False)
+
+
 def run_script_iterations(
     panel: Any,
     *,
@@ -40,6 +54,7 @@ def run_script_iterations(
         panel._busy_buttons.append(panel._data_runner._run_btn)
     for b in panel._busy_buttons:
         b.setEnabled(False)
+    _set_host_run_busy(panel, True, "Running iterations\u2026")
 
     total = max(iteration_count, len(iteration_data))
     if panel._iterations_tab is not None:
@@ -84,15 +99,29 @@ def run_script(
     test_name_filter: str | None = None,
 ) -> None:
     """Launch a background thread to execute *script* and show results."""
+    from ui.request.request_editor.scripts.local_dependency_warn import warn_local_dependency_errors
     from ui.request.request_editor.scripts.script_run_worker import ScriptRunWorker
+
+    window = panel.window()
+    status = window.statusBar() if window is not None and hasattr(window, "statusBar") else None
+    warn_local_dependency_errors(
+        scripts=[(script, language)],
+        output_panel=panel,
+        status_bar=status,
+        message_prefix="Script",
+    )
 
     if panel._worker_thread is not None and panel._worker_thread.isRunning():
         return
 
     panel.clear_inline_log_annotations()
+    focus_output = getattr(panel, "focus_output_tab", None)
+    if callable(focus_output):
+        focus_output()
     panel._busy_buttons = [b for b in (run_btn, debug_btn) if b is not None]
     for b in panel._busy_buttons:
         b.setEnabled(False)
+    _set_host_run_busy(panel, True, "Running script\u2026")
 
     panel._pending_test_filter = test_name_filter
     info = context.get("info", {})
@@ -137,9 +166,13 @@ def run_script_chain(
         return
 
     panel.clear_inline_log_annotations()
+    focus_output = getattr(panel, "focus_output_tab", None)
+    if callable(focus_output):
+        focus_output()
     panel._busy_buttons = [b for b in (run_btn, debug_btn) if b is not None]
     for b in panel._busy_buttons:
         b.setEnabled(False)
+    _set_host_run_busy(panel, True, "Running script\u2026")
 
     thread = QThread()
     worker = ScriptChainRunWorker()
@@ -175,11 +208,25 @@ def run_script_debug(
         return
 
     panel.clear_inline_log_annotations()
+    focus_debugger = getattr(panel, "focus_debugger_tab", None)
+    if callable(focus_debugger):
+        focus_debugger()
     panel._busy_buttons = [b for b in (run_btn, debug_btn) if b is not None]
     for b in panel._busy_buttons:
         b.setEnabled(False)
     panel._is_inline_debug = True
+    bound = getattr(panel, "_bound_editor", None)
+    if bound is not None:
+        from ui.widgets.code_editor import editor_lsp_glue as lsp_glue
+
+        lsp_glue.set_debug_session_active(bound, True)
     set_debug_protocol(panel, protocol)
+    controls = getattr(panel, "_debug_controls", None)
+    if controls is not None and Shiboken.isValid(controls):
+        set_start = getattr(controls, "set_start_debug_enabled", None)
+        if callable(set_start):
+            set_start(False)
+    _set_host_run_busy(panel, True, "Starting debugger\u2026")
 
     thread = QThread()
     worker = ScriptDebugWorker()
@@ -196,6 +243,10 @@ def run_script_debug(
     on_pause = getattr(main, "_on_debug_paused", None)
     if callable(on_pause):
         worker.debug_paused.connect(on_pause)
+    # Once the debugger actually pauses, the "Starting debugger…" busy chip
+    # has done its job — the debug toolbar's own "Paused at line N" label
+    # takes over from here, so drop the busy state.
+    worker.debug_paused.connect(lambda _info: _set_host_run_busy(panel, False))
 
     worker.finished.connect(panel._on_debug_worker_finished)
     worker.error.connect(panel._on_debug_worker_error)
@@ -211,6 +262,7 @@ def _reenable_busy_buttons(panel: Any) -> None:
     """Re-enable run/debug buttons if the thread-finished hook did not run."""
     if not Shiboken.isValid(panel):
         return
+    _set_host_run_busy(panel, False)
     for btn in list(getattr(panel, "_busy_buttons", []) or []):
         if Shiboken.isValid(btn):
             btn.setEnabled(True)
@@ -221,7 +273,8 @@ def on_debug_worker_finished(panel: Any, output: dict, elapsed_ms: float) -> Non
     """Handle successful inline debug run."""
     try:
         if Shiboken.isValid(panel):
-            panel.show_results(output, elapsed_ms)
+            # Keep the Debugger tab selected after Stop; output is filled in the background.
+            panel.show_results(output, elapsed_ms, focus_output=False)
     finally:
         with contextlib.suppress(RuntimeError):
             end_inline_debug_if_current(panel)
@@ -233,7 +286,7 @@ def on_debug_worker_error(panel: Any, msg: str) -> None:
     """Handle inline debug run error."""
     try:
         if Shiboken.isValid(panel):
-            panel.show_error(msg)
+            panel.show_error(msg, focus_output=False)
     finally:
         with contextlib.suppress(RuntimeError):
             end_inline_debug_if_current(panel)
@@ -288,6 +341,13 @@ def cleanup_runner(panel: Any) -> None:
         if protocol is not None:
             with contextlib.suppress(Exception):
                 protocol.stop()
+    with contextlib.suppress(RuntimeError):
+        end_inline_debug_if_current(panel)
+    bound = getattr(panel, "_bound_editor", None)
+    if bound is not None and getattr(bound, "_debug_session_active", False):
+        from ui.widgets.code_editor import editor_lsp_glue as lsp_glue
+
+        lsp_glue.set_debug_session_active(bound, False)
     stop_worker_thread(panel)
 
 

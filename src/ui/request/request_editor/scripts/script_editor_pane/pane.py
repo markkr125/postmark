@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import contextlib
+import threading
 from collections.abc import Callable
 from functools import partial
-from typing import Any
+from typing import Any, cast
 
-from PySide6.QtCore import QPoint, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QPoint, QObject, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QResizeEvent
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -16,24 +17,37 @@ from PySide6.QtWidgets import (
     QLabel,
     QMenu,
     QPushButton,
-    QSizePolicy,
     QSplitter,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
+from services.lsp.local_script_lsp_prep import (
+    ASYNC_LOCAL_LSP_PREP,
+    LocalScriptLspPrepResult,
+)
+from services.lsp.local_script_lsp_prep_worker import LocalScriptLspPrepWorker
 from services.script_version_service import ScriptVersionService
 from services.scripting.runtime_settings import RuntimeSettings
 from ui.request.request_editor.scripts.inherited_banner import InheritedScriptsBanner
 from ui.request.request_editor.scripts.output_panel import ScriptOutputPanel
+from ui.request.request_editor.scripts.script_run_busy import ScriptRunBusyOverlay
 from ui.request.request_editor.scripts.script_editor_pane.options import ScriptEditorPaneOptions
 from ui.request.request_editor.scripts.script_language import (
     code_to_display,
     detect_script_language,
     normalise_script_code,
 )
-from ui.sidebar.debug_panel import DebugControls
+from services.scripting import ScriptInput
+from services.scripting.debug import DebugPauseInfo
+from services.scripting.debug_script_metadata import (
+    DebugScriptSlice,
+    breakpoints_dict_from_slice,
+    slice_from_editor,
+)
+from ui.sidebar.debug_scopes_panel import DebugScopesPanel
+from ui.sidebar.debug_panel import DebugControls, format_debug_pause_status
 from ui.styling.icons import phi
 from ui.widgets.code_editor import CodeEditorWidget
 from ui.widgets.runtime_banner import RuntimeBanner
@@ -54,6 +68,9 @@ class ScriptEditorPane(QWidget):
     open_scripting_settings_requested = Signal()
     debug_step_requested = Signal(str)
     content_changed = Signal()
+    # Emitted from a worker thread with the Deno-available result so the banner
+    # update never blocks the UI thread on the ``deno --version`` subprocess.
+    _runtime_probe_done = Signal(bool)
 
     def __init__(
         self,
@@ -69,6 +86,7 @@ class ScriptEditorPane(QWidget):
         self._loading = False
         self._lang_auto = True
         self._auto_save_enabled = True
+        self._deno_probing = False
         self._request_id: int | None = None
         self._collection_id: int | None = None
         self._local_script_id: int | None = None
@@ -84,6 +102,13 @@ class ScriptEditorPane(QWidget):
         root.setSpacing(0)
 
         self._editor = CodeEditorWidget()
+        # Defer LSP attach until the buffer is fully loaded. For local scripts this
+        # is essential: attaching before ``set_version_owner`` sets ``_local_script_id``
+        # would fall back to a workspace-root ``_buffer_<uuid>`` URI, from which
+        # relative ``../`` imports cannot resolve. ``load_content`` attaches once the
+        # id + language + content are known (so the mirror file:// URI is used).
+        if options.host_kind in ("request", "folder", "local_script"):
+            self._editor.set_lsp_attach_deferred(True)
         self._editor.set_language("javascript")
         self._editor.set_snippet_capture_context(script_type=options.script_type)
         self._editor.setPlaceholderText(options.placeholder)
@@ -93,6 +118,7 @@ class ScriptEditorPane(QWidget):
 
         self._runtime_banner = RuntimeBanner()
         self._runtime_banner.setVisible(False)
+        self._runtime_probe_done.connect(self._apply_runtime_banner)
         self._runtime_banner.download_completed.connect(self._update_runtime_banner)
         self._runtime_banner.open_settings_clicked.connect(
             self.open_scripting_settings_requested.emit
@@ -107,6 +133,9 @@ class ScriptEditorPane(QWidget):
         self._search_bar = SearchReplaceBar(self._editor, editor_pane)
         editor_layout.addWidget(self._search_bar)
         editor_layout.addWidget(self._editor, 1)
+        # Created here, mounted into the status bar by _build_status_bar.
+        self._run_busy = ScriptRunBusyOverlay()
+        self._editor.installEventFilter(self)
 
         self._build_toolbar(root, inherited_banner=inherited_banner)
         self._build_status_bar(editor_layout)
@@ -128,6 +157,12 @@ class ScriptEditorPane(QWidget):
         root.addWidget(self._splitter, 1)
 
         self._output_panel.bind_script_editor(self._editor)
+        self._output_panel.bind_host_pane(self)
+        self._output_panel.debug_step_requested.connect(self.debug_step_requested.emit)
+        if options.host_kind in ("request", "folder"):
+            from ui.widgets.code_editor.editor_lsp_glue import register_host_script_editor
+
+            register_host_script_editor(self._editor)
         self._editor.document().contentsChanged.connect(
             self._output_panel.clear_inline_log_annotations
         )
@@ -168,7 +203,22 @@ class ScriptEditorPane(QWidget):
         self._banner_check_timer.setInterval(_BANNER_CHECK_MS)
         self._banner_check_timer.timeout.connect(self._update_runtime_banner)
 
+        self._lsp_prep_worker: LocalScriptLspPrepWorker | None = None
+        self._pending_lsp_prep: LocalScriptLspPrepResult | None = None
+        self._lsp_prep_attach_token: int = 0
+
         self._refresh_snippets_button()
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        """No-op filter; kept so :meth:`installEventFilter` above still works."""
+        return super().eventFilter(watched, event)
+
+    def set_run_busy(self, busy: bool, message: str = "Running script\u2026") -> None:
+        """Show or hide the indeterminate overlay over the script editor."""
+        if busy:
+            self._run_busy.show_busy(message)
+        else:
+            self._run_busy.hide_busy()
 
     @property
     def editor(self) -> CodeEditorWidget:
@@ -197,8 +247,36 @@ class ScriptEditorPane(QWidget):
 
     @property
     def debug_controls(self) -> DebugControls:
-        """Step controls shown during inline debug."""
-        return self._debug_controls
+        """Step controls on the output panel Debugger tab."""
+        return cast(DebugControls, self._output_panel.debug_controls)
+
+    def _debug_scopes(self) -> DebugScopesPanel:
+        """Scopes/watches panel on the Debugger tab."""
+        return cast(DebugScopesPanel, self._output_panel.debug_scopes)
+
+    def apply_debug_slice(self, slice_data: DebugScriptSlice) -> None:
+        """Restore persisted breakpoints and watches for this pane."""
+        self._editor.replace_breakpoints(
+            breakpoints_dict_from_slice(slice_data),
+            emit=False,
+        )
+        scopes = self._debug_scopes()
+        scopes.set_watch_expressions(list(slice_data.get("watches") or []))
+        if scopes.is_paused():
+            scopes.refresh_watches()
+
+    def collect_debug_slice(self) -> DebugScriptSlice:
+        """Return current breakpoints and watch expressions for persistence."""
+        scopes = self._debug_scopes()
+        return slice_from_editor(
+            self._editor.breakpoints,
+            list(scopes.watch_state.expressions),
+        )
+
+    def bind_debug_metadata_persist(self, callback: Callable[[], None]) -> None:
+        """Notify *callback* when breakpoints or watches change (host debounces)."""
+        self._editor.breakpoints_changed.connect(callback)
+        self._debug_scopes().watch_expressions_changed.connect(callback)
 
     def set_loading(self, loading: bool) -> None:
         """Suppress dirty/content signals while loading persisted data."""
@@ -215,11 +293,11 @@ class ScriptEditorPane(QWidget):
         self._request_id = request_id
         self._collection_id = collection_id
         self._local_script_id = local_script_id
-        self._editor.set_snippet_capture_context(
-            script_type=self._script_type,
-            collection_id=collection_id,
-            local_script_id=local_script_id,
-        )
+        self._editor._local_script_id = local_script_id
+        engine = getattr(self._editor, "_completion_engine", None)
+        if engine is not None:
+            engine._local_script_id = local_script_id
+        self._editor.set_snippet_capture_context(script_type=self._script_type)
 
     def load_content(
         self,
@@ -236,6 +314,8 @@ class ScriptEditorPane(QWidget):
                 self._editor.set_script_module_format(module_format)
             self._editor.setPlainText(text)
             self._editor.document().setModified(False)
+            if self._options.host_kind == "local_script":
+                self._start_async_local_lsp_prep(language, text)
             self._sync_lang_menu_button_text()
             if self._options.enable_test_gutter:
                 self._refresh_pm_test_gutter_markers()
@@ -343,6 +423,17 @@ class ScriptEditorPane(QWidget):
             debug_btn=self._debug_btn,
         )
 
+    def _context_with_local_script_id(self, context: ScriptInput) -> ScriptInput:
+        """Attach ``localScriptId`` for Deno entry-module runs on local script tabs."""
+        if self._local_script_id is None:
+            return context
+        info_raw = context.get("info")
+        info: dict[str, Any] = (
+            {str(k): v for k, v in info_raw.items()} if isinstance(info_raw, dict) else {}
+        )
+        info["localScriptId"] = self._local_script_id
+        return cast(ScriptInput, {**context, "info": info})
+
     def run(
         self,
         *,
@@ -380,6 +471,7 @@ class ScriptEditorPane(QWidget):
             response_data=response_data,
             test_name_filter=test_name_filter,
         )
+        context = self._context_with_local_script_id(context)
         self._output_panel.run_script(
             script=script,
             language=language,
@@ -416,14 +508,22 @@ class ScriptEditorPane(QWidget):
             self._output_panel.get_response_data() if self._script_type == "test" else None
         )
         context = build_inline_context(script_type=self._script_type, response_data=response_data)
+        context = self._context_with_local_script_id(context)
+        from ui.widgets.code_editor import editor_lsp_glue as lsp_glue
+
+        lsp_glue.set_debug_session_active(self._editor, True)
         protocol = DebugProtocol()
         protocol.set_breakpoints(dict(self._editor.breakpoints))
         main: Any = self.window()
         if hasattr(main, "_debug_protocol"):
             old = main._debug_protocol
             if old is not None:
-                with contextlib.suppress(Exception):
-                    old.stop()
+                end_prev = getattr(main, "end_inline_script_debug", None)
+                if callable(end_prev):
+                    end_prev()
+                else:
+                    with contextlib.suppress(Exception):
+                        old.stop()
             main._debug_protocol = protocol
         if hasattr(main, "_clear_debug_breakpoint_listeners"):
             main._clear_debug_breakpoint_listeners()
@@ -582,11 +682,23 @@ class ScriptEditorPane(QWidget):
         line.raise_()
 
     def hide_debug_toolbar(self) -> None:
-        """Hide the debug step row (shown only while a debug session is paused)."""
-        self._debug_controls.set_idle()
-        self._debug_controls.hide()
-        self._debug_bar.hide()
+        """Reset Debugger-tab step controls after a session ends."""
+        self.clear_debug_status_text()
+        self._output_panel.debug_controls.set_idle()
         self._schedule_refresh_script_split_full_width_line()
+
+    def set_debug_pause_status(self, info: DebugPauseInfo) -> None:
+        """Show pause position on the editor status bar (after the char count)."""
+        self._status_debug_lbl.setText(format_debug_pause_status(info))
+        self._status_debug_lbl.setObjectName("scriptEditorDebugStatusLabel")
+        self._status_debug_sep.show()
+        self._status_debug_lbl.show()
+
+    def clear_debug_status_text(self) -> None:
+        """Hide pause status on the editor status bar."""
+        self._status_debug_sep.hide()
+        self._status_debug_lbl.hide()
+        self._status_debug_lbl.setObjectName("mutedLabel")
 
     def _build_toolbar(
         self,
@@ -672,8 +784,9 @@ class ScriptEditorPane(QWidget):
             "Run all (inherited + current)",
             lambda: self.run_all_callback() if self.run_all_callback else None,
         )
-        if not self._options.show_run_all:
-            self._run_all_btn.hide()
+        # Hidden by default — :meth:`scripts_mixin._sync_run_all_buttons`
+        # reveals it only when the request actually has inherited scripts.
+        self._run_all_btn.hide()
         lang_row.addWidget(self._run_all_btn)
 
         self._debug_btn = _make_icon_btn(
@@ -685,12 +798,14 @@ class ScriptEditorPane(QWidget):
 
         _add_separator()
 
-        self._save_btn = _make_icon_btn(
-            "floppy-disk",
-            "Save script (Ctrl+S)",
-            self.save_requested.emit,
-        )
-        lang_row.addWidget(self._save_btn)
+        # Local script tabs use MainWindow Save + auto-save; no in-pane floppy button.
+        if self._options.host_kind != "local_script":
+            self._save_btn = _make_icon_btn(
+                "floppy-disk",
+                "Save script (Ctrl+S)",
+                self.save_requested.emit,
+            )
+            lang_row.addWidget(self._save_btn)
 
         if self._options.show_auto_save:
             self._auto_save_cb = QCheckBox("Auto-save")
@@ -706,28 +821,6 @@ class ScriptEditorPane(QWidget):
             lang_row.addWidget(inherited_banner)
 
         chrome_layout.addLayout(lang_row)
-
-        debug_bar = QWidget()
-        debug_bar.setObjectName("scriptDebugBar")
-        db_layout = QVBoxLayout(debug_bar)
-        db_layout.setContentsMargins(0, 8, 0, 4)
-        db_layout.setSpacing(8)
-        row_sep = QFrame()
-        row_sep.setObjectName("scriptDebugToolbarSep")
-        row_sep.setFrameShape(QFrame.Shape.NoFrame)
-        row_sep.setFixedHeight(1)
-        row_sep.setSizePolicy(
-            QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.Fixed,
-        )
-        db_layout.addWidget(row_sep)
-        self._debug_controls = DebugControls()
-        self._debug_controls.hide()
-        self._debug_controls.step_requested.connect(self.debug_step_requested.emit)
-        db_layout.addWidget(self._debug_controls)
-        chrome_layout.addWidget(debug_bar)
-        debug_bar.hide()
-        self._debug_bar = debug_bar
 
         parent_layout.addWidget(chrome)
 
@@ -761,10 +854,16 @@ class ScriptEditorPane(QWidget):
         self._snippets_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
         self._snippets_btn.setText("Snippets")
         self._snippets_btn.clicked.connect(self._open_snippets)
+        sep_chars = QLabel("\u2502")
+        sep_chars.setObjectName("mutedLabel")
         self._status_chars_lbl = QLabel()
         self._status_chars_lbl.setObjectName("mutedLabel")
-        sep2 = QLabel("\u2502")
-        sep2.setObjectName("mutedLabel")
+        self._status_debug_sep = QLabel("\u2502")
+        self._status_debug_sep.setObjectName("mutedLabel")
+        self._status_debug_lbl = QLabel()
+        self._status_debug_lbl.setObjectName("scriptEditorDebugStatusLabel")
+        self._status_debug_sep.hide()
+        self._status_debug_lbl.hide()
 
         h.addWidget(self._status_ln_lbl)
         h.addWidget(sep1)
@@ -773,9 +872,14 @@ class ScriptEditorPane(QWidget):
         h.addWidget(self._history_btn)
         h.addWidget(sep_snip)
         h.addWidget(self._snippets_btn)
-        h.addWidget(sep2)
+        h.addWidget(sep_chars)
         h.addWidget(self._status_chars_lbl)
+        h.addWidget(self._status_debug_sep)
+        h.addWidget(self._status_debug_lbl)
         h.addStretch()
+        # Inline busy chip (spinner + caption) lives on the right side of the
+        # status bar so it never overlays the code area.
+        h.addWidget(self._run_busy)
         parent_layout.addWidget(row)
 
         def _update(_line: int = 0, _col: int = 0) -> None:
@@ -902,13 +1006,127 @@ class ScriptEditorPane(QWidget):
         if lang != "javascript":
             self._runtime_banner.setVisible(False)
             return
-        st = RuntimeSettings.validate_deno(RuntimeSettings.deno_path())
-        self._runtime_banner.setVisible(not st["available"])
+        # ``validate_deno`` runs ``deno --version`` (a subprocess that can take
+        # seconds on a cold binary load) — probe it off the UI thread so
+        # switching to a Scripts tab never freezes the app. The result is
+        # lru_cached, so after the first probe the worker returns instantly.
+        if self._deno_probing:
+            return
+        self._deno_probing = True
+        path = RuntimeSettings.deno_path()
+
+        def _probe() -> None:
+            try:
+                available = bool(RuntimeSettings.validate_deno(path)["available"])
+            except Exception:  # never nag if the probe itself fails
+                available = True
+            self._runtime_probe_done.emit(available)
+
+        threading.Thread(target=_probe, daemon=True).start()
+
+    def _apply_runtime_banner(self, available: bool) -> None:
+        """Apply a Deno-availability probe result on the UI thread."""
+        self._deno_probing = False
+        if self._editor.language != "javascript":
+            self._runtime_banner.setVisible(False)
+            return
+        self._runtime_banner.setVisible(not available)
+
+    def cancel_async_lsp_prep(self) -> None:
+        """Stop in-flight prep and invalidate pending finalize (tab close / reload)."""
+        worker = self._lsp_prep_worker
+        if worker is not None:
+            with contextlib.suppress(TypeError, RuntimeError):
+                worker.finished_with.disconnect(self._on_lsp_prep_finished)
+            if isinstance(worker, QThread):
+                worker.requestInterruption()
+                if worker.isRunning():
+                    worker.quit()
+                    worker.wait(3000)
+                worker.deleteLater()
+            self._lsp_prep_worker = None
+        self._pending_lsp_prep = None
+        self._editor.next_lsp_attach_token()
+
+    def _start_async_local_lsp_prep(self, language: str, text: str) -> None:
+        """Background mirror/index prep; finalize LSP attach when prep and server are ready."""
+        if not ASYNC_LOCAL_LSP_PREP or not RuntimeSettings.lsp_enabled():
+            self._editor.set_lsp_attach_deferred(False)
+            self._editor.attach_lsp(self._editor.language)
+            return
+        if self._local_script_id is None:
+            return
+        lang = normalise_script_code(language)
+        if lang not in ("javascript", "typescript"):
+            self._editor.set_lsp_attach_deferred(False)
+            self._editor.attach_lsp(lang)
+            return
+        self.cancel_async_lsp_prep()
+        token = self._editor.next_lsp_attach_token()
+        self._lsp_prep_attach_token = token
+        self._pending_lsp_prep = None
+        self._editor.set_lsp_attach_deferred(True)
+        from services.lsp.server_registry import LspRegistry
+        from services.lsp.servers._workspace import ensure_js_workspace
+
+        registry = LspRegistry.instance()
+        registry.warm_async("js")
+        worker = LocalScriptLspPrepWorker(
+            token,
+            self._local_script_id,
+            lang,
+            text,
+            ensure_js_workspace(),
+            parent=self,
+        )
+        worker.finished_with.connect(self._on_lsp_prep_finished)
+        self._lsp_prep_worker = worker
+        worker.start()
+        registry.when_bucket_ready("js", lambda: self._try_finalize_local_lsp_attach(lang))
+        self._try_finalize_local_lsp_attach(lang)
+
+    def _on_lsp_prep_finished(self, attach_token: int, result: object) -> None:
+        """Store prep output and finalize when the Deno LSP bucket is also ready."""
+        self._lsp_prep_worker = None
+        if not isinstance(result, LocalScriptLspPrepResult):
+            return
+        if attach_token != self._editor.lsp_attach_token():
+            return
+        self._pending_lsp_prep = result
+        self._try_finalize_local_lsp_attach(self._editor.language)
+
+    def _try_finalize_local_lsp_attach(self, language: str) -> None:
+        """Attach LSP on the GUI thread once background prep and registry client exist."""
+        if self._editor.lsp_attach_token() != self._lsp_prep_attach_token:
+            return
+        prep = self._pending_lsp_prep
+        if prep is None:
+            return
+        if not RuntimeSettings.lsp_enabled():
+            return
+        lookup = "javascript" if normalise_script_code(language) == "typescript" else language
+        from services.lsp.server_registry import LspRegistry
+
+        if LspRegistry.instance().for_language(lookup) is None:
+            return
+        from ui.widgets.code_editor import editor_lsp_glue as lsp_glue
+
+        lsp_glue.finalize_local_script_lsp_attach(
+            self._editor,
+            language,
+            prep,
+            attach_token=self._lsp_prep_attach_token,
+        )
+        self._pending_lsp_prep = None
 
     def _refresh_snippets_button(self) -> None:
         from ui.widgets.snippets.loader import has_snippets
 
-        enabled = has_snippets(self._editor.language)
+        enabled = has_snippets(
+            self._editor.language,
+            self._script_type,
+            host_kind=self._options.host_kind,
+        )
         self._snippets_btn.setEnabled(enabled)
         self._snippets_btn.setToolTip(
             "Insert a code snippet" if enabled else f"No snippets for {self._editor.language}"
@@ -922,7 +1140,11 @@ class ScriptEditorPane(QWidget):
         from ui.widgets.snippets.popup import SnippetsPopup
 
         language = self._editor.language
-        if not has_snippets(language):
+        if not has_snippets(
+            language,
+            self._script_type,
+            host_kind=self._options.host_kind,
+        ):
             return
 
         def _insert(body: str) -> None:
@@ -935,11 +1157,12 @@ class ScriptEditorPane(QWidget):
             language,
             self._script_type,
             _insert,
-            collection_id=self._collection_id,
-            local_script_id=self._local_script_id,
+            host_kind=self._options.host_kind,
         )
 
     def _refresh_pm_test_gutter_markers(self) -> None:
+        if getattr(self._editor, "_debug_session_active", False):
+            return
         from services.scripting.engine import find_pm_tests, find_top_level_statement_lines
 
         lang = self._editor.language

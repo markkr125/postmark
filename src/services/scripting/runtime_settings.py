@@ -30,8 +30,15 @@ _SETTINGS_APP = "Postmark"
 _KEY_DENO = "scripting/deno_path"
 _KEY_PYTHON = "scripting/python_path"
 _KEY_LSP_ENABLED = "scripting/lsp_enabled"
-_KEY_NPM_TYPE_RESOLUTION = "scripting/npm_type_resolution"
 _KEY_FORMAT_ON_SAVE = "scripting/format_on_save"
+_KEY_LSP_DID_CHANGE_DEBOUNCE_MS = "scripting/lsp_did_change_debounce_ms"
+_KEY_LSP_PM_REQUIRE_DEBOUNCE_MS = "scripting/lsp_pm_require_debounce_ms"
+_KEY_LSP_DIAG_CLEAR_DEBOUNCE_MS = "scripting/lsp_diag_clear_debounce_ms"
+_KEY_LSP_DEP_DIAG_DEBOUNCE_MS = "scripting/lsp_dep_diag_debounce_ms"
+_DEFAULT_LSP_DID_CHANGE_DEBOUNCE_MS = 250
+_DEFAULT_LSP_PM_REQUIRE_DEBOUNCE_MS = 350
+_DEFAULT_LSP_DIAG_CLEAR_DEBOUNCE_MS = 250
+_DEFAULT_LSP_DEP_DIAG_DEBOUNCE_MS = 300
 # Private package registries (npm + JSR share `.npmrc` mechanics).
 _KEY_REGISTRIES = "scripting/registries/entries"
 _KEY_DEFAULT_NPM = "scripting/registries/default_npm"
@@ -263,21 +270,6 @@ class RuntimeSettings:
         s.setValue(_KEY_LSP_ENABLED, enabled)
 
     @staticmethod
-    def enable_npm_type_resolution() -> bool:
-        """Whether Deno LSP resolves npm/jsr types for ``pm.require`` literals."""
-        s = _get_settings()
-        raw = s.value(_KEY_NPM_TYPE_RESOLUTION, True)
-        if isinstance(raw, str):
-            return raw.lower() not in {"0", "false", "no", "off", ""}
-        return bool(raw)
-
-    @staticmethod
-    def set_enable_npm_type_resolution(enabled: bool) -> None:
-        """Persist npm/jsr ``pm.require`` type resolution for script LSP."""
-        s = _get_settings()
-        s.setValue(_KEY_NPM_TYPE_RESOLUTION, enabled)
-
-    @staticmethod
     def format_on_save() -> bool:
         """Whether script editors auto-format via LSP after idle typing."""
         s = _get_settings()
@@ -291,6 +283,49 @@ class RuntimeSettings:
         """Persist format-on-save for script editors."""
         s = _get_settings()
         s.setValue(_KEY_FORMAT_ON_SAVE, enabled)
+
+    @staticmethod
+    def _int_setting(key: str, default: int) -> int:
+        """Read a positive integer from QSettings with *default* fallback."""
+        s = _get_settings()
+        raw = s.value(key, default)
+        try:
+            value = int(str(raw))
+        except (TypeError, ValueError):
+            return default
+        return value if value > 0 else default
+
+    @staticmethod
+    def lsp_did_change_debounce_ms() -> int:
+        """Debounce for LSP ``textDocument/didChange`` (ms)."""
+        return RuntimeSettings._int_setting(
+            _KEY_LSP_DID_CHANGE_DEBOUNCE_MS,
+            _DEFAULT_LSP_DID_CHANGE_DEBOUNCE_MS,
+        )
+
+    @staticmethod
+    def lsp_pm_require_debounce_ms() -> int:
+        """Debounce for ``pm.require`` index regeneration (ms)."""
+        return RuntimeSettings._int_setting(
+            _KEY_LSP_PM_REQUIRE_DEBOUNCE_MS,
+            _DEFAULT_LSP_PM_REQUIRE_DEBOUNCE_MS,
+        )
+
+    @staticmethod
+    def lsp_diag_clear_debounce_ms() -> int:
+        """Debounce before clearing LSP diagnostics after edits (ms)."""
+        return RuntimeSettings._int_setting(
+            _KEY_LSP_DIAG_CLEAR_DEBOUNCE_MS,
+            _DEFAULT_LSP_DIAG_CLEAR_DEBOUNCE_MS,
+        )
+
+    @staticmethod
+    def lsp_dep_diag_debounce_ms() -> int:
+        """Debounce for direct ``local:`` dependency diagnostics (ms)."""
+        return RuntimeSettings._int_setting(
+            _KEY_LSP_DEP_DIAG_DEBOUNCE_MS,
+            _DEFAULT_LSP_DEP_DIAG_DEBOUNCE_MS,
+        )
 
     @staticmethod
     def set_deno_path(path: str) -> None:

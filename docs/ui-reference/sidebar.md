@@ -21,8 +21,8 @@ widget height (``LEFT_RAIL_ACCENT_STRIPE_WIDTH_PX`` wide) because Fusion-style
 built-in title row (the injected ``CollectionWidget`` already owns the
 ``CollectionHeader`` heading).  The flyout body is a ``QStackedWidget``: page
 0 is ``MainWindow``'s vertical ``_left_nav_splitter`` (collections above
-environments); page 1 is ``LocalScriptsSidebarPanel`` (empty list shell until
-populated).  Horizontal inset for the collections and environment bodies uses
+environments); page 1 is ``CollectionWidget(variant="local_scripts")`` — script/folder
+tree (create, rename, move; opens local-script editor tabs).  Horizontal inset for the collections and environment bodies uses
 ``LEFT_NAV_PANEL_MARGIN_H_LEFT_PX`` /
 ``LEFT_NAV_PANEL_MARGIN_H_RIGHT_PX`` in ``theme.py``, applied inside
 ``CollectionWidget`` and ``EnvironmentSidebarPanel`` so the vertical splitter
@@ -40,7 +40,7 @@ rail icon).
 | Button | Icon (Phosphor) | Panel |
 |--------|-----------------|-------|
 | Collections | `files` | Collections tree + environment rows (``_left_nav_splitter``) |
-| Local scripts | `code` | ``LocalScriptsSidebarPanel`` (stacked flyout page) |
+| Local scripts | `code` | ``CollectionWidget(variant="local_scripts")`` |
 
 ### Signals
 
@@ -64,11 +64,12 @@ rail icon).
 is open and :meth:`open_panel` when it is closed — it does not hide the
 activity rail, so it matches a manual resize of the flyout to zero width.
 
-## LocalScriptsSidebarPanel
+## LocalScriptsSidebarPanel (legacy)
 
-Placeholder flyout page for future **Local scripts** content.  Uses the same
-list-frame chrome pattern as ``EnvironmentSidebarPanel`` (scroll area + bordered
-list host).  Source: ``src/ui/sidebar/local_scripts_sidebar_panel.py``.
+Unused legacy shell — still re-exported from ``src/ui/sidebar/__init__.py`` but
+**not** installed by ``MainWindow``.  The live **Local scripts** flyout page is
+``CollectionWidget(variant="local_scripts")``.  See [Local scripts](local-scripts.md).
+Source: ``src/ui/sidebar/local_scripts_sidebar_panel.py``.
 
 ## RightSidebar
 
@@ -128,23 +129,39 @@ elsewhere via ``phi()``) to expand the full text.
 `load_variables(variables, local_overrides, has_environment)` —
 populate sections from `VariableDetail` dicts.
 
-## Script debug widgets (`debug_watch_panel`, `debug_call_stack_panel`)
+## Script debug widgets (`debug_inspector_split`, `debug_call_stack_panel`, `debug_watch_in_tree`)
 
-Source: `src/ui/sidebar/debug_watch_panel.py`,
-`src/ui/sidebar/debug_call_stack_panel.py`.  Composed into
-`ScriptOutputPanel` during inline script debug (see
-[Request Editor — Inline debug inspector](request-editor.md#inline-debug-inspector-output-tab)).
-`DebugPanel` in `debug_panel.py` still bundles the same pieces for tests.
+Source: `src/ui/sidebar/debug_inspector_split.py` (horizontal **Call stack |
+Watches strip + unified tree**), `debug_call_stack_panel.py`, `debug_scopes_panel.py`,
+`debug_watch_in_tree.py`.  Composed into `ScriptOutputPanel` during inline script
+debug (see [Request Editor — Inline debug inspector](request-editor.md#inline-debug-inspector-debugger-tab)).
+`DebugPanel` in `debug_panel.py` bundles step controls and
+:class:`DebugInspectorSplit`.
 
-### WatchPanel
+### DebugInspectorSplit layout
+
+```text
++------------------+---------------------------+
+| Call stack       | Watches (expression strip)|
+| (full height)    +---------------------------+
+|                  | debugScopesTree           |
+|                  |  Watches / Locals / pm …  |
++------------------+---------------------------+
+```
 
 | `objectName` | Description |
 |--------------|-------------|
-| `debugWatchList` | One row per watch expression; text `expr  =  value` after evaluate |
-| `sidebarSearch` | Add-expression field (Return or + button) |
+| `debugInspectorSplitter` | Horizontal splitter (~200px call stack \| values column) |
+| `debugCallStackList` | Frame list (left column, full height) |
+| `debugWatchAddEdit` | Watch expression field above the tree (+ / − icon buttons) |
+| `debugScopesTree` | **Watches** section + locals / `pm` / `globalThis` / env (one tree) |
 
-Calls `DebugProtocol.evaluate(expr)` on `refresh()` / `update_pause()` while the
-protocol is **paused**.
+While **paused**, `DebugWatchesPane.refresh_watches()` calls
+`DebugProtocol.submit_evaluate(expr)` (non-blocking). Value cells show
+`cached_evaluate(expr)` immediately (placeholder `—` until the first result).
+`DebugProtocol.evaluated` updates the tree when the background worker or batch
+evaluator returns.  Expressions persist across `set_idle` and `clear_session`;
+`set_idle` clears the eval cache and prunes orphan `pm.require` LSP workspace keys.
 
 ### CallStackPanel
 

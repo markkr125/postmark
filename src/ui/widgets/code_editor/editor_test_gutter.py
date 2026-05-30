@@ -23,6 +23,12 @@ class _TestGutterMixin(_TestGutterBase):
     _test_gutter_enabled: bool
     _pm_tests: list[dict[str, Any]]
     _test_gutter_area: Any
+    run_single_test_requested: Any
+    debug_single_test_requested: Any
+
+    if TYPE_CHECKING:
+
+        def _update_gutter_width(self) -> None: ...
 
     def set_test_gutter_enabled(self, enabled: bool) -> None:
         """Show or hide the per-``pm.test`` gutter column."""

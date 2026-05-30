@@ -226,7 +226,14 @@ PY_SCHEMA: dict[str, SchemaNode] = {
                 "kind": "object",
                 "type_str": "VariableScope",
                 "doc": "Environment variable store",
-                "children": _variable_scope_children_py(),
+                "children": {
+                    **_variable_scope_children_py(),
+                    "name": {
+                        "kind": "property",
+                        "type_str": "str",
+                        "doc": "Active environment display name",
+                    },
+                },
             },
             "collection_variables": {
                 "kind": "object",
@@ -281,6 +288,12 @@ PY_SCHEMA: dict[str, SchemaNode] = {
                         "type_str": "list[dict]",
                         "doc": "Get all cookies as [{name, value}]",
                         "signature": "()",
+                    },
+                    "has": {
+                        "kind": "method",
+                        "type_str": "bool",
+                        "doc": "Return whether a cookie name exists",
+                        "signature": "(name: str)",
                     },
                 },
             },

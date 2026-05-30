@@ -26,6 +26,10 @@ class Diagnostic:
     severity: str
     message: str
     source: str
+    related_local_path: str | None = None
+    related_local_script_id: int | None = None
+    related_line: int | None = None
+    related_column: int | None = None
 
 
 @dataclass

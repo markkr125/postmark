@@ -162,6 +162,12 @@ class _RunnerPanel(QWidget):
         env_id = self._config.environment_id
         env_vars = EnvironmentService.build_variable_map(env_id)
         self._worker.set_environment_vars(env_vars)
+        env_name = ""
+        if env_id is not None:
+            env = EnvironmentService.get_environment(env_id)
+            if env is not None:
+                env_name = str(env.name or "")
+        self._worker.set_environment_name(env_name)
 
         self._thread = QThread()
         self._worker.moveToThread(self._thread)

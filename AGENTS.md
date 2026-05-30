@@ -175,13 +175,14 @@ src/
 │           ├── virtual_paths.py                 # script_virtual_extension; .js vs .cjs paths
 │           ├── path_index.py                    # Virtual path list for pm.require local: autocomplete
 │           ├── require_refs_rewrite.py          # pm.require("local:…") reference rewriter
+│           ├── import_refs_rewrite.py           # static relative import/export-from rewriter
 │           └── model/
 │               ├── local_script_folder_model.py
 │               └── local_script_model.py  # ``module_format`` (``esm`` | ``commonjs``)
 │       └── snippets/
 │           ├── snippet_repository.py      # CRUD for user-authored script snippets
 │           └── model/
-│               └── snippet_model.py       # SnippetModel (scope + context)
+│               └── snippet_model.py       # SnippetModel (context)
 │       └── request_assertions/
 │           ├── request_assertion_repository.py  # CRUD for declarative assertion rows
 │           └── model/
@@ -199,6 +200,17 @@ src/
 │   │   ├── local_path_policy.py   # Re-export path_policy (UI/service)
 │   │   ├── local_virtual_paths.py # Re-export virtual_paths
 │   │   ├── local_script_modules.py # pm.require("local:…") resolve + bundle
+│   │   ├── local_scripts_project/ # Deno mirror, ESM import graph, local entry run/debug, LSP URI refcount
+│   │   │   ├── mirror.py          # sync_all (prune orphans), sync_script, sync_closure; mirror_write_lock (RLock) serializes mirror writes
+│   │   │   ├── deno_config.py     # ensure_ambient_pm, ensure_local_project_config
+│   │   │   ├── import_graph.py    # regex static import/export-from + pm.require closure; esm_import_string_tail + relative_import_suggestions
+│   │   │   ├── runner.py          # run_local_entry, debug_local_entry
+│   │   │   ├── navigation.py      # resolve_esm_import_target_script_id
+│   │   │   └── lsp_uri_registry.py
+│   │   ├── debug_script_metadata.py # Persisted breakpoints/watches JSON (scripts.debug + local debug_metadata)
+│   │   ├── dynamic_variables.py # Postman {{$…}} resolve (send-time + RestrictedPython replaceIn)
+│   │   ├── json_schema_mini.py # Subset JSON Schema validator for pm.expect().jsonSchema()
+│   │   ├── local_dependency_diagnostics.py # Direct local: dependency lint for host script editors
 │   │   ├── local_script_require_refs.py  # Re-export require_refs_rewrite
 │   │   ├── __init__.py            # TypedDicts (ScriptInput/Output, TestResult, etc.)
 │   │   ├── engine.py              # ScriptEngine + run_debug_chain (re-exports find_pm_tests, find_top_level_statement_lines)
@@ -228,16 +240,22 @@ src/
 │   │   └── debug/                 # Debug sub-package (step-through debugging)
 │   │       ├── protocol.py        # DebugProtocol state machine + DebugPauseInfo
 │   │       ├── js_debug.py        # JS: inject_checkpoints, locals readers; debug_execute → deno_debug
-│   │       ├── deno_scope.py      # CDP scope materialisation; deep expand pm/console; ``__pm_className__`` for CDP descriptions
+│   │       ├── deno_scope.py      # CDP scope materialisation; deep expand object bindings across scopes; ``__pm_className__`` for CDP descriptions
 │   │       ├── deno_debug.py      # Deno --inspect-brk + CDP (Chrome DevTools Protocol) step-through
 │   │       └── py_debug.py        # Python settrace subprocess debug execution
 │   ├── lsp/                       # Language Server Protocol (Deno LSP, jedi-language-server)
 │   │   ├── transport.py           # LspTransport — JSON-RPC Content-Length + QThread reader
 │   │   ├── client.py              # LspClient — initialize, didOpen/Change/Close, requests
 │   │   ├── qt_lsp_offsets.py      # QTextDocument position ↔ LSP line/UTF-16 column
+│   │   ├── pm_require_resolve.py    # npm/jsr registry latest lookup for unversioned pm.require LSP types
+│   │   ├── js_lsp_preamble.py       # Triple-slash refs prepended to virtual JS buffers for Deno LSP
+│   │   ├── npm_types_members.py     # @types .d.ts member extraction for npm pm.require completion fallback
 │   │   ├── pm_require_types.py      # pm_require_index.ts generation + deno cache for npm/jsr specs
+│   │   ├── local_script_lsp_prep.py # prepare_local_script_lsp_attach (mirror + index + closure; worker-safe)
+│   │   ├── local_script_lsp_prep_worker.py # LocalScriptLspPrepWorker — QThread prep → GUI finalize
 │   │   ├── stubs_generator.py     # pm.d.ts / pm.pyi from pm_api_schema
-│   │   ├── server_registry.py     # LspRegistry — shared clients; shutdown on app quit
+│   │   ├── server_registry.py     # LspRegistry — per-bucket warm_async; shutdown stops all _clients
+│   │   ├── servers/spawn.py       # Off-GUI Popen + LspSpawnWorker; prepare_*_spawn metadata
 │   │   └── servers/               # make_deno_client, make_jedi_client, workspace seed
 │   │       ├── _workspace.py
 │   │       ├── deno_client.py
@@ -267,6 +285,9 @@ src/
     │   ├── send_pipeline_debug_session.py # on_debug_paused/step/finished, end_debug_ui
     │   ├── draft_controller.py    # _DraftControllerMixin — draft tab open/save
     │   ├── tab_controller.py      # _TabControllerMixin — tab open/close/switch
+    │   ├── tab_nav/               # Tab activation back/forward stacks
+    │   │   ├── history.py         # _TabNavHistoryMixin — Go menu Ctrl+Alt+arrows
+    │   │   └── __init__.py
     │   └── variable_controller.py # _VariableControllerMixin — env variable + sidebar management
     ├── local_scripts/             # Centre-pane local script editor
     │   ├── local_script_editor_widget.py  # LocalScriptEditorWidget — CodeEditorWidget + DB save
@@ -278,9 +299,11 @@ src/
     │   ├── local_scripts_sidebar_panel.py  # Legacy empty shell (unused; MainWindow uses CollectionWidget)
     │   ├── variables_panel.py     # VariablesPanel — read-only variable display
     │   ├── snippet_panel.py       # SnippetPanel — inline code snippet generator
-    │   ├── debug_panel.py         # DebugPanel facade — DebugControls + CallStackPanel + DebugVariablesPanel + WatchPanel
+    │   ├── debug_inspector_split.py # DebugInspectorSplit — call stack + watches | scopes (horizontal splitter)
+    │   ├── debug_scopes_panel.py  # DebugScopesPanel — debugScopesTree (locals / pm / globals only)
+    │   ├── debug_panel.py         # DebugPanel facade — DebugControls + DebugInspectorSplit
     │   ├── debug_call_stack_panel.py  # CallStackPanel — frame list + frame_selected
-    │   ├── debug_watch_panel.py   # WatchPanel — watch expressions via DebugProtocol.evaluate
+    │   ├── debug_watch_in_tree.py # Watches section rows + format_watch_display / rebuild_watch_rows
     │   └── saved_responses/           # Saved responses sub-package
     │       ├── panel.py               # SavedResponsesPanel — saved example list/detail flyout
     │       ├── search_filter.py       # _PanelSearchFilterMixin — body search/filter
@@ -304,8 +327,8 @@ src/
     │   │   ├── editor_keyboard.py    # _KeyboardMixin — keyPressEvent, line comment
     │   │   ├── editor_ident.py       # _IdentMixin — identifier at position
     │   │   ├── editor_breakpoints.py # _BreakpointMixin — breakpoint gutter
-    │   │   ├── editor_lsp_glue.py    # attach_lsp, detach_lsp, signature/hover glue
-    │   │   ├── lsp_integration.py # EditorLspAdapter — LSP sync + diagnostics; optional LSP for script modes
+    │   │   ├── editor_lsp_glue.py    # attach_lsp, finalize_local_script_lsp_attach, detach_lsp, signature/hover glue
+    │   │   ├── lsp_integration.py # EditorLspAdapter — LSP sync + diagnostics; local-script attach accepts prep= to skip redundant mirror/index
     │   │   ├── popup_registry.py  # Shared singleton Completion/ParameterHint/SymbolDoc/DebugValue popups
     │   │   ├── debug_hover_popup.py # DebugValuePopup — expandable hover for paused script locals
     │   │   ├── highlighter.py     # Syntax highlighting engine
@@ -322,6 +345,8 @@ src/
     │   │       │   ├── js.py      # JS_SCHEMA (pm, console, CryptoJS, postman) + JS_GLOBALS
     │   │       │   └── py.py      # PY_SCHEMA + PY_GLOBALS (Python variant)
     │   │       ├── engine.py      # CompletionEngine — dot-path, variables, resolve_symbol(), find_definition_pos(), resolve_call_signature(), resolve_nearest_call_signature()
+    │   │       ├── path_completions/ # pm.require('local:…') + ESM relative import path items
+    │   │       │   └── items.py
     │   │       ├── mixin.py       # _CompletionMixin — triggers, filtering, parameter hint + Ctrl+hover symbol doc wiring
     │   │       ├── parameter_hint.py # ParameterHintPopup — floating call-signature hint
     │   │       ├── popup.py       # CompletionPopup — floating autocomplete widget
@@ -395,6 +420,7 @@ src/
         │   └── scripts/             # Scripts sub-package
         │       ├── script_language.py # codes: javascript | typescript | python; detect/heuristics, display, normalise
         │       ├── script_editor_pane/ # ScriptEditorPane — reusable toolbar + editor + output stack
+        │       ├── debug_metadata_persist.py # _DebugMetadataPersistMixin — debounced scripts.debug DB + draft session
         │       ├── scripts_mixin.py # _ScriptsMixin — dual pre-request/test script editors (delegates to panes)
         │       ├── mock_response_tab.py # ScriptMockResponseTab — mock status + headers table + JSON CodeEditorWidget body (post-response)
         │       ├── output_panel.py  # ScriptOutputPanel — orchestration + worker slot shims
@@ -405,7 +431,8 @@ src/
         │       ├── output_debug_bar.py
         │       ├── output_script_runner.py  # run_script / debug worker wiring
         │       ├── output_iterations_tab.py # ScriptOutputIterationsTab — iteration×test matrix + re-run failed
-        │       ├── lsp_problems_tab.py # ScriptLspProblemsTab — LSP diagnostics list; ``problem_count_changed`` → tab title ``Problems (n)``
+        │       ├── lsp_problems_tab.py # ScriptLspProblemsTab — LSP + ``[local:…]`` dependency rows; click opens local script tab
+        │       ├── local_dependency_warn.py # Warn-only Send/Run when direct local: dependencies have errors
         │       ├── script_run_worker.py # ScriptRunWorker — inline runs; ``iteration_finished`` for data-driven matrix
         │       ├── version_history.py # _show_version_history entry point
         │       └── version_history/ # Version history dialog sub-package
@@ -427,7 +454,7 @@ src/
         │   │   ├── bar.py           # RequestTabBar custom wrapped-row deck
         │   │   ├── labels.py        # TabLabel / FolderTabLabel chip content widgets
         │   │   └── tab_button.py    # TabButton chip with close + reorder interactions
-        │   └── tab_manager.py       # TabManager + TabContext (with local_overrides, draft_name)
+        │   └── tab_manager.py       # TabManager + TabContext (nav_token, local_overrides, draft_name)
         └── popups/                  # Response metadata popups
             ├── status_popup.py      # HTTP status code explanation
             ├── timing_popup.py      # Request timing breakdown
@@ -479,6 +506,7 @@ tests/
     ├── conftest.py                # _no_fetch (autouse) + helpers
     ├── test_main_window.py
     ├── test_main_window_tabs_navigation.py # Wrapped tab deck shortcuts + search tests
+    ├── test_main_window_tab_nav_history.py # Go menu tab activation back/forward
     ├── test_main_window_save.py   # SaveButton + RequestSaveEndToEnd tests
     ├── test_main_window_draft.py  # Draft tab open/save lifecycle tests
     ├── test_main_window_session.py # Tab session persistence (save/restore) tests
@@ -500,6 +528,11 @@ tests/
     │   ├── test_code_editor_minimap.py
     │   ├── test_code_editor_variables.py
     │   ├── test_completion_engine.py
+    │   ├── test_completion_engine_top_level.py
+    │   ├── test_completion_engine_local_paths.py
+    │   ├── test_esm_import_completion_accept.py
+    │   ├── test_lsp_diagnostic_debounce.py
+    │   ├── test_no_debug_on_keystroke.py
     │   ├── test_completion_popup.py
     │   ├── test_info_popup.py
     │   ├── test_key_value_table.py

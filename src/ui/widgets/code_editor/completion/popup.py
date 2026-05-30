@@ -227,10 +227,12 @@ class CompletionPopup(QFrame):
 
         visible = min(len(items), _MAX_VISIBLE_ITEMS)
         self._list.setFixedHeight(visible * _ROW_HEIGHT + 2)
-        self.adjustSize()
 
         if items:
             self._list.setCurrentRow(0)
+        else:
+            self._doc_label.hide()
+            self._fit_to_content()
 
     def select_next(self) -> None:
         """Move selection down by one row."""
@@ -285,6 +287,7 @@ class CompletionPopup(QFrame):
         """Update the doc label when the selection changes."""
         if row < 0 or row >= len(self._items):
             self._doc_label.hide()
+            self._fit_to_content()
             return
         item = self._items[row]
         doc_parts: list[str] = []
@@ -297,4 +300,8 @@ class CompletionPopup(QFrame):
             self._doc_label.show()
         else:
             self._doc_label.hide()
-        self.adjustSize()
+        self._fit_to_content()
+
+    def _fit_to_content(self) -> None:
+        """Resize popup height to match layout (``adjustSize`` oversizes tool windows)."""
+        self.resize(self.width(), self.sizeHint().height())

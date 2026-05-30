@@ -179,9 +179,12 @@ created before new columns were added to the ORM models.
 **Rules:**
 
 - This is **forward-only** — it never drops, renames, or alters existing
-  columns.
+  columns (except the one-time ``snippets`` rebuild below).
 - New columns added to any model are automatically picked up — no manual
   migration script needed.
+- ``_migrate_drop_snippet_scope_columns`` (also in ``init_db()``) rebuilds
+  ``snippets`` when legacy ``scope_collection_id`` / ``scope_local_script_id``
+  columns exist on disk — SQLite cannot drop indexed FK columns in place.
 - `create_all()` handles brand-new tables; the migration only applies to
   tables that already exist on disk but lack newly-added columns.
 - The type mapping uses `col.type.compile(dialect=engine.dialect)` to derive
@@ -222,6 +225,8 @@ Core ORM models, all inheriting from `Base`:
 ### Local scripts — `module_format`
 
 ``LocalScriptModel.module_format`` is ``"esm"`` (default) or ``"commonjs"``.
+``LocalScriptModel.debug_metadata`` stores flat persisted breakpoints/watches
+(JSON: ``breakpoints``, ``watches``; not nested under ``pre_request``/``test``).
 Only JavaScript rows may use ``commonjs``; TypeScript/Python are coerced to
 ``esm`` in ``_normalize_module_format`` (repository). CommonJS scripts use
 ``.cjs`` virtual paths via ``script_virtual_extension()`` in

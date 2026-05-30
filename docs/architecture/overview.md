@@ -112,10 +112,11 @@ MainWindow._on_send()
 main.py
   1. QApplication()
   2. ThemeManager / TabSettingsManager / load_font()
-  3. MainWindow()       -- loading shell first; full UI on next event tick
+  3. MainWindow()       -- loading screen shown; main UI built with WA_DontShowOnScreen
   4. Collection fetch worker runs init_db() before fetch_all()
-  5. window.show()
-  6. app.exec()
+  5. load_finished      -- clears DontShowOnScreen, switches stack to main UI
+  6. window.showMaximized()
+  7. app.exec()
 ```
 
 ## Further Reading

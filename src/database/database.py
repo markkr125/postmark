@@ -5,8 +5,10 @@ import os
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import cast
 
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import Table, create_engine, inspect, text
+from sqlalchemy.schema import CreateTable
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -68,6 +70,7 @@ def init_db(db_path: Path | None = None) -> None:
         conn.commit()
     Base.metadata.create_all(_engine)
     _migrate_add_missing_columns(_engine)
+    _migrate_drop_snippet_scope_columns(_engine)
 
     _SessionLocal = sessionmaker(
         bind=_engine, autoflush=False, autocommit=False, expire_on_commit=False
@@ -139,6 +142,33 @@ def _migrate_add_missing_columns(engine: Engine) -> None:
 
             with engine.begin() as conn:
                 conn.execute(text(alter_sql))
+
+
+def _migrate_drop_snippet_scope_columns(engine: Engine) -> None:
+    """One-time rebuild of ``snippets`` to drop legacy ``scope_*`` columns.
+
+    SQLite cannot ``DROP`` indexed/foreign-key columns, so rebuild the table
+    from the current ORM definition and copy the surviving rows. Idempotent:
+    a no-op once the columns are gone or on a freshly created database.
+    """
+    insp = inspect(engine)
+    if not insp.has_table("snippets"):
+        return
+    existing = {col["name"] for col in insp.get_columns("snippets")}
+    legacy = {"scope_collection_id", "scope_local_script_id"}
+    if not (existing & legacy):
+        return
+    table = cast(Table, SnippetModel.__table__)  # new schema (scope columns already removed)
+    cols = ", ".join(col.name for col in table.columns)
+    logger.info("Migrating: rebuilding snippets to drop %s", sorted(existing & legacy))
+    with engine.begin() as conn:
+        conn.execute(text("DROP TABLE IF EXISTS snippets__old"))
+        conn.execute(text("ALTER TABLE snippets RENAME TO snippets__old"))
+        conn.execute(CreateTable(table))
+        conn.execute(text(f"INSERT INTO snippets ({cols}) SELECT {cols} FROM snippets__old"))
+        conn.execute(text("DROP TABLE snippets__old"))
+        for index in table.indexes:
+            index.create(bind=conn)
 
 
 @contextmanager

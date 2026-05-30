@@ -79,6 +79,11 @@ JS_SCHEMA: dict[str, SchemaNode] = {
                         "type_str": "string",
                         "doc": "Request body content",
                     },
+                    "auth": {
+                        "kind": "property",
+                        "type_str": "object | null",
+                        "doc": "Stored auth configuration (read-only)",
+                    },
                 },
             },
             "response": {
@@ -147,7 +152,14 @@ JS_SCHEMA: dict[str, SchemaNode] = {
                 "kind": "object",
                 "type_str": "VariableScope",
                 "doc": "Environment variable store",
-                "children": _variable_scope_children(),
+                "children": {
+                    **_variable_scope_children(),
+                    "name": {
+                        "kind": "property",
+                        "type_str": "string",
+                        "doc": "Active environment display name",
+                    },
+                },
             },
             "collectionVariables": {
                 "kind": "object",
@@ -205,6 +217,12 @@ JS_SCHEMA: dict[str, SchemaNode] = {
                         "type_str": "Array",
                         "doc": "Get all cookies as [{name, value}]",
                         "signature": "()",
+                    },
+                    "has": {
+                        "kind": "method",
+                        "type_str": "boolean",
+                        "doc": "Return whether a cookie name exists",
+                        "signature": "(name: string)",
                     },
                 },
             },
@@ -441,6 +459,12 @@ _POSTMAN_CHILDREN: dict[str, SchemaNode] = {
         "type_str": "void",
         "doc": "Remove a global variable",
         "signature": "(key: string)",
+    },
+    "setNextRequest": {
+        "kind": "method",
+        "type_str": "void",
+        "doc": "Set next request name in collection runner",
+        "signature": "(name: string | null)",
     },
 }
 
@@ -801,6 +825,11 @@ JS_SCHEMA["Date"] = {
 # -- JS-only globals (shown on Ctrl+Space without a dot prefix) --------
 
 JS_GLOBALS: dict[str, SchemaNode] = {
+    "responseTime": {
+        "kind": "property",
+        "type_str": "number",
+        "doc": "Legacy global: response elapsed ms (test scripts)",
+    },
     "require": {
         "kind": "method",
         "type_str": "module",

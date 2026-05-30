@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
 from PySide6.QtWidgets import QApplication, QPushButton
 
 from ui.request.folder_editor import FolderEditorWidget
@@ -253,3 +254,43 @@ class TestFolderEditorAutoSave:
         # Different collection — should follow global default (OFF)
         editor.load_collection({"name": "Other"}, collection_id=202)
         assert not editor._auto_save_checkboxes[0].isChecked()
+
+
+class TestFolderEditorLspAttach:
+    """Folder scripts must clear LSP deferral (request editor already did via lazy mount)."""
+
+    def test_scripts_tab_triggers_lsp_attach(
+        self, qapp: QApplication, qtbot, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Selecting Scripts + Pre-request clears deferral and starts LSP warm."""
+        from services.scripting.runtime_settings import RuntimeSettings
+
+        attach_calls: list[str] = []
+
+        def _fake_try_attach(editor: object, language: str) -> None:
+            attach_calls.append(language)
+
+        monkeypatch.setattr(RuntimeSettings, "lsp_enabled", staticmethod(lambda: True))
+        monkeypatch.setattr(
+            "ui.widgets.code_editor.editor_lsp_glue._try_attach_lsp",
+            _fake_try_attach,
+        )
+
+        editor = FolderEditorWidget()
+        qtbot.addWidget(editor)
+        editor.load_collection({"name": "Coll"}, collection_id=1)
+
+        scripts_idx = editor._tabs.indexOf(editor._scripts_tab)
+        editor._tabs.setCurrentIndex(scripts_idx)
+        editor._scripts_sub_tabs.setCurrentIndex(0)
+        qapp.processEvents()
+
+        assert not editor._pre_request_edit._lsp_attach_deferred
+        assert attach_calls == ["javascript"]
+
+        attach_calls.clear()
+        overview_idx = editor._tabs.indexOf(editor._overview_tab)
+        editor._tabs.setCurrentIndex(overview_idx)
+        editor._sync_active_script_pane_lsp()
+        assert editor._pre_request_edit._lsp_attach_deferred
+        assert attach_calls == []

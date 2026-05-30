@@ -43,14 +43,7 @@ _SKIP_MODULE_FOR_FUNCTION: frozenset[str] = frozenset(
     {"__pm_debugUserScript", "__denoIpcDrain"},
 )
 
-# Deep-fetch these module-scope bindings (CDP ``description`` is only "Object").
-_SCOPE_EXPAND_BINDING_NAMES: frozenset[str] = frozenset({"pm", "console"})
-_SCOPE_OBJECT_RECURSE_MAX: int = 3
-
-# Scope types whose object bindings should always be deep-expanded so the
-# debug panel shows the full shape of user locals (e.g. the ``response``
-# returned from ``await pm.sendRequest(...)``) instead of just ``"Object"``.
-_USER_OWNED_SCOPE_TYPES: frozenset[str] = frozenset({"local", "block", "closure"})
+_SCOPE_OBJECT_RECURSE_MAX: int = 6
 
 # Must match ``ui.widgets.debug_value_tree.CLASSNAME_KEY`` (no services → ui import).
 _PM_CLASSNAME_KEY: str = "__pm_className__"
@@ -168,12 +161,9 @@ def _fetch_scope_vars(
 ) -> dict[str, Any]:
     """Call ``Runtime.getProperties`` for one scope object; return flat name→value.
 
-    For user-owned scope types (``local`` / ``block`` / ``closure``) every
-    plain-object binding is deep-expanded so the debug panel shows the
-    object's properties instead of CDP's bare ``"Object"`` description. For
-    the ``module`` scope only the named ``_SCOPE_EXPAND_BINDING_NAMES``
-    (``pm`` / ``console``) get expanded — expanding everything would walk
-    polyfills + vendor libs.
+    Every object binding with an ``objectId`` is deep-expanded so the debug
+    inspector can show expandable children instead of CDP's bare description
+    strings (for example, ``Object`` or ``Array(123)``).
     """
     out: dict[str, Any] = {}
     try:
@@ -193,7 +183,6 @@ def _fetch_scope_vars(
     props = res.get("result")
     if not isinstance(props, list):
         return out
-    expand_all_objects = scope_type in _USER_OWNED_SCOPE_TYPES
     for p in props[:_SCOPE_MAX_PROPS]:
         if not isinstance(p, dict):
             continue
@@ -209,8 +198,7 @@ def _fetch_scope_vars(
             continue
         is_object = val_obj.get("type") == "object"
         oid = val_obj.get("objectId")
-        named_expand = name in _SCOPE_EXPAND_BINDING_NAMES
-        if is_object and isinstance(oid, str) and (named_expand or expand_all_objects):
+        if is_object and isinstance(oid, str) and oid:
             expanded = _fetch_own_properties_nested(
                 c,
                 oid,

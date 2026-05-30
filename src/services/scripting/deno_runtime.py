@@ -24,13 +24,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from services.scripting.js_runtime import (
-    _build_js_context,
-    _detect_required_modules,
-    _get_bootstrap,
-    _get_polyfills,
-    _get_vendor_file,
+    append_js_pm_preamble,
     _pm_require_imports_block,
-    _resolve_vendor_files,
     prepare_pm_require_bundle,
     write_local_modules_to_workdir,
 )
@@ -182,11 +177,13 @@ def deno_ipc_argv_and_env(
     *,
     needs_net: bool,
     inspect_brk: str | None = None,
+    extra_read_paths: tuple[str, ...] = (),
 ) -> tuple[list[str], dict[str, str]]:
     """Build ``deno run`` argv + env for bundle IPC (permissions + optional inspect)."""
     wdir = bundle.parent
     cache = _postmark_deno_user_cache_dir()
-    read_paths = f"{wdir},{cache},{_SCRIPTS_DIR}"
+    read_bits = [str(wdir), str(cache), str(_SCRIPTS_DIR), *extra_read_paths]
+    read_paths = ",".join(dict.fromkeys(read_bits))
     args: list[str] = [
         str(deno),
         "run",
@@ -290,12 +287,7 @@ def _build_bundle_text(
     except ValueError as exc:
         raise RuntimeError(f"Script bundling failed: {exc}") from exc
     parts.append(_pm_require_imports_block(specs, local_mods))
-    parts.append(_get_polyfills())
-    for vf in _resolve_vendor_files(_detect_required_modules(script)):
-        parts.append(_get_vendor_file(vf))
-    jctx = json.dumps(_build_js_context(context), default=str)
-    parts.append(f"var __pm_context = {jctx};\n")
-    parts.append(_get_bootstrap())
+    append_js_pm_preamble(parts, script, context, include_json_schema=True)
     # Trailing ``;`` terminates the last user statement so the appended IIFE
     # (``(function __denoIpcDrain() { ... })``) is never ASI'd onto it as a
     # call (e.g. ``console.log('x')`` + ``(function`` → invalid / TypeError).
@@ -350,12 +342,7 @@ def build_debug_bundle_text(
     except ValueError as exc:
         raise RuntimeError(f"Script bundling failed: {exc}") from exc
     parts.append(_pm_require_imports_block(specs, local_mods))
-    parts.append(_get_polyfills())
-    for vf in _resolve_vendor_files(_detect_required_modules(user_script)):
-        parts.append(_get_vendor_file(vf))
-    jctx = json.dumps(_build_js_context(context), default=str)
-    parts.append(f"var __pm_context = {jctx};\n")
-    parts.append(_get_bootstrap())
+    append_js_pm_preamble(parts, user_script, context, include_json_schema=True)
     parts.append(_DEBUG_BASELINE)
     u_tail = user_script.rstrip()
     _append_user_script_line0(parts)
@@ -426,6 +413,7 @@ def _ipc_subprocess(
     context: ScriptInput,
     *,
     needs_net: bool,
+    extra_read_paths: tuple[str, ...] = (),
 ) -> tuple[dict[str, Any] | None, str]:
     """Stream stdout, fulfill sendRequest lines from the Deno process.
 
@@ -435,7 +423,12 @@ def _ipc_subprocess(
     from services.scripting.context import execute_sub_request
 
     wdir = bundle.parent
-    argv, env = deno_ipc_argv_and_env(deno, bundle, needs_net=needs_net)
+    argv, env = deno_ipc_argv_and_env(
+        deno,
+        bundle,
+        needs_net=needs_net,
+        extra_read_paths=extra_read_paths,
+    )
     proc = subprocess.Popen(
         argv,
         stdin=subprocess.PIPE,

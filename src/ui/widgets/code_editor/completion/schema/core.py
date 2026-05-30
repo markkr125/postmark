@@ -309,6 +309,12 @@ _EXPECTATION_CHAIN_JS: dict[str, SchemaNode] = {
         "doc": "Assert JSON body at dot-path",
         "signature": "(path: string, value?: any)",
     },
+    "jsonSchema": {
+        "kind": "method",
+        "type_str": "Expectation",
+        "doc": "Assert value matches JSON Schema subset",
+        "signature": "(schema: object)",
+    },
 }
 
 # Fluent chain: every node without explicit ``children`` lists the full chain so
@@ -417,6 +423,18 @@ _EXPECTATION_CHAIN_PY: dict[str, SchemaNode] = {
         "type_str": "Expectation",
         "doc": "Assert JSON body at dot-path",
         "signature": "(path: str, value: Any = None)",
+    },
+    "json_schema": {
+        "kind": "method",
+        "type_str": "Expectation",
+        "doc": "Assert value matches JSON Schema subset",
+        "signature": "(schema: dict)",
+    },
+    "jsonSchema": {
+        "kind": "method",
+        "type_str": "Expectation",
+        "doc": "Alias for json_schema()",
+        "signature": "(schema: dict)",
     },
 }
 

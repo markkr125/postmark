@@ -85,8 +85,10 @@ def test_schema_path_resolves_in_js(path: tuple[str, ...]) -> None:
 pm.test("_drift_{dotted.replace(".", "_")}", function () {{
   var cur = {chain};
   if (cur === undefined) throw new Error("missing {dotted}");
-  var t = typeof cur;
-  if (t !== "function" && t !== "object") throw new Error("bad type " + t + " for {dotted}");
+      var t = typeof cur;
+      if (t !== "function" && t !== "object" && t !== "string" && t !== "number" && t !== "boolean") {{
+        throw new Error("bad type " + t + " for {dotted}");
+      }}
 }});
 """
     result = JSRuntime.execute(script, ctx)

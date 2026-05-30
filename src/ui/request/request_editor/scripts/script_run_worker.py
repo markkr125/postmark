@@ -13,7 +13,11 @@ from typing import Any
 from PySide6.QtCore import QObject, Signal, Slot
 
 from services.scripting import ScriptEngine, ScriptEntry, ScriptInput
-from services.scripting.context import build_pre_request_context, build_test_context
+from services.scripting.context import (
+    build_pre_request_context,
+    build_script_info,
+    build_test_context,
+)
 from services.scripting.debug import DebugProtocol
 
 
@@ -28,6 +32,13 @@ def build_inline_context(
     iteration_count: int = 1,
     iteration_data: dict[str, Any] | None = None,
     request_name: str = "(inline run)",
+    request_id: str = "",
+    environment_name: str = "",
+    auth: dict[str, Any] | None = None,
+    request_url: str | None = None,
+    request_method: str | None = None,
+    request_headers: dict[str, str] | None = None,
+    request_body: str | None = None,
 ) -> ScriptInput:
     """Build a minimal ``ScriptInput`` for inline script execution.
 
@@ -37,13 +48,15 @@ def build_inline_context(
     ``response`` to ``None``.  For test scripts, uses the supplied
     *response_data* (or a minimal empty response).
     """
-    info: dict[str, Any] = {
-        "requestName": request_name,
-        "iteration": iteration,
-        "iterationCount": iteration_count,
-    }
-    if test_name_filter:
-        info["testFilter"] = test_name_filter
+    event_name = "prerequest" if script_type == "pre_request" else "test"
+    info = build_script_info(
+        event_name=event_name,
+        request_name=request_name,
+        request_id=request_id,
+        iteration=iteration,
+        iteration_count=iteration_count,
+        test_filter=test_name_filter,
+    )
     env = dict(environment_vars) if environment_vars else {}
     coll = dict(collection_vars) if collection_vars else {}
 
@@ -61,11 +74,13 @@ def build_inline_context(
             }
         )
         request_data: dict[str, Any] = {
-            "url": "https://example.com",
-            "method": "GET",
-            "headers": {},
-            "body": "",
+            "url": request_url or "https://example.com",
+            "method": request_method or "GET",
+            "headers": dict(request_headers) if request_headers else {},
+            "body": request_body or "",
         }
+        if auth is not None:
+            request_data["auth"] = auth
         return build_test_context(
             request_data=request_data,
             response_data=resp,
@@ -74,18 +89,22 @@ def build_inline_context(
             collection_vars=coll,
             info=info,
             iteration_data=iteration_data,
+            environment_name=environment_name,
         )
 
+    req_headers = dict(request_headers) if request_headers else {}
     return build_pre_request_context(
-        method="GET",
-        url="https://example.com",
-        headers={},
-        body="",
+        method=request_method or "GET",
+        url=request_url or "https://example.com",
+        headers=req_headers,
+        body=request_body or "",
         variables={},
         environment_vars=env,
         collection_vars=coll,
         info=info,
         iteration_data=iteration_data,
+        auth=auth,
+        environment_name=environment_name,
     )
 
 
@@ -185,6 +204,8 @@ class ScriptRunWorker(QObject):
         info_raw = base_ctx.get("info", {})
         info_base = dict(info_raw) if isinstance(info_raw, dict) else {}
         request_name = str(info_base.get("requestName", "(inline run)"))
+        request_id = str(info_base.get("requestId", ""))
+        event_name = str(info_base.get("eventName", "test"))
         results: list[Any] = []
         start_all = time.perf_counter()
 
@@ -192,13 +213,15 @@ class ScriptRunWorker(QObject):
             for idx in range(total):
                 row = rows[idx] if idx < len(rows) else {}
                 ctx = dict(base_ctx)
-                info = dict(info_base)
-                info.update(
-                    {
-                        "requestName": request_name,
-                        "iteration": idx,
-                        "iterationCount": total,
-                    }
+                info = build_script_info(
+                    event_name=event_name,
+                    request_name=request_name,
+                    request_id=request_id,
+                    iteration=idx,
+                    iteration_count=total,
+                    test_filter=str(info_base["testFilter"])
+                    if info_base.get("testFilter")
+                    else None,
                 )
                 ctx["info"] = info
                 ctx["iteration_data"] = row
@@ -336,5 +359,4 @@ class ScriptDebugWorker(QObject):
             elapsed = (time.perf_counter() - start) * 1000.0
             self.finished.emit(result, elapsed)
         except Exception as exc:
-            self.error.emit(str(exc))
             self.error.emit(str(exc))

@@ -486,19 +486,19 @@ class TestPrivateRegistries:
         assert cfg["auth_kind"] == "token"
 
 
-class TestNpmTypeResolutionSetting:
-    """``RuntimeSettings.enable_npm_type_resolution`` QSettings bridge."""
+class TestLspDebounceSettings:
+    """LSP timer defaults exposed via :class:`RuntimeSettings`."""
 
-    def test_defaults_true(self) -> None:
+    def test_lsp_debounce_defaults(self) -> None:
         mem = _MemoryQSettings()
         with patch("services.scripting.runtime_settings._get_settings", return_value=mem):
-            assert RuntimeSettings.enable_npm_type_resolution() is True
+            assert RuntimeSettings.lsp_did_change_debounce_ms() == 250
+            assert RuntimeSettings.lsp_pm_require_debounce_ms() == 350
+            assert RuntimeSettings.lsp_diag_clear_debounce_ms() == 250
+            assert RuntimeSettings.lsp_dep_diag_debounce_ms() == 300
 
-    def test_persist_and_read(self) -> None:
+    def test_lsp_debounce_round_trip(self) -> None:
         mem = _MemoryQSettings()
+        mem.setValue("scripting/lsp_did_change_debounce_ms", "400")
         with patch("services.scripting.runtime_settings._get_settings", return_value=mem):
-            RuntimeSettings.set_enable_npm_type_resolution(False)
-            assert RuntimeSettings.enable_npm_type_resolution() is False
-            RuntimeSettings.set_enable_npm_type_resolution(True)
-            assert RuntimeSettings.enable_npm_type_resolution() is True
-            assert mem._d["scripting/npm_type_resolution"] == "True"
+            assert RuntimeSettings.lsp_did_change_debounce_ms() == 400

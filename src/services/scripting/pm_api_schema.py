@@ -36,7 +36,17 @@ _SCOPE: PmNode = {
 PM_SCHEMA: PmNode = {
     "kind": "namespace",
     "children": {
-        "info": {"kind": "namespace", "children": {}},
+        "info": {
+            "kind": "namespace",
+            "children": {
+                "eventName": {"kind": "any"},
+                "requestName": {"kind": "any"},
+                "requestId": {"kind": "any"},
+                "iteration": {"kind": "any"},
+                "iterationCount": {"kind": "any"},
+                "testFilter": {"kind": "any"},
+            },
+        },
         "request": {"kind": "namespace", "children": {}},
         "response": {"kind": "namespace", "children": {}},
         "cookies": {
@@ -44,6 +54,7 @@ PM_SCHEMA: PmNode = {
             "children": {
                 "get": {"kind": "function"},
                 "getAll": {"kind": "function"},
+                "has": {"kind": "function"},
                 "jar": {"kind": "function"},
             },
         },
@@ -64,7 +75,13 @@ PM_SCHEMA: PmNode = {
             },
         },
         "variables": _SCOPE,
-        "environment": _SCOPE,
+        "environment": {
+            "kind": "scope",
+            "children": {
+                **(_SCOPE.get("children") or {}),
+                "name": {"kind": "any"},
+            },
+        },
         "collectionVariables": _SCOPE,
         "globals": _SCOPE,
         "visualizer": {
@@ -89,6 +106,7 @@ POSTMAN_SCHEMA: PmNode = {
         "setGlobalVariable": {"kind": "function"},
         "getGlobalVariable": {"kind": "function"},
         "clearGlobalVariable": {"kind": "function"},
+        "setNextRequest": {"kind": "function"},
     },
 }
 

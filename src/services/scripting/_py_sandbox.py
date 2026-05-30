@@ -128,6 +128,10 @@ def _execute_restricted(script: str, pm: _Pm) -> dict[str, Any]:
             {"name": "(runtime error)", "passed": False, "error": str(e), "duration_ms": 0.0}
         )
 
+    from services.scripting.context import harvest_legacy_tests
+
+    harvest_legacy_tests(restricted_globals.get("tests"), pm._test_results)
+
     # 4. Build output.
     all_changes: dict[str, str] = {}
     for scope in (pm.variables, pm.environment, pm.collection_variables):

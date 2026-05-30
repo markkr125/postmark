@@ -266,6 +266,10 @@ class _PmCookies:
     def getAll(self) -> list[dict[str, str]]:
         return self.get_all()
 
+    def has(self, name: str) -> bool:
+        """Return whether a cookie *name* exists in the jar."""
+        return name in self._cookies
+
     def __pm_debug__(self) -> dict[str, str]:
         return dict(self._cookies)
 
@@ -318,6 +322,8 @@ class _PmRequest:
         body_raw = data.get("body", "")
         self._body_str: str = body_raw if isinstance(body_raw, str) else ""
         self.body = _PmRequestBody(body_raw)
+        auth_raw = data.get("auth")
+        self.auth: dict[str, Any] | None = dict(auth_raw) if isinstance(auth_raw, dict) else None
 
     def __pm_debug__(self) -> dict[str, Any]:
         return {
@@ -332,6 +338,42 @@ class _PmRequest:
 
     def __str__(self) -> str:
         return self.__repr__()
+
+
+_PM_RESPONSE_UNAVAILABLE_MSG = (
+    "pm.response is not available: this script runs before an HTTP response exists "
+    "(pre-request script or Run without Send). "
+    "Read the response body in a post-response (Tests) script after Send, "
+    "use the Mock response tab on test scripts, or call pm.sendRequest() first."
+)
+
+
+class _PmUnavailableResponse:
+    """Placeholder when ``context['response']`` is missing (pre-request / inline Run)."""
+
+    def __bool__(self) -> bool:
+        return False
+
+    def __repr__(self) -> str:
+        return "<pm.response (unavailable)>"
+
+    def _raise_unavailable(self) -> None:
+        raise AttributeError(_PM_RESPONSE_UNAVAILABLE_MSG)
+
+    def json(self) -> Any:
+        self._raise_unavailable()
+        return None
+
+    def text(self) -> str:
+        self._raise_unavailable()
+        return ""
+
+    def __getattr__(self, name: str) -> Any:
+        self._raise_unavailable()
+        return None
+
+
+PM_UNAVAILABLE_RESPONSE = _PmUnavailableResponse()
 
 
 class _PmResponse(dict):  # type: ignore[type-arg]
@@ -473,6 +515,9 @@ class _PmInfo:
         self.request_id = str(data.get("requestId", data.get("request_id", "")))
         self.iteration = int(data.get("iteration", 0))
         self.iteration_count = int(data.get("iterationCount", data.get("iteration_count", 0)))
+        self.event_name = str(data.get("eventName", data.get("event_name", "")))
+        raw_filter = data.get("testFilter")
+        self.test_filter = str(raw_filter) if raw_filter else None
 
 
 class _PmExecutionLocation:

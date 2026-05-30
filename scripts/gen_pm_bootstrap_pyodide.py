@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""One-off generator: build ``data/scripts/pm_bootstrap.py`` from ``_py_sandbox.py``."""
+"""DEPRECATED — do not run.
+
+This script targeted an old monolithic ``_py_sandbox.py`` layout and will
+corrupt the hand-maintained :file:`data/scripts/pm_bootstrap.py` (Postman
+parity helpers, Pyodide fragments, etc.). Edit ``pm_bootstrap.py`` directly.
+
+Legacy description: build ``data/scripts/pm_bootstrap.py`` from ``_py_sandbox.py``.
+"""
 
 from __future__ import annotations
 

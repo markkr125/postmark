@@ -40,15 +40,13 @@ if TYPE_CHECKING:
     from ui.styling.theme import ThemePalette
     from ui.widgets.code_editor.lsp_integration import EditorLspAdapter
 
+from ui.widgets.code_editor import editor_lsp_glue as _lsp
 from ui.widgets.code_editor.completion.engine import CompletionEngine
 from ui.widgets.code_editor.completion.mixin import _CompletionMixin
+from ui.widgets.code_editor.editor_breakpoints import _BP_HOVER_TOOLTIP_DELAY_MS, _BreakpointMixin
+from ui.widgets.code_editor.editor_formatting import _FormattingMixin
 from ui.widgets.code_editor.editor_ident import _IdentMixin
 from ui.widgets.code_editor.editor_keyboard import _KeyboardMixin
-from ui.widgets.code_editor.editor_breakpoints import (
-    _BP_HOVER_TOOLTIP_DELAY_MS,
-    _BreakpointMixin,
-)
-from ui.widgets.code_editor.editor_formatting import _FormattingMixin
 from ui.widgets.code_editor.editor_language import _LanguageMixin
 from ui.widgets.code_editor.editor_snippets import _SnippetMixin
 from ui.widgets.code_editor.editor_test_gutter import _TestGutterMixin
@@ -68,7 +66,6 @@ from ui.widgets.code_editor.gutter import (
 )
 from ui.widgets.code_editor.highlighter import PygmentsHighlighter
 from ui.widgets.code_editor.painting import _PaintingMixin
-from ui.widgets.code_editor import editor_lsp_glue as _lsp
 
 
 class CodeEditorWidget(
@@ -136,8 +133,8 @@ class CodeEditorWidget(
 
         self._read_only = read_only
         self._snippet_script_type: str | None = None
-        self._snippet_collection_id: int | None = None
-        self._snippet_local_script_id: int | None = None
+        self._local_script_id: int | None = None
+        self._lsp_attach_token: int = 0
         # Light “paper” reader chrome in dark-themed modals (inherited script chain, etc.)
         self._inherited_read_preview: bool = False
         self._language = "text"
@@ -168,11 +165,13 @@ class CodeEditorWidget(
 
         # Optional language-server adapter for script modes (see :meth:`attach_lsp`).
         self._lsp_adapter: EditorLspAdapter | None = None
+        self._lsp_attach_deferred = False
 
         # Completion engine (kept per-editor — holds language + variable map).
         self._completion_engine = CompletionEngine("javascript")
         self._completion_prefix: str = ""
         self._symbol_hover_path: str | None = None
+        self._local_require_link_range: tuple[int, int] | None = None
         self._symbol_hover_global_pos = QPoint()
         self._symbol_hover_timer = QTimer(self)
         self._symbol_hover_timer.setSingleShot(True)
@@ -194,6 +193,7 @@ class CodeEditorWidget(
         self._debug_line: int | None = None
         self._debug_locals: dict[str, Any] = {}
         self._debug_root_values: dict[str, Any] = {}
+        self._debug_session_active = False
         self._show_breakpoint_gutter = False
         self._breakpoint_hover_line: int | None = None
         # Per-test gutter (``pm.test`` line markers) — enabled by script hosts.
@@ -333,6 +333,23 @@ class CodeEditorWidget(
     def attach_lsp(self, language: str) -> None:
         """Attach to the shared language server for *language* (script modes only)."""
         _lsp.attach_lsp(self, language)
+
+    def next_lsp_attach_token(self) -> int:
+        """Increment and return the LSP attach generation (invalidates in-flight prep)."""
+        self._lsp_attach_token += 1
+        return self._lsp_attach_token
+
+    def lsp_attach_token(self) -> int:
+        """Return the current LSP attach generation."""
+        return self._lsp_attach_token
+
+    def set_lsp_attach_deferred(self, deferred: bool) -> None:
+        """Defer LSP until the editor is shown (hidden script sub-panes)."""
+        _lsp.set_lsp_attach_deferred(self, deferred)
+
+    def materialize_lsp_attachment(self) -> None:
+        """Attach LSP after :meth:`set_lsp_attach_deferred` (``False``)."""
+        _lsp.materialize_lsp_attachment(self)
 
     def detach_lsp(self) -> None:
         """Disconnect from the language server and restore legacy validation."""

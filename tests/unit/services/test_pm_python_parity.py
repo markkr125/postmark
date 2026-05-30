@@ -489,3 +489,103 @@ pm.test('printed', lambda: None)
     )
     logs = [log["message"] for log in result.get("console_logs", [])]
     assert any("PmResponse" in log and "code=200" in log for log in logs), logs
+
+
+# ---------- Postman parity extensions (dynamic vars, schema, info, legacy) ----------
+
+
+def test_replace_in_resolves_dynamic_guid() -> None:
+    src = """
+def t_fn():
+    s = pm.variables.replaceIn("{{$guid}}")
+    pm.expect(len(s)).to.eql(36)
+pm.test("dyn", t_fn)
+"""
+    result = PyRuntime.execute_restricted(src, _ctx())
+    assert not _failed(result), result["test_results"]
+
+
+def test_cookies_has() -> None:
+    src = """
+def t_fn():
+    pm.expect(pm.cookies.has("sid")).to.be.true
+    pm.expect(pm.cookies.has("missing")).to.be.false
+pm.test("cookies", t_fn)
+"""
+    resp = {
+        "code": 200,
+        "headers": [{"key": "Set-Cookie", "value": "sid=abc; Path=/"}],
+        "body": "",
+    }
+    result = PyRuntime.execute_restricted(src, _ctx(resp))
+    assert not _failed(result), result["test_results"]
+
+
+def test_environment_name_from_context() -> None:
+    src = """
+def t_fn():
+    pm.expect(pm.environment.name).to.eql("Staging")
+pm.test("env", t_fn)
+"""
+    result = PyRuntime.execute_restricted(src, _ctx(environment_name="Staging"))
+    assert not _failed(result), result["test_results"]
+
+
+def test_request_auth_from_context() -> None:
+    src = """
+def t_fn():
+    pm.expect(pm.request.auth["type"]).to.eql("bearer")
+pm.test("auth", t_fn)
+"""
+    ctx = _ctx()
+    ctx["request"] = dict(ctx["request"])
+    ctx["request"]["auth"] = {"type": "bearer", "bearer": [{"key": "token", "value": "t"}]}
+    result = PyRuntime.execute_restricted(src, ctx)
+    assert not _failed(result), result["test_results"]
+
+
+def test_json_schema_pass_and_fail() -> None:
+    ok_src = """
+def t_fn():
+    pm.expect({"a": 1}).to.have.jsonSchema({"type": "object", "required": ["a"]})
+pm.test("ok", t_fn)
+"""
+    bad_src = """
+def t_fn():
+    pm.expect({"a": 1}).to.have.jsonSchema({"type": "object", "required": ["b"]})
+pm.test("bad", t_fn)
+"""
+    ok = PyRuntime.execute_restricted(ok_src, _ctx())
+    bad = PyRuntime.execute_restricted(bad_src, _ctx())
+    assert not _failed(ok), ok["test_results"]
+    assert _failed(bad), bad["test_results"]
+
+
+def test_legacy_tests_harvest_dedup() -> None:
+    src = """
+tests["legacy_ok"] = True
+tests["legacy_bad"] = False
+tests["shared"] = False
+def t_fn():
+    pm.expect(1).to.eql(1)
+pm.test("shared", t_fn)
+"""
+    result = PyRuntime.execute_restricted(src, _ctx())
+    names = [r["name"] for r in result["test_results"]]
+    assert "legacy_ok" in names
+    assert "legacy_bad" in names
+    assert names.count("shared") == 1
+    shared_row = next(r for r in result["test_results"] if r["name"] == "shared")
+    assert shared_row["passed"] is True
+
+
+def test_response_time_legacy_global() -> None:
+    src = """
+def t_fn():
+    pm.expect(responseTime).to.eql(42)
+pm.test("rt", t_fn)
+"""
+    result = PyRuntime.execute_restricted(
+        src, _ctx({"code": 200, "headers": {}, "body": "", "response_time": 42})
+    )
+    assert not _failed(result), result["test_results"]

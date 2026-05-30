@@ -10,6 +10,8 @@ from typing import Any
 
 from services.scripting._sandbox_pm_assertions import _Expectation
 from services.scripting._sandbox_pm_models import (
+    PM_UNAVAILABLE_RESPONSE,
+    _PmUnavailableResponse,
     _PmCookies,
     _PmExecution,
     _PmInfo,
@@ -19,10 +21,13 @@ from services.scripting._sandbox_pm_models import (
 )
 from services.scripting._sandbox_pm_tests import _PmTestCallable
 from services.scripting._sandbox_runtime import _console_emit
+from services.scripting.dynamic_variables import resolve as _resolve_dynamic_var
 
 
 class _VariableScope:
     """Mimics the JS ``pm.variables`` API."""
+
+    name: str = ""
 
     def __init__(self, initial: dict[str, str]) -> None:
         self._store: dict[str, str] = dict(initial)
@@ -58,13 +63,18 @@ class _VariableScope:
 
     def replace_in(self, template: str) -> str:
         """Substitute ``{{var}}`` patterns in *template*."""
-        import re as _re
 
         def _repl(m: re.Match[str]) -> str:
-            k = m.group(1)
-            return self._store.get(k, m.group(0))
+            k = m.group(1).strip()
+            if k in self._store:
+                return self._store[k]
+            if k.startswith("$"):
+                dyn = _resolve_dynamic_var(k)
+                if dyn is not None:
+                    return dyn
+            return m.group(0)
 
-        return _re.sub(r"\{\{(.+?)\}\}", _repl, template)
+        return re.sub(r"\{\{(.+?)\}\}", _repl, template)
 
 
 class _ResolvedVariables:
@@ -129,8 +139,14 @@ class _ResolvedVariables:
         merged = self.to_object()
 
         def _repl(m: re.Match[str]) -> str:
-            k = m.group(1)
-            return str(merged.get(k, m.group(0)))
+            k = m.group(1).strip()
+            if k in merged:
+                return str(merged[k])
+            if k.startswith("$"):
+                dyn = _resolve_dynamic_var(k)
+                if dyn is not None:
+                    return dyn
+            return m.group(0)
 
         return re.sub(r"\{\{(.+?)\}\}", _repl, template)
 
@@ -157,7 +173,6 @@ _PM_BUILTIN_MODULE_NAMES: frozenset[str] = frozenset(
         "chai",
         "lodash",
         "moment",
-        "cheerio",
         "csv-parse/lib/sync",
         "ajv",
         "atob",
@@ -179,9 +194,12 @@ class _Pm:
             is_pre_request=self._is_pre_request,
         )
         original_req = context.get("original_request") or context.get("request") or {}
-        self.response: _PmResponse | None = _PmResponse(resp, original_req) if resp else None
+        self.response: _PmResponse | _PmUnavailableResponse = (
+            _PmResponse(resp, original_req) if resp else PM_UNAVAILABLE_RESPONSE
+        )
         self.cookies = _PmCookies(resp)
         self.environment = _VariableScope(context.get("environment_vars", {}))
+        self.environment.name = str(context.get("environment_name", "") or "")
         self.collection_variables = _VariableScope(context.get("collection_vars", {}))
         self.globals = _VariableScope(context.get("global_vars", {}))
         self.iteration_data = _PmIterationData(context.get("iteration_data", {}))
@@ -210,6 +228,12 @@ class _Pm:
     def require(self, spec: str) -> Any:
         """Postman-style ``pm.require``: bare names map to vendor table."""
         import importlib
+
+        if spec.split("==", 1)[0].strip().lower() == "cheerio":
+            msg = (
+                "pm.require('cheerio') is not bundled; use pm.require('npm:cheerio') in JavaScript"
+            )
+            raise RuntimeError(msg)
 
         if not isinstance(spec, str):
             msg = "pm.require: specifier must be a string"
@@ -276,17 +300,19 @@ def _serialize_request_mutations(req: _PmRequest) -> dict[str, Any]:
 def _legacy_script_globals(pm: _Pm) -> dict[str, Any]:
     """Return Postman v1 legacy globals (``responseBody``, ``responseCode``, …)."""
     out: dict[str, Any] = {}
-    if pm.response is not None:
+    if not pm._is_pre_request:
         out["responseBody"] = pm.response.text()
         out["responseCode"] = {
             "code": pm.response.code,
             "name": pm.response.reason(),
         }
         out["responseHeaders"] = pm.response.headers.to_object()
+        out["responseTime"] = pm.response.response_time
     else:
         out["responseBody"] = ""
         out["responseCode"] = {"code": 0, "name": ""}
         out["responseHeaders"] = {}
+        out["responseTime"] = 0
     out["tests"] = {}
 
     out["xml2Json"] = _xml2_json_helper

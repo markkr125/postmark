@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
@@ -10,6 +12,7 @@ from database.database import get_session
 from .model.local_script_folder_model import LocalScriptFolderModel
 from .model.local_script_model import LocalScriptModel
 from .path_policy import validate_folder_name, validate_script_basename
+from .import_refs_rewrite import rewrite_relative_imports_in_db_session
 from .require_refs_rewrite import rewrite_local_requires_in_db_session
 from .virtual_paths import (
     MODULE_FORMAT_COMMONJS,
@@ -112,12 +115,19 @@ def rename_folder_and_rewrite_refs(folder_id: int, new_name: str) -> int:
             new_prefix = safe_name
         folder.name = safe_name
         session.flush()
-        return rewrite_local_requires_in_db_session(
+        n = rewrite_local_requires_in_db_session(
             session,
             old_prefix,
             new_prefix,
             prefix=True,
         )
+        n += rewrite_relative_imports_in_db_session(
+            session,
+            old_prefix,
+            new_prefix,
+            prefix=True,
+        )
+        return n
 
 
 def delete_folder(folder_id: int) -> None:
@@ -220,12 +230,19 @@ def rename_script_and_rewrite_refs(
         new_path = script_virtual_rel_path(session, script_id)
         if old_path == new_path:
             return 0
-        return rewrite_local_requires_in_db_session(
+        n = rewrite_local_requires_in_db_session(
             session,
             old_path,
             new_path,
             prefix=False,
         )
+        n += rewrite_relative_imports_in_db_session(
+            session,
+            old_path,
+            new_path,
+            prefix=False,
+        )
+        return n
 
 
 def delete_script(script_id: int) -> None:
@@ -265,12 +282,19 @@ def move_script_and_rewrite_refs(script_id: int, new_folder_id: int) -> int:
         new_path = script_virtual_rel_path(session, script_id)
         if old_path == new_path:
             return 0
-        return rewrite_local_requires_in_db_session(
+        n = rewrite_local_requires_in_db_session(
             session,
             old_path,
             new_path,
             prefix=False,
         )
+        n += rewrite_relative_imports_in_db_session(
+            session,
+            old_path,
+            new_path,
+            prefix=False,
+        )
+        return n
 
 
 def update_script_content(
@@ -296,3 +320,12 @@ def update_script_content(
                 values["module_format"] = _normalize_module_format(lang, fmt_in)
         stmt = update(LocalScriptModel).where(LocalScriptModel.id == script_id).values(**values)
         session.execute(stmt)
+
+
+def update_local_script_debug_metadata(script_id: int, metadata: dict[str, Any] | None) -> None:
+    """Persist flat breakpoints/watches for a local script."""
+    with get_session() as session:
+        script = session.get(LocalScriptModel, script_id)
+        if script is None:
+            raise ValueError(f"No local script found with id={script_id}")
+        script.debug_metadata = metadata if metadata else None

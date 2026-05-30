@@ -274,6 +274,39 @@ class TestCompletionPopupDocLabel:
         assert popup._doc_label.isHidden()
 
 
+class TestCompletionPopupSizing:
+    """Popup height tracks visible rows, not QListWidget's default size hint."""
+
+    def test_single_item_matches_size_hint(self, qapp: QApplication, qtbot) -> None:
+        """One row without doc stays compact (tool-window adjustSize used to ~100px)."""
+        popup = CompletionPopup()
+        qtbot.addWidget(popup)
+        popup.set_items(
+            [
+                CompletionItem(
+                    label="potato",
+                    kind="property",
+                    type_str="",
+                    doc="",
+                    signature="",
+                    insert_text="potato",
+                )
+            ]
+        )
+        assert popup.height() == popup.sizeHint().height()
+        assert popup.height() < 50
+
+    def test_shrinks_after_many_items(self, qapp: QApplication, qtbot) -> None:
+        """Height drops when the list goes from many rows back to one."""
+        popup = CompletionPopup()
+        qtbot.addWidget(popup)
+        popup.set_items(_make_items(10))
+        tall = popup.height()
+        popup.set_items(_make_items(1))
+        assert popup.height() < tall
+        assert popup.height() == popup.sizeHint().height()
+
+
 # -- is_active ---------------------------------------------------------
 
 

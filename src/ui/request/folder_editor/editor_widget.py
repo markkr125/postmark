@@ -174,6 +174,9 @@ class FolderEditorWidget(_AuthMixin, _RunsMixin, _ScriptsMixin, QWidget):
 
         scripts_outer.addWidget(self._scripts_sub_tabs, 1)
         self._tabs.addTab(self._scripts_tab, "Scripts")
+        self._scripts_editor_materialized = True
+        self._wire_deferred_script_lsp()
+        self._bind_debug_metadata_persist()
 
         # ---- Variables tab ----
         self._variables_table = KeyValueTableWidget(
@@ -368,6 +371,7 @@ class FolderEditorWidget(_AuthMixin, _RunsMixin, _ScriptsMixin, QWidget):
 
     def get_collection_data(self) -> dict:
         """Return the current editor state as a dict suitable for saving."""
+        self.cancel_debug_metadata_persist()
         return {
             "description": self._description_edit.toPlainText() or None,
             "auth": self._get_auth_data(),

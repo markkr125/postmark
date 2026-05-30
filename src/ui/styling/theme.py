@@ -570,6 +570,21 @@ TREE_ROW_HEIGHT = 28  # px — uniform row height for every item
 LEFT_NAV_PANEL_MARGIN_H_LEFT_PX = 12
 LEFT_NAV_PANEL_MARGIN_H_RIGHT_PX = 8
 
+# Debug inspector call-stack column: horizontal inset on the pane layout, not on
+# the splitter child, so ``debugInspectorVSeparator`` stays full-height on the seam.
+DEBUG_INSPECTOR_LEFT_PANE_H_LEFT_PX = 12
+DEBUG_INSPECTOR_LEFT_PANE_H_RIGHT_PX = 8
+DEBUG_INSPECTOR_LEFT_PANE_SECTION_TOP_PX = 8
+# Right column (watches above scopes): inset from the vertical seam and outer edge.
+DEBUG_INSPECTOR_RIGHT_PANE_H_LEFT_PX = 8
+DEBUG_INSPECTOR_RIGHT_PANE_H_RIGHT_PX = 12
+DEBUG_INSPECTOR_RIGHT_PANE_SECTION_TOP_PX = 8
+# Space below the watch expression row (above the rule and variables tree).
+DEBUG_INSPECTOR_WATCH_EXPRESSION_BOTTOM_PX = 8
+
+# Script output tab stack: room below tab pages so bordered panes are not clipped.
+SCRIPT_OUTPUT_TAB_PANE_BOTTOM_PAD_PX = 4
+
 # Left activity rail: width and icon size as multiples of the primary font
 # height (see ``LeftSidebar``). Keep the strip narrow; ``ICON_EM`` nudges the
 # glyph up slightly, and ``LEFT_RAIL_BUTTON_EXTRA_HEIGHT_PX`` adds top/bottom

@@ -24,6 +24,35 @@ def add_test_row(panel: Any, result: dict[str, Any]) -> None:
         panel._test_row_widgets[name] = widget
 
 
+def sync_timing_row(panel: Any) -> None:
+    """Single source of truth for Export-button + timing-row visibility.
+
+    Export shows iff there are stored test results AND the panel actually
+    has an Export button (pre-request panels don't). The whole row is shown
+    iff the Export button OR the elapsed label has something to display.
+    """
+    export_btn = getattr(panel, "_export_btn", None)
+    has_results = bool(getattr(panel, "_last_test_results", None))
+    has_elapsed = bool(panel._elapsed_label.text())
+    export_wants_visible = has_results and export_btn is not None
+    if export_btn is not None:
+        export_btn.setVisible(export_wants_visible)
+    panel._timing_row.setVisible(export_wants_visible or has_elapsed)
+
+
+def apply_run_elapsed_header(
+    panel: Any,
+    elapsed_ms: float,
+    test_results: list[dict[str, Any]],
+) -> None:
+    """Show total run time only when no test rows carry duration."""
+    if test_results:
+        panel._elapsed_label.setText("")
+    else:
+        panel._elapsed_label.setText(f"{elapsed_ms:.0f} ms")
+    sync_timing_row(panel)
+
+
 def add_test_summary(panel: Any, results: list[dict[str, Any]]) -> None:
     """Add a summary line for test results."""
     runtime_errors = [r for r in results if r.get("name") == "(runtime error)"]
@@ -54,8 +83,7 @@ def refresh_test_rows(
     for w in list(panel._test_row_widgets.values()):
         w.deleteLater()
     panel._test_row_widgets.clear()
-    panel._elapsed_label.setText(f"{elapsed_ms:.0f} ms")
-    panel._timing_row.show()
+    apply_run_elapsed_header(panel, elapsed_ms, test_results)
     for result in test_results:
         add_test_row(panel, result)
     if test_results:

@@ -26,9 +26,11 @@ _DENO_CONFIG = """{
     "checkJs": true,
     "allowJs": true,
     "noImplicitAny": false,
-    "strict": false
+    "strict": false,
+    "types": ["./ambient_pm.d.ts"]
   },
-  "include": ["**/*.ts", "**/*.js", "stubs/pm.d.ts", "pm_require_index.ts"]
+  "nodeModulesDir": "auto",
+  "include": ["**/*.ts", "**/*.js", "ambient_pm.d.ts", "pm_require_index.ts"]
 }
 """
 
@@ -57,6 +59,9 @@ def ensure_js_workspace() -> Path:
     index_path = pm_require_index_path(ws)
     if not index_path.is_file():
         index_path.write_text(_PM_REQUIRE_INDEX_STUB, encoding="utf-8")
+    from services.scripting.local_scripts_project.deno_config import ensure_ambient_pm
+
+    ensure_ambient_pm(ws)
     stubs = _repo_data_lsp() / "stubs"
     dst_stubs = ws / "stubs"
     dst_stubs.mkdir(exist_ok=True)

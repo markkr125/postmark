@@ -5,7 +5,7 @@
     {
       "_comment": "Send sub-requests via the inline pm.sendRequest IPC. Useful from both pre-request and tests.",
       "name": "Send requests",
-      "contexts": ["pre", "post"],
+      "contexts": ["pre", "post", "local"],
       "snippets": [
         {
           "name": "Send an HTTP request",
@@ -16,7 +16,7 @@
     {
       "_comment": "Variable getters/setters/unsetters. Visible in every script editor.",
       "name": "Variables",
-      "contexts": ["pre", "post"],
+      "contexts": ["pre", "post", "local"],
       "snippets": [
         { "name": "Get a global variable", "body": "pm.globals.get(\"variable_key\");" },
         { "name": "Get a collection variable", "body": "pm.collectionVariables.get(\"variable_key\");" },
@@ -35,7 +35,7 @@
     {
       "_comment": "Pre-request setup: auth headers, dynamic IDs, timestamps. Hidden from the post-response editor.",
       "name": "Request setup",
-      "contexts": ["pre"],
+      "contexts": ["pre", "local"],
       "snippets": [
         {
           "name": "Set bearer token from env",
@@ -133,7 +133,7 @@
     {
       "_comment": "pm.require for npm / JSR packages. Detection scans for string literals; pin exact versions and configure private scopes at Settings → Private packages → npm/JSR. See docs/scripting/external-packages.md.",
       "name": "Import npm / JSR packages",
-      "contexts": ["pre", "post"],
+      "contexts": ["pre", "post", "local"],
       "snippets": [
         {
           "name": "Import a public npm package",
@@ -158,6 +158,21 @@
         {
           "name": "Validate response with zod",
           "body": "const { z } = pm.require(\"npm:zod@3.22.4\");\n\nconst User = z.object({\n    id: z.number(),\n    email: z.string().email(),\n});\n\npm.test(\"Response matches User shape\", function () {\n    const parsed = User.safeParse(pm.response.json());\n    pm.expect(parsed.success).to.be.true;\n});"
+        }
+      ]
+    },
+    {
+      "_comment": "ESM imports between Local scripts tabs (mirrored Deno project). See docs/scripting/local-modules.md.",
+      "name": "Import local modules",
+      "contexts": ["local"],
+      "snippets": [
+        {
+          "name": "Import a sibling local script",
+          "body": "import { helper } from \"./helper.js\";\n\npm.test(\"helper wired\", function () {\n    pm.expect(helper()).to.be.a(\"function\");\n});"
+        },
+        {
+          "name": "Import from a parent folder",
+          "body": "import * as shared from \"../shared/utils.js\";\n\nconsole.log(shared.formatId(1));"
         }
       ]
     }

@@ -188,9 +188,14 @@ standard object names:
 | `consoleOutput` | `QTextEdit` | Dark console output area |
 | `importTabs` | `QTabWidget` | Box-style tabs in import dialog |
 | `codeEditor` | `QPlainTextEdit` | Syntax-highlighted code editor |
-| `scriptEditorToolbarChrome` | `QWidget` | Script editor toolbar host: find/run row + hidden ``scriptDebugBar`` (6px top / 8px bottom inset) |
-| `scriptDebugBar` | `QWidget` | Debug step row under toolbar; hidden until pause; 8px top inset + ``scriptDebugToolbarSep`` |
-| `scriptDebugToolbarSep` | `QFrame` | 1px rule between main toolbar and debug step row (inside ``scriptDebugBar``) |
+| `scriptEditorToolbarChrome` | `QWidget` | Script editor toolbar host: find/run row (6px top / 8px bottom inset) |
+| `scriptEditorDebugStatusLabel` | `QLabel` | ``Paused at line N …`` on ``scriptEditorStatusBar`` after char count; hidden when not debugging |
+| `scriptOutputDebugControls` | `DebugControls` | Breakpoint tools + separator + **Start debug** (idle) + continue/step/stop; step buttons disabled until pause |
+| `debugBreakpointToolbarButton` | `QPushButton` | Breakpoint toolbar actions (always enabled; `bg_alt` + full-contrast icons) |
+| `breakpointsDialog` | `BreakpointsDialog` | JetBrains-style breakpoints manager (920×620 default) |
+| `breakpointsDialogTree` | `QTreeWidget` | Grouped breakpoint list (left pane) |
+| `breakpointsDialogPreview` | `CodeEditorWidget` | Read-only code excerpt (right pane) |
+| `scriptOutputDebuggerControlsSep` | `QFrame` | 1px rule under step controls (inside ``scriptOutputDebuggerFrame``) |
 | `scriptToolbarSeparator` | `QFrame` | 1×20px vertical rule between toolbar icon groups |
 | `scriptEditorOutputSplitter` | `QSplitter` | Scripts tab: vertical editor/output split — handle chrome suppressed; full-width line from ``scriptSplitFullWidthLine`` |
 | `scriptSplitFullWidthLine` | `QFrame` | Non-layout 1px overlay on ``RequestEditorWidget`` / ``FolderEditorWidget`` / ``LocalScriptEditorWidget`` — spans host width; aligned to ``scriptEditorOutputSplitter`` seam when Scripts (or local script tab) is shown |
@@ -210,7 +215,11 @@ standard object names:
 | `saveButton` | `QPushButton` | Save action button |
 | `scriptHistoryLinkButton` | `QToolButton` | Script editor status strip: version history (accent underlined link) |
 | `scriptLanguageLinkButton` | `QToolButton` | Script editor status strip: language picker (accent underlined link) |
-| `scriptOutputTabs` | `QTabWidget` | Script panel: **Output**, **Problems (n)**, **Iterations** (post-response data runs), **Mock response**; Problems title shows diagnostic count; ``::pane`` uses **6px** top padding under the tab bar |
+| `scriptOutputTabs` | `QTabWidget` | Script panel: **Output**, **Debugger**, **Problems (n)**, **Iterations** (data file + matrix), **Mock response**; Run/Run all focus Output, Debug focuses Debugger; Problems title shows diagnostic count; ``::pane`` uses **6px** top padding under the tab bar |
+| `scriptOutputDebuggerPage` | `QWidget` | Debugger tab page (layout host) |
+| `scriptOutputDebuggerFrame` | `QFrame` | Bordered debugger surface (``DebugInspectorSplit``); matches ``scriptOutputScroll`` chrome |
+| `scriptOutputIterationsPage` | `QWidget` | Iterations tab page — **DataRunnerPanel** above the results matrix |
+| `scriptRunBusyOverlay` | `QWidget` | Indeterminate progress overlay on the script editor during inline run/debug |
 | `dataRunnerPreviewTable` | `QTableWidget` | DataRunnerPanel — first N CSV/JSON rows preview |
 | `scriptOutputIterationsTable` | `QTableWidget` | Iterations tab — iteration×test pass/fail matrix |
 | `scriptMockResponseSection` | `QWidget` | Mock response tab page — bottom border matches Output page (global QSS) |
@@ -274,7 +283,17 @@ standard object names:
 | `symbolDocPopup` | `QFrame` | Code editor quick-doc tooltip (`Ctrl+Q`, `Ctrl+hover`, `Ctrl+click` on `pm.*`) |
 | `symbolDocPopupLabel` | `QLabel` | Rich-text body inside the symbol quick-doc popup |
 | `debugHoverValueTree` | `QTreeWidget` | Paused-script debug hover: expandable object inspector (Name / Value columns) |
-| `debugVariablesTree` | `QTreeWidget` | Unified script debug variables: collapsible section roots (``UserRole`` + source icon) and value rows; header hidden |
+| `debugInspectorSplitter` | `QSplitter` | Horizontal split: call stack (left) \| watch strip + unified tree (right) |
+| `debugInspectorVSeparator` | `QFrame` | Full-height 1px overlay on the horizontal splitter seam |
+| `debugInspectorSeparator` | `QFrame` | 1px rule between watch strip and ``debugScopesTree`` |
+| `debugCallStackList` | `QListWidget` | Stack frame list (left column) |
+| `debugScopesTree` | `QTreeWidget` | Watches section + scope variables (right column) |
+| `debugScopesTree` | `QTreeWidget` | Scope variable sections only (right column); header hidden |
+| `debugVariablesTree` | `QTreeWidget` | Legacy alias in QSS (same styling as watches/scopes trees) |
+| `debugWatchAddEdit` | `QLineEdit` | Watch expression add field above scopes (+/− icon buttons) |
+| `debugShowInternalsCheck` | `QCheckBox` | Watches-strip toggle to show/hide internal ``__pm_*`` debug globals |
+| `debugWatchRowValueHost` | `QWidget` | Watch row value column host (value label + trash, full width) |
+| `debugWatchRowRemoveButton` | `QPushButton` | Per-watch trash at the right edge of the value column |
 | `debugTreeCellLabel` | `QLabel` | Per-cell name/value in debug trees (``TextSelectableByMouse``; section rows use native painting) |
 | `RuntimeBanner` | `QFrame` | Deno download prompt banner container |
 | `bannerMessage` | `QLabel` | Banner message text |

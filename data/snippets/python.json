@@ -5,7 +5,7 @@
     {
       "_comment": "Send sub-requests via pm.send_request. Useful from both pre-request and tests.",
       "name": "Send requests",
-      "contexts": ["pre", "post"],
+      "contexts": ["pre", "post", "local"],
       "snippets": [
         {
           "name": "Send an HTTP request",
@@ -16,7 +16,7 @@
     {
       "_comment": "Variable getters/setters/unsetters (snake_case). Visible in every script editor.",
       "name": "Variables",
-      "contexts": ["pre", "post"],
+      "contexts": ["pre", "post", "local"],
       "snippets": [
         { "name": "Get a global variable", "body": "pm.globals.get(\"variable_key\")" },
         { "name": "Get a collection variable", "body": "pm.collection_variables.get(\"variable_key\")" },
@@ -102,7 +102,7 @@
     {
       "_comment": "Pre-request setup (Python). Use json_loads/json_dumps, b64encode, uuid_v4, datetime_now. Hidden from the post-response editor.",
       "name": "Request setup",
-      "contexts": ["pre"],
+      "contexts": ["pre", "local"],
       "snippets": [
         {
           "name": "Set bearer token from env",
@@ -133,7 +133,7 @@
     {
       "_comment": "pm.require for PyPI packages. Pyodide runtime only; configure private mirrors at Settings → Private packages → PyPI. See docs/scripting/external-packages.md.",
       "name": "Import PyPI packages",
-      "contexts": ["pre", "post"],
+      "contexts": ["pre", "post", "local"],
       "snippets": [
         {
           "name": "Import from public PyPI",
@@ -153,7 +153,7 @@
         },
         {
           "name": "Validate response with pydantic",
-          "body": "pydantic = pm.require(\"pydantic==2.6.0\")\n\nclass User(pydantic.BaseModel):\n    id: int\n    email: str\n\ndef check_user():\n    body = pm.response.json()\n    user = User.model_validate(body)\n    pm.expect(user.email).to.include(\"@\")\n\npm.test(\"Response matches User shape\", check_user)"
+          "body": "pydantic = pm.require(\"pydantic==2.7.0\")\n\nclass User(pydantic.BaseModel):\n    id: int\n    email: str\n\ndef check_user():\n    body = pm.response.json()\n    user = User.model_validate(body)\n    pm.expect(user.email).to.include(\"@\")\n\npm.test(\"Response matches User shape\", check_user)"
         }
       ]
     }

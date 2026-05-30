@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from services.scripting import ScriptInput
+
+if TYPE_CHECKING:
+    from services.scripting.debug.deno_debug import _Cdp
 
 
 def _make_context(
@@ -609,7 +612,7 @@ class TestProcessOnePausedUserLineRange:
         c = _RecordingCdp()
         u0 = 100
         m = self._paused_at_bundle_line(50)
-        assert _process_one_paused(m, c, proto, u0, 20, "(test)", "test") is True
+        assert _process_one_paused(m, cast("_Cdp", c), proto, u0, 20, "(test)", "test") is True
         methods = [x[0] for x in c.calls]
         assert "Debugger.evaluateOnCallFrame" not in methods
         assert methods.count("Debugger.resume") == 1
@@ -624,7 +627,7 @@ class TestProcessOnePausedUserLineRange:
         u0 = 100
         n_user = 5
         m = self._paused_at_bundle_line(u0 + n_user + 50)
-        assert _process_one_paused(m, c, proto, u0, n_user, "(test)", "test") is True
+        assert _process_one_paused(m, cast("_Cdp", c), proto, u0, n_user, "(test)", "test") is True
         assert "Debugger.evaluateOnCallFrame" not in [x[0] for x in c.calls]
 
     def test_inside_user_script_calls_evaluate_and_checkpoint(self) -> None:
@@ -637,7 +640,7 @@ class TestProcessOnePausedUserLineRange:
         u0 = 100
         el = 3
         m = self._paused_at_bundle_line(u0 + el)
-        assert _process_one_paused(m, c, proto, u0, 20, "(test)", "test") is True
+        assert _process_one_paused(m, cast("_Cdp", c), proto, u0, 20, "(test)", "test") is True
         methods = [x[0] for x in c.calls]
         assert "Debugger.evaluateOnCallFrame" in methods
         assert "Debugger.resume" in methods

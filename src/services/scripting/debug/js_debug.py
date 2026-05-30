@@ -323,12 +323,24 @@ def _cdp_remote_object_string(ro: dict[str, Any]) -> str:
 
 def cdp_evaluation_result_string(res: Any) -> str:
     """String value from a CDP ``*evaluate*`` response (``result.result`` RemoteObject)."""
+    from services.scripting.debug.protocol import normalize_watch_eval_result
+
     if not isinstance(res, dict):
-        return str(res) if res else ""
+        return normalize_watch_eval_result(str(res) if res else "")
+    exc = res.get("exceptionDetails")
+    if isinstance(exc, dict):
+        text = exc.get("text")
+        if isinstance(text, str) and text.strip():
+            return normalize_watch_eval_result(text)
+        ex_obj = exc.get("exception")
+        if isinstance(ex_obj, dict):
+            desc = ex_obj.get("description")
+            if isinstance(desc, str) and desc.strip():
+                return normalize_watch_eval_result(desc)
     inner = res.get("result")
     if isinstance(inner, dict):
-        return _cdp_remote_object_string(inner)
-    return _cdp_remote_object_string(res)
+        return normalize_watch_eval_result(_cdp_remote_object_string(inner))
+    return normalize_watch_eval_result(_cdp_remote_object_string(res))
 
 
 CDP_RUNTIME_VARIABLE_CHANGES_JSON = (

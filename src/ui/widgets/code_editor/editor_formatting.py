@@ -113,6 +113,8 @@ class _FormattingMixin(_FormattingBase):
     _skip_format_on_idle: bool
     _format_on_idle_timer: Any
     _format_saved_selection: tuple[int, int]
+    _read_only: bool
+    _language: str
 
     def _install_format_shortcuts(self) -> None:
         """Register Ctrl+Shift+F (document) and Ctrl+Shift+S (selection) format shortcuts."""
@@ -331,7 +333,12 @@ class _FormattingMixin(_FormattingBase):
 
     def _schedule_format_on_idle(self) -> None:
         """Restart the debounced format-on-save timer after user edits."""
-        if self._skip_format_on_idle or self._read_only or self.isReadOnly():
+        if (
+            getattr(self, "_debug_session_active", False)
+            or self._skip_format_on_idle
+            or self._read_only
+            or self.isReadOnly()
+        ):
             return
         self._format_on_idle_timer.start()
 

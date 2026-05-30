@@ -62,11 +62,40 @@ strip.
 | `_left_nav_splitter` | `QSplitter` | Vertical splitter inside the left flyout: collections above environments |
 | `_local_scripts_sidebar` | `LocalScriptsSidebarPanel` | Local scripts flyout page (placeholder list shell) |
 | `_env_selector` | `EnvironmentSidebarPanel` | Global environment picker: scrollable rows (name + **Set active** / **Clear**); empty list shows a hint that opens the same flow as **Manage**; attribute name kept for mixin compatibility |
-| `_history` | `list[int]` | Back/forward navigation stack |
+| `_history` | `list[int]` | Request open-history stack (Alt+Left/Right) |
+| `_tab_nav_back` / `_tab_nav_forward` | `list[int]` | Tab activation history (nav tokens; Go menu) |
+| `_tab_nav_current` | `int \| None` | Active tab `nav_token` for activation history |
 | `_theme_manager` | `ThemeManager` | App-wide theme controller |
 | `_tab_settings_manager` | `TabSettingsManager` | Tab preference controller |
 
+## Keyboard navigation
+
+| Action | Shortcut | Behaviour |
+|--------|----------|-------------|
+| Request back | Alt+Left | Previously opened request from the collection tree |
+| Request forward | Alt+Right | Forward in request open history |
+| Tab back | Ctrl+Alt+Left (Go → Back) | Previously activated tab (all tab types) |
+| Tab forward | Ctrl+Alt+Right (Go → Forward) | Forward in tab activation history |
+| Next tab | Ctrl+Tab, Ctrl+PgDown | Next tab in the deck (wrap) |
+| Previous tab | Ctrl+Shift+Tab, Ctrl+PgUp | Previous tab in the deck (wrap) |
+
+Tab activation history is in-memory only and starts empty after session
+restore. On Linux, some window managers reserve Ctrl+Alt+arrow keys for
+workspace switching; use the Go menu if shortcuts do not fire.
+
 ## Mixin Responsibilities
+
+### _TabNavHistoryMixin
+
+Tab activation back/forward (`main_window/tab_nav/history.py`).
+
+| Method | Description |
+|--------|-------------|
+| `_record_tab_activation(index)` | Push prior `nav_token` when the active tab changes |
+| `_navigate_tab_back()` / `_navigate_tab_forward()` | Walk activation stacks |
+| `_seed_tab_nav_after_restore()` | Clear stacks; seed current token after session restore |
+| `_purge_tab_nav_token(token)` | Remove closed tab from stacks |
+
 
 ### _TabControllerMixin
 
@@ -79,7 +108,7 @@ Tab lifecycle and history navigation.
 | `_open_environments_tab()` | Open or focus the **Environments** tab (`EnvironmentEditorWidget` in the main editor stack). When no environments exist, the tab shows a sidebar hint and a placeholder instead of the name/variable editor until the first environment is created (e.g. from the left column **Add**) |
 | `_on_tab_changed(index)` | Active tab switched (debounced) |
 | `_flush_tab_change()` | Immediate breadcrumb, sidebar, variable refresh |
-| `_navigate_back()` / `_navigate_forward()` | History navigation |
+| `_navigate_back()` / `_navigate_forward()` | Request open-history navigation |
 | `_enforce_tab_limit_before_open()` | Apply tab-count policy |
 | `_restore_tabs()` / `_save_tabs()` | Session persistence via QSettings |
 | `_close_tabs(indices)` | Bulk close with cleanup |

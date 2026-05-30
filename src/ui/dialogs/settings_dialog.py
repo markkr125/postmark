@@ -420,11 +420,20 @@ class SettingsDialog(QDialog):
 
         self._lsp_enabled_check = QCheckBox("Enable language server (LSP) for scripts")
         self._lsp_enabled_check.setChecked(RuntimeSettings.lsp_enabled())
+        self._lsp_enabled_check.setToolTip(
+            "Script diagnostics are debounced (default 250 ms after you stop typing) "
+            "so the editor stays responsive during debug sessions."
+        )
         layout.addWidget(self._lsp_enabled_check)
 
-        self._npm_type_resolution_check = QCheckBox("Resolve npm/jsr types for pm.require (LSP)")
-        self._npm_type_resolution_check.setChecked(RuntimeSettings.enable_npm_type_resolution())
-        layout.addWidget(self._npm_type_resolution_check)
+        self._lsp_reset_cache_btn = QPushButton("Reset LSP workspace caches")
+        self._lsp_reset_cache_btn.setObjectName("outlineButton")
+        self._lsp_reset_cache_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._lsp_reset_cache_btn.setToolTip(
+            "Delete generated npm/jsr type index files under the JS LSP workspace."
+        )
+        self._lsp_reset_cache_btn.clicked.connect(self._on_reset_lsp_workspace_cache)
+        layout.addWidget(self._lsp_reset_cache_btn)
 
         self._format_on_save_check = QCheckBox("Format script on save (idle, 500ms)")
         self._format_on_save_check.setChecked(RuntimeSettings.format_on_save())
@@ -1472,7 +1481,6 @@ class SettingsDialog(QDialog):
             self._preview_tab_check,
             self._enable_scripts_check,
             self._lsp_enabled_check,
-            self._npm_type_resolution_check,
             self._format_on_save_check,
             self._auto_save_default_check,
         ):
@@ -1583,7 +1591,6 @@ class SettingsDialog(QDialog):
         settings = QSettings(_ORG, _APP)
         settings.setValue("scripting/enabled", self._enable_scripts_check.isChecked())
         RuntimeSettings.set_lsp_enabled(self._lsp_enabled_check.isChecked())
-        RuntimeSettings.set_enable_npm_type_resolution(self._npm_type_resolution_check.isChecked())
         RuntimeSettings.set_format_on_save(self._format_on_save_check.isChecked())
         settings.setValue(
             "scripting/auto_save_default",
@@ -1736,6 +1743,13 @@ class SettingsDialog(QDialog):
     def _on_deno_autodetect(self) -> None:
         """Clear a custom path so :meth:`RuntimeSettings.deno_path` can resolve."""
         self._deno_path_edit.clear()
+
+    def _on_reset_lsp_workspace_cache(self) -> None:
+        """Clear generated npm/jsr LSP index files for the JS workspace."""
+        from services.lsp.pm_require_types import reset_workspace
+        from services.lsp.servers._workspace import ensure_js_workspace
+
+        reset_workspace(ensure_js_workspace())
 
     def _on_python_reset(self) -> None:
         """Clear a custom Python so :data:`sys.executable` is used on Apply."""

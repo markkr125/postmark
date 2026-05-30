@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -16,8 +16,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from services.scripting.script_error_format import format_script_runtime_error
 from ui.styling.icons import phi
-from ui.styling.theme import COLOR_DANGER, COLOR_SUCCESS
+from ui.styling.theme import COLOR_DANGER, COLOR_SUCCESS, COLOR_TEXT
+
+_EXPORT_BTN_TOOLTIP = (
+    "Save this run's test results to a file.\n"
+    "• JSON — full structured results (name, passed/failed, duration, errors).\n"
+    "• JUnit XML — drop into CI test-report dashboards (Jenkins, GitLab, etc.)."
+)
 
 
 def build_test_export_toolbar(
@@ -25,23 +32,28 @@ def build_test_export_toolbar(
     on_export_json: Callable[[], None],
     on_export_junit: Callable[[], None],
     parent: QWidget | None = None,
-) -> QWidget:
-    """Return a toolbar row with Export JSON / JUnit actions."""
-    bar = QWidget(parent)
-    row = QHBoxLayout(bar)
-    row.setContentsMargins(0, 0, 0, 0)
-    row.addStretch()
-    btn = QToolButton(bar)
-    btn.setText("Export")
+) -> QToolButton:
+    """Return the Export-results button (JSON / JUnit XML in its menu)."""
+    btn = QToolButton(parent)
+    btn.setObjectName("exportResultsBtn")
+    btn.setText("Export results")
+    btn.setIcon(phi("download-simple", color=COLOR_TEXT, size=14))
+    btn.setIconSize(QSize(14, 14))
+    btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+    btn.setArrowType(Qt.ArrowType.DownArrow)
     btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+    btn.setCursor(Qt.CursorShape.PointingHandCursor)
+    btn.setToolTip(_EXPORT_BTN_TOOLTIP)
     menu = QMenu(btn)
-    json_act = menu.addAction("Export JSON")
+    json_act = menu.addAction("Save as JSON (.json)…")
+    json_act.setToolTip("Full structured results — useful for scripts or diffing.")
     json_act.triggered.connect(on_export_json)
-    junit_act = menu.addAction("Export JUnit XML")
+    junit_act = menu.addAction("Save as JUnit XML (.xml)…")
+    junit_act.setToolTip("Standard CI test-report format consumed by Jenkins, GitLab, etc.")
     junit_act.triggered.connect(on_export_junit)
+    menu.setToolTipsVisible(True)
     btn.setMenu(menu)
-    row.addWidget(btn)
-    return bar
+    return btn
 
 
 def build_test_result_row(
@@ -91,8 +103,9 @@ def build_test_result_row(
 
     error_msg = result.get("error")
     if error_msg and not passed:
+        display_error = format_script_runtime_error(str(error_msg))
         name_label.setToolTip(str(error_msg))
-        err_label = QLabel(str(error_msg), row)
+        err_label = QLabel(display_error, row)
         err_label.setStyleSheet(f"color: {COLOR_DANGER}; font-size: 11px;")
         err_label.setWordWrap(True)
         outer = QWidget(parent)

@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from PySide6.QtWidgets import QApplication
 
 from PySide6.QtCore import QThread
 from shiboken6 import Shiboken
@@ -237,9 +238,10 @@ class TestScriptOutputPanelConstruction:
         assert not hasattr(panel, "_status_spin")
         tabs = panel.findChild(QTabWidget, "scriptOutputTabs")
         assert tabs is not None
-        assert tabs.count() == 2
-        # Hidden call stack + variables + watch + idle hint + trailing stretch.
-        assert panel._results_layout.count() == 5
+        assert tabs.count() == 3
+        assert tabs.tabText(1) == "Debugger"
+        # Idle hint + trailing stretch (debugger is on its own tab).
+        assert panel._results_layout.count() == 2
 
     def test_test_panel_has_response_input(self, qtbot) -> None:
         """Test panel includes response-source selector and mock inputs."""
@@ -247,11 +249,12 @@ class TestScriptOutputPanelConstruction:
         qtbot.addWidget(panel)
         tabs = panel.findChild(QTabWidget, "scriptOutputTabs")
         assert tabs is not None
-        assert tabs.count() == 4
+        assert tabs.count() == 5
         assert tabs.tabText(0) == "Output"
-        assert tabs.tabText(1).startswith("Problems")
-        assert tabs.tabText(2) == "Iterations"
-        assert tabs.tabText(3) == "Mock response"
+        assert tabs.tabText(1) == "Debugger"
+        assert tabs.tabText(2).startswith("Problems")
+        assert tabs.tabText(3) == "Iterations"
+        assert tabs.tabText(4) == "Mock response"
         assert isinstance(panel._response_body_edit, CodeEditorWidget)
         assert hasattr(panel, "_status_spin")
         assert hasattr(panel, "_response_source_combo")
@@ -287,15 +290,15 @@ class TestScriptOutputPanelConstruction:
         panel.clear_results()
         # Elapsed label cleared; idle hint restored.
         assert panel._elapsed_label.text() == ""
-        assert panel._results_layout.count() == 5
+        assert panel._results_layout.count() == 2
 
     def test_show_results_preserves_debug_inspector_widgets(self, qtbot) -> None:
-        """Clearing result rows must not delete the debug variables tree."""
+        """Clearing result rows must not delete the debugger tab inspector."""
         panel = ScriptOutputPanel(script_type="pre_request")
         qtbot.addWidget(panel)
         panel.show_results(_make_output(), 1.0)
-        assert Shiboken.isValid(panel._debug_variables)
-        assert Shiboken.isValid(panel._debug_variables._tree)
+        assert Shiboken.isValid(panel._debug_inspector)
+        assert Shiboken.isValid(panel._debug_inspector.scopes_tree)
         panel.hide_debug_controls()
 
 
@@ -370,8 +373,8 @@ class TestScriptOutputPanelResults:
             ]
         )
         panel.show_results(output, 10.5)
-        # 3 debug rows + 3 log rows + stretch = 7 items.
-        assert panel._results_layout.count() == 7
+        # 3 log rows + stretch.
+        assert panel._results_layout.count() == 4
 
     def test_show_test_results(self, qtbot) -> None:
         """Test results are rendered with pass/fail indication."""
@@ -385,24 +388,43 @@ class TestScriptOutputPanelResults:
             ]
         )
         panel.show_results(output, 5.0)
-        # 3 debug + 2 test rows + 1 summary + stretch = 7 items.
-        assert panel._results_layout.count() == 7
+        # 2 test rows + 1 summary + stretch.
+        assert panel._results_layout.count() == 4
 
     def test_elapsed_time_displayed(self, qtbot) -> None:
-        """Elapsed time is shown next to the output tab content (right-aligned)."""
+        """Elapsed time is shown in the header when there are no test rows."""
         panel = ScriptOutputPanel(script_type="pre_request")
         qtbot.addWidget(panel)
         panel.show_results(_make_output(), 123.4)
         assert "123" in panel._elapsed_label.text()
-        # 3 debug rows + "no output" note + stretch.
-        assert panel._results_layout.count() == 5
+        assert panel._timing_row.isVisible()
+
+    def test_elapsed_header_hidden_when_test_rows_present(self, qtbot) -> None:
+        """Per-test duration rows replace the duplicate header timing label."""
+        panel = ScriptOutputPanel(script_type="pre_request")
+        qtbot.addWidget(panel)
+        panel.show_results(
+            _make_output(
+                test_results=[
+                    {
+                        "name": "(runtime error)",
+                        "passed": False,
+                        "error": "boom",
+                        "duration_ms": 2222.0,
+                    }
+                ]
+            ),
+            2222.0,
+        )
+        assert not panel._timing_row.isVisible()
+        assert panel._elapsed_label.text() == ""
 
     def test_show_error_message(self, qtbot) -> None:
         """Error messages are displayed in red."""
         panel = ScriptOutputPanel(script_type="pre_request")
         qtbot.addWidget(panel)
         panel.show_error("SyntaxError: unexpected token")
-        assert panel._results_layout.count() == 5  # 3 debug + error + stretch
+        assert panel._results_layout.count() == 2  # error + stretch
 
     def test_clear_removes_rows(self, qtbot) -> None:
         """Clearing the panel removes all result rows."""
@@ -419,7 +441,7 @@ class TestScriptOutputPanelResults:
         )
         assert panel._results_layout.count() > 1
         panel.clear_results()
-        assert panel._results_layout.count() == 5  # 3 debug + hint + stretch
+        assert panel._results_layout.count() == 2  # hint + stretch
 
     def test_show_variable_changes(self, qtbot) -> None:
         """Variable changes are rendered as key=value rows."""
@@ -433,8 +455,8 @@ class TestScriptOutputPanelResults:
             "request_mutations": None,
         }
         panel.show_results(output, 5.0)
-        # 3 debug + section header + 2 variable rows + stretch = 7 items.
-        assert panel._results_layout.count() == 7
+        # section header + 2 variable rows + stretch.
+        assert panel._results_layout.count() == 4
 
 
 # ===================================================================
@@ -604,11 +626,124 @@ class TestScriptOutputPanelDebugVariables:
     :class:`_ScriptsMixin`), so the panel only owns the variable view.
     """
 
-    def test_show_debug_controls_shows_variables(self, qapp, qtbot) -> None:
+    def test_pause_status_on_editor_status_bar(self, qapp, qtbot) -> None:
+        """Pause line is shown on the script editor status bar, not the Debugger tab."""
+        from ui.request.request_editor.scripts.script_editor_pane import ScriptEditorPane
+        from ui.request.request_editor.scripts.script_editor_pane.options import (
+            ScriptEditorPaneOptions,
+        )
+
+        pane = ScriptEditorPane(
+            ScriptEditorPaneOptions(script_type="pre_request", host_kind="request"),
+        )
+        qtbot.addWidget(pane)
+        pane.show()
+        panel = pane.output_panel
+        panel.bind_host_pane(pane)
+        assert pane._status_debug_lbl.isHidden()
+        panel.show_debug_controls(
+            {
+                "line": 11,
+                "source_name": "inline",
+                "local_vars": {},
+                "script_type": "pre_request",
+            }
+        )
+        assert pane._status_debug_lbl.isVisible()
+        assert "line 12" in pane._status_debug_lbl.text()
+        assert "pre_request" in pane._status_debug_lbl.text()
+        assert panel.debug_controls._position_label is None
+        panel.hide_debug_controls()
+        assert pane._status_debug_lbl.isHidden()
+
+    def test_debug_breakpoint_toolbar_buttons_present(self, qapp, qtbot) -> None:
+        """Debugger toolbar includes view/disable/exception breakpoint actions."""
         panel = ScriptOutputPanel(script_type="pre_request")
         qtbot.addWidget(panel)
         panel.show()
-        assert not panel._debug_variables.isVisible()
+        panel.focus_debugger_tab()
+        ctrl = panel.debug_controls
+        assert ctrl._view_bp_btn.toolTip() == "View breakpoints"
+        assert ctrl._disable_bp_btn.isCheckable()
+        assert ctrl._exception_bp_btn.isCheckable()
+        assert ctrl._exception_bp_btn.isChecked()
+
+    def test_debug_controls_visible_disabled_until_pause(self, qapp, qtbot) -> None:
+        """Debugger tab shows step controls disabled before a pause."""
+        panel = ScriptOutputPanel(script_type="pre_request")
+        qtbot.addWidget(panel)
+        panel.show()
+        panel.focus_debugger_tab()
+        ctrl = panel.debug_controls
+        assert ctrl.isVisible()
+        assert not ctrl._continue_btn.isEnabled()
+        panel.show_debug_controls(
+            {
+                "line": 1,
+                "source_name": "",
+                "local_vars": {},
+                "script_type": "pre_request",
+            }
+        )
+        assert ctrl._continue_btn.isEnabled()
+
+    def test_debugger_start_debug_button_starts_host_pane(self, qapp, qtbot) -> None:
+        """**Start debug** on the Debugger tab calls :meth:`ScriptEditorPane.debug`."""
+        from unittest.mock import MagicMock
+
+        from ui.request.request_editor.scripts.script_editor_pane import ScriptEditorPane
+        from ui.request.request_editor.scripts.script_editor_pane.options import (
+            ScriptEditorPaneOptions,
+        )
+
+        pane = ScriptEditorPane(
+            ScriptEditorPaneOptions(script_type="pre_request", host_kind="request"),
+        )
+        qtbot.addWidget(pane)
+        pane.show()
+        pane._editor.setPlainText("pm.sendRequest();")
+        panel = pane.output_panel
+        panel.bind_host_pane(pane)
+        pane.debug = MagicMock()  # type: ignore[method-assign]
+        panel.focus_debugger_tab()
+        ctrl = panel.debug_controls
+        assert ctrl._start_debug_btn is not None
+        assert ctrl._start_debug_btn.isVisible()
+        assert ctrl._start_debug_btn.isEnabled()
+        ctrl._start_debug_btn.click()
+        pane.debug.assert_called_once()
+
+    def test_debugger_start_debug_hidden_while_paused(self, qapp, qtbot) -> None:
+        """Start debug hides while step controls are active."""
+        panel = ScriptOutputPanel(script_type="pre_request")
+        qtbot.addWidget(panel)
+        panel.show()
+        panel.focus_debugger_tab()
+        ctrl = panel.debug_controls
+        panel.show_debug_controls(
+            {
+                "line": 0,
+                "source_name": "",
+                "local_vars": {},
+                "script_type": "pre_request",
+            }
+        )
+        assert ctrl._start_debug_btn is not None
+        assert not ctrl._start_debug_btn.isVisible()
+        panel.hide_debug_controls()
+        assert ctrl._start_debug_btn.isVisible()
+
+    def test_show_debug_controls_shows_variables(self, qapp, qtbot) -> None:
+        from ui.request.request_editor.scripts.script_output_tab_prefs import (
+            save_output_sub_tab_slug,
+        )
+
+        save_output_sub_tab_slug("pre_request", "output")
+        panel = ScriptOutputPanel(script_type="pre_request")
+        qtbot.addWidget(panel)
+        panel.show()
+        tabs = panel._script_output_tabs
+        assert tabs.currentWidget() is panel._output_tab_page
         panel.show_debug_controls(
             {
                 "line": 2,
@@ -617,7 +752,8 @@ class TestScriptOutputPanelDebugVariables:
                 "script_type": "pre_request",
             }
         )
-        assert panel._debug_variables.isVisible()
+        assert tabs.currentWidget() is panel._debugger_tab_page
+        assert panel._debug_inspector.isVisible()
 
     def test_show_debug_controls_renders_variable_rows(self, qapp, qtbot) -> None:
         panel = ScriptOutputPanel(script_type="pre_request")
@@ -630,13 +766,14 @@ class TestScriptOutputPanelDebugVariables:
                 "script_type": "test",
             }
         )
-        texts = _debug_variables_tree_text_join(panel._debug_variables._tree)
+        texts = _debug_variables_tree_text_join(panel._debug_inspector.scopes_tree)
         assert "a" in texts
         assert "hello" in texts
 
     def test_hide_debug_controls_hides_variables(self, qapp, qtbot) -> None:
         panel = ScriptOutputPanel(script_type="pre_request")
         qtbot.addWidget(panel)
+        tabs = panel._script_output_tabs
         panel.show_debug_controls(
             {
                 "line": 0,
@@ -646,4 +783,39 @@ class TestScriptOutputPanelDebugVariables:
             }
         )
         panel.hide_debug_controls()
-        assert not panel._debug_variables.isVisible()
+        assert tabs.currentWidget() is panel._debugger_tab_page
+
+
+class TestOutputSubTabPersistence:
+    """Output vs Debugger tab choice is restored across panel instances."""
+
+    def test_restore_saved_debugger_tab(self, qapp: QApplication, qtbot) -> None:
+        from ui.request.request_editor.scripts.script_output_tab_prefs import (
+            save_output_sub_tab_slug,
+        )
+
+        save_output_sub_tab_slug("pre_request", "debugger")
+        panel = ScriptOutputPanel(script_type="pre_request")
+        qtbot.addWidget(panel)
+        assert panel._script_output_tabs.currentWidget() is panel._debugger_tab_page
+
+    def test_debug_stop_without_output_stays_on_debugger(self, qapp, qtbot) -> None:
+        panel = ScriptOutputPanel(script_type="pre_request")
+        qtbot.addWidget(panel)
+        tabs = panel._script_output_tabs
+        panel.focus_debugger_tab()
+        panel.show_results({}, 0.0, focus_output=False)
+        panel.hide_debug_controls()
+        assert tabs.currentWidget() is panel._debugger_tab_page
+
+    def test_debug_stop_with_console_stays_on_debugger(self, qapp, qtbot) -> None:
+        panel = ScriptOutputPanel(script_type="pre_request")
+        qtbot.addWidget(panel)
+        tabs = panel._script_output_tabs
+        panel.focus_debugger_tab()
+        panel.show_results(
+            {"console_logs": [{"message": "hi", "level": "log"}]},
+            1.0,
+            focus_output=False,
+        )
+        assert tabs.currentWidget() is panel._debugger_tab_page

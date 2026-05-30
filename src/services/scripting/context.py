@@ -20,11 +20,63 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Keys in scripts/events dicts that are not executable script bodies.
+_SCRIPT_METADATA_KEYS = frozenset(
+    {
+        "debug",
+        "disabled_inherited",
+    }
+)
+
 # Keys whose values should be masked in console logs.
 _SENSITIVE_KEYS = re.compile(
     r"(token|password|secret|key|auth|bearer|api.?key|credential)",
     re.IGNORECASE,
 )
+
+
+def build_script_info(
+    *,
+    event_name: str,
+    request_name: str = "",
+    request_id: str = "",
+    iteration: int = 0,
+    iteration_count: int = 0,
+    test_filter: str | None = None,
+) -> dict[str, Any]:
+    """Build the ``info`` dict injected into script runtimes."""
+    info: dict[str, Any] = {
+        "eventName": event_name,
+        "requestName": request_name,
+        "requestId": request_id,
+        "iteration": iteration,
+        "iterationCount": iteration_count,
+    }
+    if test_filter:
+        info["testFilter"] = test_filter
+    return info
+
+
+def harvest_legacy_tests(
+    legacy: Any,
+    test_results: list[dict[str, Any]],
+) -> None:
+    """Append Postman v1 ``tests`` object entries not already in *test_results*."""
+    if not isinstance(legacy, dict):
+        return
+    existing = {str(tr.get("name", "")) for tr in test_results}
+    for name, value in legacy.items():
+        sname = str(name)
+        if sname in existing:
+            continue
+        test_results.append(
+            {
+                "name": sname,
+                "passed": bool(value),
+                "error": None,
+                "duration_ms": 0.0,
+            }
+        )
 
 
 def build_pre_request_context(
@@ -39,19 +91,24 @@ def build_pre_request_context(
     global_vars: dict[str, str] | None = None,
     info: dict[str, Any],
     iteration_data: dict[str, Any] | None = None,
+    auth: dict[str, Any] | None = None,
+    environment_name: str = "",
 ) -> ScriptInput:
     """Build a ``ScriptInput`` for a pre-request script.
 
     The ``response`` field is ``None`` — this tells the runtime that
     request mutations are allowed.
     """
+    request: dict[str, Any] = {
+        "url": url,
+        "method": method,
+        "headers": headers,
+        "body": body,
+    }
+    if auth is not None:
+        request["auth"] = auth
     ctx: ScriptInput = {
-        "request": {
-            "url": url,
-            "method": method,
-            "headers": headers,
-            "body": body,
-        },
+        "request": request,
         "response": None,
         "variables": dict(variables),
         "environment_vars": dict(environment_vars),
@@ -61,6 +118,8 @@ def build_pre_request_context(
     }
     if iteration_data:
         ctx["iteration_data"] = iteration_data
+    if environment_name:
+        ctx["environment_name"] = environment_name
     return ctx
 
 
@@ -74,6 +133,7 @@ def build_test_context(
     global_vars: dict[str, str] | None = None,
     info: dict[str, Any],
     iteration_data: dict[str, Any] | None = None,
+    environment_name: str = "",
 ) -> ScriptInput:
     """Build a ``ScriptInput`` for a test (post-response) script.
 
@@ -91,6 +151,8 @@ def build_test_context(
     }
     if iteration_data:
         ctx["iteration_data"] = iteration_data
+    if environment_name:
+        ctx["environment_name"] = environment_name
     return ctx
 
 
@@ -208,6 +270,8 @@ def normalize_events(events: Any) -> dict[str, str]:
         # script text when possible.
         clean: dict[str, str] = {}
         for key, val in events.items():
+            if key in _SCRIPT_METADATA_KEYS:
+                continue
             if isinstance(val, str):
                 clean[key] = val
             elif isinstance(val, dict):

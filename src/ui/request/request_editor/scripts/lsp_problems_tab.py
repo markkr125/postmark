@@ -50,10 +50,13 @@ if TYPE_CHECKING:
 
 def format_problem_line(d: Diagnostic) -> str:
     """Single-line summary shown in the list and copied via **Copy**."""
-    line_1 = d.line + 1
-    col_1 = d.column + 1
+    line_1 = (d.related_line if d.related_line is not None else d.line) + 1
+    col_1 = (d.related_column if d.related_column is not None else d.column) + 1
     sev = d.severity.upper() if d.severity else "DIAGNOSTIC"
-    return f"{sev}  Ln {line_1}, Col {col_1}  {d.message}  ({d.source})"
+    path_prefix = ""
+    if d.related_local_path:
+        path_prefix = f"[local:{d.related_local_path}]  "
+    return f"{sev}  {path_prefix}Ln {line_1}, Col {col_1}  {d.message}  ({d.source})"
 
 
 def severity_foreground_color(severity: str) -> QColor:
@@ -263,7 +266,7 @@ class ScriptLspProblemsTab(QWidget):
         self._empty_label.setText(text)
 
     def _navigate_to_item(self, item: QListWidgetItem) -> None:
-        """Move the bound editor cursor to the diagnostic range start."""
+        """Move the host cursor or open the related local script at the diagnostic."""
         editor = self._editor
         if editor is None:
             return
@@ -271,6 +274,17 @@ class ScriptLspProblemsTab(QWidget):
         if not isinstance(raw, Diagnostic):
             return
         d = raw
+        script_id = d.related_local_script_id
+        if script_id is not None:
+            from ui.widgets.code_editor.editor_widget import CodeEditorWidget
+
+            if CodeEditorWidget._invoke_open_local_script(script_id):
+                handler = getattr(self.window(), "_go_to_local_script_position", None)
+                if callable(handler):
+                    line_1 = (d.related_line if d.related_line is not None else d.line) + 1
+                    col_1 = (d.related_column if d.related_column is not None else d.column) + 1
+                    handler(script_id, line_1, col_1)
+                return
         start = lsp_to_qpos(editor.document(), d.line, d.column)
         cur = editor.textCursor()
         if d.end_line == d.line and d.end_column > d.column:

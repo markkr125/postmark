@@ -192,6 +192,9 @@ def _run_restricted_subprocess(script: str, context: ScriptInput) -> ScriptOutpu
     env: dict[str, str] = {"PATH": os.environ.get("PATH", "/usr/bin")}
     src_root = str(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
     env["PYTHONPATH"] = src_root
+    from services.scripting.dynamic_variables import dynvar_json_for_subprocess
+
+    env["PM_DYNVAR_JSON"] = dynvar_json_for_subprocess()
 
     try:
         proc = subprocess.Popen(
@@ -247,6 +250,10 @@ def _run_restricted_subprocess(script: str, context: ScriptInput) -> ScriptOutpu
         )
     finally:
         timer.cancel()
+        for stream in (proc.stdin, proc.stdout, proc.stderr):
+            if stream is not None and not stream.closed:
+                with contextlib.suppress(OSError):
+                    stream.close()
         with contextlib.suppress(subprocess.TimeoutExpired):
             proc.wait(timeout=5)
         if proc.poll() is None:

@@ -126,14 +126,18 @@ test file still exceeds 600 lines, split by test class into separate files.
 
 ```
 tests/
-├── conftest.py                    # Root: configure_before_qapplication + _fresh_db + _reset_tab_settings + _disable_script_lsp_in_tests + _shutdown_lsp_clients (autouse) + qapp
+├── conftest.py                    # Root: configure_before_qapplication + _fresh_db + _reset_tab_settings + _disable_script_lsp_in_tests + _shutdown_lsp_clients + _reset_code_editor_popups_after_test (autouse) + qapp
+├── qt_popup_cleanup.py            # reset_code_editor_popups + flush_deferred_widget_deletes (shared by root + ui conftest)
 ├── esprima_test_util.py           # deno_and_esprima_available() for JS parse-dependent tests
 ├── unit/                          # Pure logic — no Qt widgets
 │   ├── database/                  # Repository layer tests
 │   │   ├── test_repository.py
+│   │   ├── test_debug_metadata_migration.py
+│   │   ├── test_debug_metadata_repository.py
 │   │   ├── test_local_script_repository.py
 │   │   ├── test_local_script_path_policy.py
 │   │   ├── test_local_script_require_refs.py
+│   │   ├── test_local_script_import_refs_rewrite.py  # ESM relative import rewrite on rename
 │   │   ├── test_snippet_repository.py
 │   │   ├── test_request_assertion_repository.py
 │   │   ├── test_script_version_local_script.py
@@ -153,9 +157,14 @@ tests/
 │       ├── test_js_debug.py
 │       ├── test_py_debug.py
 │       ├── test_console_source_line.py
+│       ├── test_dynamic_variables.py
+│       ├── test_pm_parity_deno_pyodide.py
 │       ├── test_script_engine.py
+│       ├── test_script_output_tab_prefs.py
 │       ├── test_pm_api_schema_drift.py  # pm_api_schema paths resolve in Deno JS
 │       ├── test_pyodide_runtime.py
+│       ├── test_debug_script_metadata.py
+│       ├── test_debug_metadata_persist_host.py
 │       ├── test_script_sandbox.py
 │       ├── test_script_service.py
 │       ├── test_script_vendor.py
@@ -167,16 +176,28 @@ tests/
 │       ├── test_assertions_compiler.py
 │       ├── test_deno_manager.py
 │       ├── test_python_format.py
+│       ├── test_script_error_format.py
 │       ├── test_runtime_settings.py
 │       ├── test_secret_store.py     # SecretStore backends: keyring / encrypted-file / noop; default-store self-test fallback
 │       ├── test_deno_runtime_registries.py  # _build_npmrc_text + deno_ipc_argv_and_env private-registry plumbing
 │       ├── test_cjs_deno_interop.py       # Gate 0 Deno ``import *`` from ``.cjs``
 │       ├── test_local_script_pm_require.py  # pm.require("local:…") resolve + bundle + CJS runtime
+│       ├── test_local_dependency_diagnostics.py  # Direct local: dependency Problems + require anchors
+│       ├── test_local_scripts_project_mirror.py  # Deno local/ mirror sync + orphan prune
+│       ├── test_local_scripts_project_import_graph.py  # Regex ESM import closure
+│       ├── test_local_scripts_project_runner.py  # Local entry bundle (dynamic import)
+│       ├── test_local_scripts_project_navigation.py  # Ctrl+click import resolution
+│       ├── test_ambient_pm_deno.py  # Live ``deno check`` for ambient_pm.d.ts + local/ pm usage
 │       ├── test_pyodide_private_pypi.py     # _pypi_index_hosts + _resolve_pypi_index_urls auth embedding
 │       ├── lsp/                   # LSP transport / offset helpers
 │       │   ├── test_transport.py
 │       │   ├── test_qt_lsp_offsets.py
+│       │   ├── test_js_lsp_preamble.py
+│       │   ├── test_npm_types_members.py
+│       │   ├── test_deno_npm_completion_e2e.py  # headless completion capture; tmp_path LSP workspace; xdist_group deno_lsp
+│       │   ├── test_pm_require_resolve.py
 │       │   ├── test_pm_require_types.py
+│       │   ├── test_local_script_lsp_prep.py  # prepare_local_script_lsp_attach, worker shutdown, finalize token guard
 │       │   └── fake_server.py     # JSON-RPC test double (not collected)
 │       └── http/                  # HTTP service tests
 │           ├── test_http_service.py
@@ -191,11 +212,12 @@ tests/
     ├── conftest.py                # _no_fetch (autouse) + helper functions
    ├── test_main_window.py        # Top-level MainWindow smoke tests
    ├── test_main_window_tabs_navigation.py # Wrapped tab deck shortcuts + search tests
+   ├── test_main_window_tab_nav_history.py # Go menu tab activation back/forward
     ├── test_main_window_save.py   # SaveButton + RequestSaveEndToEnd tests
     ├── test_main_window_draft.py  # Draft tab open/save lifecycle tests
     ├── test_main_window_session.py # Tab session persistence (save/restore) tests
     ├── local_scripts/
-    │   └── test_local_script_editor_widget.py # LocalScriptEditorWidget auto-save tests
+    │   └── test_local_script_editor_widget.py # LocalScriptEditorWidget auto-save + async LSP prep defer tests
     ├── styling/                   # Theme and icon tests
     │   ├── test_theme_manager.py
     │   ├── test_icons.py
@@ -207,6 +229,15 @@ tests/
     │   ├── test_code_editor_memory.py
     │   ├── test_code_editor_minimap.py
     │   ├── test_completion_engine.py
+    │   ├── test_completion_engine_top_level.py
+    │   ├── test_completion_engine_local_paths.py
+    │   ├── test_esm_import_completion_accept.py
+    │   ├── test_lsp_diagnostic_debounce.py
+    │   └── unit/services/lsp/test_lsp_spawn_registry.py
+    │   ├── test_no_debug_on_keystroke.py  # script editor typing must not call DebugProtocol.evaluate
+    │   ├── test_debug_session_suspend_lsp.py  # LSP didChange paused during debug session
+    │   ├── test_local_dependency_problems.py
+    │   ├── test_local_require_ctrl_click.py
     │   ├── test_completion_popup.py
     │   ├── test_info_popup.py
     │   ├── test_key_value_table.py
@@ -222,7 +253,10 @@ tests/
    │   ├── test_variables_panel.py
    │   ├── test_snippet_panel.py
    │   ├── test_debug_panel.py
-   │   ├── test_debug_watch_call_stack.py
+   │   ├── test_debug_call_stack.py
+   │   ├── test_debug_inspector_split.py
+   │   ├── test_debug_variables_watches.py
+   │   ├── test_debug_metadata_persist.py
    │   └── test_saved_responses_panel.py
     ├── collections/               # Collection sidebar tests
     │   ├── test_collection_header.py

@@ -59,7 +59,7 @@ Top-level shape:
 | `categories[].snippets` | Per category | Ordered snippet rows under that header. |
 | `categories[].snippets[].name` | Yes | Visible row label in the popover. |
 | `categories[].snippets[].body` | Yes | Inserted **verbatim** at the text cursor when the row is chosen. |
-| `categories[].contexts` | No | Optional list filtering where the category appears: `"pre"` (pre-request editor), `"post"` (post-response / test editor). When omitted, the category shows in **both** editors (back-compat default). |
+| `categories[].contexts` | No | Optional list filtering where the category appears: `"pre"` (pre-request editor), `"post"` (post-response / test editor), `"local"` (local script tabs). When omitted, the category shows in **request** pre/post editors only (not local scripts). Built-in snippets whose bodies contain `pm.response` are also hidden on local scripts. |
 
 Any key whose name starts with **`_`** (e.g. `_comment`) is **metadata** and is ignored by the parser at the document root and inside category or snippet objects (see [`loader.py`](../../src/ui/widgets/snippets/loader.py)).
 
@@ -82,10 +82,11 @@ Both [`javascript.json`](javascript.json) (TypeScript resolves here too) and [`p
 
 | Category | Contexts | Purpose |
 |---|---|---|
-| **Send requests** | `pre + post` | `pm.sendRequest` / `pm.send_request` patterns. |
-| **Variables** | `pre + post` | Get / set / unset across the four scopes (globals, collection, environment, local). |
-| **Request setup** | `pre` only | Auth headers, dynamic IDs, timestamps, login flows. Hidden from the post-response editor. |
-| **Tests** | `post` only | Postman-style assertions: numeric or reason-phrase status, `to.have.body`, `to.be.oneOf` / `one_of` (strict `==` membership, not deep Chai semantics), JSON helpers, and related checks. Hidden from the pre-request editor. |
+| **Send requests** | `pre + post + local` | `pm.sendRequest` / `pm.send_request` patterns. |
+| **Variables** | `pre + post + local` | Get / set / unset across the four scopes (globals, collection, environment, local). |
+| **Request setup** | `pre + local` | Auth headers, dynamic IDs, timestamps, login flows. Hidden from the post-response editor. |
+| **Tests** | `post` only | Postman-style assertions using `pm.response`. Hidden from pre-request and local script editors. |
+| **Import npm / JSR** / **Import PyPI** | `pre + post + local` | `pm.require` examples; rows that use `pm.response` are omitted on local scripts. |
 
 Snippet bodies should stay aligned with the **`pm` test surface** in [`data/scripts/pm_bootstrap.js`](../../data/scripts/pm_bootstrap.js) (Deno) and [`data/scripts/pm_bootstrap.py`](../../data/scripts/pm_bootstrap.py) (Pyodide). User Python in the **RestrictedPython subprocess** path uses the mirrored assertions in [`src/services/scripting/_py_sandbox.py`](../../src/services/scripting/_py_sandbox.py); ship **sandbox-safe** snippets only: use injected globals such as `json_loads`, `json_dumps`, `b64encode`, `uuid_v4`, and `datetime_now` instead of raw `import json`, `import base64`, `from datetime import …`, or `jsonschema` unless the allowlist is explicitly extended.
 
@@ -102,7 +103,7 @@ When porting a JS snippet to Python, the runtime maps cleanly for assertions but
 | ISO timestamp | `new Date().toISOString()` | `datetime_now()` (sandbox builtin; no `import datetime`). |
 | JSON encode/decode | `JSON.stringify(x)` / `JSON.parse(s)` | `json_dumps(x)` / `json_loads(s)` (sandbox builtins; no `import json`). |
 | Header mutation | `pm.request.headers.add({key, value})` | `pm.request.headers["Name"] = "value"` (dict assignment). |
-| Schema validation | `pm.require("tv4").validate(...)` | No `jsonschema` in sandbox; assert shape with `isinstance` and stdlib comprehensions. |
+| Schema validation | `pm.expect(x).to.have.jsonSchema({...})` | Built-in subset validator; `pm.require("tv4")` / `pm.require("ajv")` for full draft-07. |
 
 ## Postman API parity
 

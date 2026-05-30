@@ -22,6 +22,7 @@ var __pm_state = {
     next_request: undefined,
     skip_request: false,
     _send_queue: [],
+    _pending_tests: [],
 };
 
 var __pm_callbacks = [];
@@ -163,7 +164,13 @@ function __makeVariableScope(initial, scopeName, changesKey) {
         },
         replaceIn: function (template) {
             return template.replace(/\{\{(.+?)\}\}/g, function (m, key) {
-                return store.hasOwnProperty(key) ? store[key] : m;
+                key = String(key).trim();
+                if (store.hasOwnProperty(key)) return store[key];
+                if (key.charAt(0) === "$" && typeof __pm_resolveDynamic === "function") {
+                    var dyn = __pm_resolveDynamic(key);
+                    if (dyn !== null && dyn !== undefined) return dyn;
+                }
+                return m;
             });
         },
     };
@@ -706,6 +713,29 @@ __Expectation.prototype.jsonBody = function (path, value) {
     );
 };
 
+function __pm_jsonSchemaTarget(value) {
+    var resp = value;
+    if (resp && typeof resp === "object" && ("body" in resp || typeof resp.json === "function")) {
+        try {
+            if (typeof resp.json === "function") return resp.json();
+            var raw = typeof resp.body === "string" ? resp.body : "";
+            return raw ? JSON.parse(raw) : {};
+        } catch (_e) {
+            return null;
+        }
+    }
+    return value;
+}
+
+__Expectation.prototype.jsonSchema = function (schema) {
+    var data = __pm_jsonSchemaTarget(this._value);
+    var r = __pm_validateSchema(data, schema);
+    return this._assert(
+        r.ok,
+        "expected value to match schema: " + r.errors.join(", ")
+    );
+};
+
 // -- Inline sendRequest IPC + response wrapper -----------------------
 //
 // ``writeSync`` / ``readSync`` are imported at the top of the bundled
@@ -843,6 +873,9 @@ function __pm_makeCookiesApi(cookies) {
             }
             return result;
         },
+        has: function (name) {
+            return cookies.hasOwnProperty(name);
+        },
     };
 }
 
@@ -927,8 +960,19 @@ function __pm_wrap_response(raw) {
 
 // -- pm object --------------------------------------------------------
 
+var __pm_info_raw = __pm_context.info || {};
 var pm = {
-    info: __pm_context.info || {},
+    info: {
+        eventName: __pm_info_raw.eventName || "",
+        requestName: __pm_info_raw.requestName || "",
+        requestId: __pm_info_raw.requestId || "",
+        iteration: __pm_info_raw.iteration != null ? __pm_info_raw.iteration : 0,
+        iterationCount:
+            __pm_info_raw.iterationCount != null
+                ? __pm_info_raw.iterationCount
+                : 0,
+        testFilter: __pm_info_raw.testFilter || null,
+    },
 
     request: (function () {
         var req = __pm_context.request || {};
@@ -978,6 +1022,7 @@ var pm = {
             method: req.method || "GET",
             headers: __makeHeaderList(req.headers, __pm_context.is_pre_request),
             body: bodyObj,
+            auth: req.auth != null ? req.auth : null,
         };
     })(),
 
@@ -1006,10 +1051,14 @@ var pm = {
         return obj;
     })(),
 
-    environment: __makeVariableScope(
-        __pm_context.environment_vars,
-        "environment"
-    ),
+    environment: (function () {
+        var scope = __makeVariableScope(
+            __pm_context.environment_vars,
+            "environment"
+        );
+        scope.name = __pm_context.environment_name || "";
+        return scope;
+    })(),
     collectionVariables: __makeVariableScope(
         __pm_context.collection_vars,
         "collectionVariables"
@@ -1043,7 +1092,36 @@ var pm = {
                 if (typeof fn !== "function") {
                     throw new Error("pm.test callback must be a function");
                 }
-                fn.call({ skip: skipFn }, skipFn);
+                var ret = fn.call({ skip: skipFn }, skipFn);
+                if (
+                    ret &&
+                    typeof ret === "object" &&
+                    typeof ret.then === "function"
+                ) {
+                    result.duration_ms = Date.now() - start;
+                    if (didSkip) {
+                        result.passed = true;
+                        result.skipped = true;
+                    }
+                    var srcAsync = globalThis.__pm_test_source_name;
+                    if (srcAsync) {
+                        result.source_name = String(srcAsync);
+                    }
+                    __pm_state.test_results.push(result);
+                    var pending = { result: result, promise: ret };
+                    ret.then(
+                        function () {
+                            pending.result.duration_ms = Date.now() - start;
+                        },
+                        function (e) {
+                            pending.result.passed = false;
+                            pending.result.error = e.message || String(e);
+                            pending.result.duration_ms = Date.now() - start;
+                        }
+                    );
+                    __pm_state._pending_tests.push(pending);
+                    return;
+                }
             } catch (e) {
                 result.passed = false;
                 result.error = e.message || String(e);
@@ -1078,6 +1156,11 @@ var pm = {
     require: function (specifier) {
         if (typeof specifier !== "string" || specifier.length === 0) {
             throw new Error("pm.require: specifier must be a non-empty string");
+        }
+        if (specifier === "cheerio") {
+            throw new Error(
+                "Module 'cheerio' is not available in the Postmark sandbox; use pm.require('npm:cheerio')"
+            );
         }
         if (
             typeof __pm_builtins !== "undefined" &&
@@ -1304,8 +1387,14 @@ var pm = {
             replaceIn: function (template) {
                 var self = this;
                 return template.replace(/\{\{(.+?)\}\}/g, function (m, key) {
+                    key = String(key).trim();
                     var v = self.get(key);
-                    return v !== undefined ? v : m;
+                    if (v !== undefined) return v;
+                    if (key.charAt(0) === "$" && typeof __pm_resolveDynamic === "function") {
+                        var dyn = __pm_resolveDynamic(key);
+                        if (dyn !== null && dyn !== undefined) return dyn;
+                    }
+                    return m;
                 });
             },
             clear: function () {
@@ -1355,6 +1444,9 @@ var postman = {
     clearGlobalVariable: function (key) {
         pm.globals.unset(key);
     },
+    setNextRequest: function (name) {
+        __pm_state.next_request = name == null ? null : String(name);
+    },
 };
 
 // -- Postman require() shim -------------------------------------------
@@ -1373,6 +1465,10 @@ var __pm_builtins = {
     xml2js: typeof __pm_xml2js !== "undefined" ? __pm_xml2js : undefined,
     "csv-parse/sync":
         typeof __pm_csv_parse !== "undefined" ? __pm_csv_parse : undefined,
+    "csv-parse/lib/sync":
+        typeof __pm_csv_parse !== "undefined" ? __pm_csv_parse : undefined,
+    atob: typeof atob !== "undefined" ? atob : undefined,
+    btoa: typeof btoa !== "undefined" ? btoa : undefined,
     uuid: (function () {
         // Minimal UUIDv4 implementation.
         function v4() {
@@ -1458,6 +1554,9 @@ if (typeof globalThis !== "undefined") {
         ? { code: pm.response.code, name: pm.response.reason() }
         : undefined;
     globalThis.responseHeaders = pm.response ? pm.response.headers.toObject() : {};
+    globalThis.responseTime = pm.response
+        ? pm.response.responseTime
+        : undefined;
     globalThis.tests = {};
     globalThis.xml2Json = function (xml) {
         var x = __pm_builtins.xml2js;

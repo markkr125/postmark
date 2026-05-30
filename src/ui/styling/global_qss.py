@@ -13,6 +13,7 @@ from ui.styling.theme import (
     BADGE_MIN_WIDTH,
     DARK_PALETTE,
     LIGHT_PALETTE,
+    SCRIPT_OUTPUT_TAB_PANE_BOTTOM_PAD_PX,
     TREE_ROW_HEIGHT,
     ThemePalette,
 )
@@ -45,6 +46,19 @@ def build_global_qss(p: ThemePalette) -> str:
         margin: 0px;
         background: {p["border"]};
     }}
+    QSplitter#debugInspectorSplitter::handle:horizontal {{
+        width: 5px;
+        min-width: 5px;
+        max-width: 5px;
+        border: none;
+        margin: 0px;
+        padding: 0px;
+        background: transparent;
+    }}
+    QFrame#debugInspectorVSeparator {{
+        background-color: {p["border"]};
+        border: none;
+    }}
     QSplitter::handle:vertical {{
         height: 4px;
         background: transparent;
@@ -70,7 +84,8 @@ def build_global_qss(p: ThemePalette) -> str:
     QLabel {{
         color: {p["text"]};
     }}
-    QLabel[objectName="mutedLabel"] {{
+    QLabel[objectName="mutedLabel"],
+    QLabel[objectName="scriptEditorDebugStatusLabel"] {{
         color: {p["text_muted"]};
         font-size: 11px;
     }}
@@ -216,8 +231,9 @@ def build_global_qss(p: ThemePalette) -> str:
         background: {p["danger_hover"]};
     }}
     QPushButton[objectName="dangerButton"]:disabled {{
-        background: {p["bg_alt"]};
-        color: {p["text_muted"]};
+        /* Keep stop actions visibly dangerous even when unavailable. */
+        background: {"rgba(244, 71, 71, 0.45)" if p is DARK_PALETTE else "rgba(231, 76, 60, 0.45)"};
+        color: {p["solid_button_fg"]};
     }}
     QPushButton[objectName="environmentEditorSaveVarsButton"] {{
         background: {p["accent"]};
@@ -237,11 +253,18 @@ def build_global_qss(p: ThemePalette) -> str:
     }}
     QPushButton[objectName="smallPrimaryButton"] {{
         background: {p["accent"]};
-        color: {p["bg"]};
+        color: {p["solid_button_fg"]};
         border: none;
         padding: 4px 12px;
         font-size: 11px;
         border-radius: 4px;
+    }}
+    QPushButton[objectName="smallPrimaryButton"]:hover {{
+        background: {p["accent_hover"]};
+    }}
+    QPushButton[objectName="smallPrimaryButton"]:disabled {{
+        background: {"rgba(79, 193, 255, 0.40)" if p is DARK_PALETTE else "rgba(52, 152, 219, 0.40)"};
+        color: {p["solid_button_fg"]};
     }}
     QPushButton[objectName="outlineButton"] {{
         border: 1px solid {p["border"]};
@@ -253,6 +276,28 @@ def build_global_qss(p: ThemePalette) -> str:
     }}
     QPushButton[objectName="outlineButton"]:hover {{
         background: {"rgba(255,255,255,0.08)" if p is DARK_PALETTE else "rgba(0,0,0,0.06)"};
+        border-color: {p["accent"]};
+        color: {p["text"]};
+    }}
+    QPushButton[objectName="outlineButton"]:disabled {{
+        color: {p["text_muted"]};
+        border-color: {p["border"]};
+    }}
+    QToolButton[objectName="exportResultsBtn"] {{
+        border: 1px solid {p["border"]};
+        border-radius: 4px;
+        padding: 3px 8px;
+        font-size: 11px;
+        background: transparent;
+        color: {p["text"]};
+    }}
+    QToolButton[objectName="exportResultsBtn"]:hover {{
+        background: {"rgba(255,255,255,0.08)" if p is DARK_PALETTE else "rgba(0,0,0,0.06)"};
+        border-color: {p["accent"]};
+    }}
+    QToolButton[objectName="exportResultsBtn"]::menu-indicator {{
+        image: none;
+        width: 0;
     }}
     QPushButton[objectName="keyValueBulkEnter"] {{
         color: {p["accent"]};
@@ -303,6 +348,21 @@ def build_global_qss(p: ThemePalette) -> str:
         border-color: {"rgba(255,255,255,0.08)" if p is DARK_PALETTE else "rgba(0,0,0,0.06)"};
         background: {"rgba(255,255,255,0.02)" if p is DARK_PALETTE else "rgba(0,0,0,0.02)"};
         color: {p["text_muted"]};
+    }}
+    QPushButton#debugBreakpointToolbarButton {{
+        border: 1px solid {p["border"]};
+        padding: 0px;
+        border-radius: 4px;
+        background: {p["bg_alt"]};
+        color: {p["text"]};
+    }}
+    QPushButton#debugBreakpointToolbarButton:hover {{
+        background: {p["hover_bg"]};
+        border-color: {p["accent"]};
+    }}
+    QPushButton#debugBreakpointToolbarButton:checked {{
+        background: {"rgba(255,255,255,0.10)" if p is DARK_PALETTE else "rgba(0,0,0,0.08)"};
+        border-color: {p["accent"]};
     }}
     QFrame[objectName="scriptToolbarSeparator"] {{
         background: {p["border"]};
@@ -449,7 +509,7 @@ def build_global_qss(p: ThemePalette) -> str:
     }}
     QTabWidget#scriptOutputTabs::pane {{
         border-top: 1px solid {p["border"]};
-        padding: 6px 0 0 0;
+        padding: 6px 0 {SCRIPT_OUTPUT_TAB_PANE_BOTTOM_PAD_PX}px 0;
         margin: 0px;
     }}
     QTabWidget#scriptOutputTabs > QTabBar {{
@@ -659,12 +719,52 @@ def build_global_qss(p: ThemePalette) -> str:
         border: 1px solid {p["border"]};
         background-color: {p["input_bg"]};
     }}
+    QFrame#scriptOutputDebuggerFrame {{
+        border: 1px solid {p["border"]};
+        background-color: {p["input_bg"]};
+    }}
+    QFrame#scriptOutputDebuggerControlsSep {{
+        background-color: {p["border"]};
+        border: none;
+        max-height: 1px;
+        min-height: 1px;
+    }}
+    QWidget#scriptOutputDebugControls {{
+        background-color: transparent;
+    }}
+    QDialog#breakpointsDialog {{
+        background-color: {p["bg"]};
+    }}
+    QTreeWidget#breakpointsDialogTree {{
+        background-color: {p["input_bg"]};
+        border: 1px solid {p["border"]};
+        border-radius: 4px;
+        padding: 4px;
+    }}
+    QTreeWidget#breakpointsDialogTree::item {{
+        padding: 2px 0;
+    }}
+    QTreeWidget#breakpointsDialogTree::item:selected {{
+        background-color: {p["selected_bg"]};
+        color: {p["text"]};
+    }}
+    QPlainTextEdit#breakpointsDialogPreview {{
+        background-color: {p["input_bg"]};
+        border: 1px solid {p["border"]};
+        border-radius: 4px;
+    }}
     QWidget[objectName="scriptOutputSection"],
     QWidget[objectName="scriptMockResponseSection"] {{
         border-bottom: 1px solid {p["border"]};
     }}
     QWidget[objectName="scriptOutputInner"] {{
         background-color: {p["input_bg"]};
+    }}
+    QLabel[objectName="busyChipSpinner"] {{
+        color: {p["text_muted"]};
+        font-family: monospace;
+        font-size: 12px;
+        padding: 0;
     }}
 
     /* ---- Tree widgets ------------------------------------------- */
@@ -975,20 +1075,52 @@ def build_global_qss(p: ThemePalette) -> str:
     QTreeWidget#debugHoverValueTree::item:selected {{
         background: {p["selected_bg"]};
     }}
-    QTreeWidget#debugVariablesTree {{
+    QFrame#debugInspectorSeparator {{
+        background-color: {p["border"]};
+        border: none;
+        max-height: 1px;
+        min-height: 1px;
+    }}
+    QPushButton#debugWatchRowRemoveButton {{
+        border: none;
+        background: transparent;
+        padding: 0px;
+        min-width: 24px;
+        max-width: 24px;
+    }}
+    QPushButton#debugWatchRowRemoveButton:hover {{
+        background: {p["hover_tree_bg"]};
+    }}
+    QListWidget#debugCallStackList {{
         border: none;
         background: {p["input_bg"]};
         outline: none;
     }}
-    QTreeWidget#debugVariablesTree::item {{
-        padding: 2px 6px 2px 2px;
+    QListWidget#debugCallStackList::item {{
+        padding: 2px 0px;
+    }}
+    QListWidget#debugCallStackList::item:selected {{
+        background: {p["selected_bg"]};
+        color: {p["text"]};
+    }}
+    QTreeWidget#debugVariablesTree,
+    QTreeWidget#debugScopesTree {{
+        border: none;
+        background: {p["input_bg"]};
+        outline: none;
+    }}
+    QTreeWidget#debugVariablesTree::item,
+    QTreeWidget#debugScopesTree::item {{
+        padding: 1px 4px 1px 2px;
     }}
     /* Section titles use bold ``setFont`` on top-level items (see ``debug_panel._add_section``). */
-    QTreeWidget#debugVariablesTree::item:selected {{
+    QTreeWidget#debugVariablesTree::item:selected,
+    QTreeWidget#debugScopesTree::item:selected {{
         background: {p["selected_bg"]};
     }}
     /* Foreground inherits the tree viewport palette (sharper than forcing ``color`` here). */
     QTreeWidget#debugVariablesTree QLabel#debugTreeCellLabel,
+    QTreeWidget#debugScopesTree QLabel#debugTreeCellLabel,
     QTreeWidget#debugHoverValueTree QLabel#debugTreeCellLabel {{
         background: transparent;
         border: none;

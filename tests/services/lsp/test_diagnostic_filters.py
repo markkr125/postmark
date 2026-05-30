@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from services.lsp.diagnostic_filters import should_publish_lsp_diagnostic
+from services.lsp.client import Diagnostic
+from services.lsp.diagnostic_filters import (
+    should_publish_lsp_diagnostic,
+    should_suppress_unused_local_require_diagnostic,
+)
+from services.scripting.local_dependency_diagnostics import RequireSite
 
 
 def test_keeps_commonjs_to_esm_hint() -> None:
@@ -35,3 +40,33 @@ def test_filters_implicit_any_hints_on_js_only() -> None:
     ts_uri = "file:///tmp/script.ts"
     assert not should_publish_lsp_diagnostic(raw, document_uri=js_uri)
     assert should_publish_lsp_diagnostic(raw, document_uri=ts_uri)
+
+
+def test_suppresses_unused_local_require_binding() -> None:
+    """Unused-variable hints on ``pm.require('local:…')`` bindings are dropped."""
+    sites = [RequireSite(rel_path="home/x.js", line=6, column=7, binding_name="local")]
+    diag = Diagnostic(
+        line=5,
+        column=6,
+        end_line=5,
+        end_column=11,
+        severity="hint",
+        message="'local' is declared but its value is never read.",
+        source="deno-ts",
+    )
+    assert should_suppress_unused_local_require_diagnostic(diag, sites)
+
+
+def test_keeps_unused_on_other_lines() -> None:
+    """Unused hints on unrelated lines are kept."""
+    sites = [RequireSite(rel_path="home/x.js", line=6, column=7, binding_name="local")]
+    diag = Diagnostic(
+        line=9,
+        column=1,
+        end_line=9,
+        end_column=5,
+        severity="hint",
+        message="'other' is declared but its value is never read.",
+        source="deno-ts",
+    )
+    assert not should_suppress_unused_local_require_diagnostic(diag, sites)

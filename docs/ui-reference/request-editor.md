@@ -116,19 +116,50 @@ For **JavaScript** inline debug (Deno), gutter breakpoints inside a
 any other user line; use **Debug test '…'** from the test gutter menu when you
 want to run a single named test only.
 
-### Inline debug inspector (Output tab)
+### Inline debug inspector (Debugger tab)
 
-When a script debug session pauses, the **Output** tab shows (top to bottom):
+**Debug** opens the **Debugger** tab automatically. When a session pauses:
 
 | Section | Widget | `objectName` | Role |
 |---------|--------|--------------|------|
 | Call stack | `CallStackPanel` | `debugCallStackList` | Lists frames; selecting a row calls `DebugProtocol.select_frame` and refreshes variables |
-| Variables | `DebugVariablesPanel` | *(tree)* | Locals / `pm` / globals for the selected frame |
-| Watch | `WatchPanel` | `debugWatchList` | User expressions re-evaluated via `DebugProtocol.evaluate` on each pause |
+| Variables | `DebugInspectorSplit` | `debugInspectorSplitter`, `debugScopesTree`, `debugWatchAddEdit` | Left: call stack; right: watch strip + unified tree (watches + locals / `pm` / globals) |
 
-Step / continue / stop controls live on the script editor toolbar, not in this
-panel. Conditional breakpoints use a yellow gutter marker; right-click the
-breakpoint gutter to edit the condition expression.
+`debugScopesTree` auto-expands nested object/array nodes returned by CDP scope
+materialization, so structured locals render as an open tree by default (rather
+than collapsed `Object`/`Array(...)` description strings).
+Use **Show internals** (`debugShowInternalsCheck`) in the watches strip to
+toggle internal runtime globals (`__pm_*`) on/off.
+
+Step / continue / stop controls live at the top of the **Debugger** tab
+(``scriptOutputDebugControls``), with **Start debug** (same action as the
+script toolbar bug icon) visible when idle, **View breakpoints** (JetBrains-style
+``BreakpointsDialog``: grouped list, properties, code preview; default 920×620),
+**Disable breakpoints** (toggle; skips line breakpoints while stepping still
+works), and **Break on uncaught exceptions** (Deno CDP; toggles
+``Debugger.setPauseOnExceptions``). Step buttons stay visible and disabled until a
+pause enables them. The pause line (``Paused at line N …``) appears on the
+script editor status bar after the character count (``scriptEditorDebugStatusLabel``).
+Conditional breakpoints use a yellow gutter marker;
+
+### Persisted breakpoints and watches
+
+Breakpoints and watch expressions are saved automatically (debounced, same order
+as script auto-save) and restored when you reopen a request, folder scripts tab,
+local script, or draft tab.
+
+| Host | Storage |
+|------|---------|
+| Request | `scripts.debug.pre_request` / `scripts.debug.test` |
+| Folder/collection | `events.debug.pre_request` / `events.debug.test` |
+| Local script | `local_scripts.debug_metadata` (flat: `breakpoints`, `watches`) |
+| Unsaved draft | Tab session JSON (`debug` next to `data`) |
+
+Each slice uses `breakpoints: [{line, condition}]` (0-based lines) and
+`watches: [expression, …]`. Conditions longer than 1024 bytes are truncated on
+save. Toolbar **Disable breakpoints** / **Break on uncaught exceptions** are not
+persisted (runtime only).
+right-click the breakpoint gutter to edit the condition expression.
 
 ### Assertions tab (_AssertionsMixin)
 
@@ -148,8 +179,9 @@ Results tab.
 
 ### Data-driven iterations (post-response Scripts)
 
-Post-response `ScriptOutputPanel` tabs: **Output**, **Problems**, **Iterations**
-(when the data runner is used), **Mock response**.
+Post-response `ScriptOutputPanel` tabs: **Output**, **Debugger**, **Problems**,
+**Iterations** (when the data runner is used), **Mock response**. **Run** and
+**Run all** switch to **Output**; **Debug** switches to **Debugger**.
 
 | Control | Description |
 |---------|-------------|

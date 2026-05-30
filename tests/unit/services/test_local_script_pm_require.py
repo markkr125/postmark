@@ -45,6 +45,35 @@ def test_resolve_local_module_transitive() -> None:
     assert mods["lib/main.js"].script_id == main.id
 
 
+def test_resolve_follows_static_imports_from_required_module() -> None:
+    """A ``pm.require``-d module's static ESM imports are mirrored (regression).
+
+    A ``.ts`` module pulled in via ``pm.require`` that uses ``import … from`` to
+    reach a sibling must have that sibling included in the closure — otherwise
+    Deno fails at runtime with ``Module not found``.
+    """
+    root = create_folder("lib")
+    dep = create_script(
+        root.id,
+        "dep",
+        language="javascript",
+        content="export const v = 1;",
+    )
+    main = create_script(
+        root.id,
+        "main",
+        language="typescript",
+        content='import { v } from "./dep.js";\nexport default v;',
+    )
+
+    mods = resolve_required('const x = pm.require("local:lib/main.ts");', "javascript")
+
+    assert "lib/main.ts" in mods
+    assert "lib/dep.js" in mods  # static import followed, not only pm.require
+    assert mods["lib/dep.js"].script_id == dep.id
+    assert mods["lib/main.ts"].script_id == main.id
+
+
 def test_resolve_cycle_raises() -> None:
     """Cycles must raise with ``cycle`` in the message."""
     root = create_folder("a")
@@ -72,6 +101,50 @@ def test_local_imports_block_registers_specifiers() -> None:
     block = _pm_require_local_imports_block(mods)
     assert './local/auth/helper.js"' in block or "./local/auth/helper.js" in block
     assert '"local:auth/helper.js"' in block
+
+
+def test_lsp_index_emits_local_require_overload(monkeypatch, tmp_path) -> None:
+    """``sync_pm_require_types`` types ``pm.require('local:…')`` for the Deno LSP.
+
+    Regression: local: specifiers were filtered out of the index, so the call
+    fell through to ``require(spec: string): unknown`` and ``local.`` had no
+    members. The index must now carry a ``typeof import('./local/<rel>')``
+    overload, and the referenced module (plus its transitive imports) must be
+    mirrored so the import resolves.
+    """
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))  # isolate the LSP workspace
+    from services.lsp.pm_require_types import sync_pm_require_types, unregister_pm_require_buffer
+    from services.lsp.servers._workspace import ensure_js_workspace
+
+    home = create_folder("home")
+    home2 = create_folder("home2")
+    create_script(home2.id, "dep", language="javascript", content="export const v = 1;\n")
+    create_script(
+        home.id,
+        "util",
+        language="typescript",
+        content="import { v } from '../home2/dep.js';\nexport function replaceStr(s: string) { return s + v; }\n",
+    )
+
+    ws = ensure_js_workspace()
+    buffer_uri = "file:///buf.ts"
+    try:
+        sync_pm_require_types(
+            "const local = pm.require('local:home/util.ts');\n",
+            ws,
+            buffer_uri=buffer_uri,
+        )
+        index = (ws / "pm_require_index.ts").read_text(encoding="utf-8")
+        assert (
+            'function require(spec: "local:home/util.ts"): '
+            'typeof import("./local/home/util.ts");' in index
+        )
+        # The required module AND its transitive sibling import are mirrored,
+        # so the generated ``typeof import`` resolves cleanly.
+        assert (ws / "local" / "home" / "util.ts").is_file()
+        assert (ws / "local" / "home2" / "dep.js").is_file()
+    finally:
+        unregister_pm_require_buffer(ws, buffer_uri)
 
 
 def test_prepare_pm_require_bundle_union_scans_nested_npm() -> None:

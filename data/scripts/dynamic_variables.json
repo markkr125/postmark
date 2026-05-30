@@ -1,0 +1,870 @@
+{
+  "pools": {
+    "firstNames": [
+      "Alice",
+      "Bob",
+      "Carol",
+      "David",
+      "Eve",
+      "Frank",
+      "Grace",
+      "Henry",
+      "Ivy",
+      "Jack",
+      "Kate",
+      "Leo",
+      "Mia",
+      "Noah",
+      "Olivia",
+      "Paul",
+      "Quinn",
+      "Rose",
+      "Sam",
+      "Tina",
+      "Uma",
+      "Victor",
+      "Wendy",
+      "Xander",
+      "Yara",
+      "Zoe"
+    ],
+    "lastNames": [
+      "Smith",
+      "Johnson",
+      "Williams",
+      "Brown",
+      "Jones",
+      "Garcia",
+      "Miller",
+      "Davis",
+      "Rodriguez",
+      "Martinez",
+      "Wilson",
+      "Anderson",
+      "Taylor",
+      "Thomas",
+      "Moore",
+      "Jackson",
+      "Martin",
+      "Lee",
+      "Perez",
+      "Thompson"
+    ],
+    "words": [
+      "lorem",
+      "ipsum",
+      "dolor",
+      "sit",
+      "amet",
+      "alpha",
+      "beta",
+      "gamma",
+      "delta",
+      "echo",
+      "foxtrot",
+      "golf",
+      "hotel",
+      "india",
+      "juliet"
+    ],
+    "domains": [
+      "com",
+      "net",
+      "org",
+      "io",
+      "dev",
+      "app",
+      "co",
+      "uk"
+    ],
+    "colors": [
+      "red",
+      "green",
+      "blue",
+      "yellow",
+      "orange",
+      "purple",
+      "cyan",
+      "magenta",
+      "black",
+      "white",
+      "gray",
+      "navy",
+      "teal",
+      "maroon",
+      "lime"
+    ],
+    "countries": [
+      "United States",
+      "United Kingdom",
+      "Canada",
+      "Germany",
+      "France",
+      "Australia",
+      "Japan",
+      "Brazil",
+      "India",
+      "Mexico"
+    ],
+    "countryCodes": [
+      "US",
+      "GB",
+      "CA",
+      "DE",
+      "FR",
+      "AU",
+      "JP",
+      "BR",
+      "IN",
+      "MX"
+    ],
+    "currencyCodes": [
+      "USD",
+      "EUR",
+      "GBP",
+      "JPY",
+      "CAD",
+      "AUD",
+      "CHF",
+      "CNY"
+    ],
+    "months": [
+      "January",
+      "February",
+      "March",
+      "April",
+      "May",
+      "June",
+      "July",
+      "August",
+      "September",
+      "October",
+      "November",
+      "December"
+    ],
+    "weekdays": [
+      "Monday",
+      "Tuesday",
+      "Wednesday",
+      "Thursday",
+      "Friday",
+      "Saturday",
+      "Sunday"
+    ],
+    "jobTitles": [
+      "Engineer",
+      "Designer",
+      "Manager",
+      "Analyst",
+      "Developer",
+      "Consultant",
+      "Director",
+      "Specialist"
+    ],
+    "companySuffixes": [
+      "Inc",
+      "LLC",
+      "Group",
+      "Corp",
+      "Ltd",
+      "Co"
+    ],
+    "fileExts": [
+      "txt",
+      "pdf",
+      "png",
+      "json",
+      "csv",
+      "xml",
+      "html",
+      "js"
+    ],
+    "mimeTypes": [
+      "application/json",
+      "text/plain",
+      "text/html",
+      "image/png",
+      "application/pdf"
+    ],
+    "productNames": [
+      "Chair",
+      "Keyboard",
+      "Monitor",
+      "Desk",
+      "Lamp",
+      "Notebook",
+      "Pen",
+      "Mouse"
+    ],
+    "namePrefixes": [
+      "Mr.",
+      "Mrs.",
+      "Ms.",
+      "Dr.",
+      "Prof."
+    ],
+    "nameSuffixes": [
+      "Jr.",
+      "Sr.",
+      "II",
+      "III",
+      "PhD"
+    ],
+    "streets": [
+      "Main St",
+      "Oak Ave",
+      "Maple Dr",
+      "Cedar Ln",
+      "Pine Rd"
+    ],
+    "cities": [
+      "Springfield",
+      "Riverdale",
+      "Fairview",
+      "Madison",
+      "Georgetown"
+    ],
+    "bsWords": [
+      "synergize",
+      "leverage",
+      "paradigm",
+      "bandwidth",
+      "ecosystem"
+    ],
+    "catchPhrases": [
+      "Think outside the box",
+      "Move the needle",
+      "Low-hanging fruit"
+    ],
+    "loremWords": [
+      "lorem",
+      "ipsum",
+      "dolor",
+      "amet",
+      "consectetur",
+      "adipiscing",
+      "elit"
+    ],
+    "hackerAdj": [
+      "virtual",
+      "digital",
+      "quantum",
+      "neural",
+      "binary"
+    ],
+    "hackerNouns": [
+      "firewall",
+      "protocol",
+      "matrix",
+      "sensor",
+      "pixel"
+    ],
+    "hackerVerbs": [
+      "bypass",
+      "hack",
+      "compress",
+      "copy",
+      "navigate"
+    ],
+    "dbColumns": [
+      "id",
+      "name",
+      "email",
+      "created_at",
+      "status"
+    ],
+    "dbTypes": [
+      "varchar",
+      "int",
+      "boolean",
+      "timestamp",
+      "jsonb"
+    ],
+    "dbCollations": [
+      "utf8_general_ci",
+      "utf8mb4_unicode_ci"
+    ],
+    "dbEngines": [
+      "InnoDB",
+      "MyISAM",
+      "PostgreSQL"
+    ],
+    "transactionTypes": [
+      "deposit",
+      "withdrawal",
+      "payment",
+      "refund"
+    ],
+    "currencyNames": [
+      "US Dollar",
+      "Euro",
+      "British Pound",
+      "Japanese Yen"
+    ],
+    "currencySymbols": [
+      "$",
+      "\u20ac",
+      "\u00a3",
+      "\u00a5"
+    ],
+    "productAdj": [
+      "Ergonomic",
+      "Wireless",
+      "Portable",
+      "Premium"
+    ],
+    "productMaterials": [
+      "Plastic",
+      "Metal",
+      "Wood",
+      "Glass"
+    ],
+    "departments": [
+      "Electronics",
+      "Home",
+      "Office",
+      "Sports"
+    ],
+    "imageCategories": [
+      "abstract",
+      "animals",
+      "business",
+      "cats",
+      "city",
+      "food",
+      "nature",
+      "nightlife",
+      "fashion",
+      "people",
+      "sports",
+      "technics",
+      "transport"
+    ],
+    "protocols": [
+      "http",
+      "https",
+      "ftp",
+      "ws",
+      "wss"
+    ],
+    "locales": [
+      "en-US",
+      "en-GB",
+      "de-DE",
+      "fr-FR",
+      "ja-JP"
+    ],
+    "userAgents": [
+      "Mozilla/5.0",
+      "PostmanRuntime/7.32.3"
+    ],
+    "semverParts": [
+      "1",
+      "2",
+      "0",
+      "3",
+      "4",
+      "5"
+    ]
+  },
+  "vars": {
+    "$guid": {
+      "rule": "uuid"
+    },
+    "$randomUUID": {
+      "rule": "uuid"
+    },
+    "$timestamp": {
+      "rule": "unixTime"
+    },
+    "$isoTimestamp": {
+      "rule": "isoTime"
+    },
+    "$randomInt": {
+      "rule": "intRange",
+      "min": 0,
+      "max": 1000
+    },
+    "$randomFloat": {
+      "rule": "floatRange",
+      "min": 0,
+      "max": 1000,
+      "decimals": 2
+    },
+    "$randomBoolean": {
+      "rule": "boolean"
+    },
+    "$randomAlphaNumeric": {
+      "rule": "alphaNumeric"
+    },
+    "$randomColor": {
+      "rule": "pick",
+      "pool": "colors"
+    },
+    "$randomHexColor": {
+      "rule": "hexColor"
+    },
+    "$randomAbbreviation": {
+      "rule": "pick",
+      "pool": "words"
+    },
+    "$randomIP": {
+      "rule": "ipv4"
+    },
+    "$randomIPV6": {
+      "rule": "ipv6"
+    },
+    "$randomMACAddress": {
+      "rule": "mac"
+    },
+    "$randomPassword": {
+      "rule": "password"
+    },
+    "$randomLocale": {
+      "rule": "pick",
+      "pool": "locales"
+    },
+    "$randomUserAgent": {
+      "rule": "pick",
+      "pool": "userAgents"
+    },
+    "$randomProtocol": {
+      "rule": "pick",
+      "pool": "protocols"
+    },
+    "$randomSemver": {
+      "rule": "semver"
+    },
+    "$randomFirstName": {
+      "rule": "pick",
+      "pool": "firstNames"
+    },
+    "$randomLastName": {
+      "rule": "pick",
+      "pool": "lastNames"
+    },
+    "$randomFullName": {
+      "rule": "template",
+      "parts": [
+        {
+          "pool": "firstNames"
+        },
+        " ",
+        {
+          "pool": "lastNames"
+        }
+      ]
+    },
+    "$randomNamePrefix": {
+      "rule": "pick",
+      "pool": "namePrefixes"
+    },
+    "$randomNameSuffix": {
+      "rule": "pick",
+      "pool": "nameSuffixes"
+    },
+    "$randomJobArea": {
+      "rule": "pick",
+      "pool": "words"
+    },
+    "$randomJobDescriptor": {
+      "rule": "pick",
+      "pool": "words"
+    },
+    "$randomJobTitle": {
+      "rule": "pick",
+      "pool": "jobTitles"
+    },
+    "$randomJobType": {
+      "rule": "pick",
+      "pool": "words"
+    },
+    "$randomPhoneNumber": {
+      "rule": "phone"
+    },
+    "$randomPhoneNumberExt": {
+      "rule": "phoneExt"
+    },
+    "$randomCity": {
+      "rule": "pick",
+      "pool": "cities"
+    },
+    "$randomStreetName": {
+      "rule": "pick",
+      "pool": "streets"
+    },
+    "$randomStreetAddress": {
+      "rule": "streetAddress"
+    },
+    "$randomCountry": {
+      "rule": "pick",
+      "pool": "countries"
+    },
+    "$randomCountryCode": {
+      "rule": "pick",
+      "pool": "countryCodes"
+    },
+    "$randomLatitude": {
+      "rule": "latitude"
+    },
+    "$randomLongitude": {
+      "rule": "longitude"
+    },
+    "$randomAvatarImage": {
+      "rule": "imageUrl",
+      "pool": "abstract"
+    },
+    "$randomImageUrl": {
+      "rule": "imageUrl",
+      "pool": "abstract"
+    },
+    "$randomAbstractImage": {
+      "rule": "imageUrl",
+      "pool": "abstract"
+    },
+    "$randomAnimalsImage": {
+      "rule": "imageUrl",
+      "pool": "animals"
+    },
+    "$randomBusinessImage": {
+      "rule": "imageUrl",
+      "pool": "business"
+    },
+    "$randomCatsImage": {
+      "rule": "imageUrl",
+      "pool": "cats"
+    },
+    "$randomCityImage": {
+      "rule": "imageUrl",
+      "pool": "city"
+    },
+    "$randomFoodImage": {
+      "rule": "imageUrl",
+      "pool": "food"
+    },
+    "$randomNatureImage": {
+      "rule": "imageUrl",
+      "pool": "nature"
+    },
+    "$randomNightlifeImage": {
+      "rule": "imageUrl",
+      "pool": "nightlife"
+    },
+    "$randomFashionImage": {
+      "rule": "imageUrl",
+      "pool": "fashion"
+    },
+    "$randomPeopleImage": {
+      "rule": "imageUrl",
+      "pool": "people"
+    },
+    "$randomSportsImage": {
+      "rule": "imageUrl",
+      "pool": "sports"
+    },
+    "$randomTechnicsImage": {
+      "rule": "imageUrl",
+      "pool": "technics"
+    },
+    "$randomTransportImage": {
+      "rule": "imageUrl",
+      "pool": "transport"
+    },
+    "$randomImageDataUri": {
+      "rule": "imageDataUri"
+    },
+    "$randomBankAccount": {
+      "rule": "bankAccount"
+    },
+    "$randomBankAccountName": {
+      "rule": "template",
+      "parts": [
+        {
+          "pool": "firstNames"
+        },
+        " ",
+        {
+          "pool": "lastNames"
+        }
+      ]
+    },
+    "$randomCreditCardMask": {
+      "rule": "creditCardMask"
+    },
+    "$randomBankAccountBic": {
+      "rule": "bic"
+    },
+    "$randomBankAccountIban": {
+      "rule": "iban"
+    },
+    "$randomTransactionType": {
+      "rule": "pick",
+      "pool": "transactionTypes"
+    },
+    "$randomCurrencyCode": {
+      "rule": "pick",
+      "pool": "currencyCodes"
+    },
+    "$randomCurrencyName": {
+      "rule": "pick",
+      "pool": "currencyNames"
+    },
+    "$randomCurrencySymbol": {
+      "rule": "pick",
+      "pool": "currencySymbols"
+    },
+    "$randomBitcoin": {
+      "rule": "bitcoin"
+    },
+    "$randomCompanyName": {
+      "rule": "companyName"
+    },
+    "$randomCompanySuffix": {
+      "rule": "pick",
+      "pool": "companySuffixes"
+    },
+    "$randomBs": {
+      "rule": "pick",
+      "pool": "bsWords"
+    },
+    "$randomBsAdjective": {
+      "rule": "pick",
+      "pool": "bsWords"
+    },
+    "$randomBsBuzz": {
+      "rule": "pick",
+      "pool": "bsWords"
+    },
+    "$randomBsNoun": {
+      "rule": "pick",
+      "pool": "bsWords"
+    },
+    "$randomCatchPhrase": {
+      "rule": "pick",
+      "pool": "catchPhrases"
+    },
+    "$randomCatchPhraseAdjective": {
+      "rule": "pick",
+      "pool": "bsWords"
+    },
+    "$randomCatchPhraseDescriptor": {
+      "rule": "pick",
+      "pool": "bsWords"
+    },
+    "$randomCatchPhraseNoun": {
+      "rule": "pick",
+      "pool": "bsWords"
+    },
+    "$randomDatabaseColumn": {
+      "rule": "pick",
+      "pool": "dbColumns"
+    },
+    "$randomDatabaseType": {
+      "rule": "pick",
+      "pool": "dbTypes"
+    },
+    "$randomDatabaseCollation": {
+      "rule": "pick",
+      "pool": "dbCollations"
+    },
+    "$randomDatabaseEngine": {
+      "rule": "pick",
+      "pool": "dbEngines"
+    },
+    "$randomDateFuture": {
+      "rule": "dateFuture"
+    },
+    "$randomDatePast": {
+      "rule": "datePast"
+    },
+    "$randomDateRecent": {
+      "rule": "dateRecent"
+    },
+    "$randomWeekday": {
+      "rule": "pick",
+      "pool": "weekdays"
+    },
+    "$randomMonth": {
+      "rule": "pick",
+      "pool": "months"
+    },
+    "$randomDomainName": {
+      "rule": "domainName"
+    },
+    "$randomDomainSuffix": {
+      "rule": "pick",
+      "pool": "domains"
+    },
+    "$randomDomainWord": {
+      "rule": "pick",
+      "pool": "words"
+    },
+    "$randomEmail": {
+      "rule": "template",
+      "parts": [
+        {
+          "pool": "firstNames"
+        },
+        ".",
+        {
+          "pool": "lastNames"
+        },
+        "@",
+        {
+          "pool": "words"
+        },
+        ".",
+        {
+          "pool": "domains"
+        }
+      ]
+    },
+    "$randomExampleEmail": {
+      "rule": "exampleEmail"
+    },
+    "$randomUserName": {
+      "rule": "userName"
+    },
+    "$randomUrl": {
+      "rule": "url"
+    },
+    "$randomFileName": {
+      "rule": "fileName"
+    },
+    "$randomFileType": {
+      "rule": "pick",
+      "pool": "mimeTypes"
+    },
+    "$randomFileExt": {
+      "rule": "pick",
+      "pool": "fileExts"
+    },
+    "$randomCommonFileName": {
+      "rule": "fileName"
+    },
+    "$randomCommonFileType": {
+      "rule": "pick",
+      "pool": "mimeTypes"
+    },
+    "$randomCommonFileExt": {
+      "rule": "pick",
+      "pool": "fileExts"
+    },
+    "$randomFilePath": {
+      "rule": "filePath"
+    },
+    "$randomDirectoryPath": {
+      "rule": "directoryPath"
+    },
+    "$randomMimeType": {
+      "rule": "pick",
+      "pool": "mimeTypes"
+    },
+    "$randomPrice": {
+      "rule": "price"
+    },
+    "$randomProduct": {
+      "rule": "pick",
+      "pool": "productNames"
+    },
+    "$randomProductAdjective": {
+      "rule": "pick",
+      "pool": "productAdj"
+    },
+    "$randomProductMaterial": {
+      "rule": "pick",
+      "pool": "productMaterials"
+    },
+    "$randomProductName": {
+      "rule": "pick",
+      "pool": "productNames"
+    },
+    "$randomDepartment": {
+      "rule": "pick",
+      "pool": "departments"
+    },
+    "$randomNoun": {
+      "rule": "pick",
+      "pool": "words"
+    },
+    "$randomVerb": {
+      "rule": "pick",
+      "pool": "hackerVerbs"
+    },
+    "$randomIngverb": {
+      "rule": "ingVerb"
+    },
+    "$randomAdjective": {
+      "rule": "pick",
+      "pool": "hackerAdj"
+    },
+    "$randomWord": {
+      "rule": "pick",
+      "pool": "words"
+    },
+    "$randomWords": {
+      "rule": "picks",
+      "pool": "words",
+      "min": 2,
+      "max": 5
+    },
+    "$randomPhrase": {
+      "rule": "picks",
+      "pool": "words",
+      "min": 3,
+      "max": 6
+    },
+    "$randomLoremWord": {
+      "rule": "pick",
+      "pool": "loremWords"
+    },
+    "$randomLoremWords": {
+      "rule": "picks",
+      "pool": "loremWords",
+      "min": 2,
+      "max": 5
+    },
+    "$randomLoremSentence": {
+      "rule": "loremSentence"
+    },
+    "$randomLoremSentences": {
+      "rule": "loremSentences"
+    },
+    "$randomLoremParagraph": {
+      "rule": "loremParagraph"
+    },
+    "$randomLoremParagraphs": {
+      "rule": "loremParagraphs"
+    },
+    "$randomLoremText": {
+      "rule": "loremText"
+    },
+    "$randomLoremSlug": {
+      "rule": "loremSlug"
+    },
+    "$randomLoremLines": {
+      "rule": "loremLines"
+    },
+    "$randomHackerAbbr": {
+      "rule": "hackerAbbr"
+    },
+    "$randomHackerAdjective": {
+      "rule": "pick",
+      "pool": "hackerAdj"
+    },
+    "$randomHackerNoun": {
+      "rule": "pick",
+      "pool": "hackerNouns"
+    },
+    "$randomHackerPhrase": {
+      "rule": "hackerPhrase"
+    },
+    "$randomHackerVerb": {
+      "rule": "pick",
+      "pool": "hackerVerbs"
+    },
+    "$randomHackerIngverb": {
+      "rule": "ingVerb"
+    }
+  }
+}

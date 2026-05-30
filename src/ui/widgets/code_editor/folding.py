@@ -78,6 +78,8 @@ class _FoldingMixin(_FoldingBase):
 
     def _on_contents_changed(self) -> None:
         """Schedule fold recomputation and validation after content change."""
+        if getattr(self, "_debug_session_active", False):
+            return
         self._fold_timer.start()
         if self._language in _VALIDATABLE_LANGUAGES:
             self._validate_timer.start()
@@ -699,12 +701,11 @@ class _FoldingMixin(_FoldingBase):
             self._language in ("javascript", "typescript", "python")
             and self._should_skip_script_validation()
         ):
-            # LSP publishes most diagnostics; still flag ESM/CommonJS mismatch when not CJS.
-            if text.strip() and self._language in ("javascript", "typescript"):
-                mod_fmt = getattr(self, "_script_module_format", "esm")
-                if mod_fmt != "commonjs":
-                    esm_errors = self._validate_script(text)
-                    self.apply_validation_errors(esm_errors)
+            # Deno/jedi publish diagnostics via :class:`EditorLspAdapter` (including
+            # ESM/CommonJS rules). Do not call :meth:`apply_validation_errors` here —
+            # that would replace LSP markers with an empty ESM-only list ~300ms after
+            # each edit and make errors vanish from the gutter while Problems still
+            # lists them.
             return
 
         errors: list[SyntaxError_] = []
@@ -727,6 +728,16 @@ class _FoldingMixin(_FoldingBase):
 
         elif self._language in ("javascript", "typescript", "python") and text.strip():
             errors.extend(self._validate_script(text))
+
+        if self._language in ("javascript", "typescript", "python"):
+            from typing import cast
+
+            from ui.widgets.code_editor.editor_lsp_glue import (
+                apply_standalone_dependency_diagnostics,
+            )
+            from ui.widgets.code_editor.editor_widget import CodeEditorWidget
+
+            apply_standalone_dependency_diagnostics(cast(CodeEditorWidget, self))
 
         old_has_errors = bool(self._errors)
         new_has_errors = bool(errors)

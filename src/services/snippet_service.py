@@ -42,8 +42,6 @@ class UserSnippetDict(TypedDict):
     category: str
     body: str
     context: str
-    scope_collection_id: int | None
-    scope_local_script_id: int | None
     created_at: str | None
     is_user: bool
 
@@ -66,19 +64,10 @@ class SnippetService:
         return _SHORT_TO_LONG.get(code, code)
 
     @staticmethod
-    def list_all(
-        language: str,
-        *,
-        collection_id: int | None = None,
-        local_script_id: int | None = None,
-    ) -> list[UserSnippetDict]:
-        """Return all scoped user snippets for *language* (no context filter)."""
+    def list_all(language: str) -> list[UserSnippetDict]:
+        """Return all user snippets for *language* (no context filter)."""
         short = SnippetService.normalize_language(language)
-        rows = list_snippets(
-            language=short,
-            collection_id=collection_id,
-            local_script_id=local_script_id,
-        )
+        rows = list_snippets(language=short)
         return [
             UserSnippetDict(
                 id=int(row["id"]),
@@ -87,8 +76,6 @@ class SnippetService:
                 category=str(row.get("category") or _DEFAULT_CATEGORY),
                 body=str(row["body"]),
                 context=str(row.get("context") or "both"),
-                scope_collection_id=row.get("scope_collection_id"),
-                scope_local_script_id=row.get("scope_local_script_id"),
                 created_at=row.get("created_at"),
                 is_user=True,
             )
@@ -96,22 +83,12 @@ class SnippetService:
         ]
 
     @staticmethod
-    def list(
-        language: str,
-        context: str,
-        *,
-        collection_id: int | None = None,
-        local_script_id: int | None = None,
-    ) -> list[UserSnippetDict]:
-        """Return user snippets for *language* filtered by *context* and scope."""
+    def list(language: str, context: str) -> list[UserSnippetDict]:
+        """Return user snippets for *language* filtered by *context*."""
         ctx = SnippetService._normalize_context_key(context)
         return [
             row
-            for row in SnippetService.list_all(
-                language,
-                collection_id=collection_id,
-                local_script_id=local_script_id,
-            )
+            for row in SnippetService.list_all(language)
             if SnippetService._context_matches(row["context"], ctx)
         ]
 
@@ -123,8 +100,6 @@ class SnippetService:
         body: str,
         category: str = _DEFAULT_CATEGORY,
         context: str = "both",
-        scope_collection_id: int | None = None,
-        scope_local_script_id: int | None = None,
     ) -> int:
         """Persist a new snippet; return its id."""
         short = SnippetService.normalize_language(language)
@@ -141,8 +116,6 @@ class SnippetService:
             category=cat,
             body=body,
             context=ctx,
-            scope_collection_id=scope_collection_id,
-            scope_local_script_id=scope_local_script_id,
         )
         SnippetService._invalidate_loader_cache()
         return int(row.id)

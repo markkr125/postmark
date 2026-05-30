@@ -59,7 +59,7 @@ and managed download.
 |------|----------|
 | Appearance | Style (Fusion / Native), colour scheme (Auto / Light / Dark) |
 | Tabs | Tab limit, close policies, activate-on-close, wrap mode |
-| Scripting | Deno executable path, validation, managed download; Python path; LSP toggle; auto-save default; **Private package registries** (npm / JSR scope-mapped + default-npm override + PyPI primary/extra index with embedded auth) |
+| Scripting | Deno executable path, validation, managed download; Python path; LSP toggle (tooltip notes debounced `didChange` / `pm.require` indexing); **Reset LSP workspace caches** (`pm_require_types.reset_workspace`); auto-save default; **Private package registries** (npm / JSR scope-mapped + default-npm override + PyPI primary/extra index with embedded auth) |
 
 ### Private package registries (Scripting page)
 

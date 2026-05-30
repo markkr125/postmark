@@ -45,6 +45,7 @@ class ScriptInput(TypedDict):
     collection_vars: dict[str, str]
     global_vars: NotRequired[dict[str, str]]
     info: dict[str, Any]
+    environment_name: NotRequired[str]
     iteration_data: NotRequired[dict[str, Any]]
     original_request: NotRequired[dict[str, Any]]
     execution_location: NotRequired[dict[str, Any]]

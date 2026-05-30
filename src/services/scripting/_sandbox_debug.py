@@ -283,6 +283,22 @@ def _execute_debug(script: str, pm: _Pm, debug_cfg: dict[str, Any]) -> dict[str,
                 sys.stdout.write(json.dumps({"__ipc__": "evalResult", "value": result}) + "\n")
                 sys.stdout.flush()
                 continue
+            if op == "evalMany":
+                raw_items = cmd.get("exprs", [])
+                values: list[str] = []
+                if isinstance(raw_items, list):
+                    for item in raw_items:
+                        if isinstance(item, list | tuple) and len(item) >= 2:
+                            expr_s = str(item[0])
+                            idx = int(item[1])
+                        else:
+                            expr_s = ""
+                            idx = 0
+                        fr = pause_frames[idx] if 0 <= idx < len(pause_frames) else active
+                        values.append(_eval_expr(expr_s, fr))
+                sys.stdout.write(json.dumps({"__ipc__": "evalManyResult", "values": values}) + "\n")
+                sys.stdout.flush()
+                continue
             if op == "getLocals":
                 idx = int(cmd.get("frame", 0))
                 fr = pause_frames[idx] if 0 <= idx < len(pause_frames) else active
@@ -347,6 +363,10 @@ def _execute_debug(script: str, pm: _Pm, debug_cfg: dict[str, Any]) -> dict[str,
         )
     finally:
         sys.settrace(None)
+
+    from services.scripting.context import harvest_legacy_tests
+
+    harvest_legacy_tests(restricted_globals.get("tests"), pm._test_results)
 
     all_changes: dict[str, str] = {}
     for scope in (pm.variables, pm.environment, pm.collection_variables):

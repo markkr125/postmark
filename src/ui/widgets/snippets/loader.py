@@ -104,8 +104,9 @@ class SnippetCategory:
     """A category header and an ordered tuple of snippets.
 
     ``contexts`` filters where the category appears in the popover:
-    ``"pre"`` for pre-request scripts, ``"post"`` for post-response
-    scripts. An empty tuple means show in every context (default for
+    ``"pre"`` for request pre-request scripts, ``"post"`` for post-response
+    (Tests) scripts, ``"local"`` for local script tabs (no ``pm.response``).
+    An empty tuple means show in every request context (default for
     back-compat when the JSON omits the field).
     """
 
@@ -117,6 +118,43 @@ class SnippetCategory:
 def _data_dir() -> Path:
     """Return ``<repo>/data/snippets``."""
     return Path(__file__).resolve().parents[4] / "data" / "snippets"
+
+
+def snippet_compatible_with_local_script(body: str) -> bool:
+    """Return False when *body* uses ``pm.response`` (unavailable on local Run)."""
+    return "pm.response" not in body
+
+
+def _context_tag(script_type: str, host_kind: str) -> str:
+    """Map editor placement to a snippet ``contexts`` tag."""
+    if host_kind == "local_script":
+        return "local"
+    return "pre" if script_type == "pre_request" else "post"
+
+
+def _category_visible_for_context(cat: SnippetCategory, ctx: str) -> bool:
+    """Return whether *cat* should appear for snippet context *ctx*."""
+    if not cat.contexts:
+        return ctx != "local"
+    return ctx in cat.contexts
+
+
+def _snippet_visible_for_context(
+    snip: Snippet,
+    ctx: str,
+    *,
+    host_kind: str = "request",
+) -> bool:
+    """Return whether *snip* should appear for snippet context *ctx*."""
+    if host_kind == "local_script" and not snippet_compatible_with_local_script(snip.body):
+        return False
+    if not snip.is_user:
+        return True
+    if ctx == "local":
+        return snip.context in ("both", "pre")
+    if ctx == "pre":
+        return snip.context in ("both", "pre")
+    return snip.context in ("both", "test")
 
 
 def _resolve_language(language: str) -> str:
@@ -199,20 +237,11 @@ def _user_context_to_loader_contexts(context: str) -> tuple[str, ...]:
     return ()
 
 
-def _load_user_categories(
-    language: str,
-    *,
-    collection_id: int | None = None,
-    local_script_id: int | None = None,
-) -> tuple[SnippetCategory, ...]:
-    """Group scoped user snippets into categories (user rows first)."""
+def _load_user_categories(language: str) -> tuple[SnippetCategory, ...]:
+    """Group user snippets into categories (user rows first)."""
     from services.snippet_service import SnippetService
 
-    rows = SnippetService.list_all(
-        language,
-        collection_id=collection_id,
-        local_script_id=local_script_id,
-    )
+    rows = SnippetService.list_all(language)
     by_cat: dict[str, list[Snippet]] = {}
     for row in rows:
         cat_name = str(row.get("category") or "My snippets")
@@ -272,18 +301,10 @@ def _merge_categories(
 
 
 @lru_cache(maxsize=32)
-def load_snippets(
-    language: str,
-    collection_id: int | None = None,
-    local_script_id: int | None = None,
-) -> tuple[SnippetCategory, ...]:
-    """Load built-in JSON plus scoped user snippets for *language*."""
+def load_snippets(language: str) -> tuple[SnippetCategory, ...]:
+    """Load built-in JSON plus user snippets for *language*."""
     builtin = _load_builtin_snippets(language)
-    user = _load_user_categories(
-        language,
-        collection_id=collection_id,
-        local_script_id=local_script_id,
-    )
+    user = _load_user_categories(language)
     if not user:
         return builtin
     if not builtin:
@@ -291,41 +312,35 @@ def load_snippets(
     return _merge_categories(user, builtin)
 
 
-def has_snippets(language: str) -> bool:
-    """Return whether any snippet rows exist for *language* (after TS fallback)."""
-    return bool(load_snippets(language))
+def has_snippets(
+    language: str,
+    script_type: str = "pre_request",
+    *,
+    host_kind: str = "request",
+) -> bool:
+    """Return whether any snippet rows exist for *language* after context filtering."""
+    return bool(load_snippets_for(language, script_type, host_kind=host_kind))
 
 
 def load_snippets_for(
     language: str,
     script_type: str,
     *,
-    collection_id: int | None = None,
-    local_script_id: int | None = None,
+    host_kind: str = "request",
 ) -> tuple[SnippetCategory, ...]:
-    """Filter :func:`load_snippets` by editor *script_type*.
+    """Filter :func:`load_snippets` by editor placement and *script_type*.
 
-    Maps ``script_type`` (``"pre_request"`` / ``"test"``) to a
-    category context tag (``"pre"`` / ``"post"``). Categories without
-    a ``contexts`` field are shown in every context (back-compat).
+    Request tabs use ``pre`` / ``post`` tags. Local script editors use
+    ``local`` and omit built-in snippets that reference ``pm.response``.
     """
-    ctx = "pre" if script_type == "pre_request" else "post"
-    all_cats = load_snippets(
-        language,
-        collection_id=collection_id,
-        local_script_id=local_script_id,
-    )
+    ctx = _context_tag(script_type, host_kind)
+    all_cats = load_snippets(language)
     filtered: list[SnippetCategory] = []
     for cat in all_cats:
-        if cat.contexts and ctx not in cat.contexts:
+        if not _category_visible_for_context(cat, ctx):
             continue
         kept = tuple(
-            s
-            for s in cat.snippets
-            if not s.is_user
-            or s.context == "both"
-            or (ctx == "pre" and s.context == "pre")
-            or (ctx == "post" and s.context == "test")
+            s for s in cat.snippets if _snippet_visible_for_context(s, ctx, host_kind=host_kind)
         )
         if kept:
             filtered.append(SnippetCategory(name=cat.name, snippets=kept, contexts=cat.contexts))

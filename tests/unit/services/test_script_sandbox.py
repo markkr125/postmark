@@ -120,6 +120,18 @@ pm.test("str works", lambda: pm.expect(str(42)).to.equal("42"))
         assert "pm.response.json()" in err
         assert "empty" in err.lower()
 
+    def test_pm_response_json_unavailable_without_response(self) -> None:
+        """Pre-request context explains that ``pm.response`` is missing."""
+        result = PyRuntime.execute_restricted(
+            'pm.response.json().get("access_token", "")',
+            _make_context(),
+        )
+        errs = [r for r in result["test_results"] if r.get("name") == "(runtime error)"]
+        assert len(errs) == 1
+        err = str(errs[0].get("error", ""))
+        assert "pm.response is not available" in err
+        assert "pre-request" in err.lower() or "before an HTTP response" in err
+
     def test_pm_response_json_invalid_body_friendly_error(self) -> None:
         result = PyRuntime.execute_restricted(
             "pm.response.json()",

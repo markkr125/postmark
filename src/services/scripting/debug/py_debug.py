@@ -61,14 +61,18 @@ def debug_execute(
                 "script": script,
                 "context": context,
                 "debug": {
-                    "breakpoints": protocol.breakpoints,
+                    "breakpoints": protocol.effective_breakpoints(),
                 },
             }
         )
         + "\n"
     )
 
-    src_root = str(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    src_root = str(
+        os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        )
+    )
     env: dict[str, str] = {"PATH": os.environ.get("PATH", "/usr/bin")}
     env["PYTHONPATH"] = src_root
 
@@ -218,6 +222,36 @@ def _debug_ipc_loop(
                     return str(val) if val is not None else ""
                 return "<error>"
 
+            def evaluate_many(
+                items: list[tuple[str, int]],
+                _lock: threading.Lock = proc_io_lock,
+            ) -> list[str]:
+                stdin = proc.stdin
+                stdout = proc.stdout
+                if stdin is None or stdout is None:
+                    return ["<error>"] * len(items)
+                payload = {"op": "evalMany", "exprs": [list(pair) for pair in items]}
+                with _lock:
+                    try:
+                        stdin.write((json.dumps(payload) + "\n").encode())
+                        stdin.flush()
+                        resp_line = stdout.readline()
+                    except (BrokenPipeError, OSError):
+                        return ["<error>"] * len(items)
+                if not resp_line:
+                    return ["<error>"] * len(items)
+                try:
+                    resp: Any = json.loads(resp_line)
+                except json.JSONDecodeError:
+                    return ["<error>"] * len(items)
+                if isinstance(resp, dict) and resp.get("__ipc__") == "evalManyResult":
+                    raw_vals = resp.get("values")
+                    if isinstance(raw_vals, list):
+                        out = [str(v) if v is not None else "" for v in raw_vals]
+                        if len(out) == len(items):
+                            return out
+                return ["<error>"] * len(items)
+
             def frame_locals(
                 frame_index: int, _lock: threading.Lock = proc_io_lock
             ) -> dict[str, Any]:
@@ -246,6 +280,7 @@ def _debug_ipc_loop(
                 return {}
 
             protocol.set_evaluate_callback(evaluate)
+            protocol.set_evaluate_batch_callback(evaluate_many)
             protocol.set_frame_locals_callback(frame_locals)
             try:
                 should_continue = protocol.checkpoint(
@@ -260,12 +295,13 @@ def _debug_ipc_loop(
                 )
             finally:
                 protocol.set_evaluate_callback(None)
+                protocol.set_evaluate_batch_callback(None)
                 protocol.set_frame_locals_callback(None)
 
             command = protocol._step_mode.value if should_continue else "stop"
             cmd: dict[str, Any] = {
                 "command": command,
-                "breakpoints": protocol.breakpoints,
+                "breakpoints": protocol.effective_breakpoints(),
             }
 
             # Sandbox may have died (timeout, abort, crash) between read and

@@ -3,7 +3,7 @@
 // (see deno_runtime._NODE_FS_IMPORT). Deno 2.x no longer has Deno.writeSync / Deno.readSync.
 // Drains `__pm_state._send_queue` via line JSON IPC to the host (see `deno_runtime.py`),
 // then prints a final `__done__` line matching the MiniRacer extraction shape.
-(function __denoIpcDrain() {
+await (async function __denoIpcDrain() {
   var _MAX_R = 20, _MAX_T = 50;
   var enc = new TextEncoder();
   var total = 0;
@@ -19,7 +19,7 @@
           message: "[Script] pm.sendRequest total limit exceeded",
           timestamp: Date.now() / 1000,
         });
-        __printDone();
+        await __printDone();
         return;
       }
       var item = q[i] || {};
@@ -47,7 +47,13 @@
       }
     }
   }
-  __printDone();
+  var pending = __pm_state._pending_tests || [];
+  if (pending.length > 0) {
+    await Promise.allSettled(
+      pending.map(function (p) { return p.promise; })
+    );
+  }
+  await __printDone();
 
   function _readLineSyncDeno0() {
     const parts = [];
@@ -67,7 +73,22 @@
     return parts.join("");
   }
 
-  function __printDone() {
+  async function __printDone() {
+    var legacy = (typeof globalThis !== "undefined" && globalThis.tests) || {};
+    var existing = {};
+    for (var ti = 0; ti < __pm_state.test_results.length; ti++) {
+      existing[__pm_state.test_results[ti].name] = true;
+    }
+    for (var k in legacy) {
+      if (!Object.prototype.hasOwnProperty.call(legacy, k)) { continue; }
+      if (existing[k]) { continue; }
+      __pm_state.test_results.push({
+        name: String(k),
+        passed: !!legacy[k],
+        error: null,
+        duration_ms: 0,
+      });
+    }
     const o = {
       __done__: true,
       test_results: __pm_state.test_results,

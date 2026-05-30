@@ -25,7 +25,8 @@ shipped.
 
 | Postman surface           | Postmark JS | Postmark Py | Notes                                                                                  |
 |---------------------------|-------------|-------------|----------------------------------------------------------------------------------------|
-| `pm.info.*`               | ✅           | ✅           | `requestName`, `requestId`, `iteration`, `iterationCount`. Python adds snake_case alts.|
+| `pm.info.*`               | ✅           | ✅           | `eventName`, `requestName`, `requestId`, `iteration`, `iterationCount`, `testFilter`.   |
+| Dynamic `{{$…}}` vars      | ✅           | ✅           | ~140 Postman names at send time and in `replaceIn`. See [Dynamic variables](#dynamic-variables). |
 | `pm.request.url` (Url)    | ✅           | ✅           | `toString/getHost/getPath/getQueryString/protocol/host/port/path` + mutable `query`.   |
 | `pm.request.headers` (HeaderList) | ✅   | ✅           | Case-insensitive `get/has/find`, `add/remove/upsert` (mutable in pre-request only).    |
 | `pm.request.body` (RequestBody) | ✅     | ✅           | Discriminated `mode/raw/urlencoded/formdata/graphql/file`.                             |
@@ -37,28 +38,49 @@ shipped.
 | `pm.response.cookies`     | ✅           | ✅           | Mirrors `pm.cookies` parsed from `Set-Cookie`.                                          |
 | `pm.response.originalRequest` | ✅       | ✅           | Wrapped request that produced this response (immutable).                                |
 | `pm.variables` (resolved) | ✅           | ✅           | Read-through: local → iterationData → environment → collection → globals. Writes local. |
-| `pm.environment.*`        | ✅           | ✅           | `get/set/has/unset/clear/toObject/replaceIn`.                                           |
+| `pm.environment.*`        | ✅           | ✅           | `get/set/has/unset/clear/toObject/replaceIn`, plus read-only `name`.                    |
+| `pm.request.auth`         | ✅           | ✅           | Stored auth dict (read-only), not Postman's typed Auth object.                          |
 | `pm.collectionVariables.*`| ✅           | ✅           | Same surface. Python also exposes `pm.collection_variables`.                            |
 | `pm.globals.*`            | ✅           | ✅           | Same surface.                                                                           |
 | `pm.iterationData.*`      | ✅           | ✅           | `get/has/toObject`. Python: also `pm.iteration_data`.                                   |
-| `pm.test(name, fn)`       | ✅           | ✅           | Records pass/fail/skipped; sync only.                                                   |
+| `pm.test(name, fn)`       | ✅ async      | ✅           | JS: `async` callbacks awaited before drain. Python: sync only.                          |
+| `pm.expect(…).jsonSchema` | ✅           | ✅           | Embedded mini-validator (subset); use `pm.require('ajv')` for full draft-07.            |
 | `pm.test.skip(name, fn)`  | ✅           | ✅           | Records skipped without invoking `fn`.                                                  |
 | Inline `ctx.skip()`       | ✅           | ✅           | Callback receives a context object with a `.skip()` method.                              |
 | `pm.expect(...)` (chai)   | ✅ subset    | ✅ subset    | Common assertions implemented. Some chai extensions still missing — see below.          |
 | `pm.execution.setNextRequest` | ✅       | ✅           | Python: also `set_next_request`.                                                        |
 | `pm.execution.skipRequest` | ✅          | ✅           | Python: also `skip_request`.                                                            |
 | `pm.execution.location`   | ✅           | ✅           | `current` is the folder/collection path.                                                 |
-| `pm.cookies.get/getAll`   | ✅           | ✅           | Python: also `get_all`.                                                                  |
+| `pm.cookies.get/getAll/has` | ✅         | ✅           | Python: also `get_all`.                                                                  |
 | `pm.cookies.jar()`        | ⚠️           | ⚠️           | `getAll`/`get` work; `set/unset/clear` raise documented "not yet supported" error.       |
 | `pm.sendRequest` callback | ✅           | ✅           | Both runtimes invoke `(err, response)` callback.                                         |
 | `pm.sendRequest` Promise  | ✅           | ❌           | JS returns `Promise.resolve(response)` so `await` works. Python is sync — no await.      |
 | `pm.require("name")`      | ✅           | ✅           | Bare names map to bundled vendor table (`crypto-js`, `lodash`, `moment`, …).             |
 | `pm.visualizer.set(...)`  | ❌           | ❌           | Stub raises `RuntimeError("not supported in postmark — see ...")`. Documented.           |
 | Legacy `responseBody`     | ✅           | ✅           | Plus `responseCode`, `responseHeaders`, `tests`, `xml2Json` globals.                     |
-| Legacy `postman.*` shim   | ✅           | ✅           | `setEnvironmentVariable`, `getEnvironmentVariable`, etc.                                |
+| Legacy `postman.*` shim   | ✅           | ✅           | Includes `setNextRequest` (JS). Env/global variable helpers.                            |
+| Legacy `tests` object     | ✅           | ✅           | Harvested into results; names already used by `pm.test` are not duplicated.             |
+| Legacy `responseTime`     | ✅           | ✅           | Global alias for `pm.response.responseTime` in test scripts.                            |
 
 Legend: ✅ supported · ⚠️ partial (read works, mutate stubs) · ❌ not
 supported (intentional).
+
+## Dynamic variables
+
+Postman dynamic variables (`{{$guid}}`, `{{$randomInt}}`, …) resolve at
+HTTP send time (even with no environment selected) and inside scripts via
+`pm.variables.replaceIn`, `pm.environment.replaceIn`, etc. Rules live in
+[`data/scripts/dynamic_variables.json`](../../data/scripts/dynamic_variables.json);
+the host resolver is
+[`src/services/scripting/dynamic_variables.py`](../../src/services/scripting/dynamic_variables.py).
+
+## jsonSchema subset
+
+`pm.expect(value).to.have.jsonSchema(schema)` uses a built-in validator
+supporting: `type`, `required`, `properties`, `items`, `enum`,
+`minimum`/`maximum`, `minLength`/`maxLength`, `minItems`/`maxItems`.
+Unsupported keywords (`$ref`, `allOf`, …) are ignored — use
+`pm.require("ajv")` or `pm.require("tv4")` for full draft-07 validation.
 
 ## Detailed shapes
 
@@ -174,8 +196,10 @@ response only.
 
 Bare specifiers (`pm.require("crypto-js")`, `pm.require("lodash")`)
 resolve via the bundled vendor table:
-`tv4`, `xml2js`, `crypto-js`, `chai`, `lodash`, `moment`, `cheerio`,
-`csv-parse/lib/sync`, `ajv`, `atob`, `btoa`, `uuid`. JS also accepts
+`tv4`, `xml2js`, `crypto-js`, `chai`, `lodash`, `moment`,
+`csv-parse/sync`, `csv-parse/lib/sync`, `ajv`, `atob`, `btoa`, `uuid`.
+Use `pm.require("npm:cheerio")` for Cheerio (not a bare `cheerio` require).
+JS also accepts
 `npm:` and `jsr:` prefixed specifiers via Deno's import system. Python
 falls through to `importlib.import_module` for stdlib / pip packages.
 
@@ -188,7 +212,8 @@ Available at the top level of every script (no `pm.` prefix):
 | `responseBody`     | `string`                              | `pm.response.body` (or `""` in pre-request).         |
 | `responseCode`     | `{code, name}` object                 | `{code: pm.response.code, name: pm.response.reason()}`. |
 | `responseHeaders`  | `{key: value}` plain object/dict      | `pm.response.headers.toObject()`.                    |
-| `tests`            | `{}` mutable object                   | Postman v1 — assignments here are picked up by some test runners. |
+| `responseTime`     | `number`                              | `pm.response.responseTime` (test scripts).           |
+| `tests`            | `{}` mutable object                   | Postman v1 — harvested into test results (deduped with `pm.test`). |
 | `xml2Json(xml)`    | function `(string) -> object \| null` | XML → nested object via `xml2js` (JS) / ElementTree (Python). |
 | `postman.*`        | object with v1 helpers                | `setEnvironmentVariable`, `getEnvironmentVariable`, `clearEnvironmentVariable`, `setGlobalVariable`, `getGlobalVariable`, `clearGlobalVariable`, `setNextRequest`. |
 

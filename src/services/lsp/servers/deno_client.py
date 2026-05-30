@@ -2,37 +2,33 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+import subprocess
 
 from PySide6.QtCore import QObject
 
 from services.lsp.client import LspClient
-from services.lsp.servers._workspace import ensure_js_workspace
+from services.lsp.servers.spawn import LspSpawnSpec, prepare_js_spawn, spawn_lsp_process
 from services.lsp.transport import LspTransport
-from services.scripting.runtime_settings import RuntimeSettings
+
+
+def client_from_spawn(
+    spec: LspSpawnSpec,
+    proc: subprocess.Popen[bytes],
+    parent: QObject | None = None,
+) -> LspClient:
+    """Wire a Deno :class:`LspClient` around an already-spawned process."""
+    transport = LspTransport(spec.argv, cwd=spec.cwd, parent=parent, _proc=proc)
+    client = LspClient(transport, spec.root_uri, parent=parent)
+    client.set_init_options(dict(spec.init_options))
+    return client
 
 
 def make_deno_client(parent: QObject | None = None) -> LspClient | None:
-    """Spawn Deno LSP or return ``None`` if the binary is unavailable."""
-    deno_path = RuntimeSettings.deno_path()
-    if not deno_path or not Path(deno_path).is_file():
+    """Spawn Deno LSP synchronously (tests); production uses :mod:`spawn` workers."""
+    spec = prepare_js_spawn()
+    if spec is None:
         return None
-    workspace = ensure_js_workspace()
-    transport = LspTransport([deno_path, "lsp"], cwd=str(workspace), parent=parent)
-    root_uri = Path(workspace).as_uri()
-    client = LspClient(transport, root_uri, parent=parent)
-    # Deno LSP is disabled by default; without ``enable: true`` it returns no
-    # diagnostics, no completions, no hover. ``lint: true`` adds the deno
-    # linter pass on top of TypeScript diagnostics.
-    client.set_init_options(
-        {
-            "enable": True,
-            "lint": True,
-            "unstable": False,
-            # Point Deno explicitly at our workspace ``deno.json`` so
-            # ``checkJs: true`` actually applies. Without this Deno
-            # ignores the file and ``.js`` buffers go un-type-checked.
-            "config": str(workspace / "deno.json"),
-        }
-    )
-    return client
+    proc = spawn_lsp_process(spec)
+    if proc is None:
+        return None
+    return client_from_spawn(spec, proc, parent=parent)

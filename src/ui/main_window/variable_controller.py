@@ -321,7 +321,7 @@ class _VariableControllerMixin:
     @staticmethod
     def _substitute_auth(auth: dict | None, variables: dict[str, str]) -> dict | None:
         """Substitute ``{{variable}}`` placeholders in auth entry values."""
-        if not auth or not variables:
+        if not auth:
             return auth
         auth_type = auth.get("type", "noauth")
         entries = auth.get(auth_type, [])

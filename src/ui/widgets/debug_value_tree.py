@@ -19,21 +19,15 @@ from typing import Any
 
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
-from PySide6.QtWidgets import (
-    QFrame,
-    QHeaderView,
-    QLabel,
-    QSizePolicy,
-    QTreeWidget,
-    QTreeWidgetItem,
-)
+from PySide6.QtWidgets import QFrame, QHeaderView, QLabel, QSizePolicy, QTreeWidget, QTreeWidgetItem
 
 from ui.styling import theme
 
-# 1. Tree size limits keep huge snapshots responsive.
-MAX_TREE_DEPTH: int = 8
-MAX_CHILDREN_PER_NODE: int = 100
-MAX_TREE_NODES: int = 400
+# 1. Tree size limits keep huge snapshots responsive while still showing
+# richer nested debug payloads by default.
+MAX_TREE_DEPTH: int = 12
+MAX_CHILDREN_PER_NODE: int = 300
+MAX_TREE_NODES: int = 2000
 # 2. Inline dict/list previews show at most this many entries before ``…``.
 PREVIEW_INLINE_KEYS: int = 4
 # 3. Sentinel injected by CDP scope materialisation (see ``deno_scope`` duplicate literal).
@@ -61,14 +55,16 @@ def source_dot_icon(source: str) -> QIcon:
     """Return a small coloured dot for a variable *source* (sidebar section headers).
 
     Maps the same semantic roles as ``sidebarSourceDot`` in ``global_qss.py``:
-    ``environment`` → accent, ``collection`` → success, ``local`` and ``global`` → warning.
+    ``environment`` → accent, ``collection`` → success, ``local`` and ``global`` → warning,
+    ``watch`` → head (watch expressions section).
     """
-    key = source if source in ("environment", "collection", "local", "global") else "local"
+    key = source if source in ("environment", "collection", "local", "global", "watch") else "local"
     color_hex = {
         "environment": theme.COLOR_ACCENT,
         "collection": theme.COLOR_SUCCESS,
         "local": theme.COLOR_WARNING,
         "global": theme.COLOR_WARNING,
+        "watch": theme.COLOR_HEAD,
     }[key]
     return _cached_source_dot_icon(color_hex)
 
@@ -83,6 +79,15 @@ class TreeFillState:
 def _dict_data_keys(d: dict[Any, Any]) -> list[Any]:
     """Sorted dict keys excluding the classname sentinel."""
     return sorted((k for k in d if k != CLASSNAME_KEY), key=lambda k: str(k))
+
+
+def _is_minified_function_preview(text: str, max_len: int) -> bool:
+    """Return True when *text* looks like a CDP ``function (...)`` dump, not user data."""
+    if len(text) > max_len:
+        return True
+    return text.lstrip().startswith("function") or (
+        text.startswith("function (") and text.count(",") >= 8
+    )
 
 
 def _inline_atom(value: Any) -> str:
@@ -114,7 +119,11 @@ def preview_cell(value: Any, *, max_len: int = 96) -> str:
     elif isinstance(value, int | float):
         s = str(value)
     elif isinstance(value, str):
-        s = json.dumps(value, ensure_ascii=False)
+        compact = " ".join(value.split())
+        if _is_minified_function_preview(compact, max_len):
+            s = compact[: max_len - 1] + "\u2026" if len(compact) > max_len else compact
+        else:
+            s = json.dumps(value, ensure_ascii=False)
     elif isinstance(value, dict):
         keys = _dict_data_keys(value)
         cn_raw = value.get(CLASSNAME_KEY)
@@ -164,13 +173,103 @@ def is_expandable_container(value: Any) -> bool:
     return isinstance(value, dict | list | tuple)
 
 
+_PM_FULL_TEXT_PROP = "_pm_full_text"
+
+
+def _elided_cell_text(tree: QTreeWidget, column: int, text: str) -> str:
+    """Fit *text* to the current column width (ellipsis when truncated)."""
+    width = max(tree.columnWidth(column) - 10, 24)
+    return tree.fontMetrics().elidedText(text, Qt.TextElideMode.ElideRight, width)
+
+
+def _connect_debug_tree_elide_refresh(tree: QTreeWidget) -> None:
+    """Re-elide ``QLabel`` cells when the user resizes columns."""
+    if getattr(tree, "_pm_elide_hooked", False):
+        return
+    setattr(tree, "_pm_elide_hooked", True)  # noqa: B010 — dynamic attr on QTreeWidget
+    tree.header().sectionResized.connect(lambda *_args: refresh_debug_tree_cell_elides(tree))
+
+
+def refresh_debug_tree_cell_elides(tree: QTreeWidget) -> None:
+    """Update every value/name ``QLabel`` to match current column widths."""
+
+    def visit(item: QTreeWidgetItem) -> None:
+        if item.data(0, Qt.ItemDataRole.UserRole) == "section":
+            for i in range(item.childCount()):
+                child = item.child(i)
+                if child is not None:
+                    visit(child)
+            return
+        for col in (0, 1):
+            w = tree.itemWidget(item, col)
+            if w is None:
+                continue
+            labels: list[QLabel] = []
+            if isinstance(w, QLabel):
+                labels = [w]
+            else:
+                labels = [
+                    c
+                    for c in w.findChildren(QLabel)
+                    if c.objectName() in ("debugTreeCellLabel", "debugWatchRowValueLabel")
+                ]
+            for lab in labels:
+                full = lab.property(_PM_FULL_TEXT_PROP)
+                if not isinstance(full, str) or not full:
+                    full = lab.text()
+                lab.setText(_elided_cell_text(tree, col, full))
+        for i in range(item.childCount()):
+            child = item.child(i)
+            if child is not None:
+                visit(child)
+
+    for i in range(tree.topLevelItemCount()):
+        top = tree.topLevelItem(i)
+        if top is not None:
+            visit(top)
+
+
+def set_debug_tree_cell_label(
+    tree: QTreeWidget,
+    item: QTreeWidgetItem,
+    column: int,
+    text: str,
+    *,
+    tooltip: str = "",
+) -> None:
+    """Set a cell's visible text without native/item-widget double painting."""
+    plain = text.replace("\n", " ")
+    tip = tooltip or plain
+    widget = tree.itemWidget(item, column)
+    if widget is not None and isinstance(widget, QLabel):
+        widget.setProperty(_PM_FULL_TEXT_PROP, plain)
+        widget.setToolTip(tip)
+        widget.setText(_elided_cell_text(tree, column, plain))
+        item.setText(column, "")
+        item.setToolTip(column, tip)
+        return
+    item.setText(column, plain)
+    item.setToolTip(column, tip)
+
+
 def debug_tree_cell_text(item: QTreeWidgetItem, column: int) -> str:
     """Return visible text for *column* (``QLabel`` item widget or native item text)."""
     tree = item.treeWidget()
     if tree is not None:
         w = tree.itemWidget(item, column)
-        if w is not None and isinstance(w, QLabel):
-            return w.text()
+        if w is not None:
+            if isinstance(w, QLabel):
+                full = w.property(_PM_FULL_TEXT_PROP)
+                if isinstance(full, str) and full:
+                    return full
+                return w.text()
+            if column == 1:
+                val = w.findChild(QLabel, "debugWatchRowValueLabel")
+                if val is not None:
+                    full = val.property(_PM_FULL_TEXT_PROP)
+                    if isinstance(full, str) and full:
+                        return full
+                    return val.text()
     return item.text(column)
 
 
@@ -188,23 +287,24 @@ def attach_selectable_cell_widgets(item: QTreeWidgetItem) -> None:
         return
     if item.data(0, Qt.ItemDataRole.UserRole) == "section":
         return
+    _connect_debug_tree_elide_refresh(tree)
     for col in (0, 1):
         text = item.text(col)
         tip = item.toolTip(col)
-        lab = QLabel(text)
+        lab = QLabel()
         lab.setObjectName("debugTreeCellLabel")
         lab.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        lab.setToolTip(tip)
         lab.setWordWrap(False)
         lab.setMargin(0)
         lab.setIndent(0)
         lab.setFrameShape(QFrame.Shape.NoFrame)
         lab.setAutoFillBackground(False)
         lab.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
-        # Match the tree viewport font (avoids mismatched metrics vs item delegate text).
+        lab.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         lab.setFont(tree.font())
         tree.setItemWidget(item, col, lab)
         item.setText(col, "")
+        set_debug_tree_cell_label(tree, item, col, text, tooltip=tip)
 
 
 def fill_tree_item(
@@ -247,6 +347,7 @@ def fill_tree_item(
             state.nodes += 1
             if is_expandable_container(child_val) and child_val:
                 fill_tree_item(row, child_val, depth + 1, state, next_ancestors)
+                row.setExpanded(True)
     elif isinstance(value, list | tuple):
         for idx, child_val in enumerate(value[:MAX_CHILDREN_PER_NODE]):
             if state.nodes >= MAX_TREE_NODES:
@@ -259,6 +360,7 @@ def fill_tree_item(
             state.nodes += 1
             if is_expandable_container(child_val) and child_val:
                 fill_tree_item(row, child_val, depth + 1, state, next_ancestors)
+                row.setExpanded(True)
 
 
 def populate_debug_tree(tree: QTreeWidget, value: Any) -> None:
@@ -278,6 +380,7 @@ def populate_debug_tree(tree: QTreeWidget, value: Any) -> None:
             state.nodes += 1
             if is_expandable_container(child_val) and child_val:
                 fill_tree_item(top, child_val, 1, state, frozenset())
+                top.setExpanded(True)
     elif isinstance(value, list | tuple):
         for idx, child_val in enumerate(value[:MAX_CHILDREN_PER_NODE]):
             if state.nodes >= MAX_TREE_NODES:
@@ -289,6 +392,7 @@ def populate_debug_tree(tree: QTreeWidget, value: Any) -> None:
             state.nodes += 1
             if is_expandable_container(child_val) and child_val:
                 fill_tree_item(top, child_val, 1, state, frozenset())
+                top.setExpanded(True)
     if state.nodes >= MAX_TREE_NODES and tree.topLevelItemCount() > 0:
         trunc = QTreeWidgetItem(["…", "(truncated)"])
         tree.addTopLevelItem(trunc)
@@ -299,8 +403,13 @@ def make_debug_value_tree(
     *,
     object_name: str = "debugVariablesTree",
     show_header: bool = False,
+    watch_actions_column: bool = False,
 ) -> QTreeWidget:
-    """Build a two-column Name|Value tree with global-QSS-friendly *object_name*."""
+    """Build a Name|Value tree with global-QSS-friendly *object_name*.
+
+    When *watch_actions_column* is True (``debugScopesTree``), selection spans
+    both columns and watch rows embed a remove control at the right of column 1.
+    """
     tree = QTreeWidget()
     tree.setObjectName(object_name)
     tree.setColumnCount(2)
@@ -311,10 +420,13 @@ def make_debug_value_tree(
         tree.header().hide()
     tree.setAlternatingRowColors(False)
     tree.setRootIsDecorated(True)
-    tree.setIndentation(18)
+    tree.setIndentation(12)
     tree.setUniformRowHeights(False)
     tree.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+    if watch_actions_column:
+        tree.setAllColumnsShowFocus(True)
     hdr = tree.header()
+    hdr.setStretchLastSection(True)
     hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
     hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
     return tree

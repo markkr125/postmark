@@ -19,7 +19,7 @@ from services.snippet_service import SnippetService
 
 
 class SnippetCaptureDialog(QDialog):
-    """Collect name, category, scope, and context for a new user snippet."""
+    """Collect name, category, and context for a new user snippet."""
 
     def __init__(
         self,
@@ -27,8 +27,6 @@ class SnippetCaptureDialog(QDialog):
         body: str,
         language: str,
         script_type: str,
-        collection_id: int | None = None,
-        local_script_id: int | None = None,
         parent: QWidget | None = None,
     ) -> None:
         """Build the form; *body* is the selected editor text."""
@@ -40,8 +38,6 @@ class SnippetCaptureDialog(QDialog):
         self._body = body
         self._language = language
         self._script_type = script_type
-        self._collection_id = collection_id
-        self._local_script_id = local_script_id
         self._saved_id: int | None = None
 
         root = QVBoxLayout(self)
@@ -73,18 +69,6 @@ class SnippetCaptureDialog(QDialog):
             self._context_combo.setCurrentIndex(2)
         form.addRow("Context", self._context_combo)
 
-        self._scope_combo = QComboBox()
-        self._scope_combo.addItem("Global (all collections)", "global")
-        if collection_id is not None:
-            self._scope_combo.addItem("Current collection", "collection")
-        if local_script_id is not None:
-            self._scope_combo.addItem("Current local script", "local_script")
-        if local_script_id is not None:
-            self._scope_combo.setCurrentIndex(self._scope_combo.count() - 1)
-        elif collection_id is not None:
-            self._scope_combo.setCurrentIndex(1)
-        form.addRow("Scope", self._scope_combo)
-
         root.addLayout(form)
 
         buttons = QDialogButtonBox(
@@ -115,13 +99,6 @@ class SnippetCaptureDialog(QDialog):
             return
         category = self._category_edit.text().strip() or "My snippets"
         context = str(self._context_combo.currentData() or "both")
-        scope = str(self._scope_combo.currentData() or "global")
-        scope_collection_id: int | None = None
-        scope_local_script_id: int | None = None
-        if scope == "collection":
-            scope_collection_id = self._collection_id
-        elif scope == "local_script":
-            scope_local_script_id = self._local_script_id
         try:
             self._saved_id = SnippetService.create(
                 name=name,
@@ -129,8 +106,6 @@ class SnippetCaptureDialog(QDialog):
                 body=self._body,
                 category=category,
                 context=context,
-                scope_collection_id=scope_collection_id,
-                scope_local_script_id=scope_local_script_id,
             )
         except ValueError as exc:
             QMessageBox.warning(self, "Save as snippet", str(exc))

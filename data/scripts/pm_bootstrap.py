@@ -78,6 +78,8 @@ def _console_emit(level: str, *args: object) -> None:
 class _VariableScope:
     """Mimics the JS ``pm.variables`` API."""
 
+    name: str = ""
+
     def __init__(self, initial: dict[str, str]) -> None:
         self._store: dict[str, str] = dict(initial)
         self._changes: dict[str, str] = {}
@@ -115,8 +117,14 @@ class _VariableScope:
         import re as _re
 
         def _repl(m: re.Match[str]) -> str:
-            k = m.group(1)
-            return self._store.get(k, m.group(0))
+            k = m.group(1).strip()
+            if k in self._store:
+                return self._store[k]
+            if k.startswith("$"):
+                dyn = _pm_resolve_dynamic(k)  # noqa: F821
+                if dyn is not None:
+                    return dyn
+            return m.group(0)
 
         return _re.sub(r"\{\{(.+?)\}\}", _repl, template)
 
@@ -304,7 +312,11 @@ class _Expectation:
             headers = h if isinstance(h, dict) else None
         elif type(resp).__name__ == "_PmResponse" and hasattr(resp, "headers"):
             h = getattr(resp, "headers", None)
-            headers = dict(h) if isinstance(h, dict) else None
+            to_object = getattr(h, "to_object", None)
+            if callable(to_object):
+                headers = to_object()
+            elif isinstance(h, dict):
+                headers = dict(h)
         if not headers:
             return self._assert(False, "expected a response object with headers")
         lower = name.lower()
@@ -393,6 +405,35 @@ class _Expectation:
             return self._assert(a == b, f"expected {path!r} to be {value!r} but got {cur!r}")
         return self._assert(cur is not None, f"expected body to have path {path!r}")
 
+    def json_schema(self, schema: dict[str, Any]) -> _Expectation:
+        """Assert value (or response JSON body) matches a JSON Schema subset."""
+        resp = self._value
+        data: Any = resp
+        if type(resp).__name__ == "_PmResponse":
+            raw = str(getattr(resp, "_body", "") or "").strip()
+            if not raw:
+                return self._assert(False, "jsonSchema: response body is empty")
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError as e:
+                return self._assert(False, f"jsonSchema: invalid JSON ({e.msg})")
+        elif isinstance(resp, dict) and "body" in resp:
+            b = resp.get("body")
+            if isinstance(b, str):
+                try:
+                    data = json.loads(b) if b.strip() else {}
+                except json.JSONDecodeError as e:
+                    return self._assert(False, f"jsonSchema: invalid JSON ({e.msg})")
+            else:
+                data = b
+        r = _pm_validate_schema(data, schema)  # noqa: F821
+        if not r["ok"]:
+            return self._assert(
+                False,
+                "expected value to match schema: " + ", ".join(r["errors"]),
+            )
+        return self
+
     # -- Boolean property assertions --
 
     @property
@@ -419,6 +460,7 @@ class _Expectation:
 
 # Postman / JS naming alias for :meth:`_Expectation.json_body`.
 _Expectation.jsonBody = _Expectation.json_body  # type: ignore[attr-defined, misc]
+_Expectation.jsonSchema = _Expectation.json_schema  # type: ignore[attr-defined, misc]
 
 # Alias so scripts can call ``pm.expect(x).to.have.property("key")``
 # without shadowing Python's built-in ``property`` descriptor inside the class.
@@ -680,6 +722,10 @@ class _PmCookies:
         """Postman camelCase alias for :meth:`get_all`."""
         return self.get_all()
 
+    def has(self, name: str) -> bool:
+        """Return whether a cookie *name* exists in the jar."""
+        return name in self._cookies
+
     def jar(self) -> Any:
         """Return a ``CookieJar``-shaped helper.
 
@@ -738,6 +784,8 @@ class _PmRequest:
         body_raw = data.get("body", "")
         self._body_str: str = body_raw if isinstance(body_raw, str) else ""
         self.body = _PmRequestBody(body_raw)
+        auth_raw = data.get("auth")
+        self.auth: dict[str, Any] | None = dict(auth_raw) if isinstance(auth_raw, dict) else None
 
 
 _HTTP_REASON: dict[int, str] = {
@@ -780,6 +828,42 @@ _HTTP_REASON: dict[int, str] = {
     503: "Service Unavailable",
     504: "Gateway Timeout",
 }
+
+
+_PM_RESPONSE_UNAVAILABLE_MSG = (
+    "pm.response is not available: this script runs before an HTTP response exists "
+    "(pre-request script or Run without Send). "
+    "Read the response body in a post-response (Tests) script after Send, "
+    "use the Mock response tab on test scripts, or call pm.sendRequest() first."
+)
+
+
+class _PmUnavailableResponse:
+    """Placeholder when ``context['response']`` is missing (pre-request / inline Run)."""
+
+    def __bool__(self) -> bool:
+        return False
+
+    def __repr__(self) -> str:
+        return "<pm.response (unavailable)>"
+
+    def _raise_unavailable(self) -> None:
+        raise AttributeError(_PM_RESPONSE_UNAVAILABLE_MSG)
+
+    def json(self) -> Any:
+        self._raise_unavailable()
+        return None
+
+    def text(self) -> str:
+        self._raise_unavailable()
+        return ""
+
+    def __getattr__(self, name: str) -> Any:
+        self._raise_unavailable()
+        return None
+
+
+_PM_UNAVAILABLE_RESPONSE = _PmUnavailableResponse()
 
 
 class _PmResponse:
@@ -875,6 +959,7 @@ class _PmInfo:
         self.request_id = str(data.get("requestId", data.get("request_id", "")))
         self.iteration = int(data.get("iteration", 0))
         self.iteration_count = int(data.get("iterationCount", data.get("iteration_count", 0)))
+        self.event_name = str(data.get("eventName", data.get("event_name", "")))
         raw_filter = data.get("testFilter")
         self.test_filter = str(raw_filter) if raw_filter else None
 
@@ -1004,8 +1089,14 @@ class _ResolvedVariables:
         merged = self.to_object()
 
         def _repl(m: re.Match[str]) -> str:
-            k = m.group(1)
-            return str(merged.get(k, m.group(0)))
+            k = m.group(1).strip()
+            if k in merged:
+                return str(merged[k])
+            if k.startswith("$"):
+                dyn = _pm_resolve_dynamic(k)  # noqa: F821
+                if dyn is not None:
+                    return dyn
+            return m.group(0)
 
         return re.sub(r"\{\{(.+?)\}\}", _repl, template)
 
@@ -1108,7 +1199,6 @@ _PM_BUILTIN_MODULE_NAMES: frozenset[str] = frozenset(
         "chai",
         "lodash",
         "moment",
-        "cheerio",
         "csv-parse/lib/sync",
         "ajv",
         "atob",
@@ -1130,10 +1220,13 @@ class _Pm:
             is_pre_request=self._is_pre_request,
         )
         original_req = context.get("original_request") or context.get("request") or {}
-        self.response: _PmResponse | None = _PmResponse(resp, original_req) if resp else None
+        self.response: _PmResponse | _PmUnavailableResponse = (
+            _PmResponse(resp, original_req) if resp else _PM_UNAVAILABLE_RESPONSE
+        )
         self.cookies = _PmCookies(resp)
         # Scope objects must exist before _ResolvedVariables references them.
         self.environment = _VariableScope(context.get("environment_vars", {}))
+        self.environment.name = str(context.get("environment_name", "") or "")
         self.collection_variables = _VariableScope(context.get("collection_vars", {}))
         self.globals = _VariableScope(context.get("global_vars", {}))
         self.iteration_data = _PmIterationData(context.get("iteration_data", {}))
@@ -1186,28 +1279,61 @@ class _Pm:
         return wrapped
 
     def require(self, spec: str) -> Any:
-        """Postman-style ``pm.require``: bare names map to the built-in vendor table.
+        """Postman-style ``pm.require``: resolve a PyPI spec to an imported module.
 
-        Bare names like ``"crypto-js"``, ``"lodash"``, ``"uuid"`` are
-        looked up in :data:`_PM_BUILTIN_MODULE_NAMES` and dispatched to
-        the import path. Otherwise behaves like the original importlib
-        fallback so ``pm.require("name==1.2.3")`` style still works.
+        Tries direct name variants first (lowercase, ``-`` → ``_``), then
+        falls back to package metadata (``top_level.txt`` / installed file
+        layout) so distributions whose PyPI name differs from the import
+        name still work — e.g. ``PyJWT`` ships as ``jwt`` and ``pyyaml``
+        ships as ``yaml``.
         """
+        if spec.split("==", 1)[0].strip().lower() == "cheerio":
+            msg = "pm.require('cheerio') is not bundled; use pm.require('npm:cheerio') in JavaScript"
+            raise RuntimeError(msg)
         import importlib
 
         if not isinstance(spec, str):
             msg = "pm.require: specifier must be a string"
             raise RuntimeError(msg)
-        name_part = spec.split("==", 1)[0].strip().lower()
+        name_part = spec.split("==", 1)[0].strip()
+
         candidates: list[str] = []
-        if name_part in _PM_BUILTIN_MODULE_NAMES or name_part in {
-            n.replace("-", "_") for n in _PM_BUILTIN_MODULE_NAMES
-        }:
-            candidates.append(name_part.replace("-", "_"))
-            candidates.append(name_part)
-        else:
-            candidates.append(name_part.replace("-", "_"))
-            candidates.append(name_part)
+        seen: set[str] = set()
+
+        def _add(mod: str) -> None:
+            if mod and mod not in seen:
+                candidates.append(mod)
+                seen.add(mod)
+
+        _add(name_part)
+        _add(name_part.lower())
+        _add(name_part.replace("-", "_"))
+        _add(name_part.lower().replace("-", "_"))
+
+        # Distribution metadata is the source of truth for PyPI name → module
+        # name. ``top_level.txt`` lists importable modules; if absent, walk the
+        # RECORD/files to pick first-segment .py files or package dirs.
+        try:
+            import importlib.metadata as _md
+
+            dist = _md.distribution(name_part)
+            top_level = dist.read_text("top_level.txt") or ""
+            for line in top_level.splitlines():
+                mod = line.strip()
+                if mod and not mod.startswith("_"):
+                    _add(mod)
+            if not top_level:
+                for f in dist.files or []:
+                    first = str(f).split("/", 1)[0]
+                    if first.endswith((".dist-info", ".egg-info")):
+                        continue
+                    if first.endswith(".py"):
+                        _add(first[:-3])
+                    elif "." not in first and not first.startswith("_"):
+                        _add(first)
+        except Exception:
+            pass
+
         last_err: Exception | None = None
         for mod in candidates:
             try:
@@ -1280,14 +1406,23 @@ _SAFE_BUILTINS: dict[str, Any] = {
     "True": True, "False": False, "None": None,
     "abs": abs, "all": all, "any": any, "bool": bool, "dict": dict,
     "enumerate": enumerate, "filter": filter, "float": float, "int": int,
-    "isinstance": isinstance, "len": len, "list": list, "map": map,
+    "isinstance": isinstance, "issubclass": issubclass, "len": len, "list": list, "map": map,
     "max": max, "min": min, "print": _pm_print, "range": range, "reversed": reversed,
     "round": round, "set": set, "sorted": sorted, "str": str,
     "sum": sum, "tuple": tuple, "type": _safe_type, "zip": zip,
+    "repr": repr, "getattr": getattr, "hasattr": hasattr, "setattr": setattr,
+    "iter": iter, "next": next, "bytes": bytes, "bytearray": bytearray,
+    "frozenset": frozenset, "callable": callable, "divmod": divmod, "pow": pow,
+    "chr": chr, "ord": ord, "hex": hex, "oct": oct, "bin": bin,
+    # ``__build_class__`` lets user scripts use ``class`` statements (pydantic
+    # ``BaseModel``, dataclasses, custom exceptions). Without it ``class Foo:``
+    # raises ``NameError: __build_class__ not found`` at exec time.
+    "__build_class__": __build_class__, "__name__": "<script>",
     # Common exception types so user scripts can ``try/except`` (Postman parity).
     "Exception": Exception, "ValueError": ValueError, "RuntimeError": RuntimeError,
     "KeyError": KeyError, "TypeError": TypeError, "IndexError": IndexError,
     "AssertionError": AssertionError, "AttributeError": AttributeError,
+    "StopIteration": StopIteration, "NotImplementedError": NotImplementedError,
 }
 # fmt: on
 
@@ -1331,17 +1466,19 @@ def _legacy_globals() -> dict[str, Any]:
     ``pm.response.*`` / ``pm.test`` instead — kept for compatibility.
     """
     out: dict[str, Any] = {}
-    if pm.response is not None:
+    if not pm._is_pre_request:
         out["responseBody"] = pm.response.text()
         out["responseCode"] = {
             "code": pm.response.code,
             "name": pm.response.reason(),
         }
         out["responseHeaders"] = pm.response.headers.to_object()
+        out["responseTime"] = pm.response.response_time
     else:
         out["responseBody"] = ""
         out["responseCode"] = {"code": 0, "name": ""}
         out["responseHeaders"] = {}
+        out["responseTime"] = 0
     out["tests"] = {}
 
     def _xml2_json(xml_text: Any) -> Any:
@@ -1374,6 +1511,25 @@ def _legacy_globals() -> dict[str, Any]:
     return out
 
 
+def _harvest_legacy_tests(legacy: Any) -> None:
+    """Append Postman v1 ``tests`` entries not already recorded by ``pm.test``."""
+    if not isinstance(legacy, dict):
+        return
+    existing = {str(tr.get("name", "")) for tr in pm._test_results}
+    for name, value in legacy.items():
+        sname = str(name)
+        if sname in existing:
+            continue
+        pm._test_results.append(
+            {
+                "name": sname,
+                "passed": bool(value),
+                "error": None,
+                "duration_ms": 0.0,
+            }
+        )
+
+
 def run_user_script(src: str) -> None:
     """Execute user *src* with the same globals shape as the RestrictedPython path."""
     g: dict[str, Any] = {}
@@ -1384,6 +1540,7 @@ def run_user_script(src: str) -> None:
     g.update(_SAFE_STDLIB)
     g.update(_legacy_globals())
     exec(compile(src, "<script>", "exec"), g, g)
+    _harvest_legacy_tests(g.get("tests"))
 
 
 class _PostmanLegacyV1:

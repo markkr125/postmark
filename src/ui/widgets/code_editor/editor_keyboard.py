@@ -3,12 +3,26 @@
 from __future__ import annotations
 
 import sys
+from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFocusEvent, QKeyEvent, QTextCursor
 from PySide6.QtWidgets import QApplication
 
 from ui.widgets.code_editor.gutter import _AUTO_CLOSE_PAIRS, _CLOSE_TO_OPEN
+
+if TYPE_CHECKING:
+    from PySide6.QtWidgets import QPlainTextEdit
+
+    from ui.widgets.code_editor.completion.engine import CompletionEngine
+    from ui.widgets.code_editor.completion.parameter_hint import ParameterHintPopup
+    from ui.widgets.code_editor.completion.popup import CompletionPopup
+    from ui.widgets.code_editor.completion.symbol_doc_popup import SymbolDocPopup
+    from ui.widgets.code_editor.debug_hover_popup import DebugValuePopup
+
+    _KeyboardBase = QPlainTextEdit
+else:
+    _KeyboardBase = object
 
 
 def _is_quick_doc_shortcut(event: QKeyEvent) -> bool:
@@ -49,8 +63,37 @@ def _is_parameter_hint_shortcut(event: QKeyEvent) -> bool:
     return masked == Qt.KeyboardModifier.ControlModifier
 
 
-class _KeyboardMixin:
+class _KeyboardMixin(_KeyboardBase):
     """Tab/comment/bracket keys, auto-close pairs, and focus-out popup dismissal."""
+
+    _language: str
+    _read_only: bool
+    _detected_indent: int
+    _completion_engine: CompletionEngine
+
+    if TYPE_CHECKING:
+
+        @property
+        def _completion_popup(self) -> CompletionPopup: ...
+        @property
+        def _parameter_hint_popup(self) -> ParameterHintPopup: ...
+        @property
+        def _symbol_doc_popup(self) -> SymbolDocPopup: ...
+        @property
+        def _debug_popup(self) -> DebugValuePopup: ...
+        def _dismiss_parameter_hint(self) -> None: ...
+        def _dismiss_symbol_doc(self) -> None: ...
+        def _hide_debug_value_popup(self) -> None: ...
+        def trigger_parameter_hint(self) -> None: ...
+        def _trigger_completion(self) -> None: ...
+        def _try_show_parameter_hint(self) -> None: ...
+        def _maybe_trigger_local_path_completion(self) -> None: ...
+        def _refresh_parameter_hint_from_cursor(self) -> None: ...
+        def _text_before_cursor_document(self) -> str: ...
+        def _completion_text_before_cursor(self) -> str: ...
+        def _in_path_string_context(self, text_before: str) -> bool: ...
+        def _filter_completion(self) -> None: ...
+        def _activate_quick_doc(self) -> Any: ...
 
     @staticmethod
     def _indent_selection(cursor: QTextCursor, indent_width: int) -> None:
@@ -229,17 +272,11 @@ class _KeyboardMixin:
             event.accept()
             return
 
-        # Ctrl+Q — quick documentation for the symbol at the text cursor.
+        # Ctrl+Q — quick doc (layout-independent binding lives on QShortcut too).
         if _is_quick_doc_shortcut(event):
-            hit = self._ident_at_text_cursor()
-            if hit is not None:
-                path, _start, _end = hit
-                sym = self._completion_engine.resolve_symbol(path, self.toPlainText())
-                if sym is not None:
-                    cr = self.cursorRect()
-                    gp = self.mapToGlobal(cr.bottomLeft())
-                    self._symbol_hover_global_pos = gp
-                    self._symbol_doc_popup.show_for(gp, sym)
+            activate = getattr(self, "_activate_quick_doc", None)
+            if callable(activate):
+                activate()
             event.accept()
             return
 
@@ -247,16 +284,7 @@ class _KeyboardMixin:
             super().keyPressEvent(event)
             return
 
-        # Ctrl+/ — toggle line comment for the selection or current line.
-        if (
-            event.key() == Qt.Key.Key_Slash
-            and (event.modifiers() & Qt.KeyboardModifier.ControlModifier)
-            and not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
-            and not (event.modifiers() & Qt.KeyboardModifier.AltModifier)
-        ):
-            self._toggle_line_comment()
-            event.accept()
-            return
+        # Ctrl+/ — line comment is handled by QShortcut (layout-independent).
 
         # Shift+Enter / Shift+Return — insert a normal newline (paragraph break).
         # Qt's default would insert U+2028 line-separator instead, which round-trips
@@ -376,9 +404,7 @@ class _KeyboardMixin:
                 self._refresh_parameter_hint_from_cursor()
         if text and text.isprintable():
             self._maybe_trigger_local_path_completion()
-        if text == "." and not self._completion_engine.is_local_require_completion_context(
-            self._completion_text_before_cursor()
-        ):
+        if text == "." and not self._in_path_string_context(self._completion_text_before_cursor()):
             self._trigger_completion()
         elif text == "{":
             block_text = self.textCursor().block().text()

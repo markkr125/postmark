@@ -16,7 +16,7 @@ from services.collection_service import CollectionService, RequestLoadDict
 from services.local_script_service import LocalScriptService
 from ui.local_scripts.local_script_editor_widget import LocalScriptEditorWidget
 from ui.local_scripts.script_filename import script_display_name
-from ui.request.navigation.tab_manager import TabContext
+from ui.request.navigation.tab_manager import TabContext, allocate_tab_nav_token
 from ui.request.request_editor import RequestEditorWidget
 from ui.request.response_viewer import ResponseViewerWidget
 
@@ -94,6 +94,9 @@ class _TabControllerMixin:
     def _refresh_sidebar(self, ctx: TabContext | None = None) -> None: ...
     def _schedule_sidebar_snippet_refresh(self) -> None: ...
     def _on_environments_data_changed(self) -> None: ...
+    def _record_tab_activation(self, index: int) -> None: ...
+    def _seed_tab_nav_after_restore(self) -> None: ...
+    def _purge_tab_nav_token(self, token: int) -> None: ...
 
     # ------------------------------------------------------------------
     # Open request
@@ -297,6 +300,7 @@ class _TabControllerMixin:
         editor.save_requested.connect(self._on_save_local_script)
         editor.open_scripting_settings_requested.connect(self._on_open_scripting_settings)
         editor.debug_step_requested.connect(self._on_debug_step)
+        editor.local_script_saved.connect(self._on_local_script_saved)
 
         self._tab_bar.setCurrentIndex(idx)
         self._on_tab_changed(idx)
@@ -396,6 +400,27 @@ class _TabControllerMixin:
                 self._tab_bar.update_tab(idx, is_dirty=dirty)
                 break
 
+    def _on_local_script_saved(self, script_id: int) -> None:
+        """Refresh host script editors that directly require *script_id*."""
+        from ui.widgets.code_editor.editor_lsp_glue import refresh_dependency_diagnostics_for_script
+
+        refresh_dependency_diagnostics_for_script(script_id)
+
+    def _go_to_local_script_position(self, script_id: int, line_1: int, column_1: int) -> None:
+        """Open or focus a local script tab and move the cursor."""
+        for idx, ctx in self._tabs.items():
+            if ctx.tab_type == "local_script" and ctx.local_script_id == script_id:
+                self._tab_bar.setCurrentIndex(idx)
+                self._flush_tab_change()
+                editor = ctx.local_script_editor
+                if editor is not None:
+                    editor.go_to_position(line_1, column_1)
+                return
+        self._open_local_script(script_id)
+        opened_ctx = self._tabs.get(self._tab_bar.currentIndex())
+        if opened_ctx is not None and opened_ctx.local_script_editor is not None:
+            opened_ctx.local_script_editor.go_to_position(line_1, column_1)
+
     def _on_editor_scripts_tab_changed(self, scripts_active: bool) -> None:
         """Hide the response area while the active editor's Scripts tab is open.
 
@@ -473,6 +498,7 @@ class _TabControllerMixin:
 
         # -- Debounce the heavy work -----------------------------------
         self._tab_change_debounce.start()
+        self._record_tab_activation(index)
 
     def _on_tab_change_settled(self, *, sync_tree: bool = True) -> None:
         """Run expensive refresh work after tab changes settle.
@@ -571,11 +597,19 @@ class _TabControllerMixin:
                     tabs_list.append({"type": "environments"})
                 elif ctx.tab_type == "local_script" and ctx.local_script_id is not None:
                     _method, name = self._tab_bar.tab_request_info(idx)
+                    pane = ctx.local_script_editor
+                    language = "javascript"
+                    module_format = "esm"
+                    if pane is not None:
+                        language = pane._pane.editor.language
+                        module_format = pane._pane.editor.script_module_format
                     tabs_list.append(
                         {
                             "type": "local_script",
                             "id": ctx.local_script_id,
                             "name": name,
+                            "language": language,
+                            "module_format": module_format,
                         }
                     )
                 elif ctx.tab_type == "request" and ctx.request_id is not None:
@@ -591,10 +625,14 @@ class _TabControllerMixin:
                     )
                 elif ctx.tab_type == "request" and ctx.request_id is None:
                     # Draft (unsaved) tab — snapshot the editor state.
+                    ed = ctx.require_editor()
                     entry: dict[str, object] = {
                         "type": "draft",
-                        "data": ctx.require_editor().get_request_data(),
+                        "data": ed.get_request_data(),
                     }
+                    draft_debug = ed.collect_draft_debug_blob()
+                    if draft_debug:
+                        entry["debug"] = draft_debug
                     if ctx.draft_name:
                         entry["draft_name"] = ctx.draft_name
                     tabs_list.append(entry)
@@ -602,14 +640,25 @@ class _TabControllerMixin:
                 # Deferred (not-yet-materialised) tab
                 info = self._deferred_tabs.get(idx)
                 if info is not None:
-                    tabs_list.append(
-                        {
-                            "type": "request",
-                            "id": info["request_id"],
-                            "method": info.get("method", "GET"),
-                            "name": info.get("name", ""),
-                        }
-                    )
+                    if info.get("type") == "local_script":
+                        tabs_list.append(
+                            {
+                                "type": "local_script",
+                                "id": info["script_id"],
+                                "name": info.get("name", "Script"),
+                                "language": info.get("language", "javascript"),
+                                "module_format": info.get("module_format", "esm"),
+                            }
+                        )
+                    else:
+                        tabs_list.append(
+                            {
+                                "type": "request",
+                                "id": info["request_id"],
+                                "method": info.get("method", "GET"),
+                                "name": info.get("name", ""),
+                            }
+                        )
         data: dict[str, object] = {
             "tabs": tabs_list,
             "active": self._tab_bar.currentIndex(),
@@ -672,7 +721,7 @@ class _TabControllerMixin:
                 elif tab_type == "local_script":
                     if LocalScriptService.get_script(item_id) is None:
                         continue
-                    self._open_local_script(item_id)
+                    self._restore_local_script_deferred(entry, item_id)
         finally:
             self._restoring_session = False
 
@@ -680,6 +729,8 @@ class _TabControllerMixin:
             self._tab_bar.setCurrentIndex(active)
             self._on_tab_changed(active)
             self._flush_tab_change()
+
+        self._seed_tab_nav_after_restore()
 
         left_panel = data.get("left_sidebar_panel")
         if isinstance(left_panel, str):
@@ -724,6 +775,31 @@ class _TabControllerMixin:
             "request_id": request_id,
             "method": method,
             "name": name,
+            "nav_token": allocate_tab_nav_token(),
+        }
+
+    def _restore_local_script_deferred(self, entry: dict, script_id: int) -> None:
+        """Create a lightweight tab chip for a persisted local script tab."""
+        name = str(entry.get("name") or "Script")
+        language = str(entry.get("language") or "javascript")
+        module_format = str(entry.get("module_format") or "esm")
+        self._tab_bar.blockSignals(True)
+        try:
+            idx = self._tab_bar.add_script_tab(
+                language,
+                name,
+                path=None,
+                module_format=module_format,
+            )
+        finally:
+            self._tab_bar.blockSignals(False)
+        self._deferred_tabs[idx] = {
+            "type": "local_script",
+            "script_id": script_id,
+            "name": name,
+            "language": language,
+            "module_format": module_format,
+            "nav_token": allocate_tab_nav_token(),
         }
 
     def _materialise_deferred_tab(self, index: int) -> None:
@@ -739,11 +815,18 @@ class _TabControllerMixin:
         the redundant ``get_request_breadcrumb`` call.
         """
         info = self._deferred_tabs.pop(index)
+        if info.get("type") == "local_script":
+            self._materialise_deferred_local_script(index, info)
+            return
+
         request_id: int = info["request_id"]
 
         request = CollectionService.get_request(request_id)
         if request is None:
             logger.warning("Deferred request id=%s not found, removing tab", request_id)
+            raw_token = info.get("nav_token")
+            if isinstance(raw_token, int):
+                self._purge_tab_nav_token(raw_token)
             self._tab_bar.remove_request_tab(index)
             self._reindex_tabs_after_close(index)
             return
@@ -767,12 +850,15 @@ class _TabControllerMixin:
         self._editor_stack.addWidget(editor)
         self._response_stack.addWidget(viewer)
 
+        saved_token = info.get("nav_token")
+        nav_token = saved_token if isinstance(saved_token, int) else None
         ctx = TabContext(
             request_id=request_id,
             editor=editor,
             response_viewer=viewer,
             is_preview=False,
             opened_order=self._next_tab_open_order(),
+            nav_token=nav_token,
         )
         self._tabs[index] = ctx
 
@@ -804,6 +890,52 @@ class _TabControllerMixin:
             path=request_path,
         )
 
+    def _materialise_deferred_local_script(self, index: int, info: dict) -> None:
+        """Build the local script editor on first selection of a deferred tab chip."""
+        script_id: int = info["script_id"]
+        data = LocalScriptService.get_script_load_dict(script_id)
+        if data is None:
+            logger.warning("Deferred local script id=%s not found, removing tab", script_id)
+            raw_token = info.get("nav_token")
+            if isinstance(raw_token, int):
+                self._purge_tab_nav_token(raw_token)
+            self._tab_bar.remove_request_tab(index)
+            self._reindex_tabs_after_close(index)
+            return
+
+        editor = LocalScriptEditorWidget()
+        self._editor_stack.addWidget(editor)
+
+        saved_token = info.get("nav_token")
+        nav_token = saved_token if isinstance(saved_token, int) else None
+        ctx = TabContext(
+            tab_type="local_script",
+            local_script_id=script_id,
+            local_script_editor=editor,
+            opened_order=self._next_tab_open_order(),
+            nav_token=nav_token,
+        )
+        self._tabs[index] = ctx
+
+        editor.load_script(data)
+        self._bind_local_script_autosave(editor, script_id)
+        editor.dirty_changed.connect(self._sync_save_btn)
+        editor.dirty_changed.connect(self._on_local_script_dirty_changed)
+        editor.save_requested.connect(self._on_save_local_script)
+        editor.open_scripting_settings_requested.connect(self._on_open_scripting_settings)
+        editor.debug_step_requested.connect(self._on_debug_step)
+        editor.local_script_saved.connect(self._on_local_script_saved)
+
+        crumbs = self._local_script_breadcrumbs_with_display(script_id)
+        script_path = (
+            " / ".join(str(c.get("name", "")) for c in crumbs if c.get("name")) if crumbs else None
+        )
+        self._tab_bar.update_tab(
+            index,
+            name=data.get("name", info.get("name", "Script")),
+            path=script_path,
+        )
+
     def _restore_draft(self, entry: dict) -> None:
         """Restore a single draft tab from persisted session data."""
         draft_data = entry.get("data")
@@ -821,6 +953,9 @@ class _TabControllerMixin:
             return
         ed = ctx.require_editor()
         ed.load_request(cast(RequestLoadDict, draft_data), request_id=None)
+        draft_debug = entry.get("debug")
+        if draft_debug is not None:
+            ed.apply_draft_debug_blob(draft_debug)
         ed._set_dirty(True)
         if isinstance(draft_name, str):
             ctx.draft_name = draft_name
@@ -835,6 +970,10 @@ class _TabControllerMixin:
         # Handle deferred (lazy) tab close — no widgets to clean up
         if index in self._deferred_tabs:
             target_old_index = self._target_tab_after_close(index)
+            deferred_info = self._deferred_tabs[index]
+            raw_token = deferred_info.get("nav_token")
+            if isinstance(raw_token, int):
+                self._purge_tab_nav_token(raw_token)
             self._deferred_tabs.pop(index)
             self._tab_bar.remove_request_tab(index)
             self._reindex_tabs_after_close(index)
@@ -849,9 +988,11 @@ class _TabControllerMixin:
             return
 
         target_old_index = self._target_tab_after_close(index)
-        ctx = self._tabs.pop(index, None)
+        ctx = self._tabs.get(index)
         if ctx is None:
             return
+        self._purge_tab_nav_token(ctx.nav_token)
+        ctx = self._tabs.pop(index)
 
         ctx.cancel_send()
         ctx.cleanup_thread()
@@ -866,6 +1007,9 @@ class _TabControllerMixin:
             # Folder tab cleanup
             folder_editor = ctx.folder_editor
             if folder_editor is not None:
+                flush_debug = getattr(folder_editor, "flush_debug_metadata_persist_sync", None)
+                if callable(flush_debug):
+                    flush_debug()
                 folder_editor.shutdown_runner()
                 folder_editor.collection_changed.disconnect(self._on_folder_auto_save)
                 self._editor_stack.removeWidget(folder_editor)
@@ -890,6 +1034,9 @@ class _TabControllerMixin:
         elif ctx.tab_type == "local_script":
             script_ed = ctx.local_script_editor
             if script_ed is not None:
+                pane = getattr(script_ed, "_pane", None)
+                if pane is not None and hasattr(pane, "cancel_async_lsp_prep"):
+                    pane.cancel_async_lsp_prep()
                 with contextlib.suppress(TypeError, RuntimeError):
                     script_ed.dirty_changed.disconnect(self._sync_save_btn)
                 with contextlib.suppress(TypeError, RuntimeError):
@@ -912,6 +1059,10 @@ class _TabControllerMixin:
             # Grab local references before dispose() nulls the context.
             editor = ctx.require_editor()
             viewer = ctx.require_response_viewer()
+
+            flush_debug = getattr(editor, "flush_debug_metadata_persist_sync", None)
+            if callable(flush_debug):
+                flush_debug()
 
             # Disconnect signals that reference MainWindow slots so the
             # sender objects can be garbage-collected.
