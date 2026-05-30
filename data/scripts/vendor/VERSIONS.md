@@ -8,13 +8,13 @@ All bundles are IIFE-wrapped via `esbuild --bundle --format=iife`.
 | Library | Version | npm Package | Bundle Size | License |
 |---------|---------|-------------|-------------|---------|
 | CryptoJS | 4.2.0 | `crypto-js` | 219 KB | MIT |
-| Lodash | 4.17.23 | `lodash` | 236 KB | MIT |
+| Lodash | 4.18.1 | `lodash` | 236 KB | MIT |
 | Moment | 2.30.1 | `moment` | 156 KB | MIT |
-| Chai | 4.5.0 | `chai` | 179 KB | MIT |
+| Chai | 6.2.2 | `chai` | 144 KB | MIT |
 | tv4 | 1.3.0 | `tv4` | 68 KB | Public Domain |
-| Ajv | 8.18.0 | `ajv` | 255 KB | MIT |
+| Ajv | 8.20.0 | `ajv` | 259 KB | MIT |
 | xml2js | 0.6.2 | `xml2js` | 259 KB | MIT |
-| csv-parse | 5.6.0 | `csv-parse` | 61 KB | MIT |
+| csv-parse | 6.2.1 | `csv-parse` | 62 KB | MIT |
 | Esprima | 4.0.1 | `esprima` | 284 KB | MIT |
 
 `esprima.js` is a stock webpack bundle (not esbuild IIFE) used by `ScriptLinter` for static JavaScript analysis only; it is not part of the sandbox `require()` surface.
@@ -31,19 +31,40 @@ All bundles are IIFE-wrapped via `esbuild --bundle --format=iife`.
 
 ## Rebuilding Vendor Bundles
 
+Each bundle is built from a tiny entry file that assigns the library to a
+`globalThis.__pm_<name>` global. That global is the contract the runtime's
+`require()` shim reads (see `_REQUIRE_MAP` in
+`src/services/scripting/js_runtime.py`), so the assignment — not a
+`--global-name` flag — is what matters. Build with `--legal-comments=inline`
+so the bundle ends with the assignment, matching the committed files.
+
 ```bash
 mkdir -p /tmp/vendor-build && cd /tmp/vendor-build
 npm init -y
-npm install crypto-js lodash moment chai@4 tv4 ajv xml2js csv-parse \
+npm install crypto-js lodash moment chai tv4 ajv xml2js csv-parse \
     buffer esbuild events timers-browserify
 
-# Example: rebuild lodash
-npx esbuild --bundle --format=iife --platform=browser \
-    --global-name=__vendorExports \
-    --outfile=lodash.js \
-    <<< "module.exports = require('lodash');"
+# CommonJS libs (lodash shown; same pattern for crypto-js, moment, tv4, xml2js):
+printf "globalThis.__pm_lodash = require('lodash');\n" > _entry_lodash.js
+npx esbuild --bundle --format=iife --platform=browser --legal-comments=inline \
+    --outfile=lodash.js _entry_lodash.js
 
-cp lodash.js /path/to/postmark/data/scripts/vendor/
+# ajv exposes the Ajv class — unwrap the default export:
+printf "const a = require('ajv'); globalThis.__pm_ajv = a.default || a;\n" > _entry_ajv.js
+npx esbuild --bundle --format=iife --platform=browser --legal-comments=inline \
+    --outfile=ajv.js _entry_ajv.js
+
+# csv-parse: the sync module. `Buffer` is supplied at runtime by buffer-polyfill.js:
+printf "globalThis.__pm_csv_parse = require('csv-parse/sync');\n" > _entry_csv.js
+npx esbuild --bundle --format=iife --platform=browser --legal-comments=inline \
+    --outfile=csv-parse.js _entry_csv.js
+
+# chai 5+ is ESM-only — use an ESM entry (.mjs) with a namespace import:
+printf "import * as chai from 'chai';\nglobalThis.__pm_chai = chai;\n" > _entry_chai.mjs
+npx esbuild --bundle --format=iife --platform=browser --legal-comments=inline \
+    --outfile=chai.js _entry_chai.mjs
+
+cp *.js /path/to/postmark/data/scripts/vendor/
 ```
 
 ## Security Audit

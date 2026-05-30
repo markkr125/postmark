@@ -1045,6 +1045,10 @@ class _ScriptsMixin(_DebugMetadataPersistMixin):
 
     def _capture_script_versions(self) -> None:
         """Capture current script content as version snapshots."""
+        import database.database as db_mod
+
+        if db_mod._SessionLocal is None:
+            return
         request_id = getattr(self, "_request_id", None)
         collection_id = getattr(self, "_collection_id", None)
         if request_id is None and collection_id is None:

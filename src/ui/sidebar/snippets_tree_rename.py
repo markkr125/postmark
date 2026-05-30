@@ -71,7 +71,9 @@ class SnippetsInlineRename(QObject):
             return
         current = str(item.text(0) or item.text(1) or "")
         row_rect = self._tree.visualItemRect(item)
-        self._open_editor(item, KIND_CATEGORY, current, folder_label_rect(self._tree, item, row_rect))
+        self._open_editor(
+            item, KIND_CATEGORY, current, folder_label_rect(self._tree, item, row_rect)
+        )
 
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
         """Commit or cancel rename when the user clicks away or presses Escape."""
@@ -124,9 +126,7 @@ class SnippetsInlineRename(QObject):
         def _arm() -> None:
             if self._line_edit is line_edit:
                 line_edit.setProperty("rename_armed", True)
-                line_edit.editingFinished.connect(
-                    lambda: self._commit_active(from_return=False)
-                )
+                line_edit.editingFinished.connect(lambda: self._commit_active(from_return=False))
 
         QTimer.singleShot(0, _arm)
 

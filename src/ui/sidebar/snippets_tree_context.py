@@ -17,6 +17,7 @@ from ui.sidebar.snippets_tree_constants import (
     ROLE_SNIPPET_CATEGORY,
     ROLE_SNIPPET_ID,
 )
+
 if TYPE_CHECKING:
     from ui.sidebar.snippets_sidebar_panel import SnippetsSidebarPanel
 

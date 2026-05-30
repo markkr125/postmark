@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import QLineEdit, QTreeWidgetItem
+from shiboken6 import Shiboken
 
 from ui.collections.tree.constants import (
     ITEM_TYPE_FOLDER,
@@ -58,13 +59,24 @@ class _TreeOverlayRenameMixin(_TreeOverlayRenameBase):
     ) -> None:
         """Defer ``editingFinished`` commit and wire click-away / Escape."""
         line_edit.setProperty("rename_armed", False)
-        line_edit.returnPressed.connect(lambda: on_commit(True))
+
+        def _safe_commit(from_return: bool) -> None:
+            if not Shiboken.isValid(line_edit):
+                return
+            on_commit(from_return)
+
+        line_edit.returnPressed.connect(lambda: _safe_commit(True))
 
         def _arm() -> None:
+            if not Shiboken.isValid(line_edit):
+                return
             line_edit.setProperty("rename_armed", True)
-            line_edit.editingFinished.connect(lambda: on_commit(False))
+            line_edit.editingFinished.connect(lambda: _safe_commit(False))
 
-        QTimer.singleShot(0, _arm)
+        arm_timer = QTimer(line_edit)
+        arm_timer.setSingleShot(True)
+        arm_timer.timeout.connect(_arm)
+        arm_timer.start(0)
         self._rename_click_away().arm(
             line_edit,
             on_commit=lambda: on_commit(False),
@@ -114,9 +126,7 @@ class _TreeOverlayRenameMixin(_TreeOverlayRenameBase):
             on_cancel=lambda: self._cancel_request_rename(tree_item, line_edit),
         )
 
-    def _cancel_folder_rename(
-        self, tree_item: QTreeWidgetItem, line_edit: QLineEdit
-    ) -> None:
+    def _cancel_folder_rename(self, tree_item: QTreeWidgetItem, line_edit: QLineEdit) -> None:
         """Discard folder rename edits and close the overlay."""
         old_name = tree_item.data(1, ROLE_OLD_NAME)
         if not isinstance(old_name, str):
@@ -128,9 +138,7 @@ class _TreeOverlayRenameMixin(_TreeOverlayRenameBase):
         tree_item.setData(1, ROLE_OLD_NAME, None)
         self._rename_click_away().release()
 
-    def _cancel_request_rename(
-        self, tree_item: QTreeWidgetItem, line_edit: QLineEdit
-    ) -> None:
+    def _cancel_request_rename(self, tree_item: QTreeWidgetItem, line_edit: QLineEdit) -> None:
         """Discard request rename edits and close the overlay."""
         old_name = tree_item.data(1, ROLE_OLD_NAME)
         if not isinstance(old_name, str):
@@ -142,9 +150,7 @@ class _TreeOverlayRenameMixin(_TreeOverlayRenameBase):
         tree_item.setData(1, ROLE_OLD_NAME, None)
         self._rename_click_away().release()
 
-    def _cancel_script_rename(
-        self, tree_item: QTreeWidgetItem, line_edit: QLineEdit
-    ) -> None:
+    def _cancel_script_rename(self, tree_item: QTreeWidgetItem, line_edit: QLineEdit) -> None:
         """Discard script rename edits and close the overlay."""
         old_basename = tree_item.data(1, ROLE_OLD_NAME)
         if not isinstance(old_basename, str):

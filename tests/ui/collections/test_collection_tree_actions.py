@@ -371,9 +371,7 @@ class TestCollectionTreeOverlayRename:
         edit = tree._tree.viewport().findChild(QLineEdit, "scriptTreeRenameEdit")
         assert edit is not None
         renamed: list[tuple[int, str]] = []
-        tree.request_rename_requested.connect(
-            lambda item_id, name: renamed.append((item_id, name))
-        )
+        tree.request_rename_requested.connect(lambda item_id, name: renamed.append((item_id, name)))
         edit.setText("NewReq")
         edit.returnPressed.emit()
         qapp.processEvents()

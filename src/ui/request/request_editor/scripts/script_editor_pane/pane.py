@@ -341,6 +341,10 @@ class ScriptEditorPane(QWidget):
 
     def capture_version(self) -> None:
         """Persist a version snapshot when content changed."""
+        import database.database as db_mod
+
+        if db_mod._SessionLocal is None:
+            return
         owner_set = (
             self._request_id is not None
             or self._collection_id is not None

@@ -33,8 +33,8 @@
           const column = columns[i];
           if (column === void 0 || column === null || column === false) {
             normalizedColumns[i] = { disabled: true };
-          } else if (typeof column === "string") {
-            normalizedColumns[i] = { name: column };
+          } else if (typeof column === "string" || typeof column === "number") {
+            normalizedColumns[i] = { name: `${column}` };
           } else if (is_object(column)) {
             if (typeof column.name !== "string") {
               throw new CsvError("CSV_OPTION_COLUMNS_MISSING_NAME", [
@@ -238,7 +238,7 @@
             options
           );
         }
-        options.cast_first_line_to_header = null;
+        options.cast_first_line_to_header = void 0;
         if (options.columns === true) {
           options.cast_first_line_to_header = void 0;
         } else if (typeof options.columns === "function") {
@@ -659,7 +659,7 @@
         }
         if (options.to === void 0 || options.to === null) {
           options.to = -1;
-        } else {
+        } else if (options.to !== -1) {
           if (typeof options.to === "string" && /\d+/.test(options.to)) {
             options.to = parseInt(options.to);
           }
@@ -677,7 +677,7 @@
         }
         if (options.to_line === void 0 || options.to_line === null) {
           options.to_line = -1;
-        } else {
+        } else if (options.to_line !== -1) {
           if (typeof options.to_line === "string" && /\d+/.test(options.to_line)) {
             options.to_line = parseInt(options.to_line);
           }
@@ -716,6 +716,7 @@
       var transform = function(original_options = {}) {
         const info = {
           bytes: 0,
+          bytes_records: 0,
           comment_lines: 0,
           empty_lines: 0,
           invalid_field_length: 0,
@@ -794,10 +795,13 @@
                     const bomLength = boms[encoding2].length;
                     this.state.bufBytesStart += bomLength;
                     buf = buf.slice(bomLength);
-                    this.options = normalize_options({
+                    const options2 = normalize_options({
                       ...this.original_options,
                       encoding: encoding2
                     });
+                    for (const key in options2) {
+                      this.options[key] = options2[key];
+                    }
                     ({ comment, escape, quote } = this.options);
                     break;
                   }
@@ -1273,6 +1277,7 @@
                 return;
               }
             }
+            this.info.bytes_records += this.info.bytes;
             push(record);
           },
           // Return a tuple with the error and the casted value
@@ -1418,10 +1423,14 @@
             if (skip_records_with_error) {
               this.state.recordHasError = true;
               if (this.options.on_skip !== void 0) {
-                this.options.on_skip(
-                  err,
-                  raw ? this.state.rawBuffer.toString(encoding) : void 0
-                );
+                try {
+                  this.options.on_skip(
+                    err,
+                    raw ? this.state.rawBuffer.toString(encoding) : void 0
+                  );
+                } catch (err2) {
+                  return err2;
+                }
               }
               return void 0;
             } else {
@@ -1438,6 +1447,7 @@
             const { columns, raw, encoding } = this.options;
             return {
               ...this.__infoDataSet(),
+              bytes_records: this.info.bytes,
               error: this.state.error,
               header: columns === true,
               index: this.state.record.length,
@@ -1447,8 +1457,10 @@
           __infoField: function() {
             const { columns } = this.options;
             const isColumns = Array.isArray(columns);
+            const bytes_records = this.info.bytes_records;
             return {
               ...this.__infoRecord(),
+              bytes_records,
               column: isColumns === true ? columns.length > this.state.record.length ? columns[this.state.record.length].name : null : this.state.record.length,
               quoting: this.state.wasQuoting
             };
@@ -1469,10 +1481,8 @@
         };
         const close = () => {
         };
-        const err1 = parser.parse(data, false, push, close);
-        if (err1 !== void 0) throw err1;
-        const err2 = parser.parse(void 0, true, push, close);
-        if (err2 !== void 0) throw err2;
+        const error = parser.parse(data, true, push, close);
+        if (error !== void 0) throw error;
         return records;
       };
       exports.CsvError = CsvError;
@@ -1480,6 +1490,6 @@
     }
   });
 
-  // _e9_csv-parse.js
+  // _entry_csv.js
   globalThis.__pm_csv_parse = require_sync();
 })();

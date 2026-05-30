@@ -28,13 +28,13 @@ from pathlib import Path
 # Update these when you update the vendor bundles.
 _VENDOR_PACKAGES: dict[str, str] = {
     "crypto-js": "4.2.0",
-    "lodash": "4.17.23",
+    "lodash": "4.18.1",
     "moment": "2.30.1",
-    "chai": "4.5.0",
+    "chai": "6.2.2",
     "tv4": "1.3.0",
-    "ajv": "8.18.0",
+    "ajv": "8.20.0",
     "xml2js": "0.6.2",
-    "csv-parse": "5.6.0",
+    "csv-parse": "6.2.1",
 }
 
 # Build-time-only dependencies (not shipped, but needed for bundling).

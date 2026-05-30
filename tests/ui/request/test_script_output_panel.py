@@ -554,6 +554,11 @@ class TestScriptOutputPanelRunScript:
 
     def test_run_disables_both_buttons(self, qtbot) -> None:
         """Run and debug buttons for the panel are disabled for the run and restored after."""
+        from services.scripting.runtime_settings import RuntimeSettings
+
+        if not RuntimeSettings.validate_deno(RuntimeSettings.deno_path())["available"]:
+            pytest.skip("Deno is required to run JavaScript; not available in this environment.")
+
         panel = ScriptOutputPanel(script_type="pre_request")
         qtbot.addWidget(panel)
         run_b = QPushButton("Run")
@@ -575,6 +580,11 @@ class TestScriptOutputPanelRunScript:
 
     def test_run_script_disables_and_reenables_button(self, qtbot) -> None:
         """The run button is disabled during execution and re-enabled after."""
+        from services.scripting.runtime_settings import RuntimeSettings
+
+        if not RuntimeSettings.validate_deno(RuntimeSettings.deno_path())["available"]:
+            pytest.skip("Deno is required to run JavaScript; not available in this environment.")
+
         panel = ScriptOutputPanel(script_type="pre_request")
         qtbot.addWidget(panel)
         btn = QPushButton("Run")

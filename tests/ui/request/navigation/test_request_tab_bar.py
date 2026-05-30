@@ -406,9 +406,7 @@ class TestRequestTabBarDebugIndicator:
         assert not label._is_debugging
         assert not bar._entries[0].button._debugging
 
-    def test_debug_accent_visible_when_tab_not_selected(
-        self, qapp: QApplication, qtbot
-    ) -> None:
+    def test_debug_accent_visible_when_tab_not_selected(self, qapp: QApplication, qtbot) -> None:
         """Debug accent remains on the owning tab after switching away."""
         bar = RequestTabBar()
         qtbot.addWidget(bar)
