@@ -57,7 +57,7 @@ class _SnippetMixin(_SnippetBase):
         )
         from PySide6.QtWidgets import QDialog
 
-        if dlg.exec() == int(QDialog.DialogCode.Accepted) and dlg.saved_snippet_id is not None:
-            from ui.widgets.snippets.loader import invalidate_snippet_cache
-
-            invalidate_snippet_cache()
+        if dlg.exec() == int(QDialog.DialogCode.Accepted):
+            win = self.window()
+            if hasattr(win, "refresh_snippets_sidebar"):
+                win.refresh_snippets_sidebar()  # type: ignore[attr-defined]

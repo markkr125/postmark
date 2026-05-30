@@ -297,6 +297,12 @@ src/
     │   ├── sidebar_widget.py      # RightSidebar (icon rail) + _FlyoutPanel
     │   ├── left_sidebar.py        # LeftSidebar — activity rail + stacked nav flyout pages
     │   ├── local_scripts_sidebar_panel.py  # Legacy empty shell (unused; MainWindow uses CollectionWidget)
+    │   ├── snippets_sidebar_panel.py  # User snippets tree (language → category → leaf); search + section (i)
+    │   ├── snippets_tree_constants.py  # Tree data roles / node kinds for snippets sidebar
+    │   ├── snippets_tree_display.py  # Row layout + context/count labels for snippets tree
+    │   ├── snippets_tree_delegate.py  # Language/snippet row painting (context tag on leaves)
+    │   ├── snippets_tree_rename.py  # In-place snippet/category rename overlays
+    │   ├── snippets_tree_context.py  # Snippets tree right-click menus (category/snippet CRUD)
     │   ├── variables_panel.py     # VariablesPanel — read-only variable display
     │   ├── snippet_panel.py       # SnippetPanel — inline code snippet generator
     │   ├── debug_inspector_split.py # DebugInspectorSplit — call stack + watches | scopes (horizontal splitter)
@@ -353,6 +359,8 @@ src/
     │   │       └── symbol_doc_popup.py # SymbolDocPopup — Ctrl+hover / Ctrl+Q quick-doc tooltip
     │   ├── info_popup.py          # InfoPopup (QFrame) base + ClickableLabel
     │   ├── sidebar_section_info.py # SidebarSectionInfoPopup — (i) help for sidebar sections
+    │   ├── sidebar_tree_row_info.py # Trailing row (i) paint/hit-test for local-script tree leaves
+    │   ├── tree_rename_overlay.py   # TreeRenameClickAway — app-wide click-away / Escape for tree rename QLineEdit
     │   ├── lazy_editor_placeholder.py # LazyEditorPlaceholder — progress + caption until Body/Scripts editors mount
     │   ├── key_value_column_widths.py # QSettings JSON persistence for Key/Value widths
     │   ├── key_value_table.py     # Reusable key-value editor widget
@@ -364,8 +372,8 @@ src/
     │   ├── runtime_banner.py      # RuntimeBanner — Deno install/configure prompt for JS editors
     │   ├── snippets/              # Script snippet palette (loader + SnippetsPopup)
     │   │   ├── loader.py          # load_snippets — merges data/snippets/*.json + DB user snippets
-    │   │   ├── popup.py           # SnippetsPopup — search + grouped list; delete user rows
-    │   │   └── snippet_capture_dialog.py  # Save as snippet… dialog
+    │   │   ├── popup.py           # SnippetsPopup — search + grouped list; read-only insert (accent user rows)
+    │   │   └── snippet_capture_dialog.py  # Create/edit snippets (delete via sidebar context menu); CodeEditorWidget body
     │   ├── variable_line_edit.py  # VariableLineEdit — QLineEdit with {{var}} highlighting + hover popup
     │   └── variable_popup.py      # VariablePopup — singleton hover popup for variable details
     ├── collections/               # Collection sidebar
@@ -378,6 +386,7 @@ src/
     │       ├── draggable_tree_widget.py
     │       ├── collection_tree.py # CollectionTree widget
     │       ├── tree_actions.py    # _TreeActionsMixin — context menus, rename, delete
+    │       ├── tree_overlay_rename.py # _TreeOverlayRenameMixin — overlay rename + click-away
     │       └── collection_tree_delegate.py  # Custom delegate for method badges
     ├── dialogs/                   # Modal dialogs
     │   ├── collection_runner/
@@ -454,7 +463,7 @@ src/
         │   │   ├── bar.py           # RequestTabBar custom wrapped-row deck
         │   │   ├── labels.py        # TabLabel / FolderTabLabel chip content widgets
         │   │   └── tab_button.py    # TabButton chip with close + reorder interactions
-        │   └── tab_manager.py       # TabManager + TabContext (nav_token, local_overrides, draft_name)
+        │   └── tab_manager.py       # TabManager + TabContext (nav_token, is_debugging, local_overrides, draft_name)
         └── popups/                  # Response metadata popups
             ├── status_popup.py      # HTTP status code explanation
             ├── timing_popup.py      # Request timing breakdown

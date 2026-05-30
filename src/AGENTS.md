@@ -235,7 +235,10 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   On pause, Python `debugPause` includes a `pm.response` string in
   `locals` (built from the sandbox `pm` object).  JS variable reads merge
   `pm.response` fields into the `pm` map for the debug variables panel
-  (`js_debug._READ_JS_DEBUG_VARS`).  Deno/CDP pauses extend
+  (`js_debug._READ_JS_DEBUG_VARS` — nested ``pm`` hover snapshot:
+  ``info``, ``request``, ``response`` (or ``null``), ``variables``,
+  ``environment``, ``collectionVariables``, ``globals``, ``iterationData``,
+  ``cookies``, ``execution``).  Deno/CDP pauses extend
   `checkpoint(..., local_vars=...)` with optional ``locals`` (flat name→value
   map, innermost lexical binding wins) and ``scopes`` (ordered list of
   ``{type, name, vars}`` from ``callFrames[0].scopeChain``) for the debug
@@ -294,9 +297,15 @@ JSON under `data/snippets/` with **user snippets** in the ``snippets`` table
 merges both sources (user categories first) and memoises per
 ``(language)``; ``invalidate_snippet_cache()`` runs
 on user-snippet CRUD.  ``ui/widgets/snippets/popup.py`` is the
-searchable popover (delete control on user rows); ``snippet_capture_dialog.py`` is
-opened from ``CodeEditorWidget`` context menu **Save as snippet…**.  The **Snippets**
-toolbar control lives in ``ScriptEditorPane``.  Authoring guide: ``data/snippets/README.md``.
+read-only insert popover (user rows styled with ``userSnippetLabel``); create/edit/delete
+live in ``snippet_capture_dialog.py`` and ``ui/sidebar/snippets_sidebar_panel.py``
+(tree: JavaScript / TypeScript / Python → category → snippet; ``ts`` vs ``js`` in DB;
+right-click menus in ``snippets_tree_context.py`` (edit/rename/remove;
+``SnippetService.delete_snippets_in_category``, ``rename_category``).
+**Save as snippet…** opens the
+dialog from ``CodeEditorWidget``; ``MainWindow.refresh_snippets_sidebar()`` refreshes
+the sidebar list and an open picker after CRUD.  The **Snippets** toolbar control
+lives in ``ScriptEditorPane``.  Authoring guide: ``data/snippets/README.md``.
 
 Shipped JSON includes **Workflows**, **Variables**, **Tests** (e.g. status code or reason
 phrase, ``to.have.body``, ``to.be.oneOf`` / ``one_of``), and **Pre-request helpers**.

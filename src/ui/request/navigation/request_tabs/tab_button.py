@@ -33,6 +33,7 @@ class TabButton(QFrame):
         self._label_widget = label_widget
         self._selected = False
         self._hovered = False
+        self._debugging = False
         self._hover_suppressed = False
         self._press_pos: QPoint | None = None
         self._drag_active = False
@@ -70,6 +71,13 @@ class TabButton(QFrame):
         self._selected = selected
         self.refresh_style()
 
+    def set_debugging(self, debugging: bool) -> None:
+        """Update whether this tab owns an active debug session."""
+        if self._debugging == debugging:
+            return
+        self._debugging = debugging
+        self.refresh_style()
+
     def close_button(self) -> QToolButton:
         """Return the close button for compatibility with old tests."""
         return self._close_button
@@ -85,6 +93,7 @@ class TabButton(QFrame):
         text = ui_theme.COLOR_TEXT_MUTED
         bottom_width = "1px"
         bottom_border = ui_theme.COLOR_BORDER
+        border_left = f"1px solid {border}"
         if self._selected:
             background = ui_theme.COLOR_SELECTED_BG
             text = ui_theme.COLOR_TEXT
@@ -93,11 +102,18 @@ class TabButton(QFrame):
         elif self._hovered:
             background = ui_theme.COLOR_SELECTED_BG
             text = ui_theme.COLOR_TEXT
+        elif self._debugging:
+            background = ui_theme.COLOR_SELECTED_BG
+            text = ui_theme.COLOR_TEXT
+            bottom_width = "2px"
+            bottom_border = ui_theme.COLOR_ACCENT
+            border_left = f"3px solid {ui_theme.COLOR_ACCENT}"
 
         self.setStyleSheet(
             "TabButton {"
             f"background: {background};"
             f"border: 1px solid {border};"
+            f"border-left: {border_left};"
             f"border-bottom: {bottom_width} solid {bottom_border};"
             "border-radius: 4px;"
             "}"

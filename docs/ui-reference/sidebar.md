@@ -1,8 +1,8 @@
 # Sidebar
 
 Icon rails with collapsible flyout panels: **LeftSidebar** hosts the
-collections and environment picker on one stacked page and **Local scripts**
-on another (Phosphor **code** icon); **RightSidebar** hosts variables,
+collections and environment picker on one stacked page and **Local scripts &
+snippets** on another (Phosphor **code** icon); **RightSidebar** hosts variables,
 snippets, and saved responses.
 
 Source: `src/ui/sidebar/`
@@ -21,8 +21,9 @@ widget height (``LEFT_RAIL_ACCENT_STRIPE_WIDTH_PX`` wide) because Fusion-style
 built-in title row (the injected ``CollectionWidget`` already owns the
 ``CollectionHeader`` heading).  The flyout body is a ``QStackedWidget``: page
 0 is ``MainWindow``'s vertical ``_left_nav_splitter`` (collections above
-environments); page 1 is ``CollectionWidget(variant="local_scripts")`` — script/folder
-tree (create, rename, move; opens local-script editor tabs).  Horizontal inset for the collections and environment bodies uses
+environments); page 1 is a vertical splitter: ``CollectionWidget(variant="local_scripts")``
+(script/folder tree) above ``SnippetsSidebarPanel`` (user snippet list with **New** /
+row click → edit dialog).  Horizontal inset for the collections and environment bodies uses
 ``LEFT_NAV_PANEL_MARGIN_H_LEFT_PX`` /
 ``LEFT_NAV_PANEL_MARGIN_H_RIGHT_PX`` in ``theme.py``, applied inside
 ``CollectionWidget`` and ``EnvironmentSidebarPanel`` so the vertical splitter
@@ -40,7 +41,7 @@ rail icon).
 | Button | Icon (Phosphor) | Panel |
 |--------|-----------------|-------|
 | Collections | `files` | Collections tree + environment rows (``_left_nav_splitter``) |
-| Local scripts | `code` | ``CollectionWidget(variant="local_scripts")`` |
+| Local scripts & snippets | `code` | Local scripts tree + ``SnippetsSidebarPanel`` (vertical splitter) |
 
 ### Signals
 
@@ -64,10 +65,39 @@ rail icon).
 is open and :meth:`open_panel` when it is closed — it does not hide the
 activity rail, so it matches a manual resize of the flyout to zero width.
 
+## SnippetsSidebarPanel
+
+User-authored script snippets in a **tree** (same interaction model as local
+scripts): **JavaScript**, **TypeScript**, and **Python** as separate top-level
+nodes (not grouped), each containing category folders, then snippet leaves.
+**New** opens ``SnippetCaptureDialog`` in sidebar-create mode (language defaults
+from the selected branch); clicking a snippet opens edit (save only — use
+**Remove snippet** in the tree context menu to delete).  Create and edit dialogs open at **720×580** with a
+``CodeEditorWidget`` body (syntax highlighting, folding, and language-aware
+completion for JavaScript, TypeScript, or Python).  Header layout matches local scripts (**Snippets** title, section
+**(i)** for panel help, **Search snippets**, **New**).  Snippet leaves use the same row height and indentation as local script files.
+
+Right-click context menus:
+
+| Node | Actions |
+|------|---------|
+| Language | **Add new category** (name prompt, then create-snippet dialog with that category) |
+| Category | **Add new snippet**, **Rename category**, **Remove category** (deletes all snippets in the category) |
+| Snippet | **Edit snippet**, **Rename snippet** (in-place overlay, like local scripts), **Remove snippet** |
+
+Language roots show a muted trailing count (e.g. ``3 snippets``). Snippet leaves show a
+muted context tag (**Pre-request**, **Post-response**, or **Any**) on the right.
+Category **Rename** uses the tree's in-place folder editor.
+
+The snippet picker (``SnippetsPopup``) is insert-only — no delete control on
+user rows.
+
+Source: ``src/ui/sidebar/snippets_sidebar_panel.py``.
+
 ## LocalScriptsSidebarPanel (legacy)
 
 Unused legacy shell — still re-exported from ``src/ui/sidebar/__init__.py`` but
-**not** installed by ``MainWindow``.  The live **Local scripts** flyout page is
+**not** installed by ``MainWindow``.  The live local-scripts flyout top pane is
 ``CollectionWidget(variant="local_scripts")``.  See [Local scripts](local-scripts.md).
 Source: ``src/ui/sidebar/local_scripts_sidebar_panel.py``.
 

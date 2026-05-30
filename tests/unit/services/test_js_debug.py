@@ -72,6 +72,32 @@ def test_read_locals_parses_iife_json() -> None:
     assert out["env_changes"] == {"e": 3} and out["global_changes"] == {"g": 4}
 
 
+def test_read_locals_nested_pm_snapshot_shape() -> None:
+    """Hover ``pm`` snapshot includes request/variables scopes, not only response."""
+    pm_snap = {
+        "info": {"requestName": "mapper"},
+        "request": {"method": "POST", "url": "https://api.example.com/x", "headers": {}},
+        "response": None,
+        "variables": {"token": "abc"},
+        "environment": {"name": "Staging", "baseUrl": "https://api.example.com"},
+        "collectionVariables": {"cid": "1"},
+        "globals": {},
+    }
+    s = json.dumps(
+        {
+            "pm": pm_snap,
+            "globals": {},
+            "env_changes": {},
+            "global_changes": {},
+        }
+    )
+    out = js_debug.read_locals_from_iife_json_string(s)
+    assert out["pm"]["request"]["method"] == "POST"
+    assert out["pm"]["variables"]["token"] == "abc"
+    assert out["pm"]["environment"]["name"] == "Staging"
+    assert out["pm"]["response"] is None
+
+
 def test_split_groups_includes_trailing_block_comment_in_fallback() -> None:
     """The brace-nesting fallback keeps a trailing block comment as a third top-level group."""
     source = "const a = 1;\nconsole.log(a);\n/*\n{ unmatched brace in comment\n*/"

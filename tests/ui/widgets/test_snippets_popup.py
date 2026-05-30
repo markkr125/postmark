@@ -32,11 +32,12 @@ from collections.abc import Iterator
 
 import pytest
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QPushButton
+from PySide6.QtWidgets import QPushButton, QToolButton
 
 import ui.widgets.snippets.loader as snippet_loader
+from services.snippet_service import SnippetService
 from ui.widgets.snippets.loader import load_snippets
-from ui.widgets.snippets.popup import SnippetsPopup
+from ui.widgets.snippets.popup import SnippetsPopup, _SnippetRowWidget
 
 _BODY_ROLE = Qt.ItemDataRole.UserRole + 1
 
@@ -174,6 +175,71 @@ def test_popup_category_header_not_pickable(qapp, qtbot) -> None:
         if item.flags() == Qt.ItemFlag.NoItemFlags:
             assert not isinstance(item.data(_BODY_ROLE), str)
     popup.hidePopup()
+
+
+def test_user_snippet_row_has_no_delete_control(qapp, qtbot) -> None:
+    """User rows use accent label styling and omit the delete button."""
+    from PySide6.QtWidgets import QLabel
+
+    snippet_loader.load_snippets.cache_clear()
+    try:
+        SnippetService.create(
+            name="PickerUserRow",
+            language="javascript",
+            body="pm.globals.set('a', 1);",
+            category="PickerCat",
+        )
+        popup = SnippetsPopup.instance()
+        anchor = QPushButton("Snippets")
+        qtbot.addWidget(anchor)
+        anchor.show()
+        popup.show_for(anchor, "javascript", "test", on_pick=lambda _b: None)
+        qapp.processEvents()
+
+        rows = popup.findChildren(_SnippetRowWidget)
+        assert rows, "expected at least one custom row widget"
+        for row in rows:
+            assert row.findChildren(QToolButton) == []
+        assert popup.findChildren(QLabel, "userSnippetLabel")
+        popup.hidePopup()
+    finally:
+        snippet_loader.load_snippets.cache_clear()
+
+
+def test_reload_from_cache_if_visible(qapp, qtbot) -> None:
+    """Open picker reloads after a user snippet is added while visible."""
+    snippet_loader.load_snippets.cache_clear()
+    try:
+        popup = SnippetsPopup.instance()
+        anchor = QPushButton("Snippets")
+        qtbot.addWidget(anchor)
+        anchor.show()
+        popup.show_for(anchor, "javascript", "test", on_pick=lambda _b: None)
+        qapp.processEvents()
+
+        SnippetService.create(
+            name="LiveReloadSnip",
+            language="javascript",
+            body="// live",
+        )
+        SnippetsPopup.reload_from_cache_if_visible()
+        qapp.processEvents()
+
+        visible: list[str] = []
+        for i in range(popup._list.count()):
+            item = popup._list.item(i)
+            row_w = popup._list.itemWidget(item)
+            if row_w is not None:
+                from PySide6.QtWidgets import QLabel
+
+                for lbl in row_w.findChildren(QLabel, "userSnippetLabel"):
+                    visible.append(lbl.text().strip())
+            elif item.text().strip():
+                visible.append(item.text().strip())
+        assert any("LiveReloadSnip" in t for t in visible)
+        popup.hidePopup()
+    finally:
+        snippet_loader.load_snippets.cache_clear()
 
 
 def test_popup_escape_hides(qapp, qtbot) -> None:

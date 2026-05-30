@@ -9,8 +9,8 @@ when the user drags the splitter handle past the minimum, and reopens
 when an icon is clicked.
 
 Composition: the caller injects flyout pages via :meth:`set_content` (collections
-and environments splitter) and optionally :meth:`set_local_scripts_panel` for a
-second stacked page toggled from the activity rail.
+and environments splitter) and optionally :meth:`set_local_scripts_panel` for the **Local scripts &
+snippets** page (local script tree + user snippets panel) toggled from the rail.
 """
 
 from __future__ import annotations
@@ -193,7 +193,7 @@ class LeftSidebar(QWidget):
         self._collections_btn.setEnabled(True)
         rail_layout.addWidget(self._collections_btn)
 
-        self._local_scripts_btn = self._make_rail_button("code", "Local scripts")
+        self._local_scripts_btn = self._make_rail_button("code", "Local scripts & snippets")
         self._local_scripts_btn.setVisible(False)
         rail_layout.addWidget(self._local_scripts_btn)
         rail_layout.addStretch()

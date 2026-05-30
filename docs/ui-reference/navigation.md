@@ -24,6 +24,7 @@ Source: `src/ui/request/navigation/`
 | `worker` | `HttpSendWorker \| None` | Current send worker |
 | `is_dirty` | `bool` | Unsaved changes flag |
 | `is_sending` | `bool` | HTTP request in flight |
+| `is_debugging` | `bool` | Inline script debug session active on this tab |
 | `is_preview` | `bool` | Preview mode (italic tab label) |
 | `draft_name` | `str \| None` | Label for unsaved draft tabs |
 | `local_overrides` | `dict[str, LocalOverride]` | Per-tab variable overrides |
@@ -78,6 +79,10 @@ controlled by `TabSettingsManager.small_labels`.
 | Preview | Italic tab label |
 | Dirty | Bullet (•) before name |
 | Sending | Spinner/activity indicator |
+| Debugging | Trailing red bug icon (vertically centred with label text) + accent chip border (left accent when unselected) |
+
+Set via ``RequestTabBar.update_tab(..., is_debugging=...)`` when
+``ScriptEditorPane.debug()`` pins a host and cleared in ``end_debug_ui``.
 
 ### Signals
 
@@ -99,7 +104,7 @@ controlled by `TabSettingsManager.small_labels`.
 | `add_request_tab(method, name, path, index)` | Add request tab chip |
 | `add_folder_tab(name, index)` | Add folder tab chip (italic) |
 | `add_environments_tab(name, index)` | Add global environments editor tab chip |
-| `update_tab(index, is_preview, is_sending, is_dirty)` | Refresh visual state |
+| `update_tab(index, is_preview, is_sending, is_dirty, is_debugging)` | Refresh visual state |
 
 ## TabButton
 

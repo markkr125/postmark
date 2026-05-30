@@ -37,8 +37,9 @@ Tree context menu → "Add request"  /  Placeholder "Add a request" link
 
 ```
 Tree context menu → "Rename" (folder)
-  → CollectionTree._rename_folder() → Qt's editItem() inline editor
-  → itemChanged signal → _on_item_changed()
+  → CollectionTree._rename_folder() / _rename_request() → overlay QLineEdit (`scriptTreeRenameEdit`)
+  → TreeRenameClickAway commits on outside click; Escape cancels
+  → collection_rename_requested / request_rename_requested
     → CollectionTree.collection_rename_requested(id, new_name)
       → CollectionWidget._on_collection_rename(id, new_name)
         → CollectionService.rename_collection(id, new_name)

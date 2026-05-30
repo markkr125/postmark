@@ -484,12 +484,14 @@ class ScriptEditorPane(QWidget):
     def _script_host_for_debug(self) -> QWidget | None:
         """Walk parents to the widget that owns this pane for debug pause UI."""
         from ui.local_scripts.local_script_editor_widget import LocalScriptEditorWidget
+        from ui.request.folder_editor.editor_widget import FolderEditorWidget
+        from ui.request.request_editor.editor_widget import RequestEditorWidget
 
         w: QWidget | None = self
         while w is not None:
-            if isinstance(w, LocalScriptEditorWidget):
+            if isinstance(w, LocalScriptEditorWidget | RequestEditorWidget | FolderEditorWidget):
                 return w
-            if hasattr(w, "_ensure_scripts_editors"):
+            if hasattr(w, "_pre_pane") or hasattr(w, "_ensure_scripts_editors"):
                 return w
             w = w.parentWidget()
         return None
@@ -540,6 +542,9 @@ class ScriptEditorPane(QWidget):
         debug_host = self._script_host_for_debug()
         if debug_host is not None:
             main._debug_script_host = debug_host
+            set_tab_debug = getattr(main, "_set_tab_debugging_for_host", None)
+            if callable(set_tab_debug):
+                set_tab_debug(debug_host, True)
         self._output_panel.run_script_debug(
             script=script,
             language=language,

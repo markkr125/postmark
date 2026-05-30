@@ -155,6 +155,9 @@ def build_global_qss(p: ThemePalette) -> str:
     QTextEdit[objectName="monoEdit"] {{
         font-family: monospace;
     }}
+    QPlainTextEdit[objectName="monoEdit"] {{
+        font-family: monospace;
+    }}
     QTextEdit[objectName="keyValueBulkEdit"] {{
         font-family: monospace;
         min-height: 140px;
@@ -882,6 +885,9 @@ def build_global_qss(p: ThemePalette) -> str:
         font-size: 13px;
         color: {p["text"]};
     }}
+    QLabel[objectName="userSnippetLabel"] {{
+        color: {p["accent"]};
+    }}
     QToolButton[objectName="sidebarSectionInfoButton"] {{
         border: none;
         background: transparent;
@@ -898,7 +904,8 @@ def build_global_qss(p: ThemePalette) -> str:
         background: {"rgba(255,255,255,0.06)" if p is DARK_PALETTE else "rgba(0,0,0,0.04)"};
         border-radius: 4px;
     }}
-    QLineEdit[objectName="scriptTreeRenameEdit"] {{
+    QLineEdit[objectName="scriptTreeRenameEdit"],
+    QLineEdit[objectName="snippetTreeRenameEdit"] {{
         background: {p["input_bg"]};
         color: {p["text"]};
         border: 1px solid {p["accent"]};
@@ -999,6 +1006,28 @@ def build_global_qss(p: ThemePalette) -> str:
     }}
     QWidget#localScriptsSidebarListBody {{
         background: transparent;
+    }}
+
+    /* ---- Snippets sidebar (under local scripts flyout) -------- */
+    QWidget#snippetsSidebarPanel {{
+        border-top: 1px solid {p["border"]};
+    }}
+    QScrollArea#snippetsSidebarScroll {{
+        border: none;
+        background: transparent;
+    }}
+    QWidget#snippetsSidebarList {{
+        background: {p["input_bg"]};
+        border: 1px solid {p["border"]};
+        border-radius: 0px;
+    }}
+    QWidget#snippetsSidebarListBody {{
+        background: transparent;
+    }}
+    QTreeWidget[objectName="snippetsTree"] {{
+        border: none;
+        background: transparent;
+        outline: none;
     }}
 
     /* ---- Badge (method badge in tree + tabs) -------------------- */

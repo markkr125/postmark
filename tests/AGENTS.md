@@ -245,7 +245,8 @@ tests/
     │   ├── test_variable_popup.py
     │   ├── test_variable_popup_local.py
     │   ├── test_search_replace_bar.py
-    │   ├── test_snippets_popup.py   # Snippet JSON (Tests / Pre-request) + SnippetsPopup
+    │   ├── test_snippets_popup.py   # Snippet JSON + SnippetsPopup (no delete on user rows)
+    │   ├── test_snippet_capture_dialog.py  # Create / edit dialog
     │   └── test_runtime_banner.py
    ├── sidebar/                   # Sidebar widget tests
    │   ├── test_sidebar.py
@@ -257,6 +258,7 @@ tests/
    │   ├── test_debug_inspector_split.py
    │   ├── test_debug_variables_watches.py
    │   ├── test_debug_metadata_persist.py
+   │   ├── test_snippets_sidebar_panel.py
    │   └── test_saved_responses_panel.py
     ├── collections/               # Collection sidebar tests
     │   ├── test_collection_header.py

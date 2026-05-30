@@ -105,7 +105,7 @@ class CollectionTree(_TreeActionsMixin, QWidget):
         self._stack.addWidget(empty_widget)  # index 0
 
         self._tree = DraggableTreeWidget()
-        self._tree.setItemDelegate(CollectionTreeDelegate(self._tree))
+        self._tree.setItemDelegate(CollectionTreeDelegate(self._tree, tree_kind=tree_kind))
         self._tree.setHeaderHidden(True)
         self._tree.itemChanged.connect(self._on_item_changed)
         self._tree.currentItemChanged.connect(self._on_current_item_changed)
@@ -205,6 +205,8 @@ class CollectionTree(_TreeActionsMixin, QWidget):
 
     def _on_item_clicked(self, item: QTreeWidgetItem, column: int) -> None:
         """Open a request tab or toggle folder expand on single click."""
+        if self._rename_overlay_active():
+            return
         item_type = item.data(1, ROLE_ITEM_TYPE)
         if is_leaf_item_type(item_type):
             item_id = item.data(0, ROLE_ITEM_ID)

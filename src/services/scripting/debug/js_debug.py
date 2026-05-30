@@ -240,30 +240,141 @@ _READ_JS_DEBUG_VARS = r"""(function() {
     }
     var envc = st && st.variable_changes ? st.variable_changes : {};
     var gvc = st && st.global_variable_changes ? st.global_variable_changes : {};
+    function __pmDbg_trimStr(s, max) {
+      if (typeof s !== "string") return s;
+      return s.length <= max ? s : s.slice(0, max) + "\u2026";
+    }
+    function __pmDbg_safeClone(v) {
+      if (v === null || v === undefined) return v;
+      try { return JSON.parse(JSON.stringify(v)); } catch (e1) {
+        try { return String(v); } catch (e2) { return "[unavailable]"; }
+      }
+    }
+    function __pmDbg_scopeObject(scope, extra) {
+      if (!scope && !extra) return {};
+      var out = {};
+      try {
+        if (scope && typeof scope.toObject === "function") out = scope.toObject();
+      } catch (e) { out = {}; }
+      if (extra) {
+        var ek = Object.keys(extra);
+        for (var ei = 0; ei < ek.length; ei++) {
+          var ekk = ek[ei];
+          if (extra[ekk] !== undefined && extra[ekk] !== null && extra[ekk] !== "") {
+            out[ekk] = extra[ekk];
+          }
+        }
+      }
+      return out;
+    }
+    function __pmDbg_headers(h) {
+      if (!h) return {};
+      try {
+        if (typeof h.toObject === "function") return h.toObject();
+        if (typeof h === "object") return JSON.parse(JSON.stringify(h));
+      } catch (e) {}
+      return {};
+    }
+    function __pmDbg_body(body) {
+      if (!body) return null;
+      try {
+        var mode = body.mode || "";
+        var raw = typeof body.toString === "function" ? body.toString() : (body.raw || "");
+        return { mode: mode, raw: __pmDbg_trimStr(String(raw), 500) };
+      } catch (e) { return "[unavailable]"; }
+    }
+    function __pmDbg_url(url) {
+      if (!url) return "";
+      try {
+        return typeof url.toString === "function" ? url.toString() : String(url);
+      } catch (e) { return ""; }
+    }
+    function __pmDbg_request(req) {
+      if (!req) return null;
+      return {
+        method: String(req.method || "GET"),
+        url: __pmDbg_url(req.url),
+        headers: __pmDbg_headers(req.headers),
+        body: __pmDbg_body(req.body),
+        auth: req.auth != null ? __pmDbg_safeClone(req.auth) : null
+      };
+    }
+    function __pmDbg_response(r) {
+      if (!r) return null;
+      var bodyStr = "";
+      try {
+        bodyStr = typeof r.text === "function" ? r.text() : (r.body || "");
+      } catch (e) { bodyStr = ""; }
+      var snap = {
+        code: r.code,
+        status: r.status,
+        responseTime: r.responseTime,
+        responseSize: r.responseSize,
+        headers: __pmDbg_headers(r.headers),
+        body: __pmDbg_trimStr(String(bodyStr), 500)
+      };
+      try {
+        if (r.cookies && typeof r.cookies.getAll === "function") {
+          var cl = r.cookies.getAll();
+          var cmap = {};
+          for (var ci = 0; ci < cl.length; ci++) {
+            if (cl[ci] && cl[ci].name) cmap[cl[ci].name] = cl[ci].value;
+          }
+          snap.cookies = cmap;
+        }
+      } catch (e2) {}
+      try {
+        if (r.originalRequest) snap.originalRequest = __pmDbg_request(r.originalRequest);
+      } catch (e3) {}
+      return snap;
+    }
+    function __pmDbg_cookies(api) {
+      if (!api) return {};
+      try {
+        if (typeof api.getAll === "function") {
+          var list = api.getAll();
+          var out = {};
+          for (var i = 0; i < list.length; i++) {
+            if (list[i] && list[i].name) out[list[i].name] = list[i].value;
+          }
+          return out;
+        }
+      } catch (e) {}
+      return {};
+    }
+    function __pmDbg_buildPmSnap(pmObj) {
+      if (!pmObj) return {};
+      var snap = {};
+      if (pmObj.info) snap.info = __pmDbg_safeClone(pmObj.info);
+      try { snap.request = __pmDbg_request(pmObj.request); } catch (e0) { snap.request = null; }
+      try {
+        snap.response = pmObj.response ? __pmDbg_response(pmObj.response) : null;
+      } catch (e1) { snap.response = null; }
+      snap.variables = __pmDbg_scopeObject(pmObj.variables);
+      var envExtra = {};
+      try {
+        if (pmObj.environment && pmObj.environment.name) envExtra.name = pmObj.environment.name;
+      } catch (e2) {}
+      snap.environment = __pmDbg_scopeObject(pmObj.environment, envExtra);
+      snap.collectionVariables = __pmDbg_scopeObject(pmObj.collectionVariables);
+      snap.globals = __pmDbg_scopeObject(pmObj.globals);
+      try { snap.iterationData = __pmDbg_scopeObject(pmObj.iterationData); } catch (e3) {
+        snap.iterationData = {};
+      }
+      try { snap.cookies = __pmDbg_cookies(pmObj.cookies); } catch (e4) { snap.cookies = {}; }
+      try {
+        if (pmObj.execution && pmObj.execution.location) {
+          snap.execution = { location: __pmDbg_safeClone(pmObj.execution.location) };
+        }
+      } catch (e5) {}
+      return snap;
+    }
     var pmSnap = {};
     try {
       var pmObj = (typeof globalThis !== "undefined" && globalThis.pm)
         ? globalThis.pm
         : (typeof pm !== "undefined" ? pm : null);
-      if (pmObj && pmObj.response) {
-        var r = pmObj.response;
-        var hdrs = {};
-        try {
-          if (r.headers && typeof r.headers.toObject === "function") hdrs = r.headers.toObject();
-          else if (r.headers && typeof r.headers === "object") hdrs = JSON.parse(JSON.stringify(r.headers));
-        } catch (e) { hdrs = {"_error": "[unavailable]"}; }
-        var bodyStr = "";
-        try { bodyStr = typeof r.text === "function" ? r.text() : (r.body || ""); } catch (e) { bodyStr = ""; }
-        if (typeof bodyStr === "string" && bodyStr.length > 500) bodyStr = bodyStr.slice(0, 500) + "…";
-        pmSnap = {
-          "response.code": r.code,
-          "response.status": r.status,
-          "response.responseTime": r.responseTime,
-          "response.responseSize": r.responseSize,
-          "response.headers": hdrs,
-          "response.body": bodyStr
-        };
-      }
+      if (pmObj) pmSnap = __pmDbg_buildPmSnap(pmObj);
     } catch (e) { pmSnap = {}; }
     return JSON.stringify({ "pm": pmSnap, "globals": g, "env_changes": envc, "global_changes": gvc });
   } catch (e) {

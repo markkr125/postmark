@@ -646,5 +646,16 @@ class TestFolderEditorRunsTab:
         assert c2 is not None and "200" in c2.text()
 
 
+class TestFolderEditorDebugHostResolution:
+    """Inline debug tab indicator must resolve folder editors as script hosts."""
+
+    def test_script_host_for_debug_returns_folder_editor(self, qapp: QApplication, qtbot) -> None:
+        """Pre-request pane walks up to the owning FolderEditorWidget."""
+        editor = FolderEditorWidget()
+        qtbot.addWidget(editor)
+        host = editor._pre_pane._script_host_for_debug()
+        assert host is editor
+
+
 # Script history, status bar, and search bar tests have been extracted
 # to test_folder_editor_scripts.py to stay within the 600-line limit.

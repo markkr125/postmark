@@ -58,13 +58,10 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
-from services.snippet_service import SnippetService
-from ui.styling.icons import phi
 from ui.styling.theme import COLOR_TEXT_MUTED
 from ui.widgets.snippets.loader import (
     Snippet,
@@ -84,7 +81,7 @@ _SHOW_GRACE_MS = 200
 
 
 class _SnippetRowWidget(QWidget):
-    """One selectable snippet row; user rows include a delete control."""
+    """One selectable user snippet row (insert only; no delete control)."""
 
     activated = Signal()
 
@@ -92,27 +89,17 @@ class _SnippetRowWidget(QWidget):
         self,
         snip: Snippet,
         *,
-        on_delete: Callable[[int], None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
-        """Build label + optional delete button for *snip*."""
+        """Build an accent-styled label that emits ``activated`` on click."""
         super().__init__(parent)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(4, 2, 8, 2)
         layout.setSpacing(4)
         label = QLabel(f"  {snip.name}")
+        label.setObjectName("userSnippetLabel")
         label.setCursor(Qt.CursorShape.PointingHandCursor)
         layout.addWidget(label, 1)
-        if snip.is_user and snip.snippet_id is not None and on_delete is not None:
-            del_btn = QToolButton()
-            del_btn.setObjectName("iconButton")
-            del_btn.setIcon(phi("x", size=14))
-            del_btn.setToolTip("Delete snippet")
-            del_btn.setFixedSize(22, 22)
-            del_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            sid = snip.snippet_id
-            del_btn.clicked.connect(lambda: on_delete(sid))
-            layout.addWidget(del_btn)
 
         def _label_click(event: QMouseEvent) -> None:
             if event.button() == Qt.MouseButton.LeftButton:
@@ -137,6 +124,17 @@ class SnippetsPopup(QFrame):
         if cls._instance is None:
             cls._instance = SnippetsPopup()
         return cls._instance
+
+    @classmethod
+    def reload_from_cache_if_visible(cls) -> None:
+        """Reload the list when the popover is open; no-op when hidden or not created."""
+        if cls._instance is None or not Shiboken.isValid(cls._instance):
+            return
+        inst = cls._instance
+        if not inst.isVisible():
+            return
+        inst._reload_snippets()
+        inst._apply_filter(inst._search.text())
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Build search field, list, and signals; window flags match other tool popups."""
@@ -257,12 +255,6 @@ class SnippetsPopup(QFrame):
             host_kind=self._host_kind,
         )
 
-    def _delete_user_snippet(self, snippet_id: int) -> None:
-        """Remove a user snippet and refresh the list."""
-        SnippetService.delete(snippet_id)
-        self._reload_snippets()
-        self._apply_filter(self._search.text())
-
     def _position_below(self, anchor: QWidget) -> None:
         """Move so the top-left sits just under the anchor, clamped to the screen."""
         bottom_left = anchor.mapToGlobal(QPoint(0, anchor.height()))
@@ -295,11 +287,7 @@ class SnippetsPopup(QFrame):
             self._list.addItem(header)
             for snip in cat.snippets:
                 if snip.is_user:
-                    row = _SnippetRowWidget(
-                        snip,
-                        on_delete=self._delete_user_snippet,
-                        parent=self._list,
-                    )
+                    row = _SnippetRowWidget(snip, parent=self._list)
                     row.activated.connect(lambda b=snip.body: self._pick_body(b))
                     item = QListWidgetItem()
                     item.setData(_BODY_ROLE, snip.body)

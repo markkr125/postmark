@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFontMetrics
+from PySide6.QtGui import QFontMetrics, QPixmap
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QSizePolicy, QWidget
 
 from ui.styling.icons import phi
@@ -16,11 +16,15 @@ from ui.styling.theme import (
     BADGE_FONT_SIZE,
     BADGE_HEIGHT,
     BADGE_MIN_WIDTH,
+    COLOR_DANGER,
     COLOR_SENDING,
     COLOR_WHITE,
     method_color,
     method_short_label,
 )
+
+_DEBUG_ICON_SIZE = 14
+_DEBUG_ICON_ALIGN = Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignCenter
 
 _DIRTY_BULLET = "\u2022 "
 
@@ -67,6 +71,37 @@ def layout_config(compact: bool) -> TabLayoutConfig:
     return COMPACT_LAYOUT if compact else STANDARD_LAYOUT
 
 
+def _debug_icon_glyph_size(badge_height: int) -> int:
+    """Return the bug pixmap edge length for a tab row of *badge_height*."""
+    return min(_DEBUG_ICON_SIZE, badge_height)
+
+
+def _debug_tab_icon_pixmap(badge_height: int) -> QPixmap:
+    """Red bug icon pixmap sized for tab label rows."""
+    size = _debug_icon_glyph_size(badge_height)
+    return phi("bug", color=COLOR_DANGER, size=size).pixmap(size, size)
+
+
+def _make_debug_tab_icon_label(badge_height: int) -> QLabel:
+    """Build a vertically centred red bug icon for an active debug session."""
+    size = _debug_icon_glyph_size(badge_height)
+    label = QLabel()
+    label.setPixmap(_debug_tab_icon_pixmap(badge_height))
+    label.setFixedSize(size, badge_height)
+    label.setAlignment(_DEBUG_ICON_ALIGN)
+    label.setContentsMargins(0, 0, 0, 0)
+    label.setToolTip("Debug session active")
+    label.hide()
+    return label
+
+
+def _refresh_debug_tab_icon(label: QLabel, badge_height: int) -> None:
+    """Update pixmap and cell size after tab layout config changes."""
+    size = _debug_icon_glyph_size(badge_height)
+    label.setPixmap(_debug_tab_icon_pixmap(badge_height))
+    label.setFixedSize(size, badge_height)
+
+
 def _font_with_delta(label: QLabel, delta: int) -> None:
     """Apply a point-size delta to the given label font.
 
@@ -104,19 +139,20 @@ class TabLabel(QWidget):
         self._config = layout_config(compact)
         self._layout.setContentsMargins(*self._config.margins)
         self._layout.setSpacing(self._config.spacing)
+        self._layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
 
         self._badge = QLabel(method_short_label(method))
         self._badge.setObjectName("methodBadge")
         self._badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._badge.setFixedSize(self._config.badge_width, self._config.badge_height)
         self._apply_badge_color(method_color(method))
-        self._layout.addWidget(self._badge)
+        self._layout.addWidget(self._badge, 0, _DEBUG_ICON_ALIGN)
 
         self._name_label = QLabel(name)
         self._name_label.setMaximumWidth(self._config.label_width)
         self._name_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         _font_with_delta(self._name_label, self._config.font_delta)
-        self._layout.addWidget(self._name_label)
+        self._layout.addWidget(self._name_label, 0, _DEBUG_ICON_ALIGN)
 
         self._method = method
         self._name = name
@@ -124,6 +160,7 @@ class TabLabel(QWidget):
         self._is_preview = is_preview
         self._is_dirty = is_dirty
         self._is_sending = False
+        self._is_debugging = False
         self._mark_modified = mark_modified
 
         self._spinner = QLabel("\u25cf")
@@ -131,7 +168,10 @@ class TabLabel(QWidget):
             f"color: {COLOR_SENDING}; font-size: {self._config.spinner_size}px; padding: 0;"
         )
         self._spinner.hide()
-        self._layout.addWidget(self._spinner)
+        self._layout.addWidget(self._spinner, 0, _DEBUG_ICON_ALIGN)
+
+        self._debug_icon = _make_debug_tab_icon_label(self._config.badge_height)
+        self._layout.addWidget(self._debug_icon, 0, _DEBUG_ICON_ALIGN)
 
         self._apply_style()
 
@@ -176,6 +216,11 @@ class TabLabel(QWidget):
         self._is_sending = sending
         self._spinner.setVisible(sending)
 
+    def set_debugging(self, debugging: bool) -> None:
+        """Toggle the active-debug-session bug icon."""
+        self._is_debugging = debugging
+        self._debug_icon.setVisible(debugging)
+
     def apply_config(self, *, compact: bool, mark_modified: bool) -> None:
         """Apply refreshed display config from the tab settings."""
         self._config = layout_config(compact)
@@ -188,6 +233,7 @@ class TabLabel(QWidget):
         self._spinner.setStyleSheet(
             f"color: {COLOR_SENDING}; font-size: {self._config.spinner_size}px; padding: 0;"
         )
+        _refresh_debug_tab_icon(self._debug_icon, self._config.badge_height)
         self._apply_style()
 
     def _apply_style(self) -> None:
@@ -223,19 +269,20 @@ class ScriptTabLabel(QWidget):
         self._config = layout_config(compact)
         self._layout.setContentsMargins(*self._config.margins)
         self._layout.setSpacing(self._config.spacing)
+        self._layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
 
         self._icon_label = QLabel()
         self._language = resolve_script_language(language)
         self._apply_language_icon()
         self._icon_label.setFixedSize(self._config.badge_height, self._config.badge_height)
         self._icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._layout.addWidget(self._icon_label)
+        self._layout.addWidget(self._icon_label, 0, _DEBUG_ICON_ALIGN)
 
         self._name_label = QLabel(name)
         self._name_label.setMaximumWidth(self._config.label_width)
         self._name_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         _font_with_delta(self._name_label, self._config.font_delta)
-        self._layout.addWidget(self._name_label)
+        self._layout.addWidget(self._name_label, 0, _DEBUG_ICON_ALIGN)
 
         self._basename = script_basename_from_stored(name)
         self._name = self._basename
@@ -244,7 +291,11 @@ class ScriptTabLabel(QWidget):
             self._basename, self._language, self._module_format
         )
         self._is_dirty = is_dirty
+        self._is_debugging = False
         self._mark_modified = mark_modified
+
+        self._debug_icon = _make_debug_tab_icon_label(self._config.badge_height)
+        self._layout.addWidget(self._debug_icon, 0, _DEBUG_ICON_ALIGN)
 
         self._apply_style()
 
@@ -258,6 +309,11 @@ class ScriptTabLabel(QWidget):
         self._display_name = script_display_name(
             self._basename, self._language, self._module_format
         )
+
+    def set_debugging(self, debugging: bool) -> None:
+        """Toggle the active-debug-session bug icon."""
+        self._is_debugging = debugging
+        self._debug_icon.setVisible(debugging)
 
     def set_language(self, language: str) -> None:
         """Update the language brand icon and tab title extension."""
@@ -299,6 +355,7 @@ class ScriptTabLabel(QWidget):
         self._name_label.setMaximumWidth(self._config.label_width)
         _font_with_delta(self._name_label, self._config.font_delta)
         self._apply_language_icon()
+        _refresh_debug_tab_icon(self._debug_icon, self._config.badge_height)
         self._apply_style()
 
     def _apply_style(self) -> None:
@@ -330,6 +387,7 @@ class FolderTabLabel(QWidget):
         self._config = layout_config(compact)
         self._layout.setContentsMargins(*self._config.margins)
         self._layout.setSpacing(self._config.spacing)
+        self._layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
 
         self._icon_label = QLabel()
         icon = phi("folder-simple")
@@ -338,18 +396,22 @@ class FolderTabLabel(QWidget):
         )
         self._icon_label.setFixedSize(self._config.badge_width, self._config.badge_height)
         self._icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._layout.addWidget(self._icon_label)
+        self._layout.addWidget(self._icon_label, 0, _DEBUG_ICON_ALIGN)
 
         self._name_label = QLabel(name)
         self._name_label.setMaximumWidth(self._config.label_width)
         self._name_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         _font_with_delta(self._name_label, self._config.font_delta)
-        self._layout.addWidget(self._name_label)
+        self._layout.addWidget(self._name_label, 0, _DEBUG_ICON_ALIGN)
 
         self._name = name
         self._display_name = name
         self._is_dirty = is_dirty
+        self._is_debugging = False
         self._mark_modified = mark_modified
+
+        self._debug_icon = _make_debug_tab_icon_label(self._config.badge_height)
+        self._layout.addWidget(self._debug_icon, 0, _DEBUG_ICON_ALIGN)
 
         self._apply_style()
 
@@ -369,6 +431,11 @@ class FolderTabLabel(QWidget):
         self._is_dirty = dirty
         self._apply_style()
 
+    def set_debugging(self, debugging: bool) -> None:
+        """Toggle the active-debug-session bug icon."""
+        self._is_debugging = debugging
+        self._debug_icon.setVisible(debugging)
+
     def apply_config(self, *, compact: bool, mark_modified: bool) -> None:
         """Apply refreshed display config from the tab settings."""
         self._config = layout_config(compact)
@@ -382,6 +449,7 @@ class FolderTabLabel(QWidget):
         self._icon_label.setFixedSize(self._config.badge_width, self._config.badge_height)
         self._name_label.setMaximumWidth(self._config.label_width)
         _font_with_delta(self._name_label, self._config.font_delta)
+        _refresh_debug_tab_icon(self._debug_icon, self._config.badge_height)
         self._apply_style()
 
     def _apply_style(self) -> None:

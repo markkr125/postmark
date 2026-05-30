@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QTimer, Signal, Slot
+from PySide6.QtCore import QEvent, QObject, QPoint, Qt, Signal, Slot
 from PySide6.QtGui import QAction, QKeyEvent
 from PySide6.QtWidgets import (
     QLineEdit,
@@ -21,7 +21,6 @@ from PySide6.QtWidgets import (
 from ui.collections.tree.constants import (
     ITEM_TYPE_FOLDER,
     ITEM_TYPE_SCRIPT,
-    PLACEHOLDER_MARKER,
     ROLE_ITEM_ID,
     ROLE_ITEM_TYPE,
     ROLE_LANGUAGE,
@@ -30,11 +29,10 @@ from ui.collections.tree.constants import (
     ROLE_OLD_LANGUAGE,
     ROLE_OLD_MODULE_FORMAT,
     ROLE_OLD_NAME,
-    ROLE_PLACEHOLDER,
     is_leaf_item_type,
 )
+from ui.collections.tree.tree_overlay_rename import _TreeOverlayRenameMixin
 from ui.local_scripts.script_filename import (
-    folder_name_from_input,
     script_basename_from_stored,
     script_display_name,
     script_name_rect,
@@ -42,7 +40,6 @@ from ui.local_scripts.script_filename import (
     script_rename_stem_length,
     script_tooltip,
 )
-from ui.styling.theme import COLOR_ACCENT
 
 if TYPE_CHECKING:
     from ui.collections.tree.draggable_tree_widget import DraggableTreeWidget
@@ -52,7 +49,7 @@ else:
     _TreeActionsBase = object
 
 
-class _TreeActionsMixin(_TreeActionsBase):
+class _TreeActionsMixin(_TreeOverlayRenameMixin, _TreeActionsBase):
     """Mixin that adds context menus, rename/delete actions, and key shortcuts.
 
     Expects the host class to provide ``_tree``, ``_current_item``,
@@ -258,32 +255,10 @@ class _TreeActionsMixin(_TreeActionsBase):
         self.remove_item(item_id, item_type)
 
     def _rename_folder(self, item_id: int, tree_item: QTreeWidgetItem) -> None:
-        """Initiate in-place renaming of a folder item in the UI tree.
-
-        Parameters
-        ----------
-        item_id : Any
-            The identifier of the item being renamed (unused in the current implementation but kept for API consistency).
-        tree_item : QTreeWidgetItem
-            The tree item that the user has selected to rename.
-
-        Notes:
-        -----
-        The method temporarily blocks signals to prevent unwanted side-effects,
-        sets the item to be editable, and triggers the built-in editor widget
-        for the item. The original name is stored in the item's data for later
-        reference or rollback if needed.
-        """
-        if tree_item is not None:
-            old_name = tree_item.text(0)
-            tree_item.setData(1, ROLE_OLD_NAME, old_name)
-            # Block briefly to avoid interim signals
-            self._tree.blockSignals(True)
-            try:
-                tree_item.setFlags(tree_item.flags() | Qt.ItemFlag.ItemIsEditable)
-            finally:
-                self._tree.blockSignals(False)
-            self._tree.editItem(tree_item, 0)
+        """Initiate in-place renaming of a folder item in the UI tree."""
+        if tree_item is None:
+            return
+        self._rename_folder_overlay(item_id, tree_item)
 
     def _rename_script(self, _item_id: int, tree_item: QTreeWidgetItem) -> None:
         """In-place rename for a local script (full display name; stem pre-selected)."""
@@ -313,18 +288,13 @@ class _TreeActionsMixin(_TreeActionsBase):
 
         tree_item.setData(1, ROLE_LINE_EDIT, line_edit)
 
-        line_edit.returnPressed.connect(
-            lambda: self._finish_script_rename(tree_item, line_edit, True)
+        self._arm_rename_overlay(
+            line_edit,
+            on_commit=lambda from_return: self._finish_script_rename(
+                tree_item, line_edit, from_return
+            ),
+            on_cancel=lambda: self._cancel_script_rename(tree_item, line_edit),
         )
-
-        def _arm_focus_out_commit() -> None:
-            line_edit.setProperty("rename_armed", True)
-            line_edit.editingFinished.connect(
-                lambda: self._finish_script_rename(tree_item, line_edit, False)
-            )
-
-        # Defer focus-out commit so the initial show/focus does not close the editor.
-        QTimer.singleShot(0, _arm_focus_out_commit)
 
     def _finish_script_rename(
         self,
@@ -335,6 +305,26 @@ class _TreeActionsMixin(_TreeActionsBase):
         """Complete a local-script rename, persisting basename and optional language."""
         if line_edit is None:
             return
+        if getattr(self, "_rename_committing", False):
+            return
+        if not from_return and not line_edit.isVisible():
+            return
+        if not from_return and not line_edit.property("rename_armed"):
+            return
+
+        self._rename_committing = True  # type: ignore[attr-defined]
+        try:
+            self._finish_script_rename_inner(tree_item, line_edit, from_return)
+        finally:
+            self._rename_committing = False  # type: ignore[attr-defined]
+
+    def _finish_script_rename_inner(
+        self,
+        tree_item: QTreeWidgetItem,
+        line_edit: QLineEdit,
+        from_return: bool,
+    ) -> None:
+        """Inner body for :meth:`_finish_script_rename` (single-flight guarded)."""
         if not from_return and not line_edit.isVisible():
             return
         if not from_return and not line_edit.property("rename_armed"):
@@ -356,6 +346,7 @@ class _TreeActionsMixin(_TreeActionsBase):
         line_edit.hide()
         line_edit.deleteLater()
         tree_item.setData(1, ROLE_LINE_EDIT, None)
+        self._rename_click_away().release()
 
         if parsed is None:
             tree_item.setText(1, old_basename)
@@ -387,114 +378,12 @@ class _TreeActionsMixin(_TreeActionsBase):
         self._tree.viewport().update()
 
     def _rename_request(self, item_id: int, tree_item: QTreeWidgetItem) -> None:
-        """Initiate in-place renaming of a request item in the UI tree.
-
-        An overlay ``QLineEdit`` is positioned over the item's visual
-        rectangle inside the tree viewport.  This avoids relying on
-        ``setItemWidget`` which is no longer used for request items.
-        """
+        """Initiate in-place renaming of a request item in the UI tree."""
         if tree_item is None:
             return
-
-        old_name = tree_item.text(1)  # Requests store name in column 1
-        tree_item.setData(1, ROLE_OLD_NAME, old_name)
-
-        # Calculate geometry inside the viewport
-        item_rect = self._tree.visualItemRect(tree_item)
-        viewport = self._tree.viewport()
-
-        line_edit = QLineEdit(old_name, viewport)
-        line_edit.setStyleSheet(f"padding-left: 2px; border: 1px solid {COLOR_ACCENT};")
-        line_edit.setGeometry(item_rect)
-        line_edit.selectAll()
-        line_edit.show()
-        line_edit.setFocus()
-
-        # Connect signals
-        line_edit.returnPressed.connect(
-            lambda: self._finish_request_rename(tree_item, line_edit, True)
-        )
-        line_edit.editingFinished.connect(
-            lambda: self._finish_request_rename(tree_item, line_edit, False)
-        )
-
-    def _finish_request_rename(
-        self,
-        tree_item: QTreeWidgetItem,
-        line_edit: QLineEdit,
-        from_return: bool,
-    ) -> None:
-        """Complete the request rename operation."""
-        if not line_edit or not tree_item:
-            return
-
-        # Prevent multiple calls
-        if not line_edit.isVisible():
-            return
-
-        new_name = line_edit.text().strip()
-        old_name = tree_item.data(1, ROLE_OLD_NAME)
-
-        # Remove the overlay line edit
-        line_edit.hide()
-        line_edit.deleteLater()
-
-        # Update if name changed
-        if new_name and new_name != old_name:
-            item_id = tree_item.data(0, ROLE_ITEM_ID)
-            tree_item.setText(1, new_name)
-            self.request_rename_requested.emit(item_id, new_name)
-
-        tree_item.setData(1, ROLE_OLD_NAME, None)
+        self._rename_request_overlay(item_id, tree_item)
 
     @Slot(QTreeWidgetItem, int)
     def _on_item_changed(self, item: QTreeWidgetItem, column: int) -> None:
-        """Persist a folder rename and make the item read-only again.
-
-        Signals are blocked to avoid recursion from programmatic changes.
-        Requests are handled separately via _finish_request_rename.
-        """
-        # Only handle column 0 (folders)
-        if column != 0:
-            return
-
-        if item.data(1, ROLE_PLACEHOLDER) == PLACEHOLDER_MARKER:
-            return
-
-        item_type = item.data(1, ROLE_ITEM_TYPE)
-        # Skip requests as they're handled separately
-        if is_leaf_item_type(item_type):
-            return
-
-        # Only finish a rename started via ``_rename_folder`` (ROLE_OLD_NAME set there).
-        # Ignore spurious ``itemChanged`` from expand/collapse (``setIcon``) and other updates.
-        old_name = item.data(1, ROLE_OLD_NAME)
-        if old_name is None:
-            return
-
-        self._tree.blockSignals(True)
-        try:
-            new_name = item.text(column).strip()
-
-            if new_name == old_name:
-                return
-
-            if not new_name:
-                item.setText(column, old_name)
-                return
-
-            if getattr(self, "_tree_kind", "collections") == "local_scripts":
-                validated = folder_name_from_input(new_name)
-                if validated is None:
-                    item.setText(column, old_name)
-                    return
-                new_name = validated
-
-            item_id = item.data(0, ROLE_ITEM_ID)
-            item.setData(1, ROLE_OLD_NAME, None)
-            self.collection_rename_requested.emit(item_id, new_name)
-            self.item_name_changed.emit(item_type, item_id, new_name)
-
-        finally:
-            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            self._tree.blockSignals(False)
+        """No-op for folder rename (overlays handle commit); ignores unrelated changes."""
+        _ = item, column

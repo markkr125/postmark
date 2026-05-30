@@ -245,6 +245,13 @@ standard object names:
 | `localScriptsSidebarScroll` | `QScrollArea` | Local scripts list viewport (no frame) |
 | `localScriptsSidebarList` | `QWidget` | Bordered list frame (background + border QSS) |
 | `localScriptsSidebarListBody` | `QWidget` | Inner host inside the list frame |
+| `snippetsSidebarPanel` | `QWidget` | Left flyout snippets section (under local scripts splitter) |
+| `snippetsSidebarScroll` | `QScrollArea` | Snippets list viewport |
+| `snippetsSidebarList` | `QWidget` | Bordered snippets list frame |
+| `snippetsSidebarListBody` | `QWidget` | Inner host for `snippetsTree` (padded like environments list) |
+| `snippetsTree` | `QTreeWidget` | Snippets tree; `SnippetsTreeDelegate` paints language/snippet rows |
+| `snippetsTree` | `QTreeWidget` | Snippets flyout: language → category → snippet |
+| `userSnippetLabel` | `QLabel` | Accent-colored user snippet name (snippet picker only) |
 | `newItemPopup` | `QDialog` | Postman-style "Create New" dialog |
 | `newItemTile` | `QPushButton` | Tile button inside the new-item dialog |
 | `settingsDenoPathEdit` | `QLineEdit` | Scripting: Deno executable path |

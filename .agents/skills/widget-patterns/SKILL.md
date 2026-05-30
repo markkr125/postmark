@@ -40,7 +40,7 @@ semantics:
 | **Script** (local_scripts) | Empty text `""` (delegate paints icon + basename + muted extension) | **Basename only** in column 1 (extension from `ROLE_LANGUAGE` + `ROLE_MODULE_FORMAT`) |
 
 Because of this asymmetry:
-- Folder rename uses Qt's built-in `editItem()` on column 0.
+- Folder and request rename use overlay `QLineEdit` (`scriptTreeRenameEdit`) via `_TreeOverlayRenameMixin` and `TreeRenameClickAway` (click-away commit, Escape cancel).
 - Request rename creates an overlay `QLineEdit` on the full row.
 - **Script** rename (`local_scripts` tree): VS Code-style `scriptTreeRenameEdit` overlay on the name column only — single `QLineEdit` with full `basename.ext`; `script_parse_filename_input()` strips suffix and maps `.js`/`.cjs`/`.ts`/`.py` to language + `module_format` (see `ui/local_scripts/script_filename.py`).
 - **+ New** local script popup: four tiles — JavaScript (ESM), TypeScript, Python, **JavaScript (CommonJS)**; `new_script_clicked` emits `(language, module_format)`.

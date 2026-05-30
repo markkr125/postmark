@@ -157,6 +157,21 @@ def script_name_rect(item_rect: QRect) -> QRect:
     return QRect(name_x, item_rect.top(), item_rect.right() - name_x + 1, item_rect.height())
 
 
+def script_folder_label_rect(tree, item, item_rect: QRect) -> QRect:
+    """Return label bounds for a folder row (branch + folder icon)."""
+    from PySide6.QtWidgets import QTreeWidget, QTreeWidgetItem
+
+    if not isinstance(tree, QTreeWidget) or not isinstance(item, QTreeWidgetItem):
+        return item_rect
+    depth = 0
+    parent = item.parent()
+    while parent is not None:
+        depth += 1
+        parent = parent.parent()
+    left = item_rect.left() + 8 + depth * tree.indentation()
+    return QRect(left, item_rect.top(), max(40, item_rect.right() - left - 8), item_rect.height())
+
+
 def script_tooltip(basename: str, language: str, module_format: str = MODULE_FORMAT_ESM) -> str:
     """Tooltip text for a script tree row."""
     display = script_display_name(basename, language, module_format)

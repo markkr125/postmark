@@ -53,8 +53,6 @@ class SnippetService:
     def normalize_language(language: str) -> str:
         """Map editor language codes to DB short codes (``js`` / ``py`` / ``ts``)."""
         lang = (language or "").lower().strip()
-        if lang == "typescript":
-            return "js"
         return _LONG_TO_SHORT.get(lang, lang)
 
     @staticmethod
@@ -145,6 +143,38 @@ class SnippetService:
         """Remove a user snippet from the database."""
         delete_snippet(snippet_id)
         SnippetService._invalidate_loader_cache()
+
+    @staticmethod
+    def delete_snippets_in_category(language: str, category: str) -> int:
+        """Delete every user snippet in *category* for *language*; return count removed."""
+        cat = (category or "").strip() or _DEFAULT_CATEGORY
+        rows = [
+            row
+            for row in SnippetService.list_all(language)
+            if (row.get("category") or _DEFAULT_CATEGORY) == cat
+        ]
+        for row in rows:
+            delete_snippet(int(row["id"]))
+        if rows:
+            SnippetService._invalidate_loader_cache()
+        return len(rows)
+
+    @staticmethod
+    def rename_category(language: str, old_category: str, new_category: str) -> int:
+        """Rename *old_category* to *new_category* for all snippets in *language*."""
+        old_cat = (old_category or "").strip() or _DEFAULT_CATEGORY
+        new_cat = (new_category or "").strip() or _DEFAULT_CATEGORY
+        if old_cat == new_cat:
+            return 0
+        updated = 0
+        for row in SnippetService.list_all(language):
+            if (row.get("category") or _DEFAULT_CATEGORY) != old_cat:
+                continue
+            update_snippet(int(row["id"]), category=new_cat)
+            updated += 1
+        if updated:
+            SnippetService._invalidate_loader_cache()
+        return updated
 
     @staticmethod
     def _normalize_context_key(context: str) -> str:

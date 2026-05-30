@@ -7,7 +7,7 @@ request item in memory.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QModelIndex, QPersistentModelIndex, QRect, QSize, Qt
+from PySide6.QtCore import QEvent, QModelIndex, QPersistentModelIndex, QRect, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QIcon, QPainter, QPen
 from PySide6.QtWidgets import (
     QStyle,
@@ -43,6 +43,14 @@ from ui.styling.theme import (
     method_color,
     method_short_label,
 )
+from ui.widgets.sidebar_section_info import SidebarSectionInfoPopup
+from ui.widgets.sidebar_tree_row_info import (
+    name_rect_before_info,
+    paint_tree_row_info_button,
+    script_info_body,
+    show_tree_row_info_popup,
+    tree_row_info_editor_event,
+)
 
 # Horizontal gap between badge/icon and name label (px).
 _BADGE_NAME_SPACING = 6
@@ -59,7 +67,21 @@ class CollectionTreeDelegate(QStyledItemDelegate):
 
     Folder items fall through to the default ``QStyledItemDelegate``
     implementation so they keep their standard icon + text rendering.
+    Local-script leaves also paint a trailing (i) info control.
     """
+
+    def __init__(
+        self,
+        tree: QTreeWidget,
+        *,
+        tree_kind: str = "collections",
+        parent: QWidget | None = None,
+    ) -> None:
+        """Attach to *tree*; show row (i) only for ``local_scripts`` script leaves."""
+        super().__init__(parent or tree)
+        self._tree = tree
+        self._tree_kind = tree_kind
+        self._info_popup: SidebarSectionInfoPopup | None = None
 
     # ------------------------------------------------------------------
     # QStyledItemDelegate overrides
@@ -120,7 +142,11 @@ class CollectionTreeDelegate(QStyledItemDelegate):
                     basename = script_basename_from_stored(name)
                     item.setToolTip(0, script_tooltip(basename, lang, mod_fmt))
             name_rect = script_name_rect(rect)
+            if self._tree_kind == "local_scripts":
+                name_rect = name_rect_before_info(name_rect, rect)
             self._paint_script_label(painter, name, lang, mod_fmt, name_rect, text_color)
+            if self._tree_kind == "local_scripts":
+                paint_tree_row_info_button(painter, rect)
             painter.restore()
             return
         else:
@@ -204,6 +230,48 @@ class CollectionTreeDelegate(QStyledItemDelegate):
         if is_leaf_item_type(item_type):
             return QSize(0, TREE_ROW_HEIGHT)
         return super().sizeHint(option, index)
+
+    def editorEvent(  # type: ignore[override]
+        self,
+        event: QEvent,
+        model,
+        option: QStyleOptionViewItem,
+        index: QModelIndex | QPersistentModelIndex,
+    ) -> bool:
+        """Open script row info when the trailing (i) is clicked."""
+        if self._tree_kind != "local_scripts":
+            return super().editorEvent(event, model, option, index)
+        if index.data(ROLE_ITEM_TYPE) != ITEM_TYPE_SCRIPT:
+            return super().editorEvent(event, model, option, index)
+
+        if tree_row_info_editor_event(
+            event,
+            tree=self._tree,
+            index=index,
+            on_info=lambda: self._toggle_script_info(index),
+        ):
+            return True
+        return super().editorEvent(event, model, option, index)
+
+    def _toggle_script_info(self, index: QModelIndex | QPersistentModelIndex) -> None:
+        """Show or hide script metadata for *index*."""
+        item = self._tree.itemFromIndex(index)
+        if item is None:
+            return
+        basename = str(item.text(1) or "")
+        language = str(index.data(ROLE_LANGUAGE) or "javascript")
+        module_format = str(index.data(ROLE_MODULE_FORMAT) or "esm")
+        title = script_basename_from_stored(basename) or "Script"
+        body = script_info_body(
+            basename=basename,
+            language=language,
+            module_format=module_format,
+        )
+        if self._info_popup is not None and self._info_popup.isVisible():
+            self._info_popup.close()
+            return
+        self._info_popup = SidebarSectionInfoPopup(title, body, self._tree.window())
+        show_tree_row_info_popup(self._info_popup, self._tree, index)
 
     def createEditor(  # type: ignore[override]
         self,

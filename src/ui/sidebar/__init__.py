@@ -20,6 +20,7 @@ from ui.sidebar.debug_call_stack_panel import CallStackPanel
 from ui.sidebar.saved_responses.panel import SavedResponsesPanel
 from ui.sidebar.left_sidebar import LeftSidebar
 from ui.sidebar.local_scripts_sidebar_panel import LocalScriptsSidebarPanel
+from ui.sidebar.snippets_sidebar_panel import SnippetsSidebarPanel
 from ui.sidebar.sidebar_widget import RightSidebar
 
 __all__ = [
@@ -34,4 +35,5 @@ __all__ = [
     "LocalScriptsSidebarPanel",
     "RightSidebar",
     "SavedResponsesPanel",
+    "SnippetsSidebarPanel",
 ]

@@ -65,7 +65,7 @@ class TestLocalScriptsFolderExpand:
 
     def test_invalid_rename_reverts_to_stored_old_name(self, qapp: QApplication, qtbot) -> None:
         """Failed path-safe validation restores the name captured at rename start."""
-        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QLineEdit
 
         tree = CollectionTree(tree_kind="local_scripts")
         qtbot.addWidget(tree)
@@ -82,8 +82,12 @@ class TestLocalScriptsFolderExpand:
         )
 
         folder = top_level_items(tree)[0]
-        folder.setData(1, ROLE_OLD_NAME, "my_pkg")
-        folder.setFlags(folder.flags() | Qt.ItemFlag.ItemIsEditable)
-        folder.setText(0, "bad folder name")
-        tree._on_item_changed(folder, 0)
+        tree._current_item = folder
+        tree._rename_folder(1, folder)
+        qapp.processEvents()
+        edit = tree._tree.viewport().findChild(QLineEdit, "scriptTreeRenameEdit")
+        assert edit is not None
+        edit.setText("bad folder name")
+        edit.returnPressed.emit()
+        qapp.processEvents()
         assert folder.text(0) == "my_pkg"

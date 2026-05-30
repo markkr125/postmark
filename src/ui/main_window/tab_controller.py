@@ -372,6 +372,40 @@ class _TabControllerMixin:
             for old_idx, info in self._deferred_tabs.items()
         }
 
+    def _tab_index_for_debug_host(self, host: Any) -> int | None:
+        """Return the tab index whose editor matches *host*, if any."""
+        if host is None:
+            return None
+        for idx, ctx in self._tabs.items():
+            if ctx.tab_type == "request" and ctx.editor is host:
+                return idx
+            if ctx.tab_type == "folder" and ctx.folder_editor is host:
+                return idx
+            if ctx.tab_type == "local_script" and ctx.local_script_editor is host:
+                return idx
+        return None
+
+    def _clear_tab_debug_indicators(self) -> None:
+        """Remove debug icon/accent from every tab."""
+        for idx, ctx in self._tabs.items():
+            if not ctx.is_debugging:
+                continue
+            ctx.is_debugging = False
+            self._tab_bar.update_tab(idx, is_debugging=False)
+
+    def _set_tab_debugging_for_host(self, host: Any, active: bool) -> None:
+        """Show or hide the debug tab indicator on the tab that owns *host*."""
+        if active:
+            self._clear_tab_debug_indicators()
+        idx = self._tab_index_for_debug_host(host)
+        if idx is None:
+            return
+        ctx = self._tabs.get(idx)
+        if ctx is None:
+            return
+        ctx.is_debugging = active
+        self._tab_bar.update_tab(idx, is_debugging=active)
+
     def _on_editor_dirty_changed(self, dirty: bool) -> None:
         """Sync dirty state from the emitting editor back into the tab metadata."""
         sender_fn = cast(Any, getattr(self, "sender", None))

@@ -349,11 +349,16 @@ class RequestTabBar(_TabLayoutMixin, QWidget):
         is_preview: bool | None = None,
         is_dirty: bool | None = None,
         is_sending: bool | None = None,
+        is_debugging: bool | None = None,
     ) -> None:
         """Update properties of an existing tab."""
         entry = self._entry(index)
         if entry is None:
             return
+
+        if is_debugging is not None:
+            entry.label.set_debugging(is_debugging)
+            entry.button.set_debugging(is_debugging)
 
         if path is not None:
             entry.path = path

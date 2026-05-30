@@ -61,6 +61,11 @@ def on_debug_paused(window: Any, info: dict) -> None:
 
     editor: Any = window._resolve_debug_script_host()
     if editor is not None:
+        if getattr(window, "_debug_script_host", None) is None:
+            window._debug_script_host = editor
+        set_tab_debug = getattr(window, "_set_tab_debugging_for_host", None)
+        if callable(set_tab_debug):
+            set_tab_debug(editor, True)
         _set_debug_session_active_for_host(editor, True)
     pause_info: DebugPauseInfo = info  # type: ignore[assignment]
 
@@ -146,6 +151,10 @@ def on_debug_error(window: Any, message: str) -> None:
 def end_debug_ui(window: Any) -> None:
     """Clean up debug UI state after a session ends."""
     from ui.widgets.code_editor import editor_lsp_glue as lsp_glue
+
+    clear_tab_debug = getattr(window, "_clear_tab_debug_indicators", None)
+    if callable(clear_tab_debug):
+        clear_tab_debug()
 
     # Always resume LSP first — host pin may already be cleared on crash/tab close.
     lsp_glue.resume_all_debug_suspended_editors()

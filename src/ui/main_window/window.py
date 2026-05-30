@@ -44,6 +44,7 @@ from ui.request.navigation.tab_manager import TabContext
 from ui.request.request_editor import RequestEditorWidget
 from ui.request.response_viewer import ResponseViewerWidget
 from ui.sidebar import LeftSidebar, RightSidebar
+from ui.sidebar.snippets_sidebar_panel import SnippetsSidebarPanel
 from ui.styling.icons import phi
 from ui.styling.tab_settings_manager import TabSettingsManager
 from ui.styling.theme import COLOR_ACCENT, COLOR_TEXT_MUTED
@@ -520,7 +521,18 @@ class MainWindow(
         self._env_selector.refresh()
 
         self._left_sidebar.set_content(self._left_nav_splitter)
-        self._left_sidebar.set_local_scripts_panel(self.local_scripts_widget)
+
+        self.snippets_sidebar_panel = SnippetsSidebarPanel(self)
+        self._local_scripts_snippets_splitter = QSplitter(Qt.Orientation.Vertical)
+        self._local_scripts_snippets_splitter.setHandleWidth(6)
+        self._local_scripts_snippets_splitter.setChildrenCollapsible(False)
+        self._local_scripts_snippets_splitter.addWidget(self.local_scripts_widget)
+        self._local_scripts_snippets_splitter.addWidget(self.snippets_sidebar_panel)
+        self._local_scripts_snippets_splitter.setStretchFactor(0, 3)
+        self._local_scripts_snippets_splitter.setStretchFactor(1, 2)
+        self._local_scripts_snippets_splitter.setSizes([360, 200])
+
+        self._left_sidebar.set_local_scripts_panel(self._local_scripts_snippets_splitter)
         self._left_sidebar.install_in_splitter(self._main_splitter)
 
         # --- Centre: vertical splitter (request + response) ---
@@ -608,6 +620,14 @@ class MainWindow(
 
         # Restore tabs from the previous session after collections are ready.
         self._restore_tabs()
+
+    def refresh_snippets_sidebar(self) -> None:
+        """Refresh the left-flyout snippets list and the open snippet picker."""
+        if hasattr(self, "snippets_sidebar_panel"):
+            self.snippets_sidebar_panel.refresh()
+        from ui.widgets.snippets.popup import SnippetsPopup
+
+        SnippetsPopup.reload_from_cache_if_visible()
 
     # ------------------------------------------------------------------
     # Sidebar -> editor wiring

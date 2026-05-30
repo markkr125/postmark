@@ -26,6 +26,12 @@ LOCAL_SCRIPTS_INTRO = (
     "across collection, folder, and request scripts."
 )
 
+SNIPPETS_INTRO = (
+    "Reusable script fragments you author once and insert from the script editor. "
+    "Organize snippets by language and category. Click a snippet to edit it, or use "
+    "the (i) on a row for a quick preview."
+)
+
 
 class SidebarSectionInfoPopup(InfoPopup):
     """Stylish explainer shown below a sidebar section info button."""

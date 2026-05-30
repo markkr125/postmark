@@ -55,6 +55,7 @@ class TabContext:
         worker: The ``HttpSendWorker`` for the current request, if any.
         is_dirty: Whether the editor has unsaved changes.
         is_sending: Whether an HTTP request is currently in flight.
+        is_debugging: Whether an inline script debug session is active on this tab.
         is_preview: Whether this tab is in preview mode (temporary).
         draft_name: Display name for unsaved draft tabs.  ``None`` for
             persisted requests.  Updated when the user renames via the
@@ -116,6 +117,7 @@ class TabContext:
         self.worker: HttpSendWorker | None = None
         self.is_dirty: bool = False
         self.is_sending: bool = False
+        self.is_debugging: bool = False
         self.is_preview: bool = is_preview
         self.draft_name: str | None = None
         self.local_overrides: dict[str, LocalOverride] = {}
