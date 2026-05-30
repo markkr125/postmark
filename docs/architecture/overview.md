@@ -96,8 +96,9 @@ MainWindow._on_send()
 - **TypedDict interchange** — typed dicts cross module boundaries instead
   of ORM model instances.  This keeps layers decoupled and ensures type
   safety.
-- **Signal-driven UI** — widgets emit signals; `MainWindow.__init__`
-  wires them together.  Widgets never reference each other directly.
+- **Signal-driven UI** — widgets emit signals; `MainWindow._build_full_ui()`
+  wires them together (scheduled from the constructor).  Widgets never
+  reference each other directly.
 - **Session-per-function** — each repository function creates and closes
   its own session via `get_session()`.  No long-lived sessions.
 - **Detached ORM objects** — `expire_on_commit=False` allows returned
@@ -110,14 +111,17 @@ MainWindow._on_send()
 ```text
 main.py
   1. QApplication()
-  2. init_db()          -- creates engine, runs DDL, prepares session factory
-  3. MainWindow()       -- builds the entire widget tree
-  4. window.show()
-  5. app.exec()
+  2. ThemeManager / TabSettingsManager / load_font()
+  3. MainWindow()       -- loading screen shown; main UI built with WA_DontShowOnScreen
+  4. Collection fetch worker runs init_db() before fetch_all()
+  5. load_finished      -- clears DontShowOnScreen, switches stack to main UI
+  6. window.showMaximized()
+  7. app.exec()
 ```
 
 ## Further Reading
 
+- [Script runtime](script-runtime.md) — script subprocess lifecycle, IPC, permissions
 - [Directory Structure](directory-structure.md) — full annotated source tree
 - [Data Flow](data-flow.md) — sequence diagrams for key operations
 - [Database Layer](database-layer.md) — engine, sessions, migration

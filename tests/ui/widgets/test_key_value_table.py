@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QCheckBox, QPushButton, QStyledItemDelegate
 
 from services.environment_service import VariableDetail
+from ui.widgets.key_value_bulk import parse_bulk_text, serialize_for_bulk
 from ui.widgets.key_value_table import (
     _COL_DELETE,
     _COL_KEY,
     _COL_VALUE,
     KeyValueTableWidget,
-    _VariableHighlightDelegate,
 )
+from ui.widgets.key_value_table_delegate import _VariableHighlightDelegate
 
 
 class TestKeyValueTable:
@@ -238,3 +240,72 @@ class TestVariableHighlightDelegate:
         widget = KeyValueTableWidget()
         qtbot.addWidget(widget)
         assert widget._highlight_delegate._variable_map == {}
+
+
+class TestKeyValueBulkEdit:
+    """Bulk text mode (Postman-style)."""
+
+    def test_serialize_disabled_rows(self, qapp: QApplication, qtbot) -> None:
+        """Disabled rows get a ``// `` prefix in bulk text."""
+        text = serialize_for_bulk(
+            [
+                {"key": "on", "value": "1", "enabled": True},
+                {"key": "off", "value": "2", "enabled": False},
+            ]
+        )
+        assert text == "on: 1\n// off: 2"
+
+    def test_parse_disabled_and_equals(self, qapp: QApplication, qtbot) -> None:
+        """``//`` prefix and ``=`` separators parse like ``from_text``."""
+        rows = parse_bulk_text("// a: x\nb=y")
+        assert rows == [
+            {"key": "a", "value": "x", "enabled": False},
+            {"key": "b", "value": "y", "enabled": True},
+        ]
+
+    def test_bulk_ui_roundtrip(self, qapp: QApplication, qtbot) -> None:
+        """The Bulk link fills text; Key-value edit applies back to the grid."""
+        widget = KeyValueTableWidget()
+        qtbot.addWidget(widget)
+        widget.set_data([{"key": "Host", "value": "example.com", "enabled": True}])
+        enter_btns = [
+            b for b in widget.findChildren(QPushButton) if b.objectName() == "keyValueBulkEnter"
+        ]
+        assert len(enter_btns) == 1
+        qtbot.mouseClick(enter_btns[0], Qt.MouseButton.LeftButton)
+        assert widget._stack.currentIndex() == 1
+        assert "Host: example.com" in widget._bulk_text.toPlainText()
+        widget._bulk_text.setPlainText("X: y\n// Z: w")
+        back_btns = [b for b in widget.findChildren(QPushButton) if b.text() == "Key-value edit"]
+        assert len(back_btns) == 1
+        qtbot.mouseClick(back_btns[0], Qt.MouseButton.LeftButton)
+        assert widget._stack.currentIndex() == 0
+        data = widget.get_data()
+        assert len(data) == 2
+        assert data[0] == {"key": "X", "value": "y", "enabled": True}
+        assert data[1] == {"key": "Z", "value": "w", "enabled": False}
+
+    def test_get_data_reads_bulk_text_when_in_bulk_mode(self, qapp: QApplication, qtbot) -> None:
+        """Send pipeline reads ``get_data()`` while bulk is open."""
+        widget = KeyValueTableWidget()
+        qtbot.addWidget(widget)
+        enter_btns = [
+            b for b in widget.findChildren(QPushButton) if b.objectName() == "keyValueBulkEnter"
+        ]
+        qtbot.mouseClick(enter_btns[0], Qt.MouseButton.LeftButton)
+        widget._bulk_text.setPlainText("a: b")
+        assert widget.get_data() == [{"key": "a", "value": "b", "enabled": True}]
+
+
+class TestKeyValueColumnWidthPersistence:
+    """QSettings-backed Key/Value column widths."""
+
+    def test_settings_profile_restores_widths(self, qapp: QApplication, qtbot) -> None:
+        """Persisted widths are applied when ``settings_profile`` matches stored data."""
+        from ui.widgets.key_value_column_widths import save_column_widths
+
+        save_column_widths("pytest_kv_widths", 151, 252)
+        widget = KeyValueTableWidget(settings_profile="pytest_kv_widths")
+        qtbot.addWidget(widget)
+        assert widget._table.columnWidth(_COL_KEY) == 151
+        assert widget._table.columnWidth(_COL_VALUE) == 252

@@ -24,13 +24,30 @@ if TYPE_CHECKING:
     from services.environment_service import VariableDetail
 
 from ui.styling.theme import (
-    COLOR_VARIABLE_HIGHLIGHT,
-    COLOR_VARIABLE_UNRESOLVED_HIGHLIGHT,
-    COLOR_VARIABLE_UNRESOLVED_TEXT,
-    COLOR_WARNING,
+    ThemePalette,
     current_palette,
 )
 from ui.widgets.code_editor.gutter import _VAR_RE
+
+# Block-state flag for multi-line /* */ comment tracking.
+_STATE_IN_BLOCK_COMMENT = 1
+
+# Languages that use /* */ block comments.
+_BLOCK_COMMENT_LANGS = frozenset(
+    {
+        "javascript",
+        "typescript",
+        "css",
+        "json",
+        "c",
+        "cpp",
+        "java",
+        "go",
+        "rust",
+        "swift",
+        "kotlin",
+    }
+)
 
 # Module-level lexer cache — avoids creating a new Pygments lexer (and
 # triggering module imports) on every language switch.
@@ -41,7 +58,8 @@ def _get_cached_lexer(language: str) -> Lexer:
     """Return a cached Pygments lexer for *language*.
 
     Creates the lexer on first access and reuses it thereafter.  Falls
-    back to ``TextLexer`` for unknown language names.
+    back to ``TextLexer`` for unknown language names.  ``typescript`` uses
+    the TypeScript lexer when available, otherwise the JavaScript lexer.
     """
     if language not in _lexer_cache:
         try:
@@ -51,7 +69,17 @@ def _get_cached_lexer(language: str) -> Lexer:
                 ensurenl=False,
             )
         except Exception:
-            _lexer_cache[language] = TextLexer(stripnl=False, ensurenl=False)
+            if language == "typescript":
+                try:
+                    _lexer_cache[language] = get_lexer_by_name(
+                        "javascript",
+                        stripnl=False,
+                        ensurenl=False,
+                    )
+                except Exception:
+                    _lexer_cache[language] = TextLexer(stripnl=False, ensurenl=False)
+            else:
+                _lexer_cache[language] = TextLexer(stripnl=False, ensurenl=False)
     return _lexer_cache[language]
 
 
@@ -66,9 +94,8 @@ def _build_format(color: str, *, bold: bool = False, italic: bool = False) -> QT
     return fmt
 
 
-def _build_token_formats() -> dict[T._TokenType, QTextCharFormat]:
-    """Build token-type to format mapping from current theme colours."""
-    p = current_palette()
+def _build_token_formats_for_palette(p: ThemePalette) -> dict[T._TokenType, QTextCharFormat]:
+    """Build token-type → format mapping from a specific theme palette."""
     return {
         T.Literal.String: _build_format(p["editor_string"]),
         T.Literal.String.Double: _build_format(p["editor_string"]),
@@ -93,6 +120,11 @@ def _build_token_formats() -> dict[T._TokenType, QTextCharFormat]:
     }
 
 
+def _build_token_formats() -> dict[T._TokenType, QTextCharFormat]:
+    """Build token-type to format mapping from current theme colours."""
+    return _build_token_formats_for_palette(current_palette())
+
+
 class PygmentsHighlighter(QSyntaxHighlighter):
     """Syntax highlighter backed by a Pygments lexer.
 
@@ -111,6 +143,8 @@ class PygmentsHighlighter(QSyntaxHighlighter):
         # list of (block_number, [(start_in_block, length, token_type), ...])
         self._block_tokens: dict[int, list[tuple[int, int, T._TokenType]]] | None = None
         self._variable_map: dict[str, VariableDetail] = {}
+        # When set, syntax + variable overlay colours use this palette (e.g. light “paper” in a dark app).
+        self._format_palette: ThemePalette | None = None
 
     def set_variable_map(self, variables: dict[str, VariableDetail]) -> None:
         """Update the variable resolution map for unresolved distinction."""
@@ -133,7 +167,18 @@ class PygmentsHighlighter(QSyntaxHighlighter):
 
     def rebuild_formats(self) -> None:
         """Rebuild token formats from current theme (call on theme change)."""
+        self._format_palette = None
         self._token_formats = _build_token_formats()
+        self._block_tokens = None
+        self.rehighlight()
+
+    def set_token_palette(self, palette: ThemePalette | None) -> None:
+        """Use *palette* for token colours, or the app theme when *palette* is None."""
+        self._format_palette = palette
+        if palette is None:
+            self._token_formats = _build_token_formats()
+        else:
+            self._token_formats = _build_token_formats_for_palette(palette)
         self._block_tokens = None
         self.rehighlight()
 
@@ -172,18 +217,58 @@ class PygmentsHighlighter(QSyntaxHighlighter):
                 self.setFormat(index, length, fmt)
             index += length
 
+        # Fix multi-line block comments that Pygments misses per-line.
+        if self._language in _BLOCK_COMMENT_LANGS:
+            self._fix_block_comments(text)
+
         self._apply_variable_highlight(text)
+
+    def _fix_block_comments(self, text: str) -> None:
+        """Overlay correct formatting for multi-line ``/* */`` comments.
+
+        Pygments line-by-line mode cannot track state across lines, so
+        ``/* ... */`` spanning multiple lines is mis-tokenised.  This
+        method uses ``previousBlockState`` / ``setCurrentBlockState`` to
+        track whether the current line is inside a block comment and
+        applies the comment format to the correct ranges.
+        """
+        comment_fmt = self._get_format(T.Comment.Multiline)
+        if comment_fmt is None:
+            return
+
+        in_comment = self.previousBlockState() == _STATE_IN_BLOCK_COMMENT
+        i = 0
+
+        while i < len(text):
+            if in_comment:
+                end = text.find("*/", i)
+                if end >= 0:
+                    self.setFormat(i, end + 2 - i, comment_fmt)
+                    i = end + 2
+                    in_comment = False
+                else:
+                    self.setFormat(i, len(text) - i, comment_fmt)
+                    break
+            else:
+                start = text.find("/*", i)
+                if start < 0:
+                    break
+                in_comment = True
+                i = start
+
+        self.setCurrentBlockState(_STATE_IN_BLOCK_COMMENT if in_comment else 0)
 
     def _apply_variable_highlight(self, text: str) -> None:
         """Overlay ``{{variable}}`` highlights on the current block."""
         if "{{" not in text:
             return
+        p = self._format_palette or current_palette()
         resolved_fmt = QTextCharFormat()
-        resolved_fmt.setBackground(QColor(COLOR_VARIABLE_HIGHLIGHT))
-        resolved_fmt.setForeground(QColor(COLOR_WARNING))
+        resolved_fmt.setBackground(QColor(p["variable_highlight"]))
+        resolved_fmt.setForeground(QColor(p["warning"]))
         unresolved_fmt = QTextCharFormat()
-        unresolved_fmt.setBackground(QColor(COLOR_VARIABLE_UNRESOLVED_HIGHLIGHT))
-        unresolved_fmt.setForeground(QColor(COLOR_VARIABLE_UNRESOLVED_TEXT))
+        unresolved_fmt.setBackground(QColor(p["variable_unresolved_highlight"]))
+        unresolved_fmt.setForeground(QColor(p["variable_unresolved_text"]))
         for match in _VAR_RE.finditer(text):
             var_name = match.group(1)
             fmt = resolved_fmt if var_name in self._variable_map else unresolved_fmt

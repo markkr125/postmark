@@ -28,7 +28,7 @@ def get(id: int) -> Optional[dict]: ...
 Source root is `src/`.  Use bare module names:
 
 ```python
-from database.database import init_db
+from database.database import get_session
 from services.collection_service import CollectionService
 from ui.styling.theme import current_palette
 ```
@@ -107,6 +107,6 @@ access.
 
 ## Database Access
 
-`init_db()` must be called before any DB access (app startup and
-test fixture).  Always use `get_session()` context manager for
-session lifecycle.
+`init_db()` must complete before any DB access (worker thread at startup;
+`_fresh_db` in tests).  It is idempotent once the engine exists.  Always use
+`get_session()` for session lifecycle.

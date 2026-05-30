@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QKeyEvent
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QLineEdit
 
 from ui.collections.tree import CollectionTree
 
@@ -99,6 +99,40 @@ class TestCollectionTreeContextMenuOverview:
             tree._emit_menu_action(overview_action)
 
         assert blocker.args == ["folder", 7, "Open"]
+
+
+class TestCollectionTreeRunAction:
+    """Tests for the Run context-menu action on folders."""
+
+    def test_run_action_exists_in_folder_menu(self, qapp: QApplication, qtbot) -> None:
+        """The folder context menu includes a Run action."""
+        tree = CollectionTree()
+        qtbot.addWidget(tree)
+        data_names = [a.data() for a in tree._folder_menu.actions()]
+        assert "Run" in data_names
+
+    def test_run_action_emits_run_collection_requested(self, qapp: QApplication, qtbot) -> None:
+        """Triggering Run emits run_collection_requested with the folder ID."""
+        tree = CollectionTree()
+        qtbot.addWidget(tree)
+
+        data = make_collection_dict(
+            [{"id": 9, "name": "RunMe"}],
+        )
+        tree.set_collections(data)
+        tree._current_item = top_level_items(tree)[0]
+
+        run_action = None
+        for action in tree._folder_menu.actions():
+            if action.data() == "Run":
+                run_action = action
+                break
+        assert run_action is not None
+
+        with qtbot.waitSignal(tree.run_collection_requested, timeout=1000) as blocker:
+            tree._emit_menu_action(run_action)
+
+        assert blocker.args == [9]
 
 
 class TestCollectionTreeSingleClick:
@@ -283,3 +317,93 @@ class TestCollectionTreeSelectedCollection:
             tree._tree.setCurrentItem(req)
 
         assert blocker.args == [1]
+
+
+class TestCollectionTreeOverlayRename:
+    """Overlay rename with click-away for collection folders and requests."""
+
+    def test_rename_folder_overlay_commits(self, qapp: QApplication, qtbot) -> None:
+        """Folder rename uses an overlay editor and persists on Return."""
+        tree = CollectionTree()
+        qtbot.addWidget(tree)
+        tree.set_collections(make_collection_dict([{"id": 1, "name": "Before"}]))
+
+        folder = top_level_items(tree)[0]
+        tree._current_item = folder
+        tree._rename_folder(1, folder)
+        qapp.processEvents()
+
+        edit = tree._tree.viewport().findChild(QLineEdit, "scriptTreeRenameEdit")
+        assert edit is not None
+        renamed: list[tuple[int, str]] = []
+        tree.collection_rename_requested.connect(
+            lambda item_id, name: renamed.append((item_id, name))
+        )
+        edit.setText("After")
+        edit.returnPressed.emit()
+        qapp.processEvents()
+
+        assert renamed == [(1, "After")]
+        assert folder.text(0) == "After"
+        assert tree._rename_overlay_active() is False
+
+    def test_rename_request_overlay_commits(self, qapp: QApplication, qtbot) -> None:
+        """Request rename uses an overlay editor and persists on Return."""
+        tree = CollectionTree()
+        qtbot.addWidget(tree)
+        tree.set_collections(
+            make_collection_dict(
+                [
+                    {
+                        "id": 1,
+                        "name": "Coll",
+                        "requests": [{"id": 10, "name": "OldReq", "method": "GET"}],
+                    },
+                ]
+            )
+        )
+
+        req = top_level_items(tree)[0].child(0)
+        tree._current_item = req
+        tree._rename_request(10, req)
+        qapp.processEvents()
+
+        edit = tree._tree.viewport().findChild(QLineEdit, "scriptTreeRenameEdit")
+        assert edit is not None
+        renamed: list[tuple[int, str]] = []
+        tree.request_rename_requested.connect(lambda item_id, name: renamed.append((item_id, name)))
+        edit.setText("NewReq")
+        edit.returnPressed.emit()
+        qapp.processEvents()
+
+        assert renamed == [(10, "NewReq")]
+        assert req.text(1) == "NewReq"
+        assert tree._rename_overlay_active() is False
+
+    def test_rename_request_escape_cancels(self, qapp: QApplication, qtbot) -> None:
+        """Escape on a request rename overlay restores the previous name."""
+        tree = CollectionTree()
+        qtbot.addWidget(tree)
+        tree.set_collections(
+            make_collection_dict(
+                [
+                    {
+                        "id": 1,
+                        "name": "Coll",
+                        "requests": [{"id": 10, "name": "KeepMe", "method": "GET"}],
+                    },
+                ]
+            )
+        )
+
+        req = top_level_items(tree)[0].child(0)
+        tree._rename_request(10, req)
+        qapp.processEvents()
+        edit = tree._tree.viewport().findChild(QLineEdit, "scriptTreeRenameEdit")
+        assert edit is not None
+        edit.setText("Discard")
+        qtbot.keyClick(edit, Qt.Key.Key_Escape)
+        qapp.processEvents()
+
+        assert req.text(1) == "KeepMe"
+        assert tree._rename_overlay_active() is False

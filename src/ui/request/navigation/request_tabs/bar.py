@@ -6,10 +6,22 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QPoint, QRect, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QContextMenuEvent, QKeyEvent, QMouseEvent, QResizeEvent, QWheelEvent
+from PySide6.QtGui import (
+    QColor,
+    QContextMenuEvent,
+    QKeyEvent,
+    QMouseEvent,
+    QPainter,
+    QPaintEvent,
+    QResizeEvent,
+    QWheelEvent,
+)
 from PySide6.QtWidgets import QMenu, QSizePolicy, QTabBar, QWidget
 
-from .labels import FolderTabLabel, TabLabel, layout_config
+from ui.local_scripts.script_filename import script_display_name
+from ui.styling import theme as ui_theme
+
+from .labels import FolderTabLabel, ScriptTabLabel, TabLabel, layout_config
 from .layout import _PADDING_Y, _TabLayoutMixin
 from .tab_button import TabButton
 
@@ -28,7 +40,7 @@ class _TabEntry:
 
     tab_type: str
     button: TabButton
-    label: TabLabel | FolderTabLabel
+    label: TabLabel | FolderTabLabel | ScriptTabLabel
     path: str | None = None
 
 
@@ -62,6 +74,7 @@ class RequestTabBar(_TabLayoutMixin, QWidget):
         self._scroll_y = 0
         self._content_height = 0
         self._layout_height = layout_config(False).tab_height + (_PADDING_Y * 2)
+        self._drop_indicator_rect: QRect | None = None
 
         self._scroll_release_timer = QTimer(self)
         self._scroll_release_timer.setSingleShot(True)
@@ -110,6 +123,71 @@ class RequestTabBar(_TabLayoutMixin, QWidget):
                 return index
         return -1
 
+    def drop_target_index(self, point: QPoint, source_index: int) -> int:
+        """Return the insertion index for a drop at *point* during a drag.
+
+        Picks the nearest chip on the same row when the point falls in a
+        gap, then chooses left or right side of that chip based on the
+        point's x relative to the chip's horizontal centre.
+        """
+        if not self._entries:
+            return -1
+        candidates = []
+        for idx, entry in enumerate(self._entries):
+            geo = entry.button.geometry()
+            if geo.top() <= point.y() <= geo.bottom():
+                candidates.append((idx, geo))
+        if not candidates:
+            row_distance = [
+                (
+                    abs(entry.button.geometry().center().y() - point.y()),
+                    idx,
+                    entry.button.geometry(),
+                )
+                for idx, entry in enumerate(self._entries)
+            ]
+            row_distance.sort()
+            _, idx, geo = row_distance[0]
+            return idx if point.x() <= geo.center().x() else idx + 1
+
+        nearest = min(candidates, key=lambda item: abs(item[1].center().x() - point.x()))
+        idx, geo = nearest
+        target = idx if point.x() <= geo.center().x() else idx + 1
+        if target > source_index:
+            target -= 1
+        return max(0, min(target, self.count() - 1))
+
+    def show_drop_indicator(self, point: QPoint, source_index: int) -> None:
+        """Update the drop indicator rect for the current drag position."""
+        if not self._entries:
+            self._drop_indicator_rect = None
+            self.update()
+            return
+        candidates = [
+            (idx, entry.button.geometry())
+            for idx, entry in enumerate(self._entries)
+            if entry.button.geometry().top() <= point.y() <= entry.button.geometry().bottom()
+        ]
+        if not candidates:
+            self._drop_indicator_rect = None
+            self.update()
+            return
+        nearest = min(candidates, key=lambda item: abs(item[1].center().x() - point.x()))
+        idx, geo = nearest
+        x = geo.left() - 1 if point.x() <= geo.center().x() else geo.right() + 1
+        rect = QRect(x - 1, geo.top(), 3, geo.height())
+        if rect != self._drop_indicator_rect:
+            self._drop_indicator_rect = rect
+            self.update()
+        # Suppress unused-arg warning while keeping API symmetric.
+        _ = source_index
+
+    def hide_drop_indicator(self) -> None:
+        """Clear the drop indicator after a drag ends or is cancelled."""
+        if self._drop_indicator_rect is not None:
+            self._drop_indicator_rect = None
+            self.update()
+
     def tabToolTip(self, index: int) -> str:
         """Return the tooltip for the tab at the given index."""
         entry = self._entry(index)
@@ -132,31 +210,21 @@ class RequestTabBar(_TabLayoutMixin, QWidget):
             return entry.label
         return None
 
-    def tab_search_text(self, index: int) -> str:
-        """Return a human-readable tab label for search and jump actions."""
-        entry = self._entry(index)
-        if entry is None:
-            return ""
-        if entry.tab_type == "request" and isinstance(entry.label, TabLabel):
-            text = f"{entry.label._method} {entry.label._name}"
-        elif isinstance(entry.label, FolderTabLabel):
-            text = f"Folder {entry.label._name}"
-        else:
-            text = ""
-        if entry.path and entry.path not in text:
-            return f"{text} - {entry.path}"
-        return text
-
     def tab_request_info(self, index: int) -> tuple[str, str]:
-        """Return ``(method, name)`` for the request tab at *index*.
+        """Return ``(method_or_language, basename)`` for the tab at *index*.
 
-        Returns ``("", "")`` when the index is out of range or the tab
-        is not a request tab.
+        HTTP request tabs return ``(method, name)``. Local-script tabs return
+        ``(language_code, basename)``. Other tab types return ``("", "")``.
         """
         entry = self._entry(index)
-        if entry is None or not isinstance(entry.label, TabLabel):
+        if entry is None:
             return ("", "")
-        return (entry.label._method, entry.label._name)
+        label = entry.label
+        if isinstance(label, TabLabel):
+            return (label._method, label._name)
+        if isinstance(label, ScriptTabLabel):
+            return (label._language, label._name)
+        return ("", "")
 
     def select_next_tab(self) -> None:
         """Activate the next tab, wrapping at the end of the deck."""
@@ -200,6 +268,36 @@ class RequestTabBar(_TabLayoutMixin, QWidget):
         )
         return self._insert_entry("request", label, path, index)
 
+    def add_script_tab(
+        self,
+        language: str,
+        name: str,
+        *,
+        path: str | None = None,
+        module_format: str = "esm",
+        index: int | None = None,
+    ) -> int:
+        """Add a new tab for a local script and return its index.
+
+        Args:
+            language: Script language code (javascript | typescript | python).
+            name: Script name shown in the tab label.
+            path: Full breadcrumb path used for hover text.
+            module_format: ``esm`` or ``commonjs`` (``.js`` vs ``.cjs`` tab suffix).
+            index: Optional insertion index within the current deck.
+        """
+        label = ScriptTabLabel(
+            language,
+            name,
+            compact=self._small_labels,
+            mark_modified=self._mark_modified,
+        )
+        label.set_module_format(module_format)
+        idx = self._insert_entry("local_script", label, path, index)
+        tip_name = script_display_name(name, language, module_format)
+        self._apply_tooltip(idx, tip_name, path)
+        return idx
+
     def add_folder_tab(
         self,
         name: str,
@@ -223,6 +321,23 @@ class RequestTabBar(_TabLayoutMixin, QWidget):
         self._apply_tooltip(idx, name, path)
         return idx
 
+    def add_environments_tab(
+        self,
+        name: str = "Environments",
+        *,
+        path: str | None = None,
+        index: int | None = None,
+    ) -> int:
+        """Add a tab for the global environments editor and return its index."""
+        label = FolderTabLabel(
+            name,
+            compact=self._small_labels,
+            mark_modified=self._mark_modified,
+        )
+        idx = self._insert_entry("environments", label, path, index)
+        self._apply_tooltip(idx, name, path)
+        return idx
+
     def update_tab(
         self,
         index: int,
@@ -230,14 +345,20 @@ class RequestTabBar(_TabLayoutMixin, QWidget):
         method: str | None = None,
         name: str | None = None,
         path: str | None = None,
+        module_format: str | None = None,
         is_preview: bool | None = None,
         is_dirty: bool | None = None,
         is_sending: bool | None = None,
+        is_debugging: bool | None = None,
     ) -> None:
         """Update properties of an existing tab."""
         entry = self._entry(index)
         if entry is None:
             return
+
+        if is_debugging is not None:
+            entry.label.set_debugging(is_debugging)
+            entry.button.set_debugging(is_debugging)
 
         if path is not None:
             entry.path = path
@@ -255,6 +376,30 @@ class RequestTabBar(_TabLayoutMixin, QWidget):
             if is_sending is not None:
                 request_label.set_sending(is_sending)
             self._refresh_request_labels()
+            return
+
+        if entry.tab_type == "local_script":
+            script_label = entry.label
+            assert isinstance(script_label, ScriptTabLabel)
+            if method is not None:
+                script_label.set_language(method)
+            if module_format is not None:
+                script_label.set_module_format(module_format)
+            if name is not None:
+                script_label.set_name(name)
+            if is_dirty is not None:
+                script_label.set_dirty(is_dirty)
+            tooltip_name = (
+                script_display_name(
+                    script_label._basename,
+                    script_label._language,
+                    script_label._module_format,
+                )
+                if name is not None
+                else script_label._display_name
+            )
+            self._apply_tooltip(index, tooltip_name, entry.path)
+            self._relayout_tabs()
             return
 
         folder_label = entry.label
@@ -322,6 +467,15 @@ class RequestTabBar(_TabLayoutMixin, QWidget):
             return None
         label = entry.label
         return label if isinstance(label, TabLabel) else None
+
+    def paintEvent(self, event: QPaintEvent) -> None:
+        """Draw the drop indicator on top of the deck during a drag."""
+        super().paintEvent(event)
+        if self._drop_indicator_rect is None:
+            return
+        painter = QPainter(self)
+        color = QColor(ui_theme.COLOR_ACCENT)
+        painter.fillRect(self._drop_indicator_rect, color)
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         """Reflow the tab chips whenever the deck width changes."""
@@ -435,7 +589,7 @@ class RequestTabBar(_TabLayoutMixin, QWidget):
     def _insert_entry(
         self,
         tab_type: str,
-        label: TabLabel | FolderTabLabel,
+        label: TabLabel | FolderTabLabel | ScriptTabLabel,
         path: str | None,
         index: int | None,
     ) -> int:
@@ -493,7 +647,10 @@ class RequestTabBar(_TabLayoutMixin, QWidget):
 
         for index, entry in enumerate(self._entries):
             if entry.tab_type != "request" or not isinstance(entry.label, TabLabel):
-                if entry.tab_type == "folder" and isinstance(entry.label, FolderTabLabel):
+                if (
+                    entry.tab_type in ("folder", "environments")
+                    and isinstance(entry.label, FolderTabLabel)
+                ) or (entry.tab_type == "local_script" and isinstance(entry.label, ScriptTabLabel)):
                     self._apply_tooltip(index, entry.label._name, entry.path)
                 continue
             display_name = entry.label._name

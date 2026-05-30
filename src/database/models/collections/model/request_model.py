@@ -8,6 +8,10 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import ForeignKey, String, Text, func
 
 if TYPE_CHECKING:
+    from database.models.request_assertions.model.request_assertion_model import (
+        RequestAssertionModel,
+    )
+
     from .collection_model import CollectionModel
     from .saved_response_model import SavedResponseModel
 
@@ -75,6 +79,13 @@ class RequestModel(Base):
         back_populates="request",
         cascade="all, delete-orphan",
         lazy="selectin",
+    )
+
+    assertions: Mapped[list[RequestAssertionModel]] = relationship(
+        back_populates="request",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="RequestAssertionModel.order_index",
     )
 
     def __repr__(self) -> str:

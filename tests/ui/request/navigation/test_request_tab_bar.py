@@ -380,3 +380,49 @@ class TestMainWindowMultiTab:
         assert window._tab_bar.count() == 2
         window._on_tab_close(0)
         assert window._tab_bar.count() == 1
+
+
+class TestRequestTabBarDebugIndicator:
+    """Debug-session icon and chip accent on tabs."""
+
+    def test_update_tab_debugging_shows_icon(self, qapp: QApplication, qtbot) -> None:
+        """Active debug shows a bug icon on the request tab label."""
+        bar = RequestTabBar()
+        qtbot.addWidget(bar)
+        bar.add_request_tab("GET", "DebugMe")
+        bar.update_tab(0, is_debugging=True)
+        label = bar._entries[0].label
+        assert label._is_debugging
+        assert bar._entries[0].button._debugging
+
+    def test_update_tab_debugging_clears_icon(self, qapp: QApplication, qtbot) -> None:
+        """Clearing debug hides the bug icon and chip accent."""
+        bar = RequestTabBar()
+        qtbot.addWidget(bar)
+        bar.add_request_tab("GET", "DebugMe")
+        bar.update_tab(0, is_debugging=True)
+        bar.update_tab(0, is_debugging=False)
+        label = bar._entries[0].label
+        assert not label._is_debugging
+        assert not bar._entries[0].button._debugging
+
+    def test_debug_accent_visible_when_tab_not_selected(self, qapp: QApplication, qtbot) -> None:
+        """Debug accent remains on the owning tab after switching away."""
+        bar = RequestTabBar()
+        qtbot.addWidget(bar)
+        bar.add_request_tab("GET", "Owner")
+        bar.add_request_tab("POST", "Other")
+        bar.update_tab(0, is_debugging=True)
+        bar.setCurrentIndex(1)
+        assert bar._entries[0].button._debugging
+        assert not bar._entries[1].button._debugging
+
+    def test_folder_tab_debugging_icon(self, qapp: QApplication, qtbot) -> None:
+        """Folder tabs support the debug indicator."""
+        bar = RequestTabBar()
+        qtbot.addWidget(bar)
+        idx = bar.add_folder_tab("Scripts")
+        bar.update_tab(idx, is_debugging=True)
+        label = bar._entries[idx].label
+        assert label._is_debugging
+        assert bar._entries[idx].button._debugging

@@ -224,3 +224,95 @@ class TestHttpSendWorker:
         # The send_request call should have received the locally-overridden URL
         call_kwargs = mock_send.call_args[1]
         assert "localhost:3000" in call_kwargs["url"]
+
+
+class TestPreRequestErrorRouting:
+    """Pre-request runtime errors go to console_logs, not test_results."""
+
+    @patch("services.scripting.engine.ScriptEngine.run_pre_request_scripts")
+    @patch("ui.request.http_worker.HttpService.send_request")
+    def test_pre_request_runtime_error_routed_to_console(
+        self, mock_send: MagicMock, mock_pre: MagicMock, qapp: QApplication
+    ) -> None:
+        """A runtime error from a pre-request script appears in console_logs."""
+        mock_send.return_value = _SAMPLE_RESPONSE
+        mock_pre.return_value = {
+            "test_results": [
+                {
+                    "name": "(runtime error)",
+                    "passed": False,
+                    "error": "n is not defined",
+                    "source_name": "Hyperguest",
+                    "duration_ms": 0,
+                }
+            ],
+            "console_logs": [],
+            "variable_changes": {},
+        }
+
+        worker = HttpSendWorker()
+        worker.set_request(
+            method="GET",
+            url="http://example.com",
+            pre_scripts=[
+                {"code": "const x=n", "language": "javascript", "source_name": "Hyperguest"}
+            ],
+        )
+
+        received: list[dict] = []
+        worker.finished.connect(received.append)
+        worker.run()
+
+        assert len(received) == 1
+        resp = received[0]
+        # Runtime error must NOT appear in test_results
+        assert resp.get("test_results", []) == []
+        # Runtime error must appear as an error-level console log
+        console = resp.get("console_logs", [])
+        assert len(console) == 1
+        assert console[0]["level"] == "error"
+        assert "[Hyperguest]" in console[0]["message"]
+        assert "n is not defined" in console[0]["message"]
+        # Runtime error must also appear in pre_request_errors
+        pre_errs = resp.get("pre_request_errors", [])
+        assert len(pre_errs) == 1
+        assert pre_errs[0]["source_name"] == "Hyperguest"
+        # Pre-request console logs should be separated
+        pre_console = resp.get("pre_request_console_logs", [])
+        assert pre_console == []  # no normal logs, only the error
+        # has_pre_request_scripts flag must be set
+        assert resp.get("has_pre_request_scripts") is True
+
+    @patch("services.scripting.engine.ScriptEngine.run_pre_request_scripts")
+    @patch("ui.request.http_worker.HttpService.send_request")
+    def test_pre_request_console_logs_preserved(
+        self, mock_send: MagicMock, mock_pre: MagicMock, qapp: QApplication
+    ) -> None:
+        """Normal console.log output from pre-request scripts is preserved."""
+        mock_send.return_value = _SAMPLE_RESPONSE
+        mock_pre.return_value = {
+            "test_results": [],
+            "console_logs": [{"level": "log", "message": "hello", "timestamp": 0}],
+            "variable_changes": {},
+        }
+
+        worker = HttpSendWorker()
+        worker.set_request(
+            method="GET",
+            url="http://example.com",
+            pre_scripts=[
+                {"code": "console.log('hello')", "language": "javascript", "source_name": ""}
+            ],
+        )
+
+        received: list[dict] = []
+        worker.finished.connect(received.append)
+        worker.run()
+
+        assert len(received) == 1
+        console = received[0].get("console_logs", [])
+        assert any(c["message"] == "hello" for c in console)
+        # Pre-request console logs must also be separated
+        pre_console = received[0].get("pre_request_console_logs", [])
+        assert len(pre_console) == 1
+        assert pre_console[0]["message"] == "hello"

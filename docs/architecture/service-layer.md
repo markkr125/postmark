@@ -28,6 +28,10 @@ All services use the same pattern:
 | `GraphQLSchemaService` | `http/graphql_schema_service.py` | GraphQL introspection and schema parsing |
 | `SnippetGenerator` | `http/snippet_generator/generator.py` | Generate code snippets in 23 languages |
 | `OAuth2Service` | `http/oauth2_service.py` | OAuth 2.0 token exchange (4 grant types) |
+| `ScriptEngine` | `scripting/engine.py` | Script execution — JS (V8) and Python (subprocess) |
+| `ScriptService` | `script_service.py` | Script chain resolution from collection/folder ancestry |
+| `DenoManager` | `scripting/deno_manager.py` | Deno binary download, cache, and removal |
+| `detect_advanced_features` | `scripting/feature_detect.py` | Detect async/await and npm: patterns in scripts |
 
 Additionally, `apply_auth()` in `http/auth_handler.py` is a standalone
 function (not a class) that injects authentication headers for 12 auth

@@ -23,9 +23,9 @@ MainWindow
 in the inheritance list.  The mixins are ordered so that specialised
 behaviour (send pipeline) takes precedence.
 
-**Signal wiring:** All inter-widget connections are made in
-`MainWindow.__init__()`.  Widgets never reference each other directly —
-they emit signals that MainWindow connects.
+**Signal wiring:** Inter-widget connections are made in
+`MainWindow._build_full_ui()` (scheduled from `__init__`).  Widgets never
+reference each other directly — they emit signals that MainWindow connects.
 
 See [MainWindow Reference](../ui-reference/main-window.md) for the full
 wiring map.
@@ -34,26 +34,32 @@ wiring map.
 
 ```text
 MainWindow (QMainWindow)
-  +-- QToolBar
-  |     +-- EnvironmentSelector (dropdown)
-  |     +-- Settings button, Theme button
-  +-- QSplitter (horizontal, 3 panes)
-        +-- CollectionWidget (left sidebar)
-        |     +-- CollectionHeader (search + new/import buttons)
-        |     +-- CollectionTree (QTreeWidget subclass)
-        |           +-- CollectionTreeDelegate (method badge renderer)
-        +-- Centre pane (QWidget)
-        |     +-- RequestTabBar (wrapped multi-row tab deck)
-        |     +-- BreadcrumbBar (path navigation)
+  +-- QAction (back / forward shortcuts only; no visible toolbar strip)
+  +-- QSplitter (horizontal, main — left rail + nav flyout + centre content)
+        +-- LeftSidebar (left activity rail)
+        +-- QWidget (left flyout — ``QStackedWidget`` pages; no duplicate title row)
         |     +-- QStackedWidget
-        |           +-- RequestEditor (per-tab, stacked)
-        |           +-- FolderEditorWidget (per-tab, stacked)
-        |     +-- QStackedWidget
-        |           +-- ResponseViewer (per-tab, stacked)
-        +-- RightSidebar (icon rail + flyout panels)
-              +-- VariablesPanel (read-only variable display)
-              +-- SnippetPanel (code snippet generator)
-              +-- SavedResponsesPanel (saved examples)
+        |     |     +-- QSplitter (vertical, collections + environments)
+        |     |     |     +-- CollectionWidget
+        |     |     |     |     +-- CollectionHeader (search + new/import buttons)
+        |     |     |     |     +-- CollectionTree (QTreeWidget subclass)
+        |     |     |     |           +-- CollectionTreeDelegate (method badge renderer)
+        |     |     |     +-- EnvironmentSidebarPanel (global env list + **Set active** / **Clear** per row)
+        |     |     +-- LocalScriptsSidebarPanel (placeholder list shell)
+        +-- QSplitter (horizontal — centre column + right flyout + right rail)
+              +-- QSplitter (vertical — request + response + bottom)
+              |     +-- RequestTabBar (wrapped multi-row tab deck)
+              |     +-- BreadcrumbBar (path navigation)
+              |     +-- QStackedWidget
+              |           +-- RequestEditor (per-tab, stacked)
+              |           +-- FolderEditorWidget (per-tab, stacked)
+              |     +-- QStackedWidget
+              |           +-- ResponseViewer (per-tab, stacked)
+              +-- QWidget (_FlyoutPanel — right sidebar flyout)
+              |     +-- VariablesPanel (read-only variable display)
+              |     +-- SnippetPanel (code snippet generator)
+              |     +-- SavedResponsesPanel (saved examples)
+              +-- RightSidebar (right activity rail)
   +-- QTabWidget (bottom panels)
         +-- ConsolePanel (HTTP traffic log)
         +-- HistoryPanel (request history)
@@ -81,7 +87,7 @@ Workers in the codebase:
 | `SchemaFetchWorker` | `request/http_worker.py` | Fetch GraphQL schema in background |
 | `CollectionLoader` | `collections/collection_widget.py` | Load collection tree from DB |
 | `ImportWorker` | `dialogs/import_dialog.py` | Run import pipeline in background |
-| `CollectionRunnerWorker` | `dialogs/collection_runner.py` | Run collection requests sequentially |
+| `RunnerWorker` | `dialogs/collection_runner/worker.py` | Run collection requests sequentially (used by folder inline runner) |
 
 ## Theming System
 
@@ -114,12 +120,13 @@ TabManager
   +-- _deferred_tabs: dict[int, dict]   Lazy-loaded tabs from session restore
 
 TabContext
-  +-- tab_type: "request" | "folder"
+  +-- tab_type: "request" | "folder" | "environments"
   +-- request_id: int | None
   +-- collection_id: int | None
-  +-- editor: RequestEditor
+  +-- editor: RequestEditor | None
   +-- folder_editor: FolderEditorWidget | None
-  +-- response_viewer: ResponseViewer
+  +-- environment_editor: EnvironmentEditorWidget | None
+  +-- response_viewer: ResponseViewer | None
   +-- is_dirty: bool
   +-- is_sending: bool
   +-- is_preview: bool

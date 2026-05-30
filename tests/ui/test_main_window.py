@@ -109,6 +109,32 @@ class TestMainWindowNavigation:
         assert window.request_widget._url_input.text() == "https://example.com"
         assert window.request_widget._method_combo.currentText() == "POST"
 
+    def test_open_request_loads_scripts_from_events_fallback(
+        self, qapp: QApplication, qtbot
+    ) -> None:
+        """Scripts stored in events (Postman import) load into the editor."""
+        svc = CollectionService()
+        coll = svc.create_collection("Coll")
+        req = svc.create_request(coll.id, "GET", "http://example.com", "Req")
+
+        # Simulate Postman-imported data: scripts is None, events has content
+        postman_events = [
+            {"listen": "prerequest", "script": {"exec": ["var x = 1;"]}},
+            {"listen": "test", "script": {"exec": ["pm.test('ok', function(){});"]}},
+        ]
+        svc.update_request(req.id, events=postman_events)
+
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._open_request(req.id, push_history=True)
+        window.request_widget._ensure_scripts_editors()
+
+        pre = window.request_widget._pre_request_edit.toPlainText()
+        test = window.request_widget._test_script_edit.toPlainText()
+        assert "var x = 1;" in pre
+        assert "pm.test" in test
+
     def test_navigation_history_back(self, qapp: QApplication, qtbot) -> None:
         """Navigating back goes to the previous request."""
         svc = CollectionService()
@@ -222,7 +248,7 @@ class TestMainWindowNavigation:
         window._open_request(req1.id, push_history=True)
         window._open_request(req2.id, push_history=True)
         window._tab_bar.setCurrentIndex(0)
-        window._tabs[0].editor._set_dirty(True)
+        window._tabs[0].require_editor()._set_dirty(True)
 
         window._open_request(req3.id, push_history=True)
 
@@ -272,8 +298,9 @@ class TestMainWindowSendRequest:
         window.request_widget._url_input.setText("")
         window._on_send_request()
 
-        assert not window.response_widget._error_label.isHidden()
-        assert "empty" in window.response_widget._error_label.text().lower()
+        assert not window.response_widget._tabs.isHidden()
+        assert "empty" in window.response_widget.visible_body_text().lower()
+        assert "ERROR" in window.response_widget._status_label.text()
 
     @patch("ui.request.http_worker.HttpSendWorker")
     @patch("ui.main_window.send_pipeline.QThread")
@@ -331,8 +358,66 @@ class TestMainWindowSendRequest:
 
         window._on_send_error("Connection refused")
 
-        assert not window.response_widget._error_label.isHidden()
-        assert "Connection refused" in window.response_widget._error_label.text()
+        assert not window.response_widget._tabs.isHidden()
+        assert "Connection refused" in window.response_widget.visible_body_text()
+        assert "ERROR" in window.response_widget._status_label.text()
+
+    def test_run_post_response_live_triggers_send(self, qapp: QApplication, qtbot) -> None:
+        """Live post-response run stores context then starts send flow."""
+        window = MainWindow()
+        qtbot.addWidget(window)
+        window.request_widget._ensure_scripts_editors()
+        panel = window.request_widget._test_output_panel
+        run_btn = MagicMock()
+        debug_btn = MagicMock()
+        with patch.object(window, "_on_send_request") as mock_send:
+            window.run_post_response_script_with_live_response(
+                editor=window.request_widget,
+                panel=panel,
+                script="pm.test('ok', () => true)",
+                language="javascript",
+                run_btn=run_btn,
+                debug_btn=debug_btn,
+            )
+            mock_send.assert_called_once()
+
+        assert window._inline_test_run is not None
+        assert window._inline_test_run["script"] == "pm.test('ok', () => true)"
+        run_btn.setEnabled.assert_called_with(False)
+        debug_btn.setEnabled.assert_called_with(False)
+
+    def test_send_finished_runs_pending_live_inline_script(self, qapp: QApplication, qtbot) -> None:
+        """Send completion executes pending inline post-response script."""
+        window = MainWindow()
+        qtbot.addWidget(window)
+        panel = MagicMock()
+        run_btn = MagicMock()
+        debug_btn = MagicMock()
+        window._inline_test_run = {
+            "editor": window.request_widget,
+            "panel": panel,
+            "script": "pm.test('ok', () => true)",
+            "language": "javascript",
+            "run_btn": run_btn,
+            "debug_btn": debug_btn,
+        }
+        data = {
+            "status_code": 200,
+            "status_text": "OK",
+            "headers": [{"key": "Content-Type", "value": "application/json"}],
+            "body": '{"ok":true}',
+            "elapsed_ms": 12.0,
+            "size_bytes": 11,
+        }
+
+        window._on_send_finished(data)
+
+        assert window._inline_test_run is None
+        assert panel.run_script.called
+        kwargs = panel.run_script.call_args.kwargs
+        context = kwargs["context"]
+        assert context["response"]["code"] == 200
+        assert context["response"]["body"] == '{"ok":true}'
 
     def test_send_disables_button(self, qapp: QApplication, qtbot) -> None:
         """The Send button switches to Cancel while a request is in flight."""
@@ -386,7 +471,8 @@ class TestMainWindowSendRequest:
         window._cancel_send()
 
         mock_worker.cancel.assert_called_once()
-        assert "cancelled" in window.response_widget._error_label.text().lower()
+        assert "cancelled" in window.response_widget.visible_body_text().lower()
+        assert "ERROR" in window.response_widget._status_label.text()
         assert window.request_widget._send_btn.text() == "Send"
         assert window._send_thread is None
         assert window._send_worker is None
@@ -425,14 +511,19 @@ class TestMainWindowViewToggles:
         assert not window._response_area.isHidden()
 
     def test_toggle_sidebar(self, qapp: QApplication, qtbot) -> None:
-        """Toggling the sidebar hides and shows the collection widget."""
+        """Toggling the sidebar collapses or expands the flyout; the rail stays put."""
         window = MainWindow()
         qtbot.addWidget(window)
-        assert not window.collection_widget.isHidden()
+        window.show()
+        qtbot.waitUntil(lambda: window._left_sidebar.is_open, timeout=3000)
+        assert window._left_sidebar.is_open
         window._toggle_sidebar()
-        assert window.collection_widget.isHidden()
+        qapp.processEvents()
+        assert not window._left_sidebar.is_open
+        assert window._left_sidebar.flyout_width == 0
         window._toggle_sidebar()
-        assert not window.collection_widget.isHidden()
+        qapp.processEvents()
+        assert window._left_sidebar.is_open
 
     def test_toggle_bottom_panel(self, qapp: QApplication, qtbot) -> None:
         """Toggling the bottom panel hides and shows it."""
@@ -443,6 +534,88 @@ class TestMainWindowViewToggles:
         assert not window._bottom_panel.isHidden()
         window._toggle_bottom_panel()
         assert window._bottom_panel.isHidden()
+
+    def test_script_error_logs_to_console(self, qapp: QApplication, qtbot) -> None:
+        """Script errors are logged to the Console panel (but not auto-shown)."""
+        window = MainWindow()
+        qtbot.addWidget(window)
+        assert window._bottom_panel.isHidden()
+
+        window._on_send_finished(
+            {
+                "status_code": 200,
+                "status_text": "OK",
+                "headers": [],
+                "body": "",
+                "elapsed_ms": 1.0,
+                "size_bytes": 0,
+                "console_logs": [
+                    {"level": "error", "message": "[Hyperguest] n is not defined", "timestamp": 0}
+                ],
+            }
+        )
+        qapp.processEvents()
+
+        # Error text is logged to console but panel is NOT auto-opened.
+        assert "n is not defined" in window._console_panel._output.toPlainText()
+
+    def test_pre_request_data_shows_tab(self, qapp: QApplication, qtbot) -> None:
+        """Pre-request data populates the Pre-request tab in the viewer."""
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._on_send_finished(
+            {
+                "status_code": 200,
+                "status_text": "OK",
+                "headers": [],
+                "body": "",
+                "elapsed_ms": 1.0,
+                "size_bytes": 0,
+                "has_pre_request_scripts": True,
+                "pre_request_console_logs": [
+                    {"level": "log", "message": "token set", "timestamp": 0}
+                ],
+                "pre_request_variable_changes": {"token": "abc"},
+                "pre_request_errors": [],
+            }
+        )
+        qapp.processEvents()
+
+        viewer = window.response_widget
+        assert viewer._tabs.isTabVisible(viewer._pre_tab_index)
+        assert "token" in viewer._pre_request_vars_edit.toPlainText()
+
+    def test_pre_request_error_shows_red_tab(self, qapp: QApplication, qtbot) -> None:
+        """Pre-request errors turn the tab label red."""
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._on_send_finished(
+            {
+                "status_code": 200,
+                "status_text": "OK",
+                "headers": [],
+                "body": "",
+                "elapsed_ms": 1.0,
+                "size_bytes": 0,
+                "has_pre_request_scripts": True,
+                "pre_request_errors": [
+                    {
+                        "name": "(runtime error)",
+                        "passed": False,
+                        "error": "n is not defined",
+                        "source_name": "Hyperguest",
+                        "duration_ms": 0,
+                    }
+                ],
+            }
+        )
+        qapp.processEvents()
+
+        viewer = window.response_widget
+        assert viewer._pre_request_has_error
+        assert "Hyperguest" in viewer._pre_request_header.text()
 
     def test_toggle_layout_orientation(self, qapp: QApplication, qtbot) -> None:
         """Toggling layout switches the right splitter between vertical and horizontal."""
@@ -666,7 +839,67 @@ class TestMainWindowFolderTabs:
 
         ctx = window._tabs[0]
         assert ctx.folder_editor is not None
-        assert ctx.folder_editor._title_label.text() == "Folder"
+        assert ctx.folder_editor.collection_id == coll.id
+
+    def test_open_folder_focus_runner_panel(self, qapp: QApplication, qtbot) -> None:
+        """``focus_runner_panel=True`` selects Runs -> New run."""
+        svc = CollectionService()
+        coll = svc.create_collection("Folder")
+
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._open_folder(coll.id, focus_runner_panel=True)
+
+        fe = window._tabs[0].folder_editor
+        assert fe is not None
+        assert fe._tabs.currentWidget() is fe._runs_tab
+        assert fe._runs_sub_tabs.currentWidget() is fe._runner_new_tab
+
+    def test_run_collection_by_id_opens_inline_runner(self, qapp: QApplication, qtbot) -> None:
+        """``_on_run_collection_by_id`` focuses the folder Runs -> New run tab."""
+        svc = CollectionService()
+        coll = svc.create_collection("Folder")
+
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._on_run_collection_by_id(coll.id)
+
+        fe = window._tabs[0].folder_editor
+        assert fe is not None
+        assert fe._tabs.currentWidget() is fe._runs_tab
+        assert fe._runs_sub_tabs.currentWidget() is fe._runner_new_tab
+
+    def test_open_folder_focus_scripts_post_response(self, qapp: QApplication, qtbot) -> None:
+        """`focus_scripts_kind='test'` selects Scripts -> Post-response."""
+        svc = CollectionService()
+        coll = svc.create_collection("Folder")
+
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._open_folder(coll.id, focus_scripts_kind="test")
+
+        fe = window._tabs[0].folder_editor
+        assert fe is not None
+        assert fe._tabs.currentWidget() is fe._scripts_tab
+        assert fe._scripts_sub_tabs.currentIndex() == 1
+
+    def test_open_folder_focus_scripts_pre_request(self, qapp: QApplication, qtbot) -> None:
+        """`focus_scripts_kind='pre_request'` selects Scripts -> Pre-request."""
+        svc = CollectionService()
+        coll = svc.create_collection("Folder")
+
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._open_folder(coll.id, focus_scripts_kind="pre_request")
+
+        fe = window._tabs[0].folder_editor
+        assert fe is not None
+        assert fe._tabs.currentWidget() is fe._scripts_tab
+        assert fe._scripts_sub_tabs.currentIndex() == 0
 
     def test_open_same_folder_twice_switches_tab(self, qapp: QApplication, qtbot) -> None:
         """Opening the same folder twice switches to the existing tab."""
@@ -681,6 +914,47 @@ class TestMainWindowFolderTabs:
 
         assert window._tab_bar.count() == 1
 
+    def test_reopen_folder_with_focus_scripts_selects_subtab(
+        self, qapp: QApplication, qtbot
+    ) -> None:
+        """Re-opening an already-open folder still applies ``focus_scripts_kind``."""
+        svc = CollectionService()
+        coll = svc.create_collection("Folder")
+
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._open_folder(coll.id)
+        fe = window._tabs[0].folder_editor
+        assert fe is not None
+        fe._tabs.setCurrentIndex(0)  # Overview
+
+        window._open_folder(coll.id, focus_scripts_kind="test")
+
+        assert fe._tabs.currentWidget() is fe._scripts_tab
+        assert fe._scripts_sub_tabs.currentIndex() == 1
+
+    def test_reopen_folder_with_focus_runner_selects_new_run(
+        self, qapp: QApplication, qtbot
+    ) -> None:
+        """Re-opening an already-open folder still applies ``focus_runner_panel``."""
+        svc = CollectionService()
+        coll = svc.create_collection("Folder")
+
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._open_folder(coll.id)
+        fe = window._tabs[0].folder_editor
+        assert fe is not None
+        fe._tabs.setCurrentIndex(0)  # Overview
+        fe._runs_sub_tabs.setCurrentIndex(1)  # History
+
+        window._open_folder(coll.id, focus_runner_panel=True)
+
+        assert fe._tabs.currentWidget() is fe._runs_tab
+        assert fe._runs_sub_tabs.currentWidget() is fe._runner_new_tab
+
     def test_close_folder_tab(self, qapp: QApplication, qtbot) -> None:
         """Closing a folder tab removes it cleanly."""
         svc = CollectionService()
@@ -694,6 +968,59 @@ class TestMainWindowFolderTabs:
 
         window._on_tab_close(0)
         assert window._tab_bar.count() == 0
+
+    def test_close_local_script_tab(self, qapp: QApplication, qtbot) -> None:
+        """Closing a local-script tab cleans up without requiring a request editor."""
+        from database.models.local_scripts.local_script_repository import (
+            create_folder,
+            create_script,
+        )
+
+        folder = create_folder("Scripts")
+        script = create_script(folder.id, "Helper", language="javascript", content="// hi")
+
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._open_local_script(script.id)
+        assert window._tab_bar.count() == 1
+        assert window._tabs[0].tab_type == "local_script"
+
+        window._on_tab_close(0)
+        assert window._tab_bar.count() == 0
+        assert not window._tabs
+
+    def test_local_script_breadcrumb_opens_rail_and_selects_folder(
+        self, qapp: QApplication, qtbot
+    ) -> None:
+        """Breadcrumb clicks open the local-scripts flyout and scroll the scripts tree."""
+        from unittest.mock import patch
+
+        from database.models.local_scripts.local_script_repository import (
+            create_folder,
+            create_script,
+        )
+
+        outer = create_folder("Outer")
+        script = create_script(outer.id, "Leaf", language="javascript")
+
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._left_sidebar.close_panel()
+        window._open_local_script(script.id)
+        window._flush_tab_change()
+
+        window._on_breadcrumb_clicked("local_scripts_root", 0)
+        assert window._left_sidebar.active_panel == "local_scripts"
+        assert window._left_sidebar._buttons["local_scripts"].isChecked()
+
+        with patch.object(
+            window.local_scripts_widget,
+            "select_and_scroll_to",
+        ) as scroll_mock:
+            window._on_breadcrumb_clicked("folder", outer.id)
+        scroll_mock.assert_called_once_with(outer.id, "folder")
 
     def test_folder_and_request_tabs_coexist(self, qapp: QApplication, qtbot) -> None:
         """Folder and request tabs can coexist in the tab bar."""

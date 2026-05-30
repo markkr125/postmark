@@ -35,6 +35,9 @@ class ThemePalette(TypedDict):
     success: str
     warning: str
     danger: str
+    accent_hover: str
+    danger_hover: str
+    solid_button_fg: str
     muted: str
     delete: str
     head: str
@@ -43,6 +46,7 @@ class ThemePalette(TypedDict):
     # Functional
     sending: str
     breadcrumb_sep: str
+    status_bar_bg: str
 
     # Import dialog
     drop_zone_border: str
@@ -50,6 +54,7 @@ class ThemePalette(TypedDict):
     drop_zone_active_bg: str
     import_success: str
     import_error: str
+    import_warn: str
 
     # Console
     console_bg: str
@@ -74,6 +79,9 @@ class ThemePalette(TypedDict):
     editor_gutter_bg: str
     editor_gutter_text: str
     editor_error_underline: str
+    editor_warning_underline: str
+    editor_info_underline: str
+    editor_hint_underline: str
     editor_fold_indicator: str
     editor_string: str
     editor_number: str
@@ -86,9 +94,29 @@ class ThemePalette(TypedDict):
     editor_indent_guide: str
     editor_active_indent_guide: str
     editor_error_gutter_bg: str
+    editor_warning_gutter_bg: str
+    editor_info_gutter_bg: str
+    editor_hint_gutter_bg: str
     editor_fold_badge_bg: str
     editor_fold_badge_text: str
     editor_whitespace_dot: str
+    editor_breakpoint: str
+    editor_breakpoint_conditional: str
+    editor_breakpoint_line: str
+    editor_breakpoint_unreachable: str
+    editor_current_line: str
+    editor_debug_line: str
+    editor_debug_gutter_arrow: str
+    editor_inline_log_text: str
+
+    # Diff viewer
+    diff_removed_bg: str
+    diff_added_bg: str
+    diff_removed_inline: str
+    diff_added_inline: str
+    diff_removed_gutter: str
+    diff_added_gutter: str
+    diff_header_bg: str
 
 
 # -- Light palette -----------------------------------------------------
@@ -106,17 +134,22 @@ LIGHT_PALETTE: ThemePalette = {
     "success": "#2ecc71",
     "warning": "#e89a0c",
     "danger": "#e74c3c",
+    "accent_hover": "#2980b9",
+    "danger_hover": "#c0392b",
+    "solid_button_fg": "#ffffff",
     "muted": "#95a5a6",
     "delete": "#e67e22",
     "head": "#27ae60",
     "options": "#9b59b6",
     "sending": "#f39c12",
     "breadcrumb_sep": "#aaaaaa",
+    "status_bar_bg": "#ebebeb",
     "drop_zone_border": "#b0b0b0",
     "drop_zone_bg": "#fafafa",
     "drop_zone_active_bg": "#e8f4fd",
     "import_success": "#27ae60",
     "import_error": "#e74c3c",
+    "import_warn": "#f39c12",
     "console_bg": "#1e1e1e",
     "console_text": "#d4d4d4",
     "timing_prepare": "#95a5a6",
@@ -133,6 +166,9 @@ LIGHT_PALETTE: ThemePalette = {
     "editor_gutter_bg": "#fafafa",
     "editor_gutter_text": "#999999",
     "editor_error_underline": "#e74c3c",
+    "editor_warning_underline": "#d9a441",
+    "editor_info_underline": "#2980b9",
+    "editor_hint_underline": "#8e44ad",
     "editor_fold_indicator": "#555555",
     "editor_string": "#22863a",
     "editor_number": "#005cc5",
@@ -145,9 +181,27 @@ LIGHT_PALETTE: ThemePalette = {
     "editor_indent_guide": "#e0e0e0",
     "editor_active_indent_guide": "#b0b0b0",
     "editor_error_gutter_bg": "#fce4e4",
+    "editor_warning_gutter_bg": "#fff3cd",
+    "editor_info_gutter_bg": "#e3f2fd",
+    "editor_hint_gutter_bg": "#f4ecf7",
     "editor_fold_badge_bg": "#e0e6ed",
     "editor_fold_badge_text": "#6a737d",
     "editor_whitespace_dot": "#b0b0b0",
+    "editor_breakpoint": "#e74c3c",
+    "editor_breakpoint_conditional": "#f1c40f",
+    "editor_breakpoint_line": "#fae9ec",
+    "editor_breakpoint_unreachable": "#b0b0b0",
+    "editor_current_line": "#f5f5f5",
+    "editor_debug_line": "#ffe89a",
+    "editor_debug_gutter_arrow": "#f39c12",
+    "editor_inline_log_text": "#7f8c8d",
+    "diff_removed_bg": "#fce4e4",
+    "diff_added_bg": "#d4edda",
+    "diff_removed_inline": "#f5c6c6",
+    "diff_added_inline": "#abdbbd",
+    "diff_removed_gutter": "#e74c3c",
+    "diff_added_gutter": "#2ecc71",
+    "diff_header_bg": "#efefef",
 }
 
 # -- Dark palette ------------------------------------------------------
@@ -165,17 +219,22 @@ DARK_PALETTE: ThemePalette = {
     "success": "#4ec9b0",
     "warning": "#dcdcaa",
     "danger": "#f44747",
+    "accent_hover": "#3d9fd9",
+    "danger_hover": "#ff6b6b",
+    "solid_button_fg": "#ffffff",
     "muted": "#808080",
     "delete": "#ce9178",
     "head": "#4ec9b0",
     "options": "#c586c0",
     "sending": "#f39c12",
     "breadcrumb_sep": "#666666",
+    "status_bar_bg": "#1a1a1c",
     "drop_zone_border": "#555555",
     "drop_zone_bg": "#252526",
     "drop_zone_active_bg": "#1a3a4a",
     "import_success": "#4ec9b0",
     "import_error": "#f44747",
+    "import_warn": "#dcdcaa",
     "console_bg": "#1e1e1e",
     "console_text": "#d4d4d4",
     "timing_prepare": "#808080",
@@ -192,6 +251,9 @@ DARK_PALETTE: ThemePalette = {
     "editor_gutter_bg": "#252526",
     "editor_gutter_text": "#858585",
     "editor_error_underline": "#f44747",
+    "editor_warning_underline": "#dcdcaa",
+    "editor_info_underline": "#4fc1ff",
+    "editor_hint_underline": "#c586c0",
     "editor_fold_indicator": "#c0c0c0",
     "editor_string": "#ce9178",
     "editor_number": "#b5cea8",
@@ -204,9 +266,27 @@ DARK_PALETTE: ThemePalette = {
     "editor_indent_guide": "#333333",
     "editor_active_indent_guide": "#606060",
     "editor_error_gutter_bg": "#4a2020",
+    "editor_warning_gutter_bg": "#3a3520",
+    "editor_info_gutter_bg": "#1a3a4a",
+    "editor_hint_gutter_bg": "#3a2a45",
     "editor_fold_badge_bg": "#3a3d4a",
     "editor_fold_badge_text": "#a0a0a0",
     "editor_whitespace_dot": "#606060",
+    "editor_breakpoint": "#f44747",
+    "editor_breakpoint_conditional": "#dcdcaa",
+    "editor_breakpoint_line": "#3d2325",
+    "editor_breakpoint_unreachable": "#8a8a8a",
+    "editor_current_line": "#2a2a2e",
+    "editor_debug_line": "#5a4a1e",
+    "editor_debug_gutter_arrow": "#f39c12",
+    "editor_inline_log_text": "#8b949e",
+    "diff_removed_bg": "#4a2020",
+    "diff_added_bg": "#1a3a2a",
+    "diff_removed_inline": "#6b3030",
+    "diff_added_inline": "#2a5a3a",
+    "diff_removed_gutter": "#f44747",
+    "diff_added_gutter": "#4ec9b0",
+    "diff_header_bg": "#2a2d2e",
 }
 
 
@@ -226,6 +306,9 @@ COLOR_ACCENT: str = _active["accent"]
 COLOR_SUCCESS: str = _active["success"]
 COLOR_WARNING: str = _active["warning"]
 COLOR_DANGER: str = _active["danger"]
+COLOR_ACCENT_HOVER: str = _active["accent_hover"]
+COLOR_DANGER_HOVER: str = _active["danger_hover"]
+COLOR_SOLID_BUTTON_FG: str = _active["solid_button_fg"]
 COLOR_MUTED: str = _active["muted"]
 COLOR_DELETE: str = _active["delete"]
 COLOR_HEAD: str = _active["head"]
@@ -245,12 +328,14 @@ COLOR_CONSOLE_BG: str = _active["console_bg"]
 COLOR_CONSOLE_TEXT: str = _active["console_text"]
 
 COLOR_BREADCRUMB_SEP: str = _active["breadcrumb_sep"]
+COLOR_STATUS_BAR_BG: str = _active["status_bar_bg"]
 
 COLOR_DROP_ZONE_BORDER: str = _active["drop_zone_border"]
 COLOR_DROP_ZONE_BG: str = _active["drop_zone_bg"]
 COLOR_DROP_ZONE_ACTIVE_BG: str = _active["drop_zone_active_bg"]
 COLOR_IMPORT_SUCCESS: str = _active["import_success"]
 COLOR_IMPORT_ERROR: str = _active["import_error"]
+COLOR_IMPORT_WARN: str = _active["import_warn"]
 
 COLOR_TIMING_PREPARE: str = _active["timing_prepare"]
 COLOR_TIMING_DNS: str = _active["timing_dns"]
@@ -268,6 +353,9 @@ COLOR_EDITOR_BRACKET_MATCH: str = _active["editor_bracket_match"]
 COLOR_EDITOR_GUTTER_BG: str = _active["editor_gutter_bg"]
 COLOR_EDITOR_GUTTER_TEXT: str = _active["editor_gutter_text"]
 COLOR_EDITOR_ERROR_UNDERLINE: str = _active["editor_error_underline"]
+COLOR_EDITOR_WARNING_UNDERLINE: str = _active["editor_warning_underline"]
+COLOR_EDITOR_INFO_UNDERLINE: str = _active["editor_info_underline"]
+COLOR_EDITOR_HINT_UNDERLINE: str = _active["editor_hint_underline"]
 COLOR_EDITOR_FOLD_INDICATOR: str = _active["editor_fold_indicator"]
 COLOR_EDITOR_STRING: str = _active["editor_string"]
 COLOR_EDITOR_NUMBER: str = _active["editor_number"]
@@ -280,9 +368,27 @@ COLOR_EDITOR_FOLD_HIGHLIGHT: str = _active["editor_fold_highlight"]
 COLOR_EDITOR_INDENT_GUIDE: str = _active["editor_indent_guide"]
 COLOR_EDITOR_ACTIVE_INDENT_GUIDE: str = _active["editor_active_indent_guide"]
 COLOR_EDITOR_ERROR_GUTTER_BG: str = _active["editor_error_gutter_bg"]
+COLOR_EDITOR_WARNING_GUTTER_BG: str = _active["editor_warning_gutter_bg"]
+COLOR_EDITOR_INFO_GUTTER_BG: str = _active["editor_info_gutter_bg"]
+COLOR_EDITOR_HINT_GUTTER_BG: str = _active["editor_hint_gutter_bg"]
 COLOR_EDITOR_FOLD_BADGE_BG: str = _active["editor_fold_badge_bg"]
 COLOR_EDITOR_FOLD_BADGE_TEXT: str = _active["editor_fold_badge_text"]
 COLOR_EDITOR_WHITESPACE_DOT: str = _active["editor_whitespace_dot"]
+COLOR_EDITOR_BREAKPOINT: str = _active["editor_breakpoint"]
+COLOR_EDITOR_BREAKPOINT_CONDITIONAL: str = _active["editor_breakpoint_conditional"]
+COLOR_EDITOR_BREAKPOINT_LINE: str = _active["editor_breakpoint_line"]
+COLOR_EDITOR_BREAKPOINT_UNREACHABLE: str = _active["editor_breakpoint_unreachable"]
+COLOR_EDITOR_CURRENT_LINE: str = _active["editor_current_line"]
+COLOR_EDITOR_DEBUG_LINE: str = _active["editor_debug_line"]
+COLOR_EDITOR_DEBUG_GUTTER_ARROW: str = _active["editor_debug_gutter_arrow"]
+COLOR_EDITOR_INLINE_LOG_TEXT: str = _active["editor_inline_log_text"]
+
+COLOR_DIFF_REMOVED_BG: str = _active["diff_removed_bg"]
+COLOR_DIFF_ADDED_BG: str = _active["diff_added_bg"]
+COLOR_DIFF_REMOVED_INLINE: str = _active["diff_removed_inline"]
+COLOR_DIFF_ADDED_INLINE: str = _active["diff_added_inline"]
+COLOR_DIFF_REMOVED_GUTTER: str = _active["diff_removed_gutter"]
+COLOR_DIFF_ADDED_GUTTER: str = _active["diff_added_gutter"]
 
 
 def set_active_palette(palette: ThemePalette) -> None:
@@ -293,15 +399,16 @@ def set_active_palette(palette: ThemePalette) -> None:
     """
     global _active
     global COLOR_ACCENT, COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER
+    global COLOR_ACCENT_HOVER, COLOR_DANGER_HOVER, COLOR_SOLID_BUTTON_FG
     global COLOR_MUTED, COLOR_DELETE, COLOR_HEAD, COLOR_OPTIONS
     global COLOR_WHITE, COLOR_TEXT, COLOR_TEXT_MUTED, COLOR_BORDER
     global COLOR_HOVER_BG, COLOR_HOVER_TREE_BG, COLOR_SELECTED_BG
     global COLOR_SENDING
     global COLOR_CONSOLE_BG, COLOR_CONSOLE_TEXT
-    global COLOR_BREADCRUMB_SEP
+    global COLOR_BREADCRUMB_SEP, COLOR_STATUS_BAR_BG
     global COLOR_DROP_ZONE_BORDER, COLOR_DROP_ZONE_BG
     global COLOR_DROP_ZONE_ACTIVE_BG
-    global COLOR_IMPORT_SUCCESS, COLOR_IMPORT_ERROR
+    global COLOR_IMPORT_SUCCESS, COLOR_IMPORT_ERROR, COLOR_IMPORT_WARN
     global COLOR_TIMING_PREPARE, COLOR_TIMING_DNS, COLOR_TIMING_TCP
     global COLOR_TIMING_TLS, COLOR_TIMING_TTFB, COLOR_TIMING_DOWNLOAD
     global COLOR_TIMING_PROCESS
@@ -309,6 +416,8 @@ def set_active_palette(palette: ThemePalette) -> None:
     global COLOR_VARIABLE_UNRESOLVED_HIGHLIGHT, COLOR_VARIABLE_UNRESOLVED_TEXT
     global COLOR_EDITOR_BRACKET_MATCH, COLOR_EDITOR_GUTTER_BG
     global COLOR_EDITOR_GUTTER_TEXT, COLOR_EDITOR_ERROR_UNDERLINE
+    global COLOR_EDITOR_WARNING_UNDERLINE
+    global COLOR_EDITOR_INFO_UNDERLINE, COLOR_EDITOR_HINT_UNDERLINE
     global COLOR_EDITOR_FOLD_INDICATOR
     global COLOR_EDITOR_STRING, COLOR_EDITOR_NUMBER, COLOR_EDITOR_KEYWORD
     global COLOR_EDITOR_COMMENT, COLOR_EDITOR_TAG, COLOR_EDITOR_ATTRIBUTE
@@ -316,8 +425,18 @@ def set_active_palette(palette: ThemePalette) -> None:
     global COLOR_EDITOR_FOLD_HIGHLIGHT, COLOR_EDITOR_INDENT_GUIDE
     global COLOR_EDITOR_ACTIVE_INDENT_GUIDE
     global COLOR_EDITOR_ERROR_GUTTER_BG
+    global COLOR_EDITOR_WARNING_GUTTER_BG
+    global COLOR_EDITOR_INFO_GUTTER_BG, COLOR_EDITOR_HINT_GUTTER_BG
     global COLOR_EDITOR_FOLD_BADGE_BG, COLOR_EDITOR_FOLD_BADGE_TEXT
     global COLOR_EDITOR_WHITESPACE_DOT
+    global COLOR_EDITOR_BREAKPOINT, COLOR_EDITOR_BREAKPOINT_CONDITIONAL
+    global COLOR_EDITOR_DEBUG_LINE, COLOR_EDITOR_BREAKPOINT_LINE
+    global COLOR_EDITOR_BREAKPOINT_UNREACHABLE
+    global COLOR_EDITOR_CURRENT_LINE
+    global COLOR_EDITOR_DEBUG_GUTTER_ARROW, COLOR_EDITOR_INLINE_LOG_TEXT
+    global COLOR_DIFF_REMOVED_BG, COLOR_DIFF_ADDED_BG
+    global COLOR_DIFF_REMOVED_INLINE, COLOR_DIFF_ADDED_INLINE
+    global COLOR_DIFF_REMOVED_GUTTER, COLOR_DIFF_ADDED_GUTTER
 
     _active = palette
 
@@ -325,6 +444,9 @@ def set_active_palette(palette: ThemePalette) -> None:
     COLOR_SUCCESS = palette["success"]
     COLOR_WARNING = palette["warning"]
     COLOR_DANGER = palette["danger"]
+    COLOR_ACCENT_HOVER = palette["accent_hover"]
+    COLOR_DANGER_HOVER = palette["danger_hover"]
+    COLOR_SOLID_BUTTON_FG = palette["solid_button_fg"]
     COLOR_MUTED = palette["muted"]
     COLOR_DELETE = palette["delete"]
     COLOR_HEAD = palette["head"]
@@ -344,12 +466,14 @@ def set_active_palette(palette: ThemePalette) -> None:
     COLOR_CONSOLE_TEXT = palette["console_text"]
 
     COLOR_BREADCRUMB_SEP = palette["breadcrumb_sep"]
+    COLOR_STATUS_BAR_BG = palette["status_bar_bg"]
 
     COLOR_DROP_ZONE_BORDER = palette["drop_zone_border"]
     COLOR_DROP_ZONE_BG = palette["drop_zone_bg"]
     COLOR_DROP_ZONE_ACTIVE_BG = palette["drop_zone_active_bg"]
     COLOR_IMPORT_SUCCESS = palette["import_success"]
     COLOR_IMPORT_ERROR = palette["import_error"]
+    COLOR_IMPORT_WARN = palette["import_warn"]
 
     COLOR_TIMING_PREPARE = palette["timing_prepare"]
     COLOR_TIMING_DNS = palette["timing_dns"]
@@ -367,6 +491,9 @@ def set_active_palette(palette: ThemePalette) -> None:
     COLOR_EDITOR_GUTTER_BG = palette["editor_gutter_bg"]
     COLOR_EDITOR_GUTTER_TEXT = palette["editor_gutter_text"]
     COLOR_EDITOR_ERROR_UNDERLINE = palette["editor_error_underline"]
+    COLOR_EDITOR_WARNING_UNDERLINE = palette["editor_warning_underline"]
+    COLOR_EDITOR_INFO_UNDERLINE = palette["editor_info_underline"]
+    COLOR_EDITOR_HINT_UNDERLINE = palette["editor_hint_underline"]
     COLOR_EDITOR_FOLD_INDICATOR = palette["editor_fold_indicator"]
     COLOR_EDITOR_STRING = palette["editor_string"]
     COLOR_EDITOR_NUMBER = palette["editor_number"]
@@ -379,9 +506,27 @@ def set_active_palette(palette: ThemePalette) -> None:
     COLOR_EDITOR_INDENT_GUIDE = palette["editor_indent_guide"]
     COLOR_EDITOR_ACTIVE_INDENT_GUIDE = palette["editor_active_indent_guide"]
     COLOR_EDITOR_ERROR_GUTTER_BG = palette["editor_error_gutter_bg"]
+    COLOR_EDITOR_WARNING_GUTTER_BG = palette["editor_warning_gutter_bg"]
+    COLOR_EDITOR_INFO_GUTTER_BG = palette["editor_info_gutter_bg"]
+    COLOR_EDITOR_HINT_GUTTER_BG = palette["editor_hint_gutter_bg"]
     COLOR_EDITOR_FOLD_BADGE_BG = palette["editor_fold_badge_bg"]
     COLOR_EDITOR_FOLD_BADGE_TEXT = palette["editor_fold_badge_text"]
     COLOR_EDITOR_WHITESPACE_DOT = palette["editor_whitespace_dot"]
+    COLOR_EDITOR_BREAKPOINT = palette["editor_breakpoint"]
+    COLOR_EDITOR_BREAKPOINT_CONDITIONAL = palette["editor_breakpoint_conditional"]
+    COLOR_EDITOR_BREAKPOINT_LINE = palette["editor_breakpoint_line"]
+    COLOR_EDITOR_BREAKPOINT_UNREACHABLE = palette["editor_breakpoint_unreachable"]
+    COLOR_EDITOR_CURRENT_LINE = palette["editor_current_line"]
+    COLOR_EDITOR_DEBUG_LINE = palette["editor_debug_line"]
+    COLOR_EDITOR_DEBUG_GUTTER_ARROW = palette["editor_debug_gutter_arrow"]
+    COLOR_EDITOR_INLINE_LOG_TEXT = palette["editor_inline_log_text"]
+
+    COLOR_DIFF_REMOVED_BG = palette["diff_removed_bg"]
+    COLOR_DIFF_ADDED_BG = palette["diff_added_bg"]
+    COLOR_DIFF_REMOVED_INLINE = palette["diff_removed_inline"]
+    COLOR_DIFF_ADDED_INLINE = palette["diff_added_inline"]
+    COLOR_DIFF_REMOVED_GUTTER = palette["diff_removed_gutter"]
+    COLOR_DIFF_ADDED_GUTTER = palette["diff_added_gutter"]
 
 
 def current_palette() -> ThemePalette:
@@ -418,6 +563,38 @@ BADGE_MIN_WIDTH = 32  # px — keeps all labels the same width
 BADGE_HEIGHT = 16  # px — consistent vertical size
 BADGE_BORDER_RADIUS = 3  # px
 TREE_ROW_HEIGHT = 28  # px — uniform row height for every item
+
+# Left nav flyout (collections + environments panes): horizontal inset for
+# panel bodies only. Applied inside each splitter child so the vertical handle
+# between collections and environments stays edge-to-edge in the flyout.
+LEFT_NAV_PANEL_MARGIN_H_LEFT_PX = 12
+LEFT_NAV_PANEL_MARGIN_H_RIGHT_PX = 8
+
+# Debug inspector call-stack column: horizontal inset on the pane layout, not on
+# the splitter child, so ``debugInspectorVSeparator`` stays full-height on the seam.
+DEBUG_INSPECTOR_LEFT_PANE_H_LEFT_PX = 12
+DEBUG_INSPECTOR_LEFT_PANE_H_RIGHT_PX = 8
+DEBUG_INSPECTOR_LEFT_PANE_SECTION_TOP_PX = 8
+# Right column (watches above scopes): inset from the vertical seam and outer edge.
+DEBUG_INSPECTOR_RIGHT_PANE_H_LEFT_PX = 8
+DEBUG_INSPECTOR_RIGHT_PANE_H_RIGHT_PX = 12
+DEBUG_INSPECTOR_RIGHT_PANE_SECTION_TOP_PX = 8
+# Space below the watch expression row (above the rule and variables tree).
+DEBUG_INSPECTOR_WATCH_EXPRESSION_BOTTOM_PX = 8
+
+# Script output tab stack: room below tab pages so bordered panes are not clipped.
+SCRIPT_OUTPUT_TAB_PANE_BOTTOM_PAD_PX = 4
+
+# Left activity rail: width and icon size as multiples of the primary font
+# height (see ``LeftSidebar``). Keep the strip narrow; ``ICON_EM`` nudges the
+# glyph up slightly, and ``LEFT_RAIL_BUTTON_EXTRA_HEIGHT_PX`` adds top/bottom
+# padding inside each rail row (hit target + air around the icon).
+LEFT_RAIL_WIDTH_EM = 2.55
+LEFT_RAIL_ICON_EM = 1.48
+# Extra vertical space on each button (hit target + room around the icon).
+LEFT_RAIL_BUTTON_EXTRA_HEIGHT_PX = 28
+# Full-height painted accent (``QToolButton`` QSS ``border-left`` clips to content).
+LEFT_RAIL_ACCENT_STRIPE_WIDTH_PX = 3
 
 
 def method_color(method: str) -> str:

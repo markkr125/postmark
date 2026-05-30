@@ -145,11 +145,11 @@ class TestRequestCRUD:
             "http://x",
             "Full",
             body="hello",
-            scripts={"pre": "console.log(1)"},
+            scripts={"pre_request": "console.log(1)"},
             settings={"timeout": 5000},
         )
         assert req.body == "hello"
-        assert req.scripts == {"pre": "console.log(1)"}
+        assert req.scripts == {"pre_request": "console.log(1)"}
         assert req.settings == {"timeout": 5000}
 
     def test_update_request_body(self):

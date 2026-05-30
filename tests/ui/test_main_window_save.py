@@ -120,6 +120,9 @@ class TestRequestSaveEndToEnd:
         if defaults:
             svc.update_request(req.id, **defaults)
         window._open_request(req.id, push_history=True)
+        rw = window.request_widget
+        rw._ensure_body_editors()
+        rw._ensure_scripts_editors()
         return req.id
 
     # -- URL -----------------------------------------------------------
@@ -246,6 +249,7 @@ class TestRequestSaveEndToEnd:
             {"key": "limit", "value": "10", "enabled": True},
         ]
         window.request_widget._params_table.set_data(params)
+        window.request_widget._on_params_changed_sync()
         window.request_widget._set_dirty(True)
         window._on_save_request()
 
@@ -255,6 +259,9 @@ class TestRequestSaveEndToEnd:
         keys = [p["key"] for p in saved.request_parameters if p.get("key")]
         assert "page" in keys
         assert "limit" in keys
+        assert saved.url is not None
+        assert "page=1" in saved.url
+        assert "limit=10" in saved.url
 
     # -- Description ---------------------------------------------------
 
@@ -279,12 +286,13 @@ class TestRequestSaveEndToEnd:
         qtbot.addWidget(window)
         rid = self._create_and_open(window)
 
-        window.request_widget._scripts_edit.setPlainText("console.log('test');")
+        window.request_widget._pre_request_edit.setPlainText("console.log('test');")
         window._on_save_request()
 
         saved = CollectionService.get_request(rid)
         assert saved is not None
-        assert saved.scripts == "console.log('test');"
+        assert isinstance(saved.scripts, dict)
+        assert saved.scripts["pre_request"] == "console.log('test');"
 
     # -- Auth: Bearer token --------------------------------------------
 
@@ -459,7 +467,7 @@ class TestMainWindowVariableMap:
     """Tests for variable map refresh on environment and tab changes."""
 
     def test_environment_changed_signal_connected(self, qapp: QApplication, qtbot) -> None:
-        """MainWindow connects to EnvironmentSelector.environment_changed."""
+        """MainWindow connects to EnvironmentSidebarPanel.environment_changed."""
         window = MainWindow()
         qtbot.addWidget(window)
         # Verify the connection works by calling the slot directly

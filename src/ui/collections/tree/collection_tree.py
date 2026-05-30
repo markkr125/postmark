@@ -18,14 +18,25 @@ from PySide6.QtWidgets import (
 from ui.collections.tree.collection_tree_delegate import CollectionTreeDelegate
 from ui.collections.tree.constants import (
     EMPTY_COLLECTION_HTML,
+    EMPTY_SCRIPT_FOLDER_HTML,
+    ITEM_TYPE_FOLDER,
+    ITEM_TYPE_SCRIPT,
     PLACEHOLDER_MARKER,
     ROLE_ITEM_ID,
     ROLE_ITEM_TYPE,
+    ROLE_LANGUAGE,
+    ROLE_MODULE_FORMAT,
     ROLE_METHOD,
     ROLE_PLACEHOLDER,
+    is_leaf_item_type,
 )
 from ui.collections.tree.draggable_tree_widget import DraggableTreeWidget
 from ui.collections.tree.tree_actions import _TreeActionsMixin
+from ui.local_scripts.script_filename import (
+    script_basename_from_stored,
+    script_display_name,
+    script_tooltip,
+)
 from ui.styling.icons import phi
 
 logger = logging.getLogger(__name__)
@@ -48,18 +59,31 @@ class CollectionTree(_TreeActionsMixin, QWidget):
     collection_rename_requested = Signal(int, str)  # collection_id, new_name
     collection_delete_requested = Signal(int)  # collection_id
     request_rename_requested = Signal(int, str)  # request_id, new_name
+    script_rename_requested = Signal(
+        int, str, str, str
+    )  # script_id, basename, language, module_format
     request_delete_requested = Signal(int)  # request_id
     request_moved = Signal(int, int)  # request_id, new_collection_id
     collection_moved = Signal(int, object)  # collection_id, new_parent_id
     new_collection_requested = Signal(object)  # parent_id (int | None)
     new_request_requested = Signal(object)  # parent_collection_id
     selected_collection_changed = Signal(object)  # collection_id (int | None)
+    run_collection_requested = Signal(int)  # collection_id
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, *, tree_kind: str = "collections") -> None:
         """Initialise the collection tree widget and context menus."""
         super().__init__(parent)
 
+        self._tree_kind = tree_kind
         self._current_item: QTreeWidgetItem | None = None
+        self._empty_root_message = (
+            "No scripts yet.\nClick + to create one."
+            if tree_kind == "local_scripts"
+            else "No collections yet.\nClick + to create one."
+        )
+        self._loading_base_text = (
+            "Loading scripts" if tree_kind == "local_scripts" else "Loading collections"
+        )
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -72,7 +96,7 @@ class CollectionTree(_TreeActionsMixin, QWidget):
         empty_widget = QWidget()
         empty_layout = QVBoxLayout(empty_widget)
         empty_layout.setContentsMargins(20, 40, 20, 20)
-        self._empty_label = QLabel("No collections yet.\nClick + to create one.")
+        self._empty_label = QLabel(self._empty_root_message)
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._empty_label.setObjectName("emptyStateLabel")
         self._empty_label.setWordWrap(True)
@@ -81,7 +105,7 @@ class CollectionTree(_TreeActionsMixin, QWidget):
         self._stack.addWidget(empty_widget)  # index 0
 
         self._tree = DraggableTreeWidget()
-        self._tree.setItemDelegate(CollectionTreeDelegate(self._tree))
+        self._tree.setItemDelegate(CollectionTreeDelegate(self._tree, tree_kind=tree_kind))
         self._tree.setHeaderHidden(True)
         self._tree.itemChanged.connect(self._on_item_changed)
         self._tree.currentItemChanged.connect(self._on_current_item_changed)
@@ -115,7 +139,7 @@ class CollectionTree(_TreeActionsMixin, QWidget):
         loading_widget = QWidget()
         loading_layout = QVBoxLayout(loading_widget)
         loading_layout.setContentsMargins(20, 40, 20, 20)
-        self._loading_label = QLabel("Loading collections")
+        self._loading_label = QLabel(self._loading_base_text)
         self._loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._loading_label.setObjectName("emptyStateLabel")
         self._loading_label.setWordWrap(True)
@@ -154,7 +178,7 @@ class CollectionTree(_TreeActionsMixin, QWidget):
 
         if item_type == "folder":
             self.selected_collection_changed.emit(item_id)
-        elif item_type == "request":
+        elif is_leaf_item_type(item_type):
             parent = current.parent()
             if parent:
                 self.selected_collection_changed.emit(parent.data(0, ROLE_ITEM_ID))
@@ -181,11 +205,13 @@ class CollectionTree(_TreeActionsMixin, QWidget):
 
     def _on_item_clicked(self, item: QTreeWidgetItem, column: int) -> None:
         """Open a request tab or toggle folder expand on single click."""
+        if self._rename_overlay_active():
+            return
         item_type = item.data(1, ROLE_ITEM_TYPE)
-        if item_type == "request":
+        if is_leaf_item_type(item_type):
             item_id = item.data(0, ROLE_ITEM_ID)
             self.item_action_triggered.emit(item_type, item_id, "Open")
-        elif item_type == "folder":
+        elif item_type == ITEM_TYPE_FOLDER:
             item.setExpanded(not item.isExpanded())
 
     def _on_item_double_clicked(self, item: QTreeWidgetItem, column: int) -> None:
@@ -215,7 +241,12 @@ class CollectionTree(_TreeActionsMixin, QWidget):
 
         label = QLabel()
         label.setTextFormat(Qt.TextFormat.RichText)
-        label.setText(EMPTY_COLLECTION_HTML)
+        empty_html = (
+            EMPTY_SCRIPT_FOLDER_HTML
+            if self._tree_kind == "local_scripts"
+            else EMPTY_COLLECTION_HTML
+        )
+        label.setText(empty_html)
         label.setContentsMargins(0, 0, 0, 0)
         label.setOpenExternalLinks(False)
         label.linkActivated.connect(lambda _: self._on_placeholder_link_clicked(parent_item))
@@ -287,7 +318,13 @@ class CollectionTree(_TreeActionsMixin, QWidget):
         item_type = item.data(1, ROLE_ITEM_TYPE)
 
         # Determine the display name
-        if item_type == "request":
+        if item_type == ITEM_TYPE_SCRIPT:
+            language = item.data(0, ROLE_LANGUAGE) or "javascript"
+            module_format = item.data(0, ROLE_MODULE_FORMAT) or "esm"
+            basename = script_basename_from_stored(item.text(1) or "")
+            display = script_display_name(basename, language, module_format).lower()
+            name = f"{basename.lower()} {display}"
+        elif is_leaf_item_type(item_type):
             name = (item.text(1) or "").lower()
         else:
             name = (item.text(0) or "").lower()
@@ -349,7 +386,11 @@ class CollectionTree(_TreeActionsMixin, QWidget):
         """Recursively add child items (folders and requests) under *parent*."""
         for _key, value in mapping.items():
             child = QTreeWidgetItem(
-                parent, [value["name"] if value.get("type") != "request" else "", value["name"]]
+                parent,
+                [
+                    value["name"] if not is_leaf_item_type(value.get("type")) else "",
+                    value["name"],
+                ],
             )
 
             child.setData(0, ROLE_ITEM_ID, value.get("id"))  # id
@@ -373,9 +414,18 @@ class CollectionTree(_TreeActionsMixin, QWidget):
         method = spec.get("method", "GET")
         name = spec.get("name", "")
 
-        if item_type == "request":
-            item.setToolTip(0, f"{method} {name}")
-            item.setData(0, ROLE_METHOD, method)
+        if is_leaf_item_type(item_type):
+            if item_type == ITEM_TYPE_SCRIPT:
+                language = spec.get("language") or "javascript"
+                module_format = spec.get("module_format") or "esm"
+                basename = script_basename_from_stored(name)
+                item.setText(1, basename)
+                item.setData(0, ROLE_LANGUAGE, language)
+                item.setData(0, ROLE_MODULE_FORMAT, module_format)
+                item.setToolTip(0, script_tooltip(basename, language, module_format))
+            else:
+                item.setToolTip(0, f"{method} {name}".strip())
+                item.setData(0, ROLE_METHOD, method)
         else:
             item.setToolTip(0, name)
             self._set_item_icon(item, item_type, method)
@@ -415,7 +465,7 @@ class CollectionTree(_TreeActionsMixin, QWidget):
         target = self._find_item_by_id(self._tree.invisibleRootItem(), item_id, item_type)
         if target is None:
             return
-        col = 1 if item_type == "request" else 0
+        col = 1 if is_leaf_item_type(item_type) else 0
         self._tree.blockSignals(True)
         try:
             target.setText(col, new_name)
@@ -444,6 +494,41 @@ class CollectionTree(_TreeActionsMixin, QWidget):
             self._tree.blockSignals(False)
         self._tree.viewport().update()
 
+    def update_script_language(self, script_id: int, language: str) -> None:
+        """Update language role, tooltip, and extension display for a script row."""
+        self.update_script_metadata(script_id, language=language)
+
+    def update_script_metadata(
+        self,
+        script_id: int,
+        *,
+        language: str | None = None,
+        module_format: str | None = None,
+    ) -> None:
+        """Update language/format roles, tooltip, and extension display for a script row."""
+        target = self._find_item_by_id(self._tree.invisibleRootItem(), script_id, ITEM_TYPE_SCRIPT)
+        if target is None:
+            return
+        code = (
+            language.lower().strip()
+            if language
+            else (target.data(0, ROLE_LANGUAGE) or "javascript")
+        )
+        fmt = (
+            module_format
+            if module_format is not None
+            else (target.data(0, ROLE_MODULE_FORMAT) or "esm")
+        )
+        self._tree.blockSignals(True)
+        try:
+            target.setData(0, ROLE_LANGUAGE, code)
+            target.setData(0, ROLE_MODULE_FORMAT, fmt)
+            basename = script_basename_from_stored(target.text(1) or "")
+            target.setToolTip(0, script_tooltip(basename, code, fmt))
+        finally:
+            self._tree.blockSignals(False)
+        self._tree.viewport().update()
+
         # --- Incremental helpers ---
 
     def add_collection(self, new_collection: dict, parent_id: int | None) -> None:
@@ -458,7 +543,7 @@ class CollectionTree(_TreeActionsMixin, QWidget):
         self._tree.blockSignals(True)  # <<< NEW
         try:
             if parent_id is None:
-                root_item = QTreeWidgetItem(self._tree, [spec["name"]])
+                root_item = QTreeWidgetItem(self._tree, [spec["name"], spec["name"]])
                 root_item.setData(0, ROLE_ITEM_ID, spec["id"])
                 root_item.setData(0, ROLE_ITEM_TYPE, spec["type"])  # col 0 for delegate
                 root_item.setData(1, ROLE_ITEM_TYPE, spec["type"])  # col 1 legacy
@@ -472,7 +557,7 @@ class CollectionTree(_TreeActionsMixin, QWidget):
                     logger.warning("Parent folder id=%s not found in tree; skipping", parent_id)
                     return
                 self._remove_placeholder(parent_item)
-                child = QTreeWidgetItem(parent_item, [spec["name"]])
+                child = QTreeWidgetItem(parent_item, [spec["name"], spec["name"]])
                 child.setData(0, ROLE_ITEM_ID, spec["id"])
                 child.setData(0, ROLE_ITEM_TYPE, spec["type"])  # col 0 for delegate
                 child.setData(1, ROLE_ITEM_TYPE, spec["type"])  # col 1 legacy
@@ -483,6 +568,17 @@ class CollectionTree(_TreeActionsMixin, QWidget):
             self._tree.blockSignals(False)
         self._update_stack_visibility()
 
+    def add_script(self, new_script: dict, parent_id: int) -> None:
+        """Insert a new local script leaf under *parent_id*."""
+        spec = {
+            "name": new_script["name"],
+            "id": new_script["id"],
+            "type": ITEM_TYPE_SCRIPT,
+            "language": new_script.get("language") or "javascript",
+            "module_format": new_script.get("module_format") or "esm",
+        }
+        self._add_leaf_item(spec, parent_id)
+
     def add_request(self, new_request: dict, parent_id: int) -> None:
         """Insert a new request item under the given parent collection."""
         spec = {
@@ -492,20 +588,28 @@ class CollectionTree(_TreeActionsMixin, QWidget):
             "method": new_request["method"].upper(),
             "url": new_request["url"],
         }
-        self._tree.blockSignals(True)  # <<< NEW
+        self._add_leaf_item(spec, parent_id)
+
+    def _add_leaf_item(self, spec: dict[str, Any], parent_id: int) -> None:
+        """Insert a request- or script-shaped leaf under a folder."""
+        self._tree.blockSignals(True)
         try:
-            parent_item = self._find_item_by_id(self._tree.invisibleRootItem(), parent_id, "folder")
+            parent_item = self._find_item_by_id(
+                self._tree.invisibleRootItem(), parent_id, ITEM_TYPE_FOLDER
+            )
             if parent_item is None:
                 logger.warning("Parent folder id=%s not found in tree; skipping", parent_id)
                 return
 
-            # Remove placeholder if it exists
             self._remove_placeholder(parent_item)
 
-            child = QTreeWidgetItem(parent_item, ["", spec["name"]])
-            child.setData(0, ROLE_ITEM_ID, spec.get("id"))  # id
-            child.setData(0, ROLE_ITEM_TYPE, spec.get("type"))  # type (col 0 for delegate)
-            child.setData(1, ROLE_ITEM_TYPE, spec.get("type"))  # type (col 1 legacy)
+            leaf_name = spec["name"]
+            if spec.get("type") == ITEM_TYPE_SCRIPT:
+                leaf_name = script_basename_from_stored(leaf_name)
+            child = QTreeWidgetItem(parent_item, ["", leaf_name])
+            child.setData(0, ROLE_ITEM_ID, spec.get("id"))
+            child.setData(0, ROLE_ITEM_TYPE, spec.get("type"))
+            child.setData(1, ROLE_ITEM_TYPE, spec.get("type"))
             child.setChildIndicatorPolicy(QTreeWidgetItem.ChildIndicatorPolicy.DontShowIndicator)
 
             self._apply_item_properties(child, spec)
@@ -531,7 +635,7 @@ class CollectionTree(_TreeActionsMixin, QWidget):
     def show_loading(self) -> None:
         """Switch the stack to the loading page and start the dot animation."""
         self._loading_dot_count = 0
-        self._loading_label.setText("Loading collections")
+        self._loading_label.setText(self._loading_base_text)
         self._stack.setCurrentIndex(2)
         self._loading_timer.start()
 

@@ -194,3 +194,29 @@ User clicks Save (or Ctrl+S)
     5. Update breadcrumb bar
     6. Refresh collection tree to show new request
 ```
+
+## Script Execution Flow
+
+```text
+User clicks Send (with scripts)
+  --> _SendPipelineMixin._on_send()
+    1. Resolve variables (EnvironmentService)
+    2. ScriptService.build_script_chain(request_id)
+       <-- (pre_chain, test_chain)
+    3. HttpSendWorker.run() [QThread]
+       a. load_globals() from data/globals.json
+       b. ScriptEngine.run_pre_request_scripts(pre_chain, context)
+          <-- ScriptOutput (mutations, variable changes, global changes, console)
+       c. save_globals() if global_variable_changes present
+       d. apply_request_mutations() -- URL, method, headers, body
+       e. HttpService.send_request()
+          <-- HttpResponseDict
+       f. ScriptEngine.run_test_scripts(test_chain, context)
+          <-- ScriptOutput (test results, console, variable/global changes)
+       g. save_globals() if global_variable_changes present
+       h. Merge outputs into response dict
+    <-- finished signal(dict)
+  --> ResponseViewer.display_response() + load_test_results()
+  --> ConsolePanel.append_message() for each console log
+  --> Apply variable_changes to local_overrides
+```

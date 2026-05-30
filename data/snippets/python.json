@@ -1,0 +1,161 @@
+{
+  "_comment": "Snippets for the Python script editor. Use snake_case APIs matching pm_bootstrap.py. RestrictedPython: use json_loads/json_dumps, b64encode, uuid_v4, datetime_now (no raw import json). See data/snippets/README.md.",
+  "language": "python",
+  "categories": [
+    {
+      "_comment": "Send sub-requests via pm.send_request. Useful from both pre-request and tests.",
+      "name": "Send requests",
+      "contexts": ["pre", "post", "local"],
+      "snippets": [
+        {
+          "name": "Send an HTTP request",
+          "body": "try:\n    response = pm.send_request({\n        \"url\": \"https://postman-echo.com/get\",\n        \"method\": \"GET\",\n    })\n    body = response.get(\"body\", \"\") if isinstance(response, dict) else \"\"\n    print(json_loads(body) if body else response)\nexcept Exception as err:\n    print(err)"
+        }
+      ]
+    },
+    {
+      "_comment": "Variable getters/setters/unsetters (snake_case). Visible in every script editor.",
+      "name": "Variables",
+      "contexts": ["pre", "post", "local"],
+      "snippets": [
+        { "name": "Get a global variable", "body": "pm.globals.get(\"variable_key\")" },
+        { "name": "Get a collection variable", "body": "pm.collection_variables.get(\"variable_key\")" },
+        { "name": "Get an environment variable", "body": "pm.environment.get(\"variable_key\")" },
+        { "name": "Get a variable", "body": "pm.variables.get(\"variable_key\")" },
+        { "name": "Set a global variable", "body": "pm.globals.set(\"variable_key\", \"variable_value\")" },
+        { "name": "Set a collection variable", "body": "pm.collection_variables.set(\"variable_key\", \"variable_value\")" },
+        { "name": "Set an environment variable", "body": "pm.environment.set(\"variable_key\", \"variable_value\")" },
+        { "name": "Set a variable", "body": "pm.variables.set(\"variable_key\", \"variable_value\")" },
+        { "name": "Clear a global variable", "body": "pm.globals.unset(\"variable_key\")" },
+        { "name": "Clear a collection variable", "body": "pm.collection_variables.unset(\"variable_key\")" },
+        { "name": "Clear an environment variable", "body": "pm.environment.unset(\"variable_key\")" },
+        { "name": "Clear a local variable", "body": "pm.variables.unset(\"variable_key\")" }
+      ]
+    },
+    {
+      "_comment": "Post-response assertions — same chains as JS via _Expectation (RestrictedPython-safe). Hidden from the pre-request editor.",
+      "name": "Tests",
+      "contexts": ["post"],
+      "snippets": [
+        {
+          "name": "Status code is 200",
+          "body": "def _t():\n    pm.response.to.have.status(200)\npm.test(\"Status code is 200\", _t)"
+        },
+        {
+          "name": "Response body: contains a string",
+          "body": "def _t():\n    pm.expect(pm.response.text()).to.include(\"string_you_want_to_search\")\npm.test(\"Body matches string\", _t)"
+        },
+        {
+          "name": "Response body: JSON value check",
+          "body": "def _t():\n    json_data = pm.response.json()\n    pm.expect(json_data[\"value\"]).to.eql(100)\npm.test(\"Your test name\", _t)"
+        },
+        {
+          "name": "Response body: is equal to a string",
+          "body": "def _t():\n    pm.response.to.have.body(\"response_body_string\")\npm.test(\"Body is correct\", _t)"
+        },
+        {
+          "name": "Response body: Content-Type header check",
+          "body": "def _t():\n    pm.response.to.have.header(\"Content-Type\")\npm.test(\"Content-Type is present\", _t)"
+        },
+        {
+          "name": "Response time is less than 200ms",
+          "body": "def _t():\n    pm.expect(pm.response.responseTime).to.be.below(200)\npm.test(\"Response time is less than 200ms\", _t)"
+        },
+        {
+          "name": "Status code: successful POST request",
+          "body": "def _t():\n    pm.expect(pm.response.code).to.be.oneOf([201, 202])\npm.test(\"Successful POST request\", _t)"
+        },
+        {
+          "name": "Status code: code name has string",
+          "body": "def _t():\n    pm.response.to.have.status(\"Created\")\npm.test(\"Status code name has string\", _t)"
+        },
+        {
+          "name": "Validate list of booleans (no jsonschema in sandbox)",
+          "body": "def _t():\n    data = json_loads(\"[true, false]\")\n    pm.expect(isinstance(data, list)).to.be.true\n    pm.expect(all(isinstance(x, bool) for x in data)).to.be.true\npm.test(\"Boolean array shape\", _t)"
+        },
+        {
+          "name": "Save response value to env",
+          "body": "data = pm.response.json()\npm.environment.set(\"saved_id\", str(data[\"id\"]))"
+        },
+        {
+          "name": "Header equals specific value",
+          "body": "def _t():\n    pm.response.to.have.header(\"Content-Type\", \"application/json\")\npm.test(\"Content-Type is JSON\", _t)"
+        },
+        {
+          "name": "JSON body deep path check",
+          "body": "def _t():\n    pm.expect(pm.response.json()).to.have.property(\"user\")\n    pm.expect(pm.response.json()[\"user\"][\"name\"]).to.eql(\"alice\")\npm.test(\"User name in body\", _t)"
+        },
+        {
+          "name": "Response within 2xx range",
+          "body": "def _t():\n    pm.expect(pm.response.code).to.be.below(300)\n    pm.expect(pm.response.code).to.be.least(200)\npm.test(\"Response is 2xx\", _t)"
+        },
+        {
+          "name": "Array length check",
+          "body": "def _t():\n    arr = pm.response.json()[\"items\"]\n    pm.expect(arr).to.have.length_of(3)\npm.test(\"Returns three items\", _t)"
+        },
+        {
+          "name": "Pretty-print JSON to console",
+          "body": "print(json_dumps(pm.response.json(), indent=2))"
+        }
+      ]
+    },
+    {
+      "_comment": "Pre-request setup (Python). Use json_loads/json_dumps, b64encode, uuid_v4, datetime_now. Hidden from the post-response editor.",
+      "name": "Request setup",
+      "contexts": ["pre", "local"],
+      "snippets": [
+        {
+          "name": "Set bearer token from env",
+          "body": "token = pm.environment.get(\"token\")\npm.request.headers[\"Authorization\"] = f\"Bearer {token}\""
+        },
+        {
+          "name": "Set basic auth header",
+          "body": "user = pm.environment.get(\"user\")\npw = pm.environment.get(\"pass\")\ncreds = b64encode(f\"{user}:{pw}\".encode()).decode()\npm.request.headers[\"Authorization\"] = f\"Basic {creds}\""
+        },
+        {
+          "name": "Add ISO timestamp header",
+          "body": "pm.request.headers[\"X-Timestamp\"] = datetime_now()"
+        },
+        {
+          "name": "Generate UUID v4",
+          "body": "pm.variables.set(\"request_id\", uuid_v4())"
+        },
+        {
+          "name": "Login flow: fetch token, save to env",
+          "body": "response = pm.send_request({\n    \"url\": pm.environment.get(\"login_url\"),\n    \"method\": \"POST\",\n    \"headers\": {\"Content-Type\": \"application/json\"},\n    \"body\": json_dumps({\"user\": \"u\", \"pass\": \"p\"}),\n})\nbody = response.get(\"body\", \"\") if isinstance(response, dict) else \"\"\ntoken = \"\"\nif body:\n    token = str(json_loads(body).get(\"token\", \"\"))\npm.environment.set(\"token\", token)"
+        },
+        {
+          "name": "Set request body from variable",
+          "body": "pm.variables.set(\"payload\", json_dumps({\"name\": \"alice\", \"age\": 30}))"
+        }
+      ]
+    },
+    {
+      "_comment": "pm.require for PyPI packages. Pyodide runtime only; configure private mirrors at Settings → Private packages → PyPI. See docs/scripting/external-packages.md.",
+      "name": "Import PyPI packages",
+      "contexts": ["pre", "post", "local"],
+      "snippets": [
+        {
+          "name": "Import from public PyPI",
+          "body": "# Pyodide installs the package via micropip on first call.\n# Pin exact versions for reproducibility.\njmespath = pm.require(\"jmespath==1.0.1\")\n\nbody = pm.response.json()\nmatched = jmespath.search(\"items[?status=='active'].id\", body)\nprint(matched)"
+        },
+        {
+          "name": "Import from a private PyPI mirror",
+          "body": "# 1. Settings → Private packages → PyPI → Add PyPI index\n#      Primary index URL: https://pypi.mycorp.io/simple/\n#      Auth: Token (your CI token)\n# 2. Apply.\n# 3. pm.require resolves through the configured mirror, with auth\n#    URL-embedded for micropip.\ninternal_sdk = pm.require(\"internal-sdk==1.2.0\")\nclient = internal_sdk.Client(base_url=pm.environment.get(\"api\"))\nprint(client.ping())"
+        },
+        {
+          "name": "Import several pinned packages",
+          "body": "# Each pm.require call triggers a separate micropip.install at run\n# time. Pin versions to keep test results reproducible.\nrequests = pm.require(\"requests==2.31.0\")\njwt = pm.require(\"PyJWT==2.8.0\")\nyaml = pm.require(\"pyyaml==6.0.1\")\n\ntoken = jwt.encode({\"sub\": \"alice\"}, \"secret\", algorithm=\"HS256\")\nprint(token)"
+        },
+        {
+          "name": "Decode a JWT response with PyJWT",
+          "body": "PyJWT = pm.require(\"PyJWT==2.8.0\")\ntoken = pm.response.json().get(\"access_token\", \"\")\ntry:\n    claims = PyJWT.decode(\n        token,\n        options={\"verify_signature\": False},\n    )\n    pm.environment.set(\"user_id\", str(claims.get(\"sub\", \"\")))\nexcept Exception as err:\n    print(\"JWT decode failed:\", err)"
+        },
+        {
+          "name": "Validate response with pydantic",
+          "body": "pydantic = pm.require(\"pydantic==2.7.0\")\n\nclass User(pydantic.BaseModel):\n    id: int\n    email: str\n\ndef check_user():\n    body = pm.response.json()\n    user = User.model_validate(body)\n    pm.expect(user.email).to.include(\"@\")\n\npm.test(\"Response matches User shape\", check_user)"
+        }
+      ]
+    }
+  ]
+}

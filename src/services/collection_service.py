@@ -37,6 +37,8 @@ from database.models.collections.collection_repository import (
     rename_request,
     rename_saved_response,
     save_response,
+    merge_collection_events_debug,
+    merge_request_scripts_debug,
     update_collection,
     update_collection_parent,
     update_request,
@@ -360,6 +362,16 @@ class CollectionService:
         """
         update_request(request_id, **fields)
         logger.info("Updated request id=%s fields=%s", request_id, list(fields))
+
+    @staticmethod
+    def merge_request_scripts_debug(request_id: int, debug: dict[str, Any]) -> None:
+        r"""Merge ``scripts["debug"]`` without changing script text fields."""
+        merge_request_scripts_debug(request_id, debug)
+
+    @staticmethod
+    def merge_collection_events_debug(collection_id: int, debug: dict[str, Any]) -> None:
+        r"""Merge ``events["debug"]`` without changing folder script text."""
+        merge_collection_events_debug(collection_id, debug)
 
     # ------------------------------------------------------------------
     # Auth inheritance

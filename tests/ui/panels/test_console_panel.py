@@ -53,3 +53,33 @@ class TestConsolePanel:
         assert handler in logging.getLogger().handlers
         panel.cleanup()
         assert handler not in logging.getLogger().handlers
+
+    def test_append_message(self, qapp: QApplication, qtbot) -> None:
+        """append_message adds plain text to the console."""
+        panel = ConsolePanel()
+        qtbot.addWidget(panel)
+        panel.append_message("hello world")
+        qapp.processEvents()
+        assert "hello world" in panel._output.toPlainText()
+        panel.cleanup()
+
+    def test_append_error_shows_message(self, qapp: QApplication, qtbot) -> None:
+        """append_error adds an error message visible in plain text."""
+        panel = ConsolePanel()
+        qtbot.addWidget(panel)
+        panel.append_error("something broke")
+        qapp.processEvents()
+        assert "something broke" in panel._output.toPlainText()
+        panel.cleanup()
+
+    def test_append_error_uses_color(self, qapp: QApplication, qtbot) -> None:
+        """append_error wraps the message in a colored HTML span."""
+        from ui.styling.theme import COLOR_DANGER
+
+        panel = ConsolePanel()
+        qtbot.addWidget(panel)
+        panel.append_error("bad thing")
+        qapp.processEvents()
+        html_content = panel._output.toHtml()
+        assert COLOR_DANGER.lstrip("#").lower() in html_content.lower()
+        panel.cleanup()

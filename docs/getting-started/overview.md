@@ -33,9 +33,22 @@ external service required.
   JavaScript, Go, Rust, Java, etc.).
 - **Import** — import from Postman collections/environments, cURL commands,
   and raw URLs.
-- **Collection runner** — execute all requests in a collection sequentially.
+- **Pre-request and test scripts** — write JavaScript or Python scripts
+  that run before and after each HTTP request.  Test response status,
+  body, and headers with Chai-style BDD assertions (`pm.expect`).
+- **Script inheritance** — attach scripts to collections or folders;
+  they run automatically for every child request.
+- **Step-through debugger** — pause, step over, and inspect variables
+  in scripts line by line via the Debug sidebar panel.
+- **Vendor libraries** — JavaScript scripts can `require()` lodash,
+  moment, CryptoJS, Chai, tv4, Ajv, xml2js, and csv-parse.
+- **IntelliSense** — autocomplete for the `pm.*` API, `console.*`,
+  and `require()` module names in the script editor.
+- **Collection runner** — execute all requests in a folder tab (**Runs →
+  New run**) with per-request test results, script flow control
+  (`setNextRequest`, `skipRequest`), and data-driven iterations.
 - **Console and history panels** — log panel for HTTP traffic, history of
-  sent requests.
+  sent requests.  Script `console.log()` / `print()` output appears here.
 - **Theming** — dark and light themes with Fusion and native Qt styles.
 - **Code editor** — syntax highlighting, code folding, line numbers,
   bracket matching, search and replace.
@@ -69,3 +82,13 @@ src/
 
 See [Directory Structure](../architecture/directory-structure.md) for the
 full annotated tree.
+
+## Hi-DPI displays
+
+On fractional system scale factors (for example 125 % or 150 %), Postmark
+calls `configure_before_qapplication()` in `src/qt_app_init.py` before
+constructing `QApplication`, so Qt rounds scale factors for sharper layout and
+text. That usually fixes uniformly soft-looking UI on fractional Hi-DPI
+setups. If text is still poor on your machine, check your OS fractional-scaling
+options and the Qt Hi-DPI documentation for environment variables (for example
+`QT_SCALE_FACTOR_ROUNDING_POLICY`).

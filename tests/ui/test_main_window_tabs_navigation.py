@@ -1,8 +1,6 @@
-"""MainWindow tests for wrapped-tab navigation shortcuts and search."""
+"""MainWindow tests for wrapped-tab navigation shortcuts."""
 
 from __future__ import annotations
-
-from unittest.mock import patch
 
 from PySide6.QtWidgets import QApplication
 
@@ -34,23 +32,3 @@ class TestMainWindowTabNavigation:
 
         window._previous_tab_action.trigger()
         assert window._tab_bar.currentIndex() == 0
-
-    def test_search_tabs_action_selects_matching_tab(self, qapp: QApplication, qtbot) -> None:
-        """The tab search action activates the chosen open tab."""
-        svc = CollectionService()
-        coll = svc.create_collection("Coll")
-        req1 = svc.create_request(coll.id, "GET", "http://one.com", "One")
-        req2 = svc.create_request(coll.id, "POST", "http://two.com", "Two")
-
-        window = MainWindow()
-        qtbot.addWidget(window)
-
-        window._open_request(req1.id, push_history=True)
-        window._open_request(req2.id, push_history=True)
-        window._tab_bar.setCurrentIndex(0)
-
-        with patch("ui.main_window.window.QInputDialog.getItem", return_value=("POST Two", True)):
-            window._search_tabs_action.trigger()
-
-        assert window._tab_bar.currentIndex() == 1
-        assert window.request_widget._url_input.text() == "http://two.com"

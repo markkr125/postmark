@@ -16,6 +16,9 @@ Source: `ui/collections/tree/collection_tree.py`
 | `collection_rename_requested` | `int, str` | Collection ID, new name |
 | `collection_delete_requested` | `int` | Collection ID |
 | `request_rename_requested` | `int, str` | Request ID, new name |
+| `script_rename_requested` | `int, str, str, str` | Local script ID, basename, language, module_format (`esm` \| `commonjs`) |
+| `new_script_clicked` (popup) | `str, str` | Language code, module_format |
+| `new_script_requested` (header) | `object, str, str` | Parent folder ID or `None`, language, module_format |
 | `request_delete_requested` | `int` | Request ID |
 | `request_moved` | `int, int` | Request ID, new collection ID |
 | `collection_moved` | `int, object` | Collection ID, new parent ID (int or None) |
@@ -124,7 +127,7 @@ Source: `ui/request/response_viewer/viewer_widget.py`
 
 ### FolderEditorWidget
 
-Source: `ui/request/folder_editor.py`
+Source: `ui/request/folder_editor/editor_widget.py`
 
 | Signal | Parameters | Description |
 |--------|------------|-------------|
@@ -182,13 +185,32 @@ Source: `ui/environments/environment_selector.py`
 | `environment_changed` | `object` | Selection changed (int or None) |
 | `manage_requested` | *(none)* | "Manage Environments" selected |
 
-### EnvironmentEditorDialog
+### EnvironmentSidebarPanel
+
+Source: `ui/environments/environment_sidebar_panel.py`
+
+| Signal | Parameters | Description |
+|--------|------------|-------------|
+| `environment_changed` | `object` | Global active environment changed (`int` or `None`) |
+| `manage_requested` | *(none)* | **Manage** clicked — opens or focuses the **Environments** tab in the main tab deck |
+
+### EnvironmentEditorWidget
 
 Source: `ui/environments/environment_editor.py`
 
 | Signal | Parameters | Description |
 |--------|------------|-------------|
 | `environments_changed` | *(none)* | Environment created, renamed, deleted, or modified |
+
+### EnvironmentEditorDialog
+
+Source: `ui/environments/environment_editor.py`
+
+Modal wrapper around `EnvironmentEditorWidget` (tests and legacy callers).
+
+| Signal | Parameters | Description |
+|--------|------------|-------------|
+| `environments_changed` | *(none)* | Forwarded from the embedded widget |
 
 ## Saved Responses Panel
 
@@ -227,9 +249,17 @@ Source: `ui/dialogs/import_dialog.py`
 | `error` | `str` | Import failed |
 | `files_dropped` (`_DropZone`) | `list` | Files drag-dropped onto zone |
 
-### CollectionRunnerDialog (_RunnerWorker)
+### `_RunnerPanel` (folder inline runner)
 
-Source: `ui/dialogs/collection_runner.py`
+Source: `ui/request/folder_editor/runner_panel.py`
+
+| Signal | Parameters | Description |
+|--------|------------|-------------|
+| `run_finished` | *(none)* | Run completed, cancelled, or errored (host refreshes history) |
+
+### `RunnerWorker` (collection batch)
+
+Source: `ui/dialogs/collection_runner/worker.py`
 
 | Signal | Parameters | Description |
 |--------|------------|-------------|
@@ -245,6 +275,7 @@ Source: `ui/widgets/code_editor/editor_widget.py`
 
 | Signal | Parameters | Description |
 |--------|------------|-------------|
+| `cursor_position_changed` | `int, int` | 1-based line and column of the cursor |
 | `validation_changed` | `list` | Validation errors changed |
 
 ### KeyValueTableWidget
@@ -253,7 +284,9 @@ Source: `ui/widgets/key_value_table.py`
 
 | Signal | Parameters | Description |
 |--------|------------|-------------|
-| `data_changed` | *(none)* | Any key, value, or checkbox changed |
+| `data_changed` | *(none)* | Grid cell/checkbox changed, or bulk text applied back to the grid |
+
+Bulk serialize/parse: `ui/widgets/key_value_bulk.py`
 
 ### ClickableLabel (in InfoPopup)
 

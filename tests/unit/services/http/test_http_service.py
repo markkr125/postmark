@@ -170,6 +170,9 @@ class TestHttpServiceSendRequest:
         assert "elapsed_ms" in result
         assert "error" not in result
         assert result.get("headers") == [{"key": "content-type", "value": "application/json"}]
+        assert result.get("request_method") == "GET"
+        assert result.get("request_url") == "http://example.com"
+        assert result.get("request_headers") == []
 
     @patch(
         "services.http.http_service.HttpService._resolve_dns", return_value=(0.5, "93.184.216.34")
@@ -255,6 +258,11 @@ class TestHttpServiceSendRequest:
         call_kwargs = client.request.call_args
         assert call_kwargs.kwargs["content"] == b'{"name": "test"}'
         assert call_kwargs.kwargs["headers"] == {"Content-Type": "application/json"}
+        assert result.get("request_method") == "POST"
+        assert result.get("request_url") == "http://example.com/api"
+        assert result.get("request_headers") == [
+            {"key": "Content-Type", "value": "application/json"},
+        ]
 
     @patch("services.http.http_service.HttpService._resolve_dns", return_value=(0.0, ""))
     @patch("services.http.http_service.httpx.Client")
@@ -266,11 +274,18 @@ class TestHttpServiceSendRequest:
         client.request.side_effect = httpx.ConnectError("Connection refused")
         mock_client_cls.return_value = client
 
-        result = HttpService.send_request(method="GET", url="http://localhost:9999")
+        result = HttpService.send_request(
+            method="GET",
+            url="http://localhost:9999",
+            headers="X-Test: 1",
+        )
 
         assert "error" in result
         assert "Connection refused" in result["error"]
         assert "elapsed_ms" in result
+        assert result.get("request_method") == "GET"
+        assert result.get("request_url") == "http://localhost:9999"
+        assert result.get("request_headers") == [{"key": "X-Test", "value": "1"}]
 
     @patch("services.http.http_service.HttpService._resolve_dns", return_value=(0.0, ""))
     @patch("services.http.http_service.httpx.Client")

@@ -1,0 +1,657 @@
+# Architecture and data flow
+
+This file documents how data moves between layers, how signals are wired,
+and what implicit contracts exist.
+
+## Quick rules — read these first
+
+1. **UI must never import from `database/`.**  Go through the service layer.
+2. **Call `init_db()` before creating `MainWindow`** — the constructor
+   immediately starts a background DB query.
+3. **Call `configure_before_qapplication()` before the first `QApplication()`**
+   — see `qt_app_init.py` (used from `main.py` and `tests/conftest.py`) for
+   Hi-DPI scale-factor rounding on fractional displays.
+4. **Create `ThemeManager(app)` before creating `MainWindow`** — it applies
+   the global stylesheet, QPalette, and widget style on construction.
+   Import from `ui.styling.theme_manager`.
+5. **Every repository function is its own transaction.** You cannot batch
+   multiple calls into one commit.
+6. **Always wrap programmatic tree-item edits in `blockSignals(True/False)`**
+   — see [ui/AGENTS.md](ui/AGENTS.md).
+7. **The data interchange format is a nested `dict[str, Any]`**, not ORM
+   objects.  See the schema below.
+8. **`_safe_svc_call` swallows all exceptions.**  Errors are logged but never
+   shown to the user.
+9. **`CollectionService` methods are all `@staticmethod`.**  Do not add
+   instance state.
+10. **Never call `setStyleSheet()` for static widget styling** — use
+   `setObjectName()` and global QSS.  See [ui/AGENTS.md](ui/AGENTS.md).
+11. **Never use `# type: ignore` to assign `None` to a non-optional
+    attribute.**  This silences mypy but Pylance still widens the inferred
+    type to `X | None`, propagating false errors everywhere the attribute
+    is read.  If a field truly needs to become `None`, declare it as
+    `X | None` from the start and add proper guards at usage sites.
+    If you only need to drop the reference for GC, `del` the owning
+    object instead.
+
+## Layering recap
+
+```
+UI widgets  ──signals──►  CollectionWidget  ──calls──►  CollectionService
+                                                             │
+                                                      (static methods)
+                                                             │
+                                                      Repository functions
+                                                             │
+                                                     get_session() context mgr
+                                                             │
+                                                         SQLite file
+
+ThemeManager  ──QPalette + global QSS──►  QApplication
+              ──theme_changed signal──►   widgets (refresh dynamic styles)
+              ──QSettings──►              persistent user preferences
+
+TabSettingsManager  ──QSettings──►        persistent request-tab preferences
+                    ──settings_changed──► MainWindow / RequestTabBar
+
+RequestEditorWidget  ──send_requested──►  MainWindow
+  MainWindow → HttpSendWorker (QThread) → HttpService.send_request()
+    → HttpSendWorker.finished(HttpResponseDict) → ResponseViewerWidget.load_response()
+
+RequestEditorWidget / FolderEditorWidget  ──open_scripting_settings_requested──►  MainWindow
+  → ``SettingsDialog`` (``initial_category="Scripting"``)
+
+RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread)
+  → GraphQLSchemaService.fetch_schema() → SchemaFetchWorker.finished()
+```
+
+- **DO NOT** import from `database/` in any UI file.  The service layer is
+  the only bridge between UI and repository.
+- `ThemeManager` (`ui.styling.theme_manager`) is created once in `main.py`
+  and passed to `MainWindow`.  It owns the app-wide stylesheet, QPalette,
+  and QSettings persistence for theme preferences.  See
+  [ui/AGENTS.md](ui/AGENTS.md) for widget styling rules.
+- `TabSettingsManager` (`ui.styling.tab_settings_manager`) is created once
+  in `main.py` and passed to `MainWindow`.  It persists request-tab
+  behaviour (preview enablement, compact labels, duplicate-name path
+  disambiguation, wrap mode, tab limit, and close-activation policy)
+  via QSettings.  It also stores the open-tab session (tab list + active
+  index) for restore-on-launch via `save_open_tabs()` /
+  `load_open_tabs()` / `clear_open_tabs()`.  Session data is a JSON
+  string under QSettings key `tabs/session`.
+- `CollectionService` is instantiated as `self._svc = CollectionService()` in
+  `CollectionWidget.__init__`, but **every method is `@staticmethod`**.
+  Do not add instance state without updating every call site.
+- `EnvironmentService`, `HttpService`, `GraphQLSchemaService`, and
+  `SnippetGenerator` follow the same `@staticmethod` pattern.
+- `RunHistoryService` follows the same `@staticmethod` pattern.  It wraps
+  `run_history_repository` for run history CRUD (create, finish, add result,
+  query runs/results, delete).
+- `ScriptService` and `ScriptEngine` also follow the `@staticmethod`
+  pattern.  `ScriptService.build_script_chain(request_id)` walks the
+  ancestor chain to collect inherited scripts.  `ScriptEngine` dispatches
+  to `DenoRuntime` for **JavaScript** and **TypeScript** (``deno run`` +
+  `data/scripts/deno_drain.mjs` for ``pm.sendRequest`` IPC; TypeScript uses a
+  ``bundle.ts`` temp file so Deno strips types) or `PyRuntime` (Pyodide under Deno when
+  :file:`data/scripts/vendor_pyodide/` is present, otherwise RestrictedPython
+  subprocess via :file:`_py_sandbox.py`).
+  :class:`JSRuntime` delegates execution to :class:`DenoRuntime` and provides
+  bootstrap and vendor file loaders.  JavaScript parse for the linter and
+  gutter uses Esprima via :mod:`esprima_deno` (Deno subprocess;
+  :file:`data/scripts/esprima_parse.mjs`); **TypeScript** skips Esprima lint until a TS parser exists.
+  `RuntimeSettings` (``scripting/deno_path``, ``scripting/python_path``,
+  ``scripting/lsp_enabled`` in QSettings) resolves/validates executables and
+  toggles IDE-style language servers for script editors. LSP/editor debounce
+  intervals (ms, QSettings keys under ``scripting/lsp_*_debounce_ms``):
+  ``lsp_did_change_debounce_ms`` (default 250),
+  ``lsp_pm_require_debounce_ms`` (350),
+  ``lsp_diag_clear_debounce_ms`` (250),
+  ``lsp_dep_diag_debounce_ms`` (300); read by
+  ``EditorLspAdapter`` timers in ``lsp_integration.py``. Debounced
+  ``pm_require_index.ts`` generation and ``deno cache`` for literal
+  ``pm.require('npm:…'|'jsr:…')`` specifiers in JS/TS script editors.
+  :mod:`services.lsp.js_lsp_preamble` prepends triple-slash references to
+  ``stubs/pm.d.ts`` and ``pm_require_index.ts`` on virtual buffers sent to Deno LSP
+  (without this, ``pm`` and npm return types are invisible to completions). Private package
+  registries (`scripting/registries/entries` JSON list, `scripting/pypi/*`)
+  are read by :func:`services.scripting.deno_runtime._build_npmrc_text` and
+  :func:`services.scripting.pyodide_runtime._resolve_pypi_index_urls` — see
+  [docs/scripting/external-packages.md](../docs/scripting/external-packages.md).
+  Tokens live in :mod:`services.scripting.secret_store` (OS keychain
+  preferred, encrypted-file fallback) and never appear in `QSettings`.
+  ``CodeEditorWidget.notify_lsp_diagnostics`` / ``lsp_diagnostics_changed`` expose
+  ``textDocument/publishDiagnostics`` to the script **Problems** tab (see
+  ``ui/widgets/code_editor/lsp_integration.py`` ``EditorLspAdapter``).
+  Local script editors (JS/TS) also offer deterministic **ESM relative import path**
+  auto-suggest inside ``import`` / ``export … from`` string literals
+  (``completion/path_completions``; requires ``CompletionEngine._local_script_id``).
+  During an active debug session, ``editor_lsp_glue.set_debug_session_active``
+  suspends LSP ``didChange``, fold/validate timers, format-on-idle, test-gutter
+  rescans, and LSP completion/hover (schema completion still works).
+  ``LspRegistry.warm_async(bucket)`` spawns Deno/jedi on a worker thread
+  (``services.lsp.servers.spawn``); ``warm(bucket=None)`` schedules both buckets.
+  First script attach calls ``warm_async`` for that bucket only. Editors may set
+  ``set_lsp_attach_deferred(True)`` until visible (request pre/test sub-tabs).
+  **Local script tabs (JS/TS):** ``ScriptEditorPane.load_content`` starts
+  ``LocalScriptLspPrepWorker`` (``prepare_local_script_lsp_attach`` on a
+  background thread: mirror, one ``build_module_index``, import closure,
+  ``pm_require_index.ts``) and calls ``finalize_local_script_lsp_attach`` on the
+  GUI thread when prep and the Deno bucket are both ready. ``EditorLspAdapter.attach(prep=…)``
+  skips redundant sync when prep succeeded. ``CodeEditorWidget._lsp_attach_token``
+  invalidates stale worker callbacks on tab close/switch. Set
+  ``ASYNC_LOCAL_LSP_PREP = False`` in ``local_script_lsp_prep`` to restore
+  synchronous attach. Request/folder script editors are unchanged.
+  Script output strip tab (Output / Debugger / …) is persisted per script type
+  under ``scripting/output_sub_tab/{pre_request|test}`` via
+  ``script_output_tab_prefs``; ``hide_debug_controls`` no longer forces Output;
+  Inline debug completion never auto-switches to Output (``focus_output=False``);
+  use **Run** or open the Output tab to view console/tests. Tab choice is persisted.
+  ``end_debug_ui`` / ``resume_all_debug_suspended_editors`` must run on every
+  session exit (tracked via a WeakSet) so LSP is not left suspended after crash
+  or tab close.
+  Direct ``pm.require('local:…')`` dependencies are linted via
+  ``local_dependency_diagnostics.collect_direct_local_dependency_diagnostics``
+  (Problems rows prefixed ``[local:path]``; gutter squiggles on the require line).
+  ``services.lsp.client.Diagnostic`` optional ``related_local_*`` fields drive
+  Problems-tab navigation to the local script editor.
+  ``pm_require_types.prune_orphan_specs`` / ``reset_workspace`` drop stale
+  ``pm_require_index.ts`` workspace keys; ``DebugWatchesPane.set_idle`` prunes
+  against ``EditorLspAdapter.live_js_buffer_keys()`` (settings dialog **Reset
+  LSP workspace caches** calls ``reset_workspace``).
+  Diagnostic severities ``error`` / ``warning`` / ``info`` / ``hint`` map through to
+  ``SyntaxError_`` and drive distinct wave underlines plus line-number gutter tint
+  (``gutter.normalize_validation_severity``, ``line_worst_validation_severity``).
+  TypedDicts (`ScriptInput`, `ScriptOutput`, `TestResult`,
+  `ConsoleLog` (optional ``source_line`` for inline editor annotations),
+  `ScriptEntry`) live in `services/scripting/__init__.py`.
+  ``CodeEditorWidget.set_inline_log_annotations`` / ``clear_inline_log_annotations``
+  paint faint trailing console output after script runs
+  (wired from ``ScriptOutputPanel`` / ``ScriptEditorPane``).
+  `find_pm_tests(source, language)` in `engine.py` locates `pm.test("name", …)`
+  call sites (Python AST or JavaScript/TypeScript esprima when parseable, with regex fallback) for the
+  per-test script gutter.  `find_top_level_statement_lines(source, language)`
+  returns 0-based top-level statement lines (where the step-debugger can pause);
+  the post-response editor uses it to render unreachable breakpoints with a
+  muted style.  `ScriptLinter._esprima_parse_result()` shares the
+  same esprima JSON round-trip as the linter.
+  `ScriptLinter.check_es_module()` (see `es_module_rules.py`) flags
+  CommonJS ``module.exports`` / non-vendor ``require()`` in script editors
+  and merges into LSP gutter + Problems tab; Deno LSP CommonJS→ESM hints
+  (TS 80001) are **not** filtered. Deno stderr is stripped via
+  ``format_process_stderr()`` before UI display.
+  `DenoManager` manages a **downloaded** Deno under
+  `~/.local/share/postmark/runtimes/deno-<version>/` (`managed_deno_path()`);
+  full resolution also uses `PATH` and `RuntimeSettings` (see
+  `runtime_settings.py`).
+  `pm.sendRequest()` uses a host-side HTTP bridge (`execute_sub_request`
+  in `context.py`) with a trampoline loop (JS) or IPC protocol (Python).
+  The JS-side rate limit is 10 calls; the host enforces a hard cap of 50
+  total sub-requests per execution (`_MAX_TOTAL_SUBREQUESTS`).  Responses
+  larger than 10 MB are rejected (`_MAX_RESPONSE_BYTES`).
+  `pm.globals` are persisted to `data/globals.json` via `load_globals()`
+  / `save_globals()` in `context.py`.
+  Vendor libraries (CryptoJS, lodash, moment, chai, tv4, ajv, xml2js,
+  csv-parse) live in `data/scripts/vendor/` and are **lazily loaded** —
+  only when the script contains a matching `require()` call or uses a
+  known global (e.g. `CryptoJS`).  Detection is in `_detect_required_modules()`
+  with `_REQUIRE_MAP` and `_GLOBAL_IMPLIES`.  `require('uuid')` is built
+  into the bootstrap.  The `postman` legacy API object delegates to
+  `pm.environment`/`pm.globals`.
+  Postman-style response assertions: `pm.response.to` (JS getter on the
+  response object; Python ``@property`` on ``_PmResponse``) returns a fresh
+  ``__Expectation`` / :class:`_Expectation` for ``.have.status`` / ``.header`` /
+  ``.jsonBody`` (Python also ``json_body``) on the mock/live response.
+- **Debug sub-package** (`services/scripting/debug/`):
+  `DebugProtocol` (:class:`QObject`) is a thread-safe state machine that coordinates
+  pause/resume between the worker thread and the UI.   Watch re-evaluation uses :class:`_EvalWorker` (``threading.Thread``, not
+  ``QThread`` — evaluate callbacks are registered from the debug worker thread
+  while :class:`DebugProtocol` stays on the GUI thread): UI calls
+  :meth:`submit_evaluate` / :meth:`cached_evaluate`; results arrive on
+  :attr:`evaluated` (``expr``, ``value``) via a queued main-thread invoke.
+  :meth:`set_evaluate_callback` starts the worker;
+  :meth:`set_evaluate_callback_sync` registers a callback without a worker
+  (unit tests). :meth:`set_evaluate_batch_callback` batches multiple expressions
+  per drain (Python sandbox ``evalMany`` IPC; Deno pipelined CDP in
+  ``evaluate_many``). :meth:`clear_eval_cache` on pause/frame change and
+  ``DebugWatchesPane.set_idle``. Display placeholder: ``WATCH_VALUE_PLACEHOLDER``
+  (em dash) in ``protocol.py``.
+  `js_debug.debug_execute` delegates to `deno_debug.debug_execute`, which
+  runs Deno with ``--inspect-brk``, drives the V8 debugger over CDP
+  (WebSocket), sets breakpoints, and steps with
+  `Runtime.evaluate` / `protocol.checkpoint()`.  `inject_checkpoints` and
+  `js_debug` group splitting prepare statement boundaries for the inspector.
+  `py_debug.debug_execute` launches a subprocess with `sys.settrace` and
+  uses IPC for pause/resume.
+  `engine.run_debug_chain` mirrors `_run_chain` but routes through debug
+  dispatch.  TypedDicts: `CallFrame`, `DebugPauseInfo` (includes `call_stack`,
+  `selected_frame_index`), enums: `DebugState`, `StepMode`.
+  Runtime adapters registered by `deno_debug` / `py_debug` while paused:
+  :meth:`submit_evaluate` / batch callback for watches;
+  :meth:`evaluate` remains for sync callers and tests;
+  :meth:`select_frame(index)` refreshes locals via the frame-locals callback.
+  Breakpoints are ``dict[int, str | None]`` (line → optional condition).
+  JS conditions pass to CDP ``Debugger.setBreakpointByUrl``; Python sandbox
+  evaluates conditions fail-open in ``sys.settrace``.
+  On pause, Python `debugPause` includes a `pm.response` string in
+  `locals` (built from the sandbox `pm` object).  JS variable reads merge
+  `pm.response` fields into the `pm` map for the debug variables panel
+  (`js_debug._READ_JS_DEBUG_VARS` — nested ``pm`` hover snapshot:
+  ``info``, ``request``, ``response`` (or ``null``), ``variables``,
+  ``environment``, ``collectionVariables``, ``globals``, ``iterationData``,
+  ``cookies``, ``execution``).  Deno/CDP pauses extend
+  `checkpoint(..., local_vars=...)` with optional ``locals`` (flat name→value
+  map, innermost lexical binding wins) and ``scopes`` (ordered list of
+  ``{type, name, vars}`` from ``callFrames[0].scopeChain``) for the debug
+  panel and editor hover.  ``send_pipeline._merge_debug_hover_values`` flattens
+  ``globals``/``pm`` into one map for word hover; ``send_pipeline._debug_hover_root_objects``
+  passes whole ``pm`` and ``console`` dicts via ``CodeEditorWidget.set_debug_locals(..., root_values=...)``
+  so the identifier ``pm`` still resolves after flattening, and dict/list values
+  use ``debug_hover_popup.DebugValuePopup`` (expandable tree; stays until a
+  mouse press outside the popup on the editor or main window or Escape in the editor;
+  the editor does not dismiss it when ``_var_at_cursor`` flickers off the token).
+  :func:`deno_runtime.build_debug_bundle_text`
+  wraps the user script in ``async function __pm_debugUserScript() { … }``
+  so ``const``/``let`` bind under a ``local`` CDP scope instead of sharing
+  the bundle ``module`` record with polyfills.  The wrapper **must** be
+  ``async`` because user scripts may use top-level ``await pm.sendRequest(…)``
+  (Postman API parity); a sync wrapper would make ``await`` a parse error and
+  no breakpoints could fire.  The call site is ``await __pm_debugUserScript();``
+  so the trailing drain code (which queues ``__done__``) runs **after** the
+  user script's awaits resolve — without the outer ``await``, ``pm.test``
+  results queued post-await would race the drain and be lost.  Adding any
+  new debug-bundle wrapper for a future language must follow the same
+  rule: if user code can ``await`` (or ``async`` block, etc.), the wrapper
+  must allow it AND the drain hook must wait for it.  See the comment
+  above ``_DEBUG_USER_SCRIPT_HEAD`` in
+  :file:`src/services/scripting/deno_runtime.py`.  While paused in
+  ``__pm_debugUserScript`` or ``__denoIpcDrain``, the ``module`` scope is
+  skipped entirely; otherwise ``module`` property names starting with ``__``
+  are dropped.  Collected scope types include ``module``, ``local``, ``block``,
+  etc.  ``pm_bootstrap.js`` assigns ``globalThis.__pm_state`` and ``globalThis.pm``,
+  including ``pm.require`` for ``npm:`` / ``jsr:`` specifiers pre-bundled as static
+  imports in ``deno_runtime._build_bundle_text``, so ``Debugger.evaluateOnCallFrame`` (paused inside the user wrapper) can read
+  ``variable_changes`` for the debug panel.  The debug bundle mirrors
+  ``__pm_baseline_json`` onto ``globalThis`` so the same evaluation can parse the
+  globals baseline without a ``ReferenceError`` on module-only ``var`` bindings.
+  CDP ``evaluateOnCallFrame`` nests the RemoteObject under ``result``;
+  ``js_debug.cdp_evaluation_result_string`` unwraps the JSON string, and
+  ``js_debug.cdp_runtime_evaluate_json_object`` reads ``variable_changes`` /
+  ``global_variable_changes`` via ``Runtime.evaluate`` when the call-frame read
+  is empty.
+  ``deno_scope._collect_call_frame_scopes`` walks CDP ``scopeChain`` and deep
+  expands object bindings (all scope types) via nested ``Runtime.getProperties``
+  so the inspector and merged hover locals receive JSON-like dicts instead of
+  RemoteObject description strings like ``Object`` / ``Array(...)``.
+  Deno binds ``Debugger.setBreakpointByUrl`` at the union of top-level group
+  starts (``js_debug._split_into_groups``) and ``DebugProtocol`` editor lines
+  (``deno_debug._cdp_break_editor_lines``); pauses mapped into the user-script
+  line range call ``checkpoint`` so breakpoints inside nested callbacks (e.g.
+  ``pm.test`` bodies) work.  Changing breakpoints while a Deno session is
+  paused does not push new CDP breakpoints until the next debug run.
+
+## Snippets (script editors)
+
+Declarative **script snippets** (Postman-style one-click insert) combine shipped
+JSON under `data/snippets/` with **user snippets** in the ``snippets`` table
+(``SnippetService`` / ``snippet_repository``).  ``ui/widgets/snippets/loader.py``
+merges both sources (user categories first) and memoises per
+``(language)``; ``invalidate_snippet_cache()`` runs
+on user-snippet CRUD.  ``ui/widgets/snippets/popup.py`` is the
+read-only insert popover (user rows styled with ``userSnippetLabel``); create/edit/delete
+live in ``snippet_capture_dialog.py`` and ``ui/sidebar/snippets_sidebar_panel.py``
+(tree: JavaScript / TypeScript / Python → category → snippet; ``ts`` vs ``js`` in DB;
+right-click menus in ``snippets_tree_context.py`` (edit/rename/remove;
+``SnippetService.delete_snippets_in_category``, ``rename_category``).
+**Save as snippet…** opens the
+dialog from ``CodeEditorWidget``; ``MainWindow.refresh_snippets_sidebar()`` refreshes
+the sidebar list and an open picker after CRUD.  The **Snippets** toolbar control
+lives in ``ScriptEditorPane``.  Authoring guide: ``data/snippets/README.md``.
+
+Shipped JSON includes **Workflows**, **Variables**, **Tests** (e.g. status code or reason
+phrase, ``to.have.body``, ``to.be.oneOf`` / ``one_of``), and **Pre-request helpers**.
+Assertion helpers live in ``data/scripts/pm_bootstrap.js`` and ``data/scripts/pm_bootstrap.py``;
+the RestrictedPython subprocess path mirrors the same expectations in
+``services/scripting/_py_sandbox.py`` (keep Python snippet bodies on the injected
+stdlib shims documented in that module and in ``data/snippets/README.md``).
+
+**Postman API parity:** ``src/services/scripting/pm_api_schema.py`` is the linter /
+schema source of truth; ``tests/unit/services/test_pm_api_schema_drift.py`` probes
+that every schema path exists on the live ``pm`` / ``postman`` objects inside
+``data/scripts/pm_bootstrap.js``. Both Python runtimes
+(``data/scripts/pm_bootstrap.py`` for Pyodide and
+``src/services/scripting/_py_sandbox.py`` for RestrictedPython) now mirror the JS
+surface: ``HeaderList``, ``Url``, discriminated ``RequestBody``, resolved
+``pm.variables``, ``pm.test.skip``, ``pm.execution.location``, response helpers
+(``originalRequest`` / ``cookies`` / ``reason`` / ``mime`` / ``dataURI`` / ``size``),
+``pm.cookies.jar()``, bare-name ``pm.require``, legacy globals (``responseBody``,
+``responseCode``, ``responseHeaders``, ``tests``, ``xml2Json``), the ``postman``
+v1 shim, and a ``pm.visualizer.set`` stub that raises a documented error. Python
+keeps ``snake_case`` attributes and adds ``camelCase`` aliases
+(``pm.collectionVariables`` etc.) so Postman scripts pasted unchanged into a
+Python tab still resolve. **Note:** Python ``pm.send_request`` is synchronous —
+pyodide / RestrictedPython have no event loop, so no ``await``. New Python
+parity coverage lives in ``tests/unit/services/test_pm_python_parity.py``.
+
+## The dict interchange schema
+
+`fetch_all_collections()` in the repository converts ORM objects to a nested
+dict **inside the open session** (required because relationships are loaded
+lazily per-query).  This dict is the canonical data format that flows from
+DB through the service layer, across the thread boundary, and into
+`CollectionTree.set_collections()`.
+
+```python
+# Top-level: str(collection.id) -> collection dict
+{
+  "42": {
+    "id": 42,                    # int — database PK
+    "name": "My Folder",         # str
+    "type": "folder",            # literal "folder"
+    "children": {                # str(child_id) -> child dict
+      "99": {                    # request child
+        "type": "request",
+        "id": 99,
+        "name": "Get Users",
+        "method": "GET",
+      },
+      "43": {                    # nested folder child
+        "type": "folder",
+        "id": 43,
+        "name": "Subfolder",
+        "children": { ... },
+      },
+    },
+  },
+}
+```
+
+`CollectionDict` (a `TypedDict` in `collection_widget.py`) describes a single
+node.  When constructing dicts for `add_collection()` or `add_request()`,
+follow this schema exactly.
+
+**Key rules for the dict schema:**
+- Top-level keys are `str(collection.id)` — always strings, never ints.
+- `"type"` is always `"folder"` or `"request"` — use these exact strings.
+- Requests have a `"method"` key (e.g. `"GET"`); folders do not.
+- Folders have a `"children"` dict; requests do not.
+
+### Known issue — ID namespace collision
+
+Collections and requests share the same `children` dict, both keyed by
+`str(id)`.  A collection with `id=5` and a request with `id=5` would
+collide because they are in different DB tables but the same dict.  Unlikely
+with SQLite auto-increment, but be aware of it.
+
+## Signal flow
+
+> **Full signal flow diagrams, signal declaration tables, and MainWindow
+> wiring summary are in the `signal-flow` skill.**
+> Reference it when wiring new signals or debugging connections.
+
+Key signals to know (always-on summary):
+
+- `CollectionWidget.item_action_triggered(str, int, str)` → opens
+  requests/folders in MainWindow (or scripts when `variant="local_scripts"`).
+- `MainWindow.local_scripts_widget` — second `CollectionWidget` instance
+  (`tree_kind="local_scripts"`) in the left flyout; leaf type `script` opens
+  `TabContext.tab_type == "local_script"` with `LocalScriptEditorWidget`
+  (wraps `ScriptEditorPane` — same advanced editor as request Scripts tab).
+- **Local script module formats:** `LocalScriptModel.module_format` is `esm`
+  (``.js`` / ``.ts`` / ``.py`` virtual paths) or `commonjs` (JavaScript-only,
+  ``.cjs``). Create via **+ New → JavaScript (CommonJS)**; consume from ESM
+  request scripts with `pm.require("local:…/file.cjs")`. CJS bodies are leaf
+  modules (no nested `pm.require`, no vendor `require()`). Editor uses
+  `CodeEditorWidget._script_module_format` — syntax via Esprima, not ESM rules.
+- `CollectionWidget.draft_request_requested()` → opens a new draft
+  (unsaved) request tab in MainWindow.
+- `CollectionWidget.run_collection_requested(int)` →
+  `MainWindow._on_run_collection_by_id` opens/focuses the folder tab on
+  **Runs → New run** (inline runner in `FolderEditorWidget`).
+- `_RunnerPanel.run_finished()` (internal to folder editor) → host reloads
+  run history via `RunHistoryService.get_runs`.
+- `_RunnerPanel._collect_requests(collection_id)` walks each root from
+  `CollectionService.fetch_all()`, DFS-finds the folder whose `id` matches
+  (nested folders are not top-level keys), then depth-first collects all
+  descendant `request` nodes for the inline runner checklist.
+- `RunnerWorker` builds a single substitution map for each iteration: current
+  data-file row (if any), then environment variables; on duplicate keys the
+  environment value wins.  That map is applied to URL, headers, and body
+  `{{var}}` placeholders before scripts run; `pm.iterationData` still
+  reflects the current row for script APIs.
+- **Inline data-driven runner (D3):** post-response `ScriptOutputPanel` embeds
+  `DataRunnerPanel` (CSV/JSON picker) and an **Iterations** matrix tab.
+  `ScriptRunWorker.set_iteration_data()` loops rows on one QThread, emitting
+  `iteration_finished(int, ScriptOutput, float)` per row and `finished(list, float)`
+  when done.  Shared parsing lives in `services.scripting.data_loader.parse_data_file`
+  (also used by the collection runner).  This is single-request inline scope only —
+  the folder/collection runner remains separate.
+- `NewItemPopup.new_request_clicked()` / `new_collection_clicked()` →
+  emitted by the icon grid popup when tiles are clicked.
+- `RequestEditorWidget.send_requested()` → triggers HTTP send flow.
+- `RequestEditorWidget` lazy-loads the **Body** and **Scripts** heavy editors
+  when those tabs are first selected (or via `_ensure_body_editors()` /
+  `_ensure_scripts_editors()`). Until then, placeholders (`LazyEditorPlaceholder`)
+  are shown; `load_request` / `get_request_data` use `_loaded_request_snapshot`
+  when those sections are not materialised yet.
+- `ResponseViewerWidget.save_response_requested(dict)` → saves the current live response.
+- `ResponseViewerWidget.save_availability_changed(bool)` → refreshes right-sidebar saved-response affordances.
+- `SavedResponsesPanel` emits `save_current_requested`,
+  `rename_requested`, `duplicate_requested`, and `delete_requested` — all
+  handled in `MainWindow` through `CollectionService`.
+- `ThemeManager.theme_changed()` → widgets refresh dynamic styles, including
+  the wrapped request-tab deck chip styling.
+- `TabSettingsManager.settings_changed()` → `MainWindow` / `RequestTabBar`
+  refresh tab behaviour and label presentation, including switching
+  between single-row and wrapped-row layouts.
+- `MainWindow` exposes three tab navigation models: **request open history**
+  (`back_action` / `forward_action`, Alt+Left/Right — requests opened from
+  the collection tree, `_history` in `_TabControllerMixin`); **tab activation
+  history** (Go → Back/Forward, `tab_back_action` / `tab_forward_action`,
+  Ctrl+Alt+Left/Right — `_TabNavHistoryMixin` in `main_window/tab_nav/`,
+  stable `TabContext.nav_token` from `allocate_tab_nav_token()` in
+  `tab_manager.py`, in-memory stacks cleared on quit, empty after session
+  restore); **cyclic deck** (View → Next/Previous Tab, Ctrl+Tab /
+  Ctrl+Shift+Tab). `CodeEditorWidget` uses `Ctrl+P` for parameter-info
+  hints when the script editor has focus.  Autocomplete, parameter-hint,
+  symbol-doc, and debug-hover popups are **app-wide singletons**
+  (`ui/widgets/code_editor/popup_registry.py`); ``CompletionPopup`` signals
+  are re-targeted to the active editor on each show.
+- `VariablePopup` uses **class-level callbacks**, not signals — wired once
+  in `MainWindow.__init__`.
+
+## Unconnected signals
+
+No unconnected signals at this time.
+
+## Implicit contracts
+
+### 1. `init_db()` must precede `MainWindow()`
+
+`MainWindow` creates `CollectionWidget`, whose constructor immediately spawns
+a background thread that queries the DB.  If `init_db()` has not been called,
+`get_session()` raises `RuntimeError`.
+
+### 2. Session-per-function isolation
+
+Every repository function opens and closes **its own session** via
+`get_session()`.  There is no way to batch multiple operations in a single
+transaction from the service or UI layer.  Each call auto-commits
+independently.
+
+**Exception:** `import_repository.import_collection_tree()` uses a **single
+session** for the entire collection tree so import is atomic — if any part
+fails, the whole import rolls back.
+
+### 3. ORM objects and detached access
+
+`get_session()` uses `expire_on_commit=False`, so scalar attributes on
+returned ORM objects survive session close.  However, **navigating
+un-loaded relationships on a detached object raises
+`DetachedInstanceError`**.  Both `children` and `requests` use
+`lazy="selectin"` to eagerly load one level, but for deeper trees the
+repository converts to dicts inside the session (see dict schema above).
+
+### 4. Exception swallowing in `_safe_svc_call`
+
+`CollectionWidget._safe_svc_call` catches **all** exceptions and only logs
+them.  Service validation errors (empty names, missing parents) are silently
+discarded.
+
+**If you add a new service method**, its errors will be invisible unless you
+also add explicit UI feedback (e.g. a `QMessageBox`).  For user-visible
+errors, pair the service call with `QMessageBox.warning()` or emit a status
+signal instead of relying on `_safe_svc_call`.
+
+### 5. Sort ordering
+
+`set_collections()` sorts **root** collections alphabetically by name.
+Children within a folder are **not sorted** — they appear in dict iteration
+order (insertion order in Python 3.7+).
+
+### 6. Auth inheritance convention
+
+`auth = None` in the database means "inherit from parent" — the request
+or folder walks up its ancestor chain until it finds a folder with an
+explicit `auth` dict.  `{"type": "noauth"}` means "no authentication" and
+**stops** the inheritance chain.  The UI maps `None` to
+`"Inherit auth from parent"` in the auth type combo.
+
+- `_get_auth_data()` returns `None` for inherit, `{"type": "noauth"}` for
+  explicit no-auth.
+- `_load_auth(None)` / `_load_auth({})` → selects "Inherit auth from parent".
+- `get_request_inherited_auth(request_id)` / `get_collection_inherited_auth(collection_id)`
+  resolve the effective auth by walking ancestors.
+
+### 7. Saved responses are now split across two UI surfaces
+
+- **Saving** a response remains a response-viewer action.  The live response
+  viewer emits `save_response_requested(dict)` only when it has a live
+  `HttpResponseDict` loaded.
+- **Browsing/managing** saved responses now lives in the right sidebar's
+  `SavedResponsesPanel`, alongside Variables and Snippets.
+- The panel is fully self-contained: selecting a saved response shows its
+  details (headers, body, metadata) inline, with built-in search and filter.
+- The old plain-text Saved tab in `ResponseViewerWidget` has been removed.
+
+### 8. Saved response data contract
+
+`CollectionService` now normalizes saved responses into `SavedResponseDict`:
+
+```python
+class SavedResponseDict(TypedDict):
+    id: int
+    request_id: int
+    name: str
+    status: str | None
+    code: int | None
+    headers: list[dict[str, Any]] | None
+    body: str | None
+    preview_language: str | None
+    original_request: dict[str, Any] | None
+    created_at: str | None
+    body_size: int
+```
+
+`get_saved_responses_for_request()` orders rows newest-first by
+`created_at DESC, id DESC`, and `CollectionService` formats `created_at`
+into `%Y-%m-%d %H:%M` strings for the UI.
+
+## Repository and service reference
+
+> **Full repository function catalogues, service method tables, TypedDict
+> schemas, and response viewer docs are in the `service-repository-reference`
+> skill.**  Reference it when adding or modifying repository/service methods.
+
+## Known limitations
+
+1. **No cycle detection for collection moves** — `move_collection` only
+   prevents direct self-reference (`id == new_parent_id`).  Moving a parent
+   into its own descendant would create an infinite loop.
+2. ~~**DELETE method has no colour**~~ — Fixed: `COLOR_DELETE` (`#e67e22`)
+   added to `METHOD_COLORS` in `theme.py`.
+3. **`request_parameters` and `headers` are `String` columns** — unlike
+   `scripts`, `settings`, and `events` (which are JSON columns), these store
+   serialised strings.  Consuming code must handle string-to-dict conversion.
+4. ~~**Send not implemented**~~ — Fixed: `RequestEditorWidget.send_requested`
+   is wired to `MainWindow._on_send_request` which uses `HttpSendWorker` +
+   `HttpService.send_request()`.
+5. **Navigation history is in-memory only** — request `_history` and tab
+   activation stacks (`_tab_nav_back` / `_tab_nav_forward`) are lost on
+   restart; open tabs still restore from `TabSettingsManager` session JSON.
+6. **`TabContext.local_overrides` are in-memory only** —
+   `TabContext` (in `tab_manager.py`) stores per-request variable overrides
+   in `local_overrides: dict[str, LocalOverride]`.  These do **not** persist
+   to the database.  When the user edits a variable value in
+   `VariablePopup` and dismisses the popup without saving, the changed
+   value goes into `local_overrides`.  They are merged on top of the
+   combined variable map in `MainWindow._refresh_variable_map()` and
+   tagged with `is_local=True` in `VariableDetail` so the popup can show
+   Update/Reset buttons.
+7. **`TabContext.draft_name` tracks the display name of unsaved tabs** —
+   Set to `"Untitled Request"` when a draft tab is opened.  Updated when
+   the user renames via the breadcrumb bar.  Used as fallback label in the
+   save-to-collection dialog.  `None` for persisted request tabs.
+8. **Request-tab behaviour is settings-driven** — preview tabs, compact
+  labels, duplicate-name path suffixes, tab insertion position, wrap
+  mode, tab limit, and close-activation policy are read from
+  `TabSettingsManager`.
+  `RequestTabBar` is a custom wrapped multi-row widget, not a native
+  `QTabBar`; it keeps a small compatibility API (`currentIndex()`,
+  `setCurrentIndex()`, `count()`, `tabRect()`, `tabButton()`,
+  `tabToolTip()`, `select_next_tab()`, `select_previous_tab()`,
+  `tab_request_info()`) so `MainWindow` and tests
+  do not depend on Qt tab-bar internals.  `MainWindow` enforces the
+  limit/promotion policies when opening and closing tabs.
+  **Session persistence:** `_TabControllerMixin._persist_open_tabs()` saves
+  the current tab list (type + DB id + method + name for requests) and
+  active index after every tab open/close/reorder and in `closeEvent`.
+  **Environments** tabs are saved as ``{"type": "environments"}`` (no id)
+  and recreated on restore in their saved order.
+  **Deferred tab materialisation:** `_restore_tabs()` restores tabs
+  lazily after `CollectionWidget.load_finished` fires.  Request tabs
+  with `method` and `name` in the session data are created as
+  lightweight tab-bar chips stored in `_deferred_tabs`; the editor and
+  viewer widgets are built on first selection via
+  `_materialise_deferred_tab()`.  Old-format entries (without
+  `method`/`name`) fall back to eager `_open_request()` for backward
+  compatibility.  Deleted requests/collections are silently skipped.
+  Draft (unsaved) tabs are serialized with `type: "draft"` and an inline
+  snapshot of the editor state (`get_request_data()` + `draft_name`).
+  On restore, `_restore_draft()` calls `_open_draft_request()` and
+  replays the saved state into the editor.
+9. **Manual tab reorder changes close-unchanged priority** — when the user
+  drags tabs into a new visible order, `_TabControllerMixin._on_tab_reordered`
+  rewrites `TabContext.opened_order` to match that order.  The
+  `close_unchanged` limit policy then evicts the leftmost eligible,
+  unchanged tab instead of an older pre-drag ordering.
+10. **VariablePopup uses class-level callbacks, not Qt signals** —
+   `VariablePopup` is a **singleton** `QFrame`.  Its callbacks
+   (`set_save_callback`, `set_local_override_callback`,
+   `set_reset_local_override_callback`, `set_add_variable_callback`,
+   `set_has_environment`) are classmethods that store callables on the
+   **class itself**, not on an instance.  They are wired once in
+   `MainWindow.__init__` and survive popup hide/show cycles.
+11. **Saved response mutations are MainWindow-owned** —
+  `SavedResponsesPanel` is a read-only/browser widget.  It never imports the
+  repository or service directly for mutations; it only emits signals to
+  `MainWindow`, which calls `CollectionService` and then refreshes the
+  sidebar state.
+12. **Post-response inline Run defaults to live response mode** —
+  In `RequestEditorWidget` Scripts → Post-response, `ScriptOutputPanel`
+  adds **Mock response** as a tab beside Output and Problems (status,
+  editable headers, JSON body editor with folding) and
+  defaults to `response_source_mode() == "live"`.  Clicking Run delegates to
+  `MainWindow.run_post_response_script_with_live_response()` with
+  `editor` set to the **scripts host** (``RequestEditorWidget`` or
+  ``FolderEditorWidget`` from ``_ScriptsMixin``), not the nested
+  ``CodeEditorWidget``.  The call triggers
+  the normal send pipeline, skips request-level script chains for that send,
+  maps `HttpResponseDict` to test context fields (`code`, `status`, `headers`,
+  `body`, `responseTime`, `responseSize`), then runs only the current
+  post-response script in the inline output panel.  Switching to
+  `Manual mock response` on that tab keeps the existing offline inline worker path.
+  `ScriptOutputPanel(..., host_kind="folder")` (folder/collection scope) omits
+  the **Response source** (live) row but still shows **Mock response** (status,
+  headers table, JSON body editor) on that tab for `pm.response` in inline runs.
+  For test panels, when the mock body field is blank, `get_response_data()` uses ``"{}"`` as the default body
+  so `pm.response.json()` does not fail on first use.

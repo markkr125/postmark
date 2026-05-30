@@ -16,6 +16,8 @@ from PySide6.QtCore import QThread
 
 if TYPE_CHECKING:
     from services.environment_service import LocalOverride
+    from ui.environments.environment_editor import EnvironmentEditorWidget
+    from ui.local_scripts.local_script_editor_widget import LocalScriptEditorWidget
     from ui.request.folder_editor import FolderEditorWidget
     from ui.request.http_worker import HttpSendWorker
 
@@ -27,21 +29,33 @@ logger = logging.getLogger(__name__)
 # Maximum wait (ms) when shutting down a worker thread.
 _THREAD_WAIT_MS = 3000
 
+_tab_nav_token_seq: int = 0
+
+
+def allocate_tab_nav_token() -> int:
+    """Return a new stable id for tab activation history stacks."""
+    global _tab_nav_token_seq
+    _tab_nav_token_seq += 1
+    return _tab_nav_token_seq
+
 
 class TabContext:
     """Bundle of per-tab state: widgets, thread lifecycle, and dirty flag.
 
     Attributes:
-        tab_type: ``"request"`` or ``"folder"``.
+        tab_type: ``"request"``, ``"folder"``, ``"environments"``, or ``"local_script"``.
         request_id: Database PK of the loaded request, or ``None``.
         collection_id: Database PK of the loaded folder, or ``None``.
-        editor: The request editor widget (request tabs only).
+        local_script_id: Database PK of the loaded local script, or ``None``.
+        editor: The request editor widget (request tabs only); ``None`` for environments.
         folder_editor: The folder editor widget (folder tabs only).
-        response_viewer: The response viewer widget for this tab.
+        environment_editor: The environments manager widget (environments tab only).
+        response_viewer: The response viewer widget for this tab; ``None`` for environments.
         thread: The ``QThread`` running the current request, if any.
         worker: The ``HttpSendWorker`` for the current request, if any.
         is_dirty: Whether the editor has unsaved changes.
         is_sending: Whether an HTTP request is currently in flight.
+        is_debugging: Whether an inline script debug session is active on this tab.
         is_preview: Whether this tab is in preview mode (temporary).
         draft_name: Display name for unsaved draft tabs.  ``None`` for
             persisted requests.  Updated when the user renames via the
@@ -59,6 +73,7 @@ class TabContext:
         last_activated_order: Monotonic token tracking recent activation.
             Used by policies such as "Close unused" and
             "Activate most recently used tab on close".
+        nav_token: Stable id for tab activation back/forward stacks.
     """
 
     def __init__(
@@ -69,26 +84,68 @@ class TabContext:
         collection_id: int | None = None,
         editor: RequestEditorWidget | None = None,
         folder_editor: FolderEditorWidget | None = None,
+        environment_editor: EnvironmentEditorWidget | None = None,
         response_viewer: ResponseViewerWidget | None = None,
+        local_script_id: int | None = None,
+        local_script_editor: LocalScriptEditorWidget | None = None,
         is_preview: bool = False,
         opened_order: int = 0,
+        nav_token: int | None = None,
     ) -> None:
         """Create a new tab context with optional pre-built widgets."""
         self.tab_type = tab_type
         self.request_id = request_id
         self.collection_id = collection_id
-        self.editor = editor or RequestEditorWidget()
-        self.folder_editor = folder_editor
-        self.response_viewer = response_viewer or ResponseViewerWidget()
+        self.local_script_id = local_script_id
+        self.environment_editor = environment_editor
+        if tab_type == "environments":
+            self.editor = None  # type: ignore[assignment]
+            self.folder_editor = None
+            self.response_viewer = None  # type: ignore[assignment]
+            self.local_script_editor = None
+        elif tab_type == "local_script":
+            self.editor = None  # type: ignore[assignment]
+            self.folder_editor = None
+            self.response_viewer = None  # type: ignore[assignment]
+            self.local_script_editor = local_script_editor or LocalScriptEditorWidget()
+        else:
+            self.editor = editor or RequestEditorWidget()
+            self.folder_editor = folder_editor
+            self.response_viewer = response_viewer or ResponseViewerWidget()
+            self.local_script_editor = None
         self.thread: QThread | None = None
         self.worker: HttpSendWorker | None = None
         self.is_dirty: bool = False
         self.is_sending: bool = False
+        self.is_debugging: bool = False
         self.is_preview: bool = is_preview
         self.draft_name: str | None = None
         self.local_overrides: dict[str, LocalOverride] = {}
         self.opened_order: int = opened_order
         self.last_activated_order: int = 0
+        self.nav_token: int = nav_token if nav_token is not None else allocate_tab_nav_token()
+
+    def require_editor(self) -> RequestEditorWidget:
+        """Return the request editor when this tab mounts one.
+
+        Raises:
+            RuntimeError: When ``editor`` is absent (e.g. environments tab).
+        """
+        if self.editor is None:
+            msg = "require_editor() called without a request editor"
+            raise RuntimeError(msg)
+        return self.editor
+
+    def require_response_viewer(self) -> ResponseViewerWidget:
+        """Return the response viewer when this tab mounts one.
+
+        Raises:
+            RuntimeError: When ``response_viewer`` is absent (e.g. environments tab).
+        """
+        if self.response_viewer is None:
+            msg = "require_response_viewer() called without a response viewer"
+            raise RuntimeError(msg)
+        return self.response_viewer
 
     # -- Send lifecycle ------------------------------------------------
 
@@ -164,5 +221,8 @@ class TabContext:
         """
         self.cleanup_thread()
         self.folder_editor = None
+        self.environment_editor = None
+        self.local_script_editor = None
         self.request_id = None
         self.collection_id = None
+        self.local_script_id = None

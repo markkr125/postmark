@@ -60,6 +60,16 @@ class _DraftControllerMixin:
         def _next_tab_insert_index(self) -> int: ...
         def _shift_tabs_for_insert(self, index: int) -> None: ...
         def _request_full_path(self, request_id: int) -> str | None: ...
+        def _on_debug_step(self, mode_name: str) -> None: ...
+        def _on_open_scripting_settings(self) -> None: ...
+        def _open_folder(
+            self,
+            collection_id: int,
+            *,
+            focus_scripts_kind: str | None = None,
+            focus_runner_panel: bool = False,
+            show_missing_warning: bool = True,
+        ) -> None: ...
 
     # ------------------------------------------------------------------
     # Open a new draft request tab
@@ -112,6 +122,9 @@ class _DraftControllerMixin:
 
         editor.load_request(data, request_id=None)
         editor.send_requested.connect(self._on_send_request)
+        editor.debug_step_requested.connect(self._on_debug_step)
+        editor.open_collection_requested.connect(self._open_folder)
+        editor.open_scripting_settings_requested.connect(self._on_open_scripting_settings)
         editor.save_requested.connect(self._on_save_request)
         editor.dirty_changed.connect(self._sync_save_btn)
         editor.dirty_changed.connect(self._on_editor_dirty_changed)

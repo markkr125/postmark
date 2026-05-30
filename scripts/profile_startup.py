@@ -53,6 +53,7 @@ def main() -> None:
     from PySide6.QtWidgets import QApplication
 
     app = QApplication.instance() or QApplication([])
+    assert isinstance(app, QApplication)
 
     from ui.styling.icons import load_font
     from ui.styling.tab_settings_manager import TabSettingsManager

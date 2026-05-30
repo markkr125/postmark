@@ -26,12 +26,14 @@ class TestRequestEditorBodySearch:
                 "body": body,
             }
         )
+        editor._ensure_body_editors()
         return editor
 
     def test_search_bar_hidden_by_default(self, qapp: QApplication, qtbot) -> None:
         """Body search bar starts hidden."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
         assert editor._body_search_bar.isHidden()
 
     def test_toggle_shows_and_hides_bar(self, qapp: QApplication, qtbot) -> None:
@@ -119,6 +121,7 @@ class TestRequestEditorBodySearch:
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
         editor.load_request({"name": "T", "method": "GET", "url": "http://x", "body": ""})
+        editor._ensure_body_editors()
         editor._toggle_body_search()
         assert editor._body_search_bar.isHidden()
 
@@ -141,6 +144,7 @@ class TestRequestEditorReplace:
                 "body": body,
             }
         )
+        editor._ensure_body_editors()
         return editor
 
     def test_replace_row_hidden_by_default(self, qapp: QApplication, qtbot) -> None:

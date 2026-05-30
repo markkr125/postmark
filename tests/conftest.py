@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tempfile
+from collections.abc import Generator
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,9 @@ from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QApplication
 
 from database.database import init_db
+from qt_app_init import configure_before_qapplication
+
+configure_before_qapplication()
 
 # ------------------------------------------------------------------
 # Isolate QSettings so tests never overwrite user preferences
@@ -65,11 +69,70 @@ def _fresh_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolated_lsp_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Give every test its own Deno LSP workspace directory.
+
+    The mirror (``local/``), ``deno.json`` and ambient stubs live under
+    ``user_lsp_root``. Local-script mutations sync there via
+    ``LocalScriptService._refresh_mirror``; without per-test isolation, parallel
+    (xdist) workers share the real ``~/.local/share/postmark`` workspace and
+    ``sync_all``'s orphan prune races delete each other's mirror files — a flaky
+    error that moves between tests.
+
+    Patch ``user_lsp_root`` directly rather than ``XDG_DATA_HOME``: the managed
+    Deno runtime also lives under ``XDG_DATA_HOME`` (see ``DenoManager``), so
+    redirecting the env var would hide Deno and skip every runtime test.
+    """
+    ws_root = tmp_path / "lsp-workspace"
+
+    def _root() -> Path:
+        ws_root.mkdir(parents=True, exist_ok=True)
+        return ws_root
+
+    monkeypatch.setattr("services.lsp.servers._workspace.user_lsp_root", _root)
+
+
+@pytest.fixture(autouse=True)
 def _reset_tab_settings() -> None:
     """Clear persisted tab settings so tests do not leak UI preferences."""
     settings = QSettings("Postmark", "Postmark")
     settings.remove("tabs")
+    settings.remove("scripts")
+    settings.remove("ui/kv_col_widths")
     settings.sync()
+
+
+@pytest.fixture(autouse=True)
+def _disable_script_lsp_in_tests() -> Generator[None, None, None]:
+    """Do not spawn Deno/jedi LSP servers unless a test enables ``scripting/lsp_enabled``."""
+    settings = QSettings("Postmark", "Postmark")
+    settings.setValue("scripting/lsp_enabled", False)
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _shutdown_lsp_clients() -> Generator[None, None, None]:
+    """Stop LSP subprocess threads after each test so Qt teardown stays clean."""
+    yield
+    from services.lsp.server_registry import LspRegistry, reset_registry_for_tests
+
+    inst = LspRegistry._instance
+    if inst is not None:
+        inst.shutdown()
+    reset_registry_for_tests()
+
+
+@pytest.fixture(autouse=True)
+def _reset_code_editor_popups_after_test(qapp: QApplication) -> Generator[None, None, None]:
+    """Dismiss app-wide completion/hint popups so non-``tests/ui`` Qt tests cannot leave windows up."""
+    yield
+    from tests.qt_popup_cleanup import (
+        flush_deferred_widget_deletes,
+        reset_code_editor_popups,
+    )
+
+    reset_code_editor_popups()
+    flush_deferred_widget_deletes(qapp)
 
 
 # ------------------------------------------------------------------

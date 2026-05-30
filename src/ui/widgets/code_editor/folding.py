@@ -15,11 +15,6 @@ from typing import TYPE_CHECKING
 from PySide6.QtGui import QColor, QTextCharFormat, QTextCursor, QTextDocument
 from PySide6.QtWidgets import QTextEdit
 
-from ui.styling.theme import (
-    COLOR_EDITOR_BRACKET_MATCH,
-    COLOR_EDITOR_ERROR_UNDERLINE,
-    COLOR_EDITOR_FOLD_HIGHLIGHT,
-)
 from ui.widgets.code_editor.gutter import (
     _ALL_BRACKETS,
     _BRACKET_PAIRS,
@@ -32,6 +27,7 @@ from ui.widgets.code_editor.gutter import (
     _XML_OPEN_TAG,
     _XML_SELF_CLOSE,
     SyntaxError_,
+    normalize_validation_severity,
     _FoldGutterArea,
     _LineNumberArea,
 )
@@ -39,6 +35,8 @@ from ui.widgets.code_editor.gutter import (
 if TYPE_CHECKING:
     from PySide6.QtCore import QTimer, Signal
     from PySide6.QtWidgets import QPlainTextEdit
+
+    from ui.styling.theme import ThemePalette
 
     _FoldingBase = QPlainTextEdit
 else:
@@ -54,6 +52,7 @@ class _FoldingMixin(_FoldingBase):
     # -- Attribute stubs (set by CodeEditorWidget.__init__) -------------
     _fold_timer: QTimer
     _language: str
+    _read_only: bool
     _validate_timer: QTimer
     _detected_indent: int
     _fold_regions: dict[int, int]
@@ -65,6 +64,7 @@ class _FoldingMixin(_FoldingBase):
     _line_number_area: _LineNumberArea
     _fold_gutter_area: _FoldGutterArea
     _search_selections: list[QTextEdit.ExtraSelection]
+    _diff_selections: list[QTextEdit.ExtraSelection]
 
     if TYPE_CHECKING:
 
@@ -72,10 +72,14 @@ class _FoldingMixin(_FoldingBase):
 
         def _update_active_fold(self) -> None: ...
 
+        def _editor_palette(self) -> ThemePalette: ...
+
     # -- Fold detection -------------------------------------------------
 
     def _on_contents_changed(self) -> None:
         """Schedule fold recomputation and validation after content change."""
+        if getattr(self, "_debug_session_active", False):
+            return
         self._fold_timer.start()
         if self._language in _VALIDATABLE_LANGUAGES:
             self._validate_timer.start()
@@ -135,6 +139,10 @@ class _FoldingMixin(_FoldingBase):
             folds = self._detect_bracket_folds(doc)
         elif self._language in ("xml", "html"):
             folds = self._detect_xml_folds(doc)
+        elif self._language in ("javascript", "typescript"):
+            folds = self._detect_js_folds(doc)
+        elif self._language == "python":
+            folds = self._detect_python_folds(doc)
         else:
             folds = {}
 
@@ -212,6 +220,130 @@ class _FoldingMixin(_FoldingBase):
                         stack.pop(i)
                         break
             block = block.next()
+        return folds
+
+    @staticmethod
+    def _detect_js_folds(doc: QTextDocument) -> dict[int, int]:
+        """Detect JS/TS fold regions from ``{`` / ``[`` pairs.
+
+        Honors single-quote, double-quote, template-literal strings and
+        line/block comments so braces inside strings or comments don't
+        skew the brace stack.
+        """
+        stack: list[int] = []
+        folds: dict[int, int] = {}
+        block = doc.begin()
+        in_block_comment = False
+        in_template = False
+        while block.isValid():
+            text = block.text()
+            i = 0
+            n = len(text)
+            in_str: str | None = None
+            escape = False
+            while i < n:
+                ch = text[i]
+                if in_block_comment:
+                    if ch == "*" and i + 1 < n and text[i + 1] == "/":
+                        in_block_comment = False
+                        i += 2
+                        continue
+                    i += 1
+                    continue
+                if in_template:
+                    if escape:
+                        escape = False
+                        i += 1
+                        continue
+                    if ch == "\\":
+                        escape = True
+                        i += 1
+                        continue
+                    if ch == "`":
+                        in_template = False
+                        i += 1
+                        continue
+                    if ch == "$" and i + 1 < n and text[i + 1] == "{":
+                        # Enter expression interpolation as normal code; track its `}`
+                        # by pushing a marker on stack scoped to the template.
+                        stack.append(block.blockNumber())
+                        i += 2
+                        continue
+                    i += 1
+                    continue
+                if in_str:
+                    if escape:
+                        escape = False
+                        i += 1
+                        continue
+                    if ch == "\\":
+                        escape = True
+                        i += 1
+                        continue
+                    if ch == in_str:
+                        in_str = None
+                    i += 1
+                    continue
+                if ch == "/" and i + 1 < n and text[i + 1] == "/":
+                    break  # rest of line is line-comment
+                if ch == "/" and i + 1 < n and text[i + 1] == "*":
+                    in_block_comment = True
+                    i += 2
+                    continue
+                if ch in ("'", '"'):
+                    in_str = ch
+                    i += 1
+                    continue
+                if ch == "`":
+                    in_template = True
+                    i += 1
+                    continue
+                if ch in ("{", "["):
+                    stack.append(block.blockNumber())
+                elif ch in ("}", "]") and stack:
+                    start = stack.pop()
+                    if block.blockNumber() > start:
+                        folds[start] = block.blockNumber()
+                i += 1
+            block = block.next()
+        return folds
+
+    @staticmethod
+    def _detect_python_folds(doc: QTextDocument) -> dict[int, int]:
+        """Detect Python fold regions by indentation.
+
+        A fold opens on a line whose successor is more deeply indented;
+        it closes on the last line still at or above the deeper indent
+        level. Blank lines and comment-only lines don't break a region.
+        """
+        # Collect (block_number, indent) for non-blank, non-comment-only lines.
+        rows: list[tuple[int, int]] = []
+        block = doc.begin()
+        while block.isValid():
+            text = block.text()
+            stripped = text.lstrip()
+            if stripped and not stripped.startswith("#"):
+                indent = len(text) - len(stripped)
+                rows.append((block.blockNumber(), indent))
+            block = block.next()
+
+        folds: dict[int, int] = {}
+        for idx, (line_no, indent) in enumerate(rows):
+            # Look for a successor with strictly greater indent.
+            if idx + 1 >= len(rows):
+                continue
+            next_indent = rows[idx + 1][1]
+            if next_indent <= indent:
+                continue
+            # Find the last line whose indent is still > parent indent.
+            end_line = rows[idx + 1][0]
+            for j in range(idx + 1, len(rows)):
+                if rows[j][1] > indent:
+                    end_line = rows[j][0]
+                else:
+                    break
+            if end_line > line_no:
+                folds[line_no] = end_line
         return folds
 
     # -- Fold interaction -----------------------------------------------
@@ -313,11 +445,42 @@ class _FoldingMixin(_FoldingBase):
         self._refresh_extra_selections()
 
     def _refresh_extra_selections(self) -> None:
-        """Combine bracket-match, error, search, and fold extra selections."""
+        """Combine current-line, bracket-match, error, search, and fold extra selections."""
+        p = self._editor_palette()
         selections: list[QTextEdit.ExtraSelection] = []
 
-        # 1. Bracket matching
+        # 0. Current-line highlight (full-width, subtle background)
         cursor = self.textCursor()
+        if not self._read_only:
+            line_sel = QTextEdit.ExtraSelection()
+            line_fmt = QTextCharFormat()
+            line_fmt.setBackground(QColor(p["editor_current_line"]))
+            line_fmt.setProperty(QTextCharFormat.Property.FullWidthSelection, True)
+            line_sel.format = line_fmt
+            line_cur = QTextCursor(cursor)
+            line_cur.clearSelection()
+            line_sel.cursor = line_cur
+            selections.append(line_sel)
+
+        selections.extend(self._breakpoint_selections())
+
+        # 0b. Debug execution line (full-width, above current-line when overlapping)
+        dbg_line = getattr(self, "_debug_line", None)
+        if dbg_line is not None:
+            doc = self.document()
+            block = doc.findBlockByNumber(dbg_line)
+            if block.isValid():
+                dbg_sel = QTextEdit.ExtraSelection()
+                dbg_fmt = QTextCharFormat()
+                dbg_fmt.setBackground(QColor(p["editor_debug_line"]))
+                dbg_fmt.setProperty(QTextCharFormat.Property.FullWidthSelection, True)
+                dbg_cur = QTextCursor(block)
+                dbg_cur.clearSelection()
+                dbg_sel.cursor = dbg_cur
+                dbg_sel.format = dbg_fmt
+                selections.append(dbg_sel)
+
+        # 1. Bracket matching
         block = cursor.block()
         pos_in_block = cursor.positionInBlock()
         text = block.text()
@@ -334,7 +497,7 @@ class _FoldingMixin(_FoldingBase):
             match_pos = self._find_matching_bracket(abs_pos, ch)
             if match_pos >= 0:
                 fmt = QTextCharFormat()
-                fmt.setBackground(QColor(COLOR_EDITOR_BRACKET_MATCH))
+                fmt.setBackground(QColor(p["editor_bracket_match"]))
 
                 sel1 = QTextEdit.ExtraSelection()
                 cur1 = QTextCursor(self.document())
@@ -361,6 +524,13 @@ class _FoldingMixin(_FoldingBase):
 
         # 4. External search selections
         selections.extend(self._search_selections)
+
+        # 5. Diff highlight selections
+        selections.extend(self._diff_selections)
+
+        # 6. Ctrl+hover symbol link underline
+        if hasattr(self, "_symbol_link_selections"):
+            selections.extend(self._symbol_link_selections)
 
         self.setExtraSelections(selections)
 
@@ -405,15 +575,42 @@ class _FoldingMixin(_FoldingBase):
 
     # -- Extra selections -----------------------------------------------
 
+    def _breakpoint_selections(self) -> list[QTextEdit.ExtraSelection]:
+        """Full-width tint for each line with a breakpoint (gutter dot)."""
+        selections: list[QTextEdit.ExtraSelection] = []
+        bps = getattr(self, "_breakpoints", None)
+        if not bps:
+            return selections
+
+        p = self._editor_palette()
+        doc = self.document()
+        fmt = QTextCharFormat()
+        fmt.setBackground(QColor(p["editor_breakpoint_line"]))
+        fmt.setProperty(QTextCharFormat.Property.FullWidthSelection, True)
+
+        for line in sorted(bps):
+            block = doc.findBlockByNumber(line)
+            if not block.isValid():
+                continue
+            sel = QTextEdit.ExtraSelection()
+            cur = QTextCursor(block)
+            cur.clearSelection()
+            sel.cursor = cur
+            sel.format = fmt
+            selections.append(sel)
+
+        return selections
+
     def _collapsed_fold_selections(self) -> list[QTextEdit.ExtraSelection]:
         """Build ExtraSelections to highlight collapsed fold-header lines."""
         selections: list[QTextEdit.ExtraSelection] = []
         if not self._collapsed_folds:
             return selections
 
+        p = self._editor_palette()
         doc = self.document()
         fmt = QTextCharFormat()
-        fmt.setBackground(QColor(COLOR_EDITOR_FOLD_HIGHLIGHT))
+        fmt.setBackground(QColor(p["editor_fold_highlight"]))
         fmt.setProperty(QTextCharFormat.Property.FullWidthSelection, True)
 
         for start_line in self._collapsed_folds:
@@ -432,6 +629,7 @@ class _FoldingMixin(_FoldingBase):
     def _error_selections(self) -> list[QTextEdit.ExtraSelection]:
         """Build ExtraSelections for validation errors (wave underline)."""
         selections: list[QTextEdit.ExtraSelection] = []
+        p = self._editor_palette()
         doc = self.document()
 
         for error in self._errors:
@@ -441,7 +639,16 @@ class _FoldingMixin(_FoldingBase):
 
             fmt = QTextCharFormat()
             fmt.setUnderlineStyle(QTextCharFormat.UnderlineStyle.WaveUnderline)
-            fmt.setUnderlineColor(QColor(COLOR_EDITOR_ERROR_UNDERLINE))
+            match normalize_validation_severity(error.severity):
+                case "warning":
+                    uline = p["editor_warning_underline"]
+                case "info":
+                    uline = p["editor_info_underline"]
+                case "hint":
+                    uline = p["editor_hint_underline"]
+                case _:
+                    uline = p["editor_error_underline"]
+            fmt.setUnderlineColor(QColor(uline))
 
             sel = QTextEdit.ExtraSelection()
             cur = QTextCursor(block)
@@ -468,9 +675,39 @@ class _FoldingMixin(_FoldingBase):
         """Return current validation errors."""
         return list(self._errors)
 
+    def apply_validation_errors(self, errors: list[SyntaxError_]) -> None:
+        """Replace validation markers (e.g. from LSP ``publishDiagnostics``)."""
+        old_has_errors = bool(self._errors)
+        new_has_errors = bool(errors)
+        self._errors = errors
+        self.validation_changed.emit(errors)
+        if old_has_errors or new_has_errors:
+            self._highlight_matching_bracket()
+            self._line_number_area.update()
+
+    def _should_skip_script_validation(self) -> bool:
+        """When ``True``, skip :meth:`_validate_script` (e.g. LSP owns diagnostics)."""
+        return False
+
     def _validate(self) -> None:
         """Run syntax validation on the current content."""
+        # When an LSP adapter owns diagnostics for this language, leave
+        # ``_errors`` untouched — the adapter publishes its own list via
+        # :meth:`apply_validation_errors`. Clobbering with ``[]`` here
+        # races with diagnostics that arrive between language switch and
+        # the next ``_validate`` tick, blanking real errors.
         text = self.toPlainText()
+        if (
+            self._language in ("javascript", "typescript", "python")
+            and self._should_skip_script_validation()
+        ):
+            # Deno/jedi publish diagnostics via :class:`EditorLspAdapter` (including
+            # ESM/CommonJS rules). Do not call :meth:`apply_validation_errors` here —
+            # that would replace LSP markers with an empty ESM-only list ~300ms after
+            # each edit and make errors vanish from the gutter while Problems still
+            # lists them.
+            return
+
         errors: list[SyntaxError_] = []
 
         if self._language == "json" and text.strip():
@@ -488,6 +725,19 @@ class _FoldingMixin(_FoldingBase):
 
         elif self._language == "graphql" and text.strip():
             errors.extend(self._validate_graphql_braces(text))
+
+        elif self._language in ("javascript", "typescript", "python") and text.strip():
+            errors.extend(self._validate_script(text))
+
+        if self._language in ("javascript", "typescript", "python"):
+            from typing import cast
+
+            from ui.widgets.code_editor.editor_lsp_glue import (
+                apply_standalone_dependency_diagnostics,
+            )
+            from ui.widgets.code_editor.editor_widget import CodeEditorWidget
+
+            apply_standalone_dependency_diagnostics(cast(CodeEditorWidget, self))
 
         old_has_errors = bool(self._errors)
         new_has_errors = bool(errors)
@@ -537,3 +787,32 @@ class _FoldingMixin(_FoldingBase):
             )
 
         return errors
+
+    def _validate_script(self, text: str) -> list[SyntaxError_]:
+        """Check syntax + pm API usage for a JavaScript or Python script."""
+        from services.scripting.engine import ScriptLinter
+
+        mod_fmt = getattr(self, "_script_module_format", "esm")
+        if self._language in ("javascript", "typescript"):
+            if mod_fmt == "commonjs":
+                diags = ScriptLinter.check_commonjs_local_script(text)
+            elif self._should_skip_script_validation():
+                diags = ScriptLinter.check_es_module(text, self._language)
+            elif not self._should_skip_script_validation():
+                diags = ScriptLinter.check(text, self._language)
+            else:
+                diags = []
+        elif not self._should_skip_script_validation():
+            diags = ScriptLinter.check(text, self._language)
+        else:
+            diags = []
+
+        return [
+            SyntaxError_(
+                line=d["line"],
+                column=d["column"],
+                message=d["message"],
+                severity=d["severity"],
+            )
+            for d in diags
+        ]

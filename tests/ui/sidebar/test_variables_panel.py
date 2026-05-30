@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtWidgets import QApplication, QLabel
+from PySide6.QtWidgets import QApplication, QLabel, QLineEdit
 
 from ui.sidebar.variables_panel import VariablesPanel
 
@@ -35,7 +35,10 @@ class TestVariablesPanel:
         }
         panel.load_variables(variables, has_environment=True)
         labels = panel._content.findChildren(QLabel)
-        texts = [lbl.text() for lbl in labels]
+        edits = panel._content.findChildren(QLineEdit)
+        label_texts = [lbl.text() for lbl in labels]
+        edit_texts = [e.text() for e in edits]
+        texts = label_texts + edit_texts
         assert "api_key" in texts
         assert "abc123" in texts
         # Section header should be present
@@ -54,7 +57,8 @@ class TestVariablesPanel:
         }
         panel.load_variables(variables, has_environment=True)
         labels = panel._content.findChildren(QLabel)
-        texts = [lbl.text() for lbl in labels]
+        edits = panel._content.findChildren(QLineEdit)
+        texts = [lbl.text() for lbl in labels] + [e.text() for e in edits]
         assert "base_url" in texts
         assert "Requests collection" in texts
 
@@ -83,7 +87,8 @@ class TestVariablesPanel:
         }
         panel.load_variables(variables, local_overrides=overrides, has_environment=True)
         labels = panel._content.findChildren(QLabel)
-        texts = [lbl.text() for lbl in labels]
+        edits = panel._content.findChildren(QLineEdit)
+        texts = [lbl.text() for lbl in labels] + [e.text() for e in edits]
         assert "Local overrides" in texts
         assert "local_val" in texts
 
@@ -110,7 +115,8 @@ class TestVariablesPanel:
         }
         panel.load_variables(variables, has_environment=True)
         labels = panel._content.findChildren(QLabel)
-        texts = [lbl.text() for lbl in labels]
+        edits = panel._content.findChildren(QLineEdit)
+        texts = [lbl.text() for lbl in labels] + [e.text() for e in edits]
         assert "Environment" in texts
         assert "Requests collection" in texts
         assert "env_var" in texts
@@ -125,8 +131,11 @@ class TestVariablesPanel:
             "long_key": {"value": long_val, "source": "environment", "source_id": 1},
         }
         panel.load_variables(variables, has_environment=True)
-        labels = panel._content.findChildren(QLabel)
-        value_labels = [lbl for lbl in labels if lbl.objectName() == "variableValueLabel"]
-        assert len(value_labels) == 1
-        assert value_labels[0].text() == long_val
-        assert value_labels[0].toolTip() == long_val
+        value_edits = [
+            e
+            for e in panel._content.findChildren(QLineEdit)
+            if e.objectName() == "variableValueLabel"
+        ]
+        assert len(value_edits) == 1
+        assert value_edits[0].text() == long_val
+        assert value_edits[0].toolTip() == long_val

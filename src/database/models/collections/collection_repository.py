@@ -310,3 +310,34 @@ def update_request(request_id: int, **fields: Any) -> None:
             raise ValueError(f"No request found with id={request_id}")
         stmt = update(RequestModel).where(RequestModel.id == request_id).values(**fields)
         session.execute(stmt)
+
+
+_DEBUG_KEY = "debug"
+
+
+def merge_request_scripts_debug(request_id: int, debug: dict[str, Any]) -> None:
+    r"""Shallow-merge ``scripts["debug"]`` without changing script text fields."""
+    with get_session() as session:
+        req = session.get(RequestModel, request_id)
+        if req is None:
+            raise ValueError(f"No request found with id={request_id}")
+        scripts: dict[str, Any] = dict(req.scripts) if isinstance(req.scripts, dict) else {}
+        if debug:
+            scripts[_DEBUG_KEY] = debug
+        elif _DEBUG_KEY in scripts:
+            del scripts[_DEBUG_KEY]
+        req.scripts = scripts or None
+
+
+def merge_collection_events_debug(collection_id: int, debug: dict[str, Any]) -> None:
+    r"""Shallow-merge ``events["debug"]`` without changing event script text."""
+    with get_session() as session:
+        coll = session.get(CollectionModel, collection_id)
+        if coll is None:
+            raise ValueError(f"No collection found with id={collection_id}")
+        events: dict[str, Any] = dict(coll.events) if isinstance(coll.events, dict) else {}
+        if debug:
+            events[_DEBUG_KEY] = debug
+        elif _DEBUG_KEY in events:
+            del events[_DEBUG_KEY]
+        coll.events = events or None

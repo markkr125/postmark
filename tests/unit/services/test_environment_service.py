@@ -126,6 +126,16 @@ class TestVariableSubstitution:
         result = EnvironmentService.substitute("{{foo}}", {})
         assert result == "{{foo}}"
 
+    def test_substitute_dynamic_vars_empty_map(self) -> None:
+        """Postman ``$`` dynamic variables resolve even with an empty variable map."""
+        result = EnvironmentService.substitute("a/{{$guid}}?n={{$randomInt}}", {})
+        assert "/{{$guid}}" not in result
+        assert "{{$randomInt}}" not in result
+        parts = result.split("/")
+        assert len(parts) >= 2
+        guid_part = parts[1].split("?")[0]
+        assert len(guid_part) == 36
+
     def test_substitute_with_spaces(self) -> None:
         """Variables with surrounding spaces are trimmed."""
         result = EnvironmentService.substitute(

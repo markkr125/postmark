@@ -159,7 +159,8 @@ class TestCollapsedFoldHighlight:
             for s in editor.extraSelections()
             if s.format.boolProperty(QTextCharFormat.Property.FullWidthSelection)
         ]
-        assert len(full_width_sels) == 0, "No full-width highlight when all folds are expanded"
+        # Only the current-line highlight should remain (no fold highlights)
+        assert len(full_width_sels) <= 1, "No fold highlight when all folds are expanded"
 
 
 # -- Hand cursor on fold gutter ----------------------------------------

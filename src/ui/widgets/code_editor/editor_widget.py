@@ -19,36 +19,74 @@ Large responses (5 000+ lines) must remain smooth.  Hot paths are:
 
 from __future__ import annotations
 
-import json
-import xml.dom.minidom
-from typing import TYPE_CHECKING, cast
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from PySide6.QtCore import QEvent, QPoint, QRect, Qt, QTimer, Signal
-from PySide6.QtGui import QFont, QHelpEvent, QKeyEvent, QMouseEvent, QTextCursor
+from PySide6.QtGui import (
+    QColor,
+    QFont,
+    QHelpEvent,
+    QKeyEvent,
+    QKeySequence,
+    QShortcut,
+    QTextCharFormat,
+    QTextCursor,
+)
 from PySide6.QtWidgets import QPlainTextEdit, QTextEdit, QToolTip, QWidget
 
 if TYPE_CHECKING:
     from services.environment_service import VariableDetail
+    from ui.styling.theme import ThemePalette
+    from ui.widgets.code_editor.lsp_integration import EditorLspAdapter
 
+from ui.widgets.code_editor import editor_lsp_glue as _lsp
+from ui.widgets.code_editor.completion.engine import CompletionEngine
+from ui.widgets.code_editor.completion.mixin import _CompletionMixin
+from ui.widgets.code_editor.editor_breakpoints import _BP_HOVER_TOOLTIP_DELAY_MS, _BreakpointMixin
+from ui.widgets.code_editor.editor_formatting import _FormattingMixin
+from ui.widgets.code_editor.editor_ident import _IdentMixin
+from ui.widgets.code_editor.editor_keyboard import _KeyboardMixin
+from ui.widgets.code_editor.editor_language import _LanguageMixin
+from ui.widgets.code_editor.editor_snippets import _SnippetMixin
+from ui.widgets.code_editor.editor_test_gutter import _TestGutterMixin
+from ui.widgets.code_editor.editor_variables import _VariableMixin
 from ui.widgets.code_editor.folding import _FoldingMixin
 from ui.widgets.code_editor.gutter import (
-    _AUTO_CLOSE_PAIRS,
-    _CLOSE_TO_OPEN,
     _CURSOR_DEBOUNCE_MS,
     _DEFAULT_INDENT_WIDTH,
     _FOLD_DEBOUNCE_MS,
     _VALIDATE_DEBOUNCE_MS,
-    _VAR_RE,
     SyntaxError_,
+    _BreakpointGutterArea,
     _FoldGutterArea,
     _LineNumberArea,
+    _MinimapArea,
+    _TestGutterArea,
 )
 from ui.widgets.code_editor.highlighter import PygmentsHighlighter
 from ui.widgets.code_editor.painting import _PaintingMixin
 
 
-class CodeEditorWidget(_PaintingMixin, _FoldingMixin, QPlainTextEdit):
+class CodeEditorWidget(
+    _FormattingMixin,
+    _SnippetMixin,
+    _TestGutterMixin,
+    _VariableMixin,
+    _LanguageMixin,
+    _CompletionMixin,
+    _KeyboardMixin,
+    _IdentMixin,
+    _PaintingMixin,
+    _BreakpointMixin,
+    _FoldingMixin,
+    QPlainTextEdit,
+):
     """Rich code editor with syntax highlighting, folding, and validation.
+
+    Class-level :meth:`set_open_local_script_handler` is wired once from
+    :class:`ui.main_window.window.MainWindow` so Ctrl+click on ``local:`` imports
+    can open the target script tab.
 
     Parameters:
         read_only: If ``True``, the editor is not editable and uses
@@ -58,9 +96,35 @@ class CodeEditorWidget(_PaintingMixin, _FoldingMixin, QPlainTextEdit):
     Signals:
         validation_changed: Emitted when validation errors change,
             carrying the list of ``SyntaxError_`` items.
+        lsp_diagnostics_changed: Emitted when the language server publishes
+            diagnostics for this editor's virtual document (list of
+            :class:`services.lsp.client.Diagnostic`). Empty when LSP detaches
+            or the buffer is swapped.
     """
 
     validation_changed = Signal(list)
+    lsp_diagnostics_changed = Signal(object)
+    breakpoints_changed = Signal()
+    diff_fold_toggled = Signal(int)
+    cursor_position_changed = Signal(int, int)  # (1-based line, 1-based col)
+    run_single_test_requested = Signal(str)
+    debug_single_test_requested = Signal(str)
+
+    _open_local_script_handler: ClassVar[Callable[[int], None] | None] = None
+
+    @classmethod
+    def set_open_local_script_handler(cls, handler: Callable[[int], None] | None) -> None:
+        """Register callback to open a local script tab by database id."""
+        cls._open_local_script_handler = handler
+
+    @classmethod
+    def _invoke_open_local_script(cls, script_id: int) -> bool:
+        """Open *script_id* via the registered handler; return whether handled."""
+        handler = cls._open_local_script_handler
+        if handler is None:
+            return False
+        handler(script_id)
+        return True
 
     def __init__(self, *, read_only: bool = False, parent: QWidget | None = None) -> None:
         """Initialise the code editor with gutter, highlighter, and timers."""
@@ -68,7 +132,13 @@ class CodeEditorWidget(_PaintingMixin, _FoldingMixin, QPlainTextEdit):
         self.setObjectName("codeEditor")
 
         self._read_only = read_only
+        self._snippet_script_type: str | None = None
+        self._local_script_id: int | None = None
+        self._lsp_attach_token: int = 0
+        # Light “paper” reader chrome in dark-themed modals (inherited script chain, etc.)
+        self._inherited_read_preview: bool = False
         self._language = "text"
+        self._script_module_format = "esm"
         self._word_wrap = True
         self._errors: list[SyntaxError_] = []
         self._fold_regions: dict[int, int] = {}  # start_line -> end_line
@@ -76,6 +146,11 @@ class CodeEditorWidget(_PaintingMixin, _FoldingMixin, QPlainTextEdit):
         self._sorted_folds: list[tuple[int, int, int]] = []
         self._collapsed_folds: set[int] = set()
         self._search_selections: list[QTextEdit.ExtraSelection] = []
+        self._diff_selections: list[QTextEdit.ExtraSelection] = []
+        self._symbol_link_selections: list[QTextEdit.ExtraSelection] = []
+        self._diff_line_colors: dict[int, QColor] = {}
+        self._diff_fold_ranges: list[tuple[int, int]] = []
+        self._collapsed_diff_folds: set[int] = set()
         self._variable_map: dict[str, VariableDetail] = {}
 
         # Hover tracking for fast variable popup display
@@ -88,11 +163,43 @@ class CodeEditorWidget(_PaintingMixin, _FoldingMixin, QPlainTextEdit):
         # Detected indent width for this document.
         self._detected_indent: int = _DEFAULT_INDENT_WIDTH
 
+        # Optional language-server adapter for script modes (see :meth:`attach_lsp`).
+        self._lsp_adapter: EditorLspAdapter | None = None
+        self._lsp_attach_deferred = False
+
+        # Completion engine (kept per-editor — holds language + variable map).
+        self._completion_engine = CompletionEngine("javascript")
+        self._completion_prefix: str = ""
+        self._symbol_hover_path: str | None = None
+        self._local_require_link_range: tuple[int, int] | None = None
+        self._symbol_hover_global_pos = QPoint()
+        self._symbol_hover_timer = QTimer(self)
+        self._symbol_hover_timer.setSingleShot(True)
+        self._symbol_hover_timer.timeout.connect(self._show_symbol_doc_popup)
+        self._lsp_def_hover_timer = QTimer(self)
+        self._lsp_def_hover_timer.setSingleShot(True)
+        self._lsp_def_hover_timer.timeout.connect(self._on_lsp_def_hover_timeout)
+        self._lsp_def_hover_pending = False
+
         # Collapsed-fold badge rectangles for click hit-testing.
         self._fold_badge_rects: dict[int, QRect] = {}
 
         # Cache for the active (innermost) fold region at the cursor.
         self._active_fold_start: int = -1
+
+        # Breakpoint and debug state.
+        self._breakpoints: dict[int, str | None] = {}
+        self._top_level_lines: set[int] = set()
+        self._debug_line: int | None = None
+        self._debug_locals: dict[str, Any] = {}
+        self._debug_root_values: dict[str, Any] = {}
+        self._debug_session_active = False
+        self._show_breakpoint_gutter = False
+        self._breakpoint_hover_line: int | None = None
+        # Per-test gutter (``pm.test`` line markers) — enabled by script hosts.
+        self._test_gutter_enabled = False
+        self._pm_tests: list[dict[str, Any]] = []
+        self._inline_log_annotations: dict[int, str] = {}
 
         if read_only:
             self.setReadOnly(True)
@@ -103,6 +210,15 @@ class CodeEditorWidget(_PaintingMixin, _FoldingMixin, QPlainTextEdit):
         # Gutter widgets
         self._line_number_area = _LineNumberArea(self)
         self._fold_gutter_area = _FoldGutterArea(self)
+        self._bp_gutter_area = _BreakpointGutterArea(self)
+        self._bp_gutter_area.setVisible(False)
+        self._test_gutter_area = _TestGutterArea(self)
+        self._test_gutter_area.setVisible(False)
+
+        # Minimap (right-side viewport overview)
+        self._minimap = _MinimapArea(self)
+        self._minimap.setVisible(False)
+        self._show_minimap = False
 
         # Pre-built Phosphor fold font (avoids per-line allocation).
         self._fold_font: QFont | None = None
@@ -123,52 +239,142 @@ class CodeEditorWidget(_PaintingMixin, _FoldingMixin, QPlainTextEdit):
         self._cursor_timer.setInterval(_CURSOR_DEBOUNCE_MS)
         self._cursor_timer.timeout.connect(self._on_cursor_idle)
 
+        self._bp_hover_tip_timer = QTimer(self)
+        self._bp_hover_tip_timer.setSingleShot(True)
+        self._bp_hover_tip_timer.setInterval(_BP_HOVER_TOOLTIP_DELAY_MS)
+        self._bp_hover_tip_timer.timeout.connect(self._show_bp_hover_tooltip_if_valid)
+        self._bp_hover_tip_target_line: int | None = None
+
+        self._format_in_progress = False
+        self._skip_format_on_idle = False
+        self._format_on_idle_timer = QTimer(self)
+        self._format_on_idle_timer.setSingleShot(True)
+        self._format_on_idle_timer.setInterval(500)
+        self._format_on_idle_timer.timeout.connect(self._on_format_on_idle_timeout)
+
         # Connect signals
         self.blockCountChanged.connect(self._update_gutter_width)
         self.updateRequest.connect(self._update_gutters)
         self.cursorPositionChanged.connect(self._cursor_timer.start)
+        self.cursorPositionChanged.connect(self._emit_cursor_position)
+        self.cursorPositionChanged.connect(self._on_cursor_moved_parameter_hint)
 
         self.setMouseTracking(True)
         self.viewport().setMouseTracking(True)
 
         if not read_only:
             self.document().contentsChanged.connect(self._on_contents_changed)
+            self.document().contentsChanged.connect(self._schedule_format_on_idle)
+
+        self._install_layout_independent_shortcuts()
+        if not read_only:
+            self._install_format_shortcuts()
 
         self._update_gutter_width()
 
-    # -- Language -------------------------------------------------------
+    def _install_layout_independent_shortcuts(self) -> None:
+        """Register Ctrl+Q / Ctrl+P / Ctrl+/ via :class:`QShortcut`.
 
-    @property
-    def language(self) -> str:
-        """Return the active language."""
-        return self._language
+        ``QKeyEvent.key()`` follows the active keyboard layout, so a Hebrew
+        layout maps physical ``Q`` to ``Key_Slash`` and pressing Ctrl+Q
+        toggles the line comment instead of opening the quick-doc popup.
+        ``QShortcut`` matches against the portable ``Ctrl+Q`` sequence
+        regardless of layout.
+        """
+        ctx = Qt.ShortcutContext.WidgetShortcut
+        quick_doc_sc = QShortcut(QKeySequence("Ctrl+Q"), self)
+        quick_doc_sc.setContext(ctx)
+        quick_doc_sc.activated.connect(self._activate_quick_doc)
 
-    def set_language(self, language: str) -> None:
-        """Switch syntax highlighting, folding, and validation language."""
-        lang = language.lower()
-        if lang == self._language:
+        param_hint_sc = QShortcut(QKeySequence("Ctrl+P"), self)
+        param_hint_sc.setContext(ctx)
+        param_hint_sc.activated.connect(self.trigger_parameter_hint)
+
+        comment_sc = QShortcut(QKeySequence("Ctrl+/"), self)
+        comment_sc.setContext(ctx)
+        comment_sc.activated.connect(self._activate_line_comment_toggle)
+
+    def _activate_quick_doc(self) -> None:
+        """Show the quick-doc popup for the symbol at the text cursor."""
+        hit = self._ident_at_text_cursor()
+        if hit is None:
             return
-        self._language = lang
-        self._highlighter.set_language(lang)
-        self._errors = []
-        self._fold_regions = {}
-        self._collapsed_folds = set()
-        self._sorted_folds = []
-        self._active_fold_start = -1
-        self.validation_changed.emit([])
-        if not self._read_only:
-            self._fold_timer.start()
-            self._validate_timer.start()
-        else:
-            self._recompute_folds()
+        path, _start, _end = hit
+        adapter = getattr(self, "_lsp_adapter", None)
+        if adapter is not None:
+            future = adapter.request_hover()
+            if future is not None:
+                future.add_done_callback(
+                    lambda f, _path=path: _lsp.on_lsp_hover_response(self, f, _path)
+                )
+                return
+        sym = self._completion_engine.resolve_symbol(path, self.toPlainText())
+        if sym is None:
+            return
+        cr = self.cursorRect()
+        gp = self.mapToGlobal(cr.bottomLeft())
+        self._symbol_hover_global_pos = gp
+        self._symbol_doc_popup.show_for(gp, sym)
 
-    # -- Content helpers ------------------------------------------------
+    def _activate_line_comment_toggle(self) -> None:
+        """Toggle line comment unless the editor is read-only."""
+        if self._read_only:
+            return
+        self._toggle_line_comment()
 
-    def set_variable_map(self, variables: dict[str, VariableDetail]) -> None:
-        """Update the variable resolution map and rehighlight."""
-        self._variable_map = variables
-        self._highlighter.set_variable_map(variables)
-        self._highlighter.rehighlight()
+    def _should_skip_script_validation(self) -> bool:
+        """Skip ``ScriptLinter`` only after the LSP handshake completes."""
+        return _lsp.should_skip_script_validation(self)
+
+    def _on_lsp_ready(self) -> None:
+        """Adapter hook when the language server finishes initialising."""
+        _lsp.on_lsp_ready(self)
+
+    def attach_lsp(self, language: str) -> None:
+        """Attach to the shared language server for *language* (script modes only)."""
+        _lsp.attach_lsp(self, language)
+
+    def next_lsp_attach_token(self) -> int:
+        """Increment and return the LSP attach generation (invalidates in-flight prep)."""
+        self._lsp_attach_token += 1
+        return self._lsp_attach_token
+
+    def lsp_attach_token(self) -> int:
+        """Return the current LSP attach generation."""
+        return self._lsp_attach_token
+
+    def set_lsp_attach_deferred(self, deferred: bool) -> None:
+        """Defer LSP until the editor is shown (hidden script sub-panes)."""
+        _lsp.set_lsp_attach_deferred(self, deferred)
+
+    def materialize_lsp_attachment(self) -> None:
+        """Attach LSP after :meth:`set_lsp_attach_deferred` (``False``)."""
+        _lsp.materialize_lsp_attachment(self)
+
+    def detach_lsp(self) -> None:
+        """Disconnect from the language server and restore legacy validation."""
+        _lsp.detach_lsp(self)
+
+    def notify_lsp_diagnostics(self, diags: list[Any]) -> None:
+        """Emit :attr:`lsp_diagnostics_changed` for UI surfaces (e.g. Problems tab)."""
+        _lsp.notify_lsp_diagnostics(self, diags)
+
+    def trigger_parameter_hint(self) -> None:
+        """Show parameter-info for the call surrounding the cursor (Ctrl+P)."""
+        _lsp.trigger_parameter_hint(self)
+
+    def set_minimap_visible(self, visible: bool) -> None:
+        """Show or hide the right-side minimap."""
+        self._show_minimap = visible
+        self._minimap.setVisible(visible)
+        self._update_gutter_width()
+
+    def contextMenuEvent(self, event: Any) -> None:
+        """Standard context menu plus format actions and optional snippet capture."""
+        menu = self.createStandardContextMenu()
+        self._add_format_menu_actions(menu)
+        self._add_snippet_menu_action(menu)
+        menu.exec(event.globalPos())
 
     def setPlainText(self, text: str) -> None:
         """Override to re-detect indent width whenever content is replaced."""
@@ -183,34 +389,6 @@ class CodeEditorWidget(_PaintingMixin, _FoldingMixin, QPlainTextEdit):
             self._highlighter.rehighlight()
         self._recompute_folds()
         self._validate()
-
-    # -- Prettify -------------------------------------------------------
-
-    def prettify(self) -> bool:
-        """Auto-format the current content. Return True if formatting changed."""
-        text = self.toPlainText()
-        if not text.strip():
-            return False
-
-        if self._language == "json":
-            try:
-                parsed = json.loads(text)
-                pretty = json.dumps(parsed, indent=4, ensure_ascii=False)
-                if pretty != text:
-                    self.setPlainText(pretty)
-                    return True
-            except (json.JSONDecodeError, TypeError):
-                pass
-        elif self._language in ("xml", "html"):
-            try:
-                dom = xml.dom.minidom.parseString(text)
-                pretty = dom.toprettyxml(indent="    ")
-                if pretty != text:
-                    self.setPlainText(pretty)
-                    return True
-            except Exception:
-                pass
-        return False
 
     # -- Word wrap ------------------------------------------------------
 
@@ -233,11 +411,108 @@ class CodeEditorWidget(_PaintingMixin, _FoldingMixin, QPlainTextEdit):
         self._search_selections = selections
         self._refresh_extra_selections()
 
+    def set_symbol_link_range(self, start: int | None, end: int | None) -> None:
+        """Underline the document range ``[start, end)`` as a Ctrl+hover link.
+
+        Pass ``None`` for either bound to clear the underline.
+        """
+        if start is None or end is None or end <= start:
+            if not self._symbol_link_selections:
+                return
+            self._symbol_link_selections = []
+            self._refresh_extra_selections()
+            return
+        sel = QTextEdit.ExtraSelection()
+        cur = QTextCursor(self.document())
+        cur.setPosition(start)
+        cur.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+        fmt = QTextCharFormat()
+        fmt.setFontUnderline(True)
+        sel.cursor = cur
+        sel.format = fmt
+        self._symbol_link_selections = [sel]
+        self._refresh_extra_selections()
+
+    def set_diff_selections(self, selections: list[QTextEdit.ExtraSelection]) -> None:
+        """Store diff highlight selections and refresh extra selections."""
+        self._diff_selections = selections
+        self._refresh_extra_selections()
+
+    def set_inline_log_annotations(self, annotations: dict[int, str]) -> None:
+        """Set faint trailing text for inline ``console.log`` / ``print`` output.
+
+        Keys are 0-based line numbers; values are display strings (already
+        elided in the paint pass when wider than the cap).
+        """
+        self._inline_log_annotations = dict(annotations)
+        self.viewport().update()
+
+    def clear_inline_log_annotations(self) -> None:
+        """Remove inline console annotations (e.g. on edit or new run)."""
+        if not self._inline_log_annotations:
+            return
+        self._inline_log_annotations = {}
+        self.viewport().update()
+
+    def set_diff_line_colors(self, line_colors: dict[int, QColor]) -> None:
+        """Set per-line gutter stripe colours for diff highlighting."""
+        self._diff_line_colors = line_colors
+        self._line_number_area.update()
+
+    def set_diff_fold_ranges(self, ranges: list[tuple[int, int]]) -> None:
+        """Set foldable unchanged-region ranges for diff mode."""
+        self._diff_fold_ranges = ranges
+        self._collapsed_diff_folds = set(range(len(ranges)))
+
+    def toggle_diff_fold(self, idx: int, *, emit: bool = True) -> None:
+        """Toggle a diff fold region open/closed."""
+        if idx < 0 or idx >= len(self._diff_fold_ranges):
+            return
+        if idx in self._collapsed_diff_folds:
+            self._collapsed_diff_folds.discard(idx)
+        else:
+            self._collapsed_diff_folds.add(idx)
+        if emit:
+            self.diff_fold_toggled.emit(idx)
+
+    def _editor_palette(self) -> ThemePalette:
+        """Colours for editor chrome: light paper when :meth:`set_inherited_read_preview` is on."""
+        if getattr(self, "_inherited_read_preview", False):
+            from ui.styling.theme import LIGHT_PALETTE
+
+            return LIGHT_PALETTE
+        from ui.styling.theme import current_palette
+
+        return current_palette()
+
+    def set_inherited_read_preview(self, enabled: bool) -> None:
+        """Use a light, paper-style surface and syntax colours (for read-only modals in a dark app)."""
+        self._inherited_read_preview = bool(enabled and self._read_only)
+        self.setObjectName(
+            "codeEditorInheritedRead" if self._inherited_read_preview else "codeEditor"
+        )
+        if self._inherited_read_preview:
+            from ui.styling.theme import LIGHT_PALETTE
+
+            self._highlighter.set_token_palette(LIGHT_PALETTE)
+        else:
+            self._highlighter.set_token_palette(None)
+        self._line_number_area.update()
+        self._fold_gutter_area.update()
+        self._bp_gutter_area.update()
+        self._test_gutter_area.update()
+        self.viewport().update()
+
     # -- Rebuild on theme change ----------------------------------------
 
     def rebuild_highlight_formats(self) -> None:
         """Rebuild syntax colours from the current theme palette."""
-        self._highlighter.rebuild_formats()
+        if getattr(self, "_inherited_read_preview", False):
+            from ui.styling.theme import LIGHT_PALETTE
+
+            self._highlighter.set_token_palette(LIGHT_PALETTE)
+        else:
+            self._highlighter.rebuild_formats()
 
     # -- Cursor-idle handler (debounced) --------------------------------
 
@@ -245,6 +520,14 @@ class CodeEditorWidget(_PaintingMixin, _FoldingMixin, QPlainTextEdit):
         """Handle bracket matching and active-guide update after cursor settles."""
         self._highlight_matching_bracket()
         self._update_active_fold()
+
+    def _emit_cursor_position(self) -> None:
+        """Emit the cursor_position_changed signal with 1-based line and column."""
+        cursor = self.textCursor()
+        self.cursor_position_changed.emit(
+            cursor.blockNumber() + 1,
+            cursor.positionInBlock() + 1,
+        )
 
     def _update_active_fold(self) -> None:
         """Recompute the innermost fold region at the cursor and repaint if changed."""
@@ -261,171 +544,15 @@ class CodeEditorWidget(_PaintingMixin, _FoldingMixin, QPlainTextEdit):
             self._active_fold_start = best_start
             self.viewport().update()
 
-    # -- Block indent / outdent -----------------------------------------
-
-    @staticmethod
-    def _indent_selection(cursor: QTextCursor, indent_width: int) -> None:
-        """Prepend *indent_width* spaces to every line touched by *cursor*."""
-        indent = " " * indent_width
-        start = cursor.selectionStart()
-        end = cursor.selectionEnd()
-
-        cursor.beginEditBlock()
-
-        cursor.setPosition(start)
-        cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock)
-        first_block = cursor.blockNumber()
-
-        cursor.setPosition(end, QTextCursor.MoveMode.MoveAnchor)
-        if cursor.positionInBlock() == 0 and cursor.blockNumber() > first_block:
-            cursor.movePosition(QTextCursor.MoveOperation.PreviousBlock)
-        last_block = cursor.blockNumber()
-
-        blk = cursor.document().findBlockByNumber(first_block)
-        while blk.isValid() and blk.blockNumber() <= last_block:
-            cursor.setPosition(blk.position())
-            cursor.insertText(indent)
-            blk = blk.next()
-
-        cursor.endEditBlock()
-
-        new_start = cursor.document().findBlockByNumber(first_block).position()
-        end_block = cursor.document().findBlockByNumber(last_block)
-        new_end = end_block.position() + len(end_block.text())
-        cursor.setPosition(new_start)
-        cursor.setPosition(new_end, QTextCursor.MoveMode.KeepAnchor)
-
-    @staticmethod
-    def _outdent_selection(cursor: QTextCursor, indent_width: int) -> None:
-        """Remove up to *indent_width* leading spaces from every selected line."""
-        start = cursor.selectionStart()
-        end = cursor.selectionEnd()
-
-        cursor.beginEditBlock()
-
-        cursor.setPosition(start)
-        cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock)
-        first_block = cursor.blockNumber()
-
-        cursor.setPosition(end, QTextCursor.MoveMode.MoveAnchor)
-        if cursor.positionInBlock() == 0 and cursor.blockNumber() > first_block:
-            cursor.movePosition(QTextCursor.MoveOperation.PreviousBlock)
-        last_block = cursor.blockNumber()
-
-        blk = cursor.document().findBlockByNumber(first_block)
-        while blk.isValid() and blk.blockNumber() <= last_block:
-            txt = blk.text()
-            leading = len(txt) - len(txt.lstrip(" "))
-            remove = min(indent_width, leading)
-            if remove > 0:
-                cursor.setPosition(blk.position())
-                for _ in range(remove):
-                    cursor.deleteChar()
-            blk = blk.next()
-
-        cursor.endEditBlock()
-
-        new_start = cursor.document().findBlockByNumber(first_block).position()
-        end_block = cursor.document().findBlockByNumber(last_block)
-        new_end = end_block.position() + len(end_block.text())
-        cursor.setPosition(new_start)
-        cursor.setPosition(new_end, QTextCursor.MoveMode.KeepAnchor)
-
-    # -- Auto-close brackets --------------------------------------------
-
-    def keyPressEvent(self, event: QKeyEvent) -> None:
-        """Handle Tab-to-spaces, auto-closing brackets and quotes."""
-        if self._read_only:
-            super().keyPressEvent(event)
-            return
-
-        iw = self._detected_indent
-
-        # Tab — block indent or insert spaces
-        if event.key() == Qt.Key.Key_Tab and not event.modifiers():
-            cursor = self.textCursor()
-            if cursor.hasSelection():
-                self._indent_selection(cursor, iw)
-            else:
-                cursor.insertText(" " * iw)
-            return
-
-        # Shift+Tab — block outdent
-        if event.key() == Qt.Key.Key_Backtab:
-            cursor = self.textCursor()
-            if cursor.hasSelection():
-                self._outdent_selection(cursor, iw)
-            else:
-                block_text = cursor.block().text()
-                leading = len(block_text) - len(block_text.lstrip(" "))
-                remove = min(iw, leading)
-                if remove > 0:
-                    cursor.movePosition(
-                        QTextCursor.MoveOperation.StartOfBlock,
-                        QTextCursor.MoveMode.MoveAnchor,
-                    )
-                    for _ in range(remove):
-                        cursor.deleteChar()
-                    self.setTextCursor(cursor)
-            return
-
-        text = event.text()
-        cursor = self.textCursor()
-
-        # Auto-close pairs
-        if text in _AUTO_CLOSE_PAIRS:
-            closing = _AUTO_CLOSE_PAIRS[text]
-
-            block_text = cursor.block().text()
-            pos_in_block = cursor.positionInBlock()
-            if text == closing and pos_in_block < len(block_text):
-                next_char = block_text[pos_in_block]
-                if next_char == closing:
-                    cursor.movePosition(
-                        QTextCursor.MoveOperation.Right, QTextCursor.MoveMode.MoveAnchor
-                    )
-                    self.setTextCursor(cursor)
-                    return
-
-            if cursor.hasSelection():
-                selected = cursor.selectedText()
-                cursor.insertText(text + selected + closing)
-            else:
-                cursor.insertText(text + closing)
-                cursor.movePosition(QTextCursor.MoveOperation.Left, QTextCursor.MoveMode.MoveAnchor)
-                self.setTextCursor(cursor)
-            return
-
-        # Skip over closing bracket
-        if text in _CLOSE_TO_OPEN or text in (")", "]", "}"):
-            block_text = cursor.block().text()
-            pos_in_block = cursor.positionInBlock()
-            if pos_in_block < len(block_text) and block_text[pos_in_block] == text:
-                cursor.movePosition(
-                    QTextCursor.MoveOperation.Right, QTextCursor.MoveMode.MoveAnchor
-                )
-                self.setTextCursor(cursor)
-                return
-
-        super().keyPressEvent(event)
-
-    # -- Tooltip for errors ---------------------------------------------
-
-    def _var_at_cursor(self, pos: QPoint) -> str | None:
-        """Return the variable name at pixel *pos*, or ``None``."""
-        cursor = self.cursorForPosition(pos)
-        block = cursor.block()
-        block_text = block.text()
-        if "{{" not in block_text:
-            return None
-        pos_in_block = cursor.positionInBlock()
-        for match in _VAR_RE.finditer(block_text):
-            if match.start() <= pos_in_block <= match.end():
-                return match.group(1)
-        return None
-
     def event(self, event: QEvent) -> bool:
         """Show tooltip for error messages on hover; suppress for variables."""
+        if event.type() == QEvent.Type.ShortcutOverride:
+            from ui.widgets.code_editor.editor_keyboard import _is_quick_doc_shortcut
+
+            ke = cast("QKeyEvent", event)
+            if _is_quick_doc_shortcut(ke):
+                event.accept()
+                return True
         if event.type() == QEvent.Type.ToolTip:
             help_event = cast("QHelpEvent", event)
             cursor = self.cursorForPosition(help_event.pos())
@@ -444,54 +571,19 @@ class CodeEditorWidget(_PaintingMixin, _FoldingMixin, QPlainTextEdit):
             return True
         return super().event(event)
 
-    # -- Variable hover popup ------------------------------------------
-
-    def _show_var_hover_popup(self) -> None:
-        """Show the variable popup for the currently hovered variable."""
-        if self._var_hover_name is None:
+    def _show_symbol_doc_popup(self) -> None:
+        """Resolve the hovered/focused symbol and show the quick-doc popup."""
+        if self._symbol_hover_path is None:
             return
-        from ui.widgets.variable_popup import VariablePopup
+        sym = self._completion_engine.resolve_symbol(self._symbol_hover_path, self.toPlainText())
+        if sym is None:
+            return
+        self._symbol_doc_popup.show_for(self._symbol_hover_global_pos, sym)
 
-        detail = self._variable_map.get(self._var_hover_name)
-        VariablePopup.show_variable(self._var_hover_name, detail, self._var_hover_global_pos, self)
+    def _dismiss_symbol_doc(self) -> None:
+        """Hide the symbol-doc popup and stop the hover timer."""
+        self._symbol_doc_popup.hide_popup()
+        self._symbol_hover_path = None
+        self._symbol_hover_timer.stop()
 
-    # -- Fold badge interaction -----------------------------------------
-
-    def mousePressEvent(self, event: QMouseEvent) -> None:
-        """Expand a collapsed fold when its ``...`` badge is clicked."""
-        if event.button() == Qt.MouseButton.LeftButton and self._fold_badge_rects:
-            pos = event.position().toPoint()
-            for start_line, rect in self._fold_badge_rects.items():
-                if rect.contains(pos):
-                    self.toggle_fold(start_line)
-                    return
-        super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event: QMouseEvent) -> None:
-        """Track variable hover and fold-badge cursor changes."""
-        pos = event.position().toPoint()
-
-        # 1. Fold badge cursor
-        if self._fold_badge_rects:
-            for rect in self._fold_badge_rects.values():
-                if rect.contains(pos):
-                    self.viewport().setCursor(Qt.CursorShape.PointingHandCursor)
-                    super().mouseMoveEvent(event)
-                    return
-        self.viewport().setCursor(Qt.CursorShape.IBeamCursor)
-
-        # 2. Variable hover tracking
-        var_name = self._var_at_cursor(pos)
-        if var_name:
-            if var_name != self._var_hover_name:
-                self._var_hover_name = var_name
-                self._var_hover_global_pos = event.globalPosition().toPoint()
-                from ui.widgets.variable_popup import VariablePopup
-
-                self._var_hover_timer.start(VariablePopup.hover_delay_ms())
-        else:
-            if self._var_hover_name is not None:
-                self._var_hover_name = None
-                self._var_hover_timer.stop()
-
-        super().mouseMoveEvent(event)
+    # -- Fold badge / completion / mouse — see _CompletionMixin ---------

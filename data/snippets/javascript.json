@@ -1,0 +1,180 @@
+{
+  "_comment": "Snippets for the JS/TS script editors. Schema: data/snippets/README.md. Bodies are inserted verbatim at the cursor. ``contexts`` filters which editor (pre/post) shows the category.",
+  "language": "javascript",
+  "categories": [
+    {
+      "_comment": "Send sub-requests via the inline pm.sendRequest IPC. Useful from both pre-request and tests.",
+      "name": "Send requests",
+      "contexts": ["pre", "post", "local"],
+      "snippets": [
+        {
+          "name": "Send an HTTP request",
+          "body": "try {\n    const response = await pm.sendRequest({\n        url: \"https://postman-echo.com/get\",\n        method: \"GET\"\n    });\n\n    console.log(response.json());\n} catch (err) {\n    console.error(err);\n}"
+        }
+      ]
+    },
+    {
+      "_comment": "Variable getters/setters/unsetters. Visible in every script editor.",
+      "name": "Variables",
+      "contexts": ["pre", "post", "local"],
+      "snippets": [
+        { "name": "Get a global variable", "body": "pm.globals.get(\"variable_key\");" },
+        { "name": "Get a collection variable", "body": "pm.collectionVariables.get(\"variable_key\");" },
+        { "name": "Get an environment variable", "body": "pm.environment.get(\"variable_key\");" },
+        { "name": "Get a variable", "body": "pm.variables.get(\"variable_key\");" },
+        { "name": "Set a global variable", "body": "pm.globals.set(\"variable_key\", \"variable_value\");" },
+        { "name": "Set a collection variable", "body": "pm.collectionVariables.set(\"variable_key\", \"variable_value\");" },
+        { "name": "Set an environment variable", "body": "pm.environment.set(\"variable_key\", \"variable_value\");" },
+        { "name": "Set a variable", "body": "pm.variables.set(\"variable_key\", \"variable_value\");" },
+        { "name": "Clear a global variable", "body": "pm.globals.unset(\"variable_key\");" },
+        { "name": "Clear a collection variable", "body": "pm.collectionVariables.unset(\"variable_key\");" },
+        { "name": "Clear an environment variable", "body": "pm.environment.unset(\"variable_key\");" },
+        { "name": "Clear a local variable", "body": "pm.variables.unset(\"variable_key\");" }
+      ]
+    },
+    {
+      "_comment": "Pre-request setup: auth headers, dynamic IDs, timestamps. Hidden from the post-response editor.",
+      "name": "Request setup",
+      "contexts": ["pre", "local"],
+      "snippets": [
+        {
+          "name": "Set bearer token from env",
+          "body": "pm.request.headers.add({\n    key: \"Authorization\",\n    value: \"Bearer \" + pm.environment.get(\"token\")\n});"
+        },
+        {
+          "name": "Set basic auth header",
+          "body": "const creds = btoa(pm.environment.get(\"user\") + \":\" + pm.environment.get(\"pass\"));\npm.request.headers.add({\n    key: \"Authorization\",\n    value: \"Basic \" + creds\n});"
+        },
+        {
+          "name": "Add ISO timestamp header",
+          "body": "pm.request.headers.add({\n    key: \"X-Timestamp\",\n    value: new Date().toISOString()\n});"
+        },
+        {
+          "name": "Generate UUID v4 (via pm.require)",
+          "body": "const uuid = pm.require(\"uuid\");\npm.variables.set(\"request_id\", uuid.v4());"
+        },
+        {
+          "name": "Login flow: fetch token, save to env",
+          "body": "const response = await pm.sendRequest({\n    url: pm.environment.get(\"login_url\"),\n    method: \"POST\",\n    header: { \"Content-Type\": \"application/json\" },\n    body: { mode: \"raw\", raw: JSON.stringify({ user: \"u\", pass: \"p\" }) }\n});\npm.environment.set(\"token\", response.json().token);"
+        },
+        {
+          "name": "Set request body from variable",
+          "body": "pm.variables.set(\"payload\", JSON.stringify({ name: \"alice\", age: 30 }));"
+        }
+      ]
+    },
+    {
+      "_comment": "Post-response assertions — Postman-style chai chains. Hidden from the pre-request editor.",
+      "name": "Tests",
+      "contexts": ["post"],
+      "snippets": [
+        {
+          "name": "Status code is 200",
+          "body": "pm.test(\"Status code is 200\", function () {\n    pm.response.to.have.status(200);\n});"
+        },
+        {
+          "name": "Response body: contains a string",
+          "body": "pm.test(\"Body matches string\", function () {\n    pm.expect(pm.response.text()).to.include(\"string_you_want_to_search\");\n});"
+        },
+        {
+          "name": "Response body: JSON value check",
+          "body": "pm.test(\"Your test name\", function () {\n    const jsonData = pm.response.json();\n    pm.expect(jsonData.value).to.eql(100);\n});"
+        },
+        {
+          "name": "Response body: is equal to a string",
+          "body": "pm.test(\"Body is correct\", function () {\n    pm.response.to.have.body(\"response_body_string\");\n});"
+        },
+        {
+          "name": "Response body: Content-Type header check",
+          "body": "pm.test(\"Content-Type is present\", function () {\n    pm.response.to.have.header(\"Content-Type\");\n});"
+        },
+        {
+          "name": "Response time is less than 200ms",
+          "body": "pm.test(\"Response time is less than 200ms\", function () {\n    pm.expect(pm.response.responseTime).to.be.below(200);\n});"
+        },
+        {
+          "name": "Status code: successful POST request",
+          "body": "pm.test(\"Successful POST request\", function () {\n    pm.expect(pm.response.code).to.be.oneOf([201, 202]);\n});"
+        },
+        {
+          "name": "Status code: code name has string",
+          "body": "pm.test(\"Status code name has string\", function () {\n    pm.response.to.have.status(\"Created\");\n});"
+        },
+        {
+          "name": "Validate JSON schema with tv4",
+          "body": "const tv4 = pm.require(\"tv4\");\nconst schema = {\n    \"items\": { \"type\": \"boolean\" }\n};\nconst data1 = [true, false];\npm.test(\"Schema is valid\", function () {\n    pm.expect(tv4.validate(data1, schema)).to.be.true;\n});"
+        },
+        {
+          "name": "Save response value to env",
+          "body": "const data = pm.response.json();\npm.environment.set(\"saved_id\", data.id);"
+        },
+        {
+          "name": "Header equals specific value",
+          "body": "pm.test(\"Content-Type is JSON\", function () {\n    pm.response.to.have.header(\"Content-Type\", \"application/json\");\n});"
+        },
+        {
+          "name": "JSON body deep path check",
+          "body": "pm.test(\"User name in body\", function () {\n    pm.expect(pm.response.json()).to.have.property(\"user\");\n    pm.expect(pm.response.json().user.name).to.eql(\"alice\");\n});"
+        },
+        {
+          "name": "Response within 2xx range",
+          "body": "pm.test(\"Response is 2xx\", function () {\n    pm.expect(pm.response.code).to.be.below(300);\n    pm.expect(pm.response.code).to.be.at.least(200);\n});"
+        },
+        {
+          "name": "Array length check",
+          "body": "pm.test(\"Returns three items\", function () {\n    const arr = pm.response.json().items;\n    pm.expect(arr).to.have.lengthOf(3);\n});"
+        },
+        {
+          "name": "Pretty-print JSON to console",
+          "body": "console.log(JSON.stringify(pm.response.json(), null, 2));"
+        }
+      ]
+    },
+    {
+      "_comment": "pm.require for npm / JSR packages. Detection scans for string literals; pin exact versions and configure private scopes at Settings → Private packages → npm/JSR. See docs/scripting/external-packages.md.",
+      "name": "Import npm / JSR packages",
+      "contexts": ["pre", "post", "local"],
+      "snippets": [
+        {
+          "name": "Import a public npm package",
+          "body": "// Specifier must be a string literal — Postmark scans the script\n// statically and resolves the import before user code runs.\n// Pin exact versions (X.Y.Z) for reproducibility.\nconst lodash = pm.require(\"npm:lodash@4.17.21\");\n\nconst grouped = lodash.groupBy(pm.response.json().items, \"status\");\nconsole.log(grouped);"
+        },
+        {
+          "name": "Import a public JSR package",
+          "body": "const assert = pm.require(\"jsr:@std/assert@0.220.1\");\n\npm.test(\"std/assert wired\", function () {\n    pm.expect(typeof assert.assertEquals).to.equal(\"function\");\n});"
+        },
+        {
+          "name": "Import from a private @scope (npm)",
+          "body": "// 1. Settings → Private packages → npm → Add npm registry\n//      Scope: @mycompany\n//      URL:   https://npm.mycorp.io/\n//      Auth:  Token (your CI read-only token)\n// 2. Apply.\n// 3. Public packages still resolve from registry.npmjs.org; only your\n//    @scope routes to the private mirror.\nconst lodash = pm.require(\"npm:lodash@4.17.21\");\nconst internal = pm.require(\"npm:@mycompany/auth-helpers@2.4.0\");\n\npm.test(\"internal helpers wired\", function () {\n    pm.expect(typeof internal.signRequest).to.equal(\"function\");\n});"
+        },
+        {
+          "name": "Import JSR via private npm-proxy",
+          "body": "// JSR.io has no native private-package support. Most enterprises\n// proxy JSR through an npm-compatible upstream (Cloudsmith,\n// Artifactory). Add the proxy as a JSR scope row at\n// Settings → Private packages → JSR and the same .npmrc machinery\n// resolves jsr: specifiers transparently.\nconst stdFs = pm.require(\"jsr:@std/fs@1.0.0\");\nconsole.log(typeof stdFs.exists);"
+        },
+        {
+          "name": "Decode a JWT response with jose",
+          "body": "const jose = pm.require(\"npm:jose@5.2.0\");\nconst token = pm.response.json().access_token;\n\nconst claims = jose.decodeJwt(token);\npm.environment.set(\"user_id\", String(claims.sub || \"\"));\npm.test(\"Has subject claim\", function () {\n    pm.expect(claims).to.have.property(\"sub\");\n});"
+        },
+        {
+          "name": "Validate response with zod",
+          "body": "const { z } = pm.require(\"npm:zod@3.22.4\");\n\nconst User = z.object({\n    id: z.number(),\n    email: z.string().email(),\n});\n\npm.test(\"Response matches User shape\", function () {\n    const parsed = User.safeParse(pm.response.json());\n    pm.expect(parsed.success).to.be.true;\n});"
+        }
+      ]
+    },
+    {
+      "_comment": "ESM imports between Local scripts tabs (mirrored Deno project). See docs/scripting/local-modules.md.",
+      "name": "Import local modules",
+      "contexts": ["local"],
+      "snippets": [
+        {
+          "name": "Import a sibling local script",
+          "body": "import { helper } from \"./helper.js\";\n\npm.test(\"helper wired\", function () {\n    pm.expect(helper()).to.be.a(\"function\");\n});"
+        },
+        {
+          "name": "Import from a parent folder",
+          "body": "import * as shared from \"../shared/utils.js\";\n\nconsole.log(shared.formatId(1));"
+        }
+      ]
+    }
+  ]
+}

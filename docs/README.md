@@ -27,6 +27,7 @@
 | [Directory Structure](architecture/directory-structure.md) | Full annotated `src/` and `tests/` tree |
 | [Data Flow](architecture/data-flow.md) | Sequence diagrams for key operations |
 | [Database Layer](architecture/database-layer.md) | SQLite engine, sessions, migration, model relationships |
+| [Script Runtime](architecture/script-runtime.md) | Subprocess lifecycle, IPC, Deno/Pyodide permissions |
 | [Service Layer](architecture/service-layer.md) | Static method pattern, TypedDict interchange |
 | [UI Layer](architecture/ui-layer.md) | MainWindow mixin stack, widget hierarchy, theming |
 
@@ -53,6 +54,8 @@
 | [Auth Handler](api-reference/services/auth-handler.md) | `apply_auth()` — 12 authentication types |
 | [OAuth2Service](api-reference/services/oauth2-service.md) | OAuth 2.0 token exchange — 4 grant types |
 | [Import Parsers](api-reference/services/import-parsers.md) | Postman, cURL, and URL parser modules |
+| [ScriptEngine](api-reference/services/script-engine.md) | Script execution engine, runtimes, context builders |
+| [ScriptService](api-reference/services/script-service.md) | Script chain resolution from database ancestry |
 
 ### API Reference — Cross-Cutting
 
@@ -81,10 +84,28 @@
 | Page | Description |
 |------|-------------|
 | [Adding an Import Parser](guides/adding-import-parser.md) | Step-by-step guide for new format parsers |
+| [Adding a Script Language](guides/adding-script-language.md) | Recipe for a third scripting runtime and completion schema |
 | [Adding an Auth Type](guides/adding-auth-type.md) | New auth type: field specs, handler, UI page |
 | [Adding a Widget](guides/adding-widget.md) | New widget checklist and patterns |
 | [Writing Tests](guides/writing-tests.md) | Test patterns for each layer |
 | [Wiring Signals](guides/wiring-signals.md) | Signal declaration and MainWindow wiring |
+| [Writing Scripts](guides/writing-scripts.md) | Pre-request and test scripts step-by-step |
+
+### Scripting
+
+| Page | Description |
+|------|-------------|
+| [Overview](scripting/overview.md) | Script types, execution order, language support, security summary |
+| [Postman API parity](scripting/postman-parity.md) | Full matrix of `pm.*` surface vs Postman SDK; migration notes |
+| [Snippets](scripting/snippets.md) | In-editor snippet palette; JSON shape; how to add a category or language |
+| [External Packages](scripting/external-packages.md) | `pm.require` (npm, jsr, PyPI), vendored `require()` allowlist, and **private package registries** (scope-mapped npm / JSR + PyPI index override; secrets in OS keychain) |
+| [Local script modules](scripting/local-modules.md) | ESM `import` between local scripts, Deno mirror/LSP project, Run/Debug entry module |
+| [Local scripts (UI)](ui-reference/local-scripts.md) | Local scripts sidebar tree, editor pane, Run/Debug, Problems |
+| [JavaScript API](scripting/javascript-api.md) | Complete JS `pm` object reference |
+| [Python API](scripting/python-api.md) | Complete Python `pm` object reference |
+| [Examples](scripting/examples.md) | Side-by-side JS/Python real-world patterns |
+| [Security](scripting/security.md) | Sandbox design, threat model, resource limits |
+| [Collection Runner](scripting/collection-runner.md) | Runner-specific scripting, test aggregation |
 
 ### Contributing
 

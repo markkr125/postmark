@@ -1,8 +1,12 @@
 """Response viewer widget showing HTTP response status, body, and headers.
 
 Displays the result of an HTTP request sent from the request editor.
-Supports three visual states: empty (no request sent), loading
-(request in progress), and populated (response received or error).
+Supports empty (no request sent), loading (request in progress), and
+response (HTTP result or network-layer failure). Network errors are shown
+inside the same tabbed layout as successes, with an ERROR status badge and
+request metadata in the Request Headers tab. The Body tab uses a plain text
+view for those errors (no code editor or format toolbar) so the message is
+easy to read and copy.
 
 Status, timing, and size labels are clickable and open floating
 popup panels with breakdown details (matching Postman's UX).
@@ -11,6 +15,7 @@ popup panels with breakdown details (matching Postman's UX).
 from __future__ import annotations
 
 import contextlib
+from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QKeySequence
@@ -22,28 +27,33 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QSizePolicy,
+    QStackedWidget,
     QTabWidget,
     QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
-from ui.request.popups.network_popup import NetworkPopup
-from ui.request.popups.size_popup import SizePopup
-from ui.request.popups.status_popup import StatusPopup
-from ui.request.popups.timing_popup import TimingPopup
+from ui.request.response_viewer.popup_mixin import _PopupMixin
+from ui.request.response_viewer.pre_request_mixin import _PreRequestMixin
 from ui.request.response_viewer.search_filter import _SearchFilterMixin
+from ui.request.response_viewer.test_results_mixin import _TestResultsMixin
 from ui.styling.icons import phi
 from ui.styling.theme import (
     COLOR_DANGER,
     COLOR_DELETE,
-    COLOR_IMPORT_ERROR,
     COLOR_SUCCESS,
     COLOR_WARNING,
     COLOR_WHITE,
 )
 from ui.widgets.code_editor import CodeEditorWidget
-from ui.widgets.info_popup import ClickableLabel, InfoPopup
+from ui.widgets.info_popup import ClickableLabel
+
+if TYPE_CHECKING:
+    from ui.request.popups.network_popup import NetworkPopup
+    from ui.request.popups.size_popup import SizePopup
+    from ui.request.popups.status_popup import StatusPopup
+    from ui.request.popups.timing_popup import TimingPopup
 
 # -- Status code colour thresholds ------------------------------------
 _STATUS_2XX = COLOR_SUCCESS  # green
@@ -75,12 +85,14 @@ def _format_size(size_bytes: int) -> str:
     return f"{size_bytes / (1024 * 1024):.2f} MB"
 
 
-class ResponseViewerWidget(_SearchFilterMixin, QWidget):
+class ResponseViewerWidget(
+    _PreRequestMixin, _TestResultsMixin, _PopupMixin, _SearchFilterMixin, QWidget
+):
     """Display HTTP response data with status bar and tabbed body/headers.
 
-    Call :meth:`load_response` to populate from an ``HttpResponseDict``,
+    Call     :meth:`load_response` to populate from an ``HttpResponseDict``,
     :meth:`show_loading` to display a progress indicator, or
-    :meth:`show_error` for error states.
+    :meth:`show_error` for a plain message (routed through ``load_response``).
     """
 
     save_response_requested = Signal(dict)
@@ -166,10 +178,15 @@ class ResponseViewerWidget(_SearchFilterMixin, QWidget):
         self._tabs.tabBar().setCursor(Qt.CursorShape.PointingHandCursor)
         self._tabs.setCornerWidget(self._status_bar_widget, Qt.Corner.TopRightCorner)
 
-        # Body tab with format selector
+        # Body tab: optional chrome (format, filter, search) + stacked editor / plain error text
         body_tab = QWidget()
         body_layout = QVBoxLayout(body_tab)
         body_layout.setContentsMargins(0, 6, 0, 0)
+
+        self._body_chrome = QWidget()
+        _chrome_layout = QVBoxLayout(self._body_chrome)
+        _chrome_layout.setContentsMargins(0, 0, 0, 0)
+        _chrome_layout.setSpacing(0)
 
         self._format_combo = QComboBox()
         self._format_combo.addItems(["Pretty", "Raw", "JSON", "XML", "HTML"])
@@ -177,19 +194,10 @@ class ResponseViewerWidget(_SearchFilterMixin, QWidget):
         self._format_combo.currentTextChanged.connect(self._on_format_changed)
 
         format_row = QHBoxLayout()
+        format_row.setSpacing(6)
         format_row.addWidget(self._format_combo)
 
-        self._beautify_btn = QPushButton("Beautify")
-        self._beautify_btn.setIcon(phi("magic-wand", color=COLOR_WHITE))
-        self._beautify_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._beautify_btn.setToolTip("Format and beautify the response body")
-        self._beautify_btn.setObjectName("smallPrimaryButton")
-        self._beautify_btn.clicked.connect(self._on_beautify)
-        format_row.addWidget(self._beautify_btn)
-
-        format_row.addStretch()
-
-        # -- Toolbar buttons (right side of format row) ----------------
+        # -- Toolbar icon buttons (placed between Pretty combo and Beautify) --
         self._wrap_btn = QPushButton()
         self._wrap_btn.setIcon(phi("text-align-left"))
         self._wrap_btn.setToolTip("Toggle word wrap")
@@ -233,15 +241,65 @@ class ResponseViewerWidget(_SearchFilterMixin, QWidget):
         self._copy_btn.clicked.connect(self._on_copy_body)
         format_row.addWidget(self._copy_btn)
 
-        body_layout.addLayout(format_row)
+        format_row.addSpacing(4)
+
+        self._beautify_btn = QPushButton("Beautify")
+        self._beautify_btn.setIcon(phi("magic-wand", color=COLOR_WHITE))
+        self._beautify_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._beautify_btn.setToolTip("Format and beautify the response body")
+        self._beautify_btn.setObjectName("smallPrimaryButton")
+        self._beautify_btn.clicked.connect(self._on_beautify)
+        format_row.addWidget(self._beautify_btn)
+
+        format_row.addStretch()
+
+        _chrome_layout.addLayout(format_row)
 
         # Delegate filter / search bar construction to the mixin
-        self._build_filter_bar(body_layout)
-        self._build_search_bar(body_layout)
+        self._build_filter_bar(_chrome_layout)
+        self._build_search_bar(_chrome_layout)
 
+        self._body_stack = QStackedWidget()
+        self._body_simple_error_mode = False
+
+        editor_page = QWidget()
+        _ed_layout = QVBoxLayout(editor_page)
+        _ed_layout.setContentsMargins(0, 0, 0, 0)
         self._body_edit = CodeEditorWidget(read_only=True)
         self._body_edit.setPlaceholderText("Response body")
-        body_layout.addWidget(self._body_edit, 1)
+        _ed_layout.addWidget(self._body_edit, 1)
+        self._body_stack.addWidget(editor_page)
+
+        error_page = QWidget()
+        _err_layout = QVBoxLayout(error_page)
+        _err_layout.setContentsMargins(0, 0, 0, 0)
+        self._body_error_edit = QTextEdit()
+        self._body_error_edit.setReadOnly(True)
+        self._body_error_edit.setObjectName("monoEdit")
+        self._body_error_edit.setPlaceholderText("Error details")
+        self._body_error_edit.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
+        _err_layout.addWidget(self._body_error_edit, 1)
+        self._body_stack.addWidget(error_page)
+
+        # Copy-only bar when the body is plain error text (full chrome is hidden)
+        self._body_error_chrome = QWidget()
+        _err_chrome = QHBoxLayout(self._body_error_chrome)
+        _err_chrome.setContentsMargins(0, 0, 0, 0)
+        _err_chrome.setSpacing(8)
+        _err_chrome.addStretch()
+        self._body_error_copy_btn = QPushButton()
+        self._body_error_copy_btn.setIcon(phi("clipboard"))
+        self._body_error_copy_btn.setToolTip("Copy error message")
+        self._body_error_copy_btn.setObjectName("iconButton")
+        self._body_error_copy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._body_error_copy_btn.setFixedSize(28, 28)
+        self._body_error_copy_btn.clicked.connect(self._on_copy_body)
+        _err_chrome.addWidget(self._body_error_copy_btn)
+        self._body_error_chrome.hide()
+
+        body_layout.addWidget(self._body_chrome)
+        body_layout.addWidget(self._body_error_chrome)
+        body_layout.addWidget(self._body_stack, 1)
 
         self._tabs.addTab(body_tab, "Body")
 
@@ -252,12 +310,25 @@ class ResponseViewerWidget(_SearchFilterMixin, QWidget):
         self._headers_edit.setObjectName("monoEdit")
         self._tabs.addTab(self._headers_edit, "Headers")
 
+        # Outgoing request (for debugging; populated on success and on network errors)
+        self._request_headers_edit = QTextEdit()
+        self._request_headers_edit.setReadOnly(True)
+        self._request_headers_edit.setPlaceholderText("Request line and headers sent to the server")
+        self._request_headers_edit.setObjectName("monoEdit")
+        self._tabs.addTab(self._request_headers_edit, "Request Headers")
+
         # Cookies tab (placeholder)
         self._cookies_edit = QTextEdit()
         self._cookies_edit.setReadOnly(True)
         self._cookies_edit.setPlaceholderText("Response cookies")
         self._cookies_edit.setObjectName("monoEdit")
         self._tabs.addTab(self._cookies_edit, "Cookies")
+
+        # Test Results tab (hidden until results are available)
+        self._build_test_results_tab()
+
+        # Pre-request tab (hidden until pre-request scripts run)
+        self._build_pre_request_tab()
 
         root.addWidget(self._tabs, 1)
 
@@ -268,17 +339,6 @@ class ResponseViewerWidget(_SearchFilterMixin, QWidget):
         self._empty_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         root.addWidget(self._empty_label)
 
-        # -- Error state label ----------------------------------------
-        self._error_label = QLabel()
-        self._error_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._error_label.setWordWrap(True)
-        self._error_label.setStyleSheet(
-            f"color: {COLOR_IMPORT_ERROR}; font-size: 13px; padding: 20px;"
-        )
-        self._error_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self._error_label.hide()
-        root.addWidget(self._error_label)
-
         # Start in empty state
         self._raw_body: str = ""  # stored raw body for format switching
         self._filtered_body: str = ""  # body after filter applied
@@ -287,43 +347,115 @@ class ResponseViewerWidget(_SearchFilterMixin, QWidget):
     # -- State management ---------------------------------------------
 
     def _set_state(self, state: str) -> None:
-        """Switch between ``empty``, ``loading``, ``error``, and ``response`` states."""
+        """Switch between ``empty``, ``loading``, and ``response`` states."""
         self._response_label.setVisible(state in ("response", "loading"))
         self._status_bar_widget.setVisible(state == "response")
         self._progress_bar.setVisible(state == "loading")
         self._tabs.setVisible(state == "response")
         self._empty_label.setVisible(state == "empty")
-        self._error_label.setVisible(state == "error")
 
     # -- Public API ---------------------------------------------------
+
+    def _toggle_search(self) -> None:
+        if self._body_simple_error_mode:
+            return
+        super()._toggle_search()
+
+    def _toggle_filter(self) -> None:
+        if self._body_simple_error_mode:
+            return
+        super()._toggle_filter()
 
     def show_loading(self) -> None:
         """Display the indeterminate progress bar (request in flight)."""
         self._set_state("loading")
 
     def show_error(self, message: str) -> None:
-        """Display an error message (e.g. connection refused)."""
-        self._error_label.setText(f"Could not send request\n\n{message}")
-        self._set_save_enabled(False)
-        self._set_state("error")
+        """Display an error in the tabbed view (e.g. validation, worker exception)."""
+        self.load_response({"error": str(message)})
 
     def load_response(self, data: dict) -> None:
         """Populate the viewer from an ``HttpResponseDict``.
 
-        If the dict contains an ``error`` key, the error state is shown
-        instead of the response tabs.  New breakdown fields (``timing``,
-        ``network``, size keys) are stored for popup display.
+        If the dict contains an ``error`` key (network or transport failure),
+        the same tabbed layout is used with an ERROR badge, body text, and
+        optional request metadata. Otherwise a normal HTTP response is shown.
         """
         if "error" in data:
-            elapsed = data.get("elapsed_ms")
-            suffix = f"\n\nElapsed: {elapsed:.0f} ms" if elapsed else ""
-            self.show_error(f"{data['error']}{suffix}")
+            self._load_network_error_response(data)
             return
 
         self._last_live_response = dict(data)
         self._set_save_enabled(True)
 
         self._render_response_data(data)
+
+    def _load_network_error_response(self, data: dict) -> None:
+        """Render a failed send (``error`` in :class:`HttpResponseDict`) in the tabbed view."""
+        self._last_live_response = None
+        self._set_save_enabled(False)
+        self._clear_test_results_rows()
+        self._tabs.setTabVisible(self._test_tab_index, False)
+        self._clear_pre_request_tab()
+
+        self._set_state("response")
+        self._status_label.setText("ERROR")
+        self._status_label.setStyleSheet(
+            f"font-weight: bold; padding: 2px 8px; border-radius: 3px;"
+            f" color: {COLOR_WHITE}; background: {COLOR_DANGER};"
+        )
+        self._last_status_code = 0
+        self._last_status_text = "ERROR"
+        self._last_status_color = COLOR_DANGER
+
+        elapsed = data.get("elapsed_ms")
+        if elapsed is not None:
+            self._time_label.setText(f"{float(elapsed):.0f} ms")
+            self._last_elapsed_ms = float(elapsed)
+        else:
+            self._time_label.setText("")
+            self._last_elapsed_ms = 0.0
+
+        self._size_label.setText("")
+        self._timing_data = None
+        self._size_data = {}
+        self._network_data = None
+
+        self._reset_chrome_extras()
+        err = str(data.get("error", "Unknown error"))
+        self._raw_body = ""
+        self._set_body_simple_error_mode(True)
+        self._body_error_edit.setPlainText(f"Could not send request\n\n{err}")
+        self._body_edit.clear()
+        self._headers_edit.setPlainText("No response received.")
+        self._cookies_edit.setPlainText("No response received.")
+        self._populate_request_headers(data)
+
+    def visible_body_text(self) -> str:
+        """Plain text currently shown in the Body tab (editor or network error view)."""
+        if self._body_simple_error_mode:
+            return self._body_error_edit.toPlainText()
+        return self._body_edit.toPlainText()
+
+    def _set_body_simple_error_mode(self, enabled: bool) -> None:
+        """Use a plain :class:`QTextEdit` for network errors; hide the code editor chrome."""
+        self._body_simple_error_mode = enabled
+        self._body_chrome.setVisible(not enabled)
+        self._body_error_chrome.setVisible(enabled)
+        self._body_stack.setCurrentIndex(1 if enabled else 0)
+
+    def _reset_chrome_extras(self) -> None:
+        """Close search and clear filter state without reformatting the (hidden) editor."""
+        self._close_search()
+        self._is_filtered = False
+        self._filter_expression = ""
+        self._filtered_body = ""
+        self._filter_error_label.hide()
+        self._filter_clear_btn.hide()
+        self._filter_apply_btn.show()
+        self._filter_input.clear()
+        self._filter_bar.hide()
+        self._filter_btn.setChecked(False)
 
     def has_live_response(self) -> bool:
         """Return whether a live response is currently available for saving."""
@@ -345,6 +477,7 @@ class ResponseViewerWidget(_SearchFilterMixin, QWidget):
     def _render_response_data(self, data: dict) -> None:
         """Render response data into the viewer widgets."""
         self._set_state("response")
+        self._set_body_simple_error_mode(False)
 
         # Status code
         code = data.get("status_code", 0)
@@ -395,6 +528,25 @@ class ResponseViewerWidget(_SearchFilterMixin, QWidget):
             h.get("value", "") for h in headers if h.get("key", "").lower() == "set-cookie"
         ]
         self._cookies_edit.setPlainText("\n".join(cookie_lines) if cookie_lines else "No cookies")
+        self._populate_request_headers(data)
+
+    def _populate_request_headers(self, data: dict) -> None:
+        """Show method, URL, and outgoing headers from *data* in the Request Headers tab."""
+        req_method = (data.get("request_method") or "").strip()
+        req_url = (data.get("request_url") or "").strip()
+        raw = data.get("request_headers")
+        lines: list[str] = []
+        if req_method or req_url:
+            lines.append(f"{req_method} {req_url}".strip())
+            lines.append("")
+        if isinstance(raw, list):
+            for h in raw:
+                if isinstance(h, dict):
+                    k = h.get("key", "")
+                    v = h.get("value", "")
+                    lines.append(f"{k}: {v}")
+        text = "\n".join(lines).rstrip()
+        self._request_headers_edit.setPlainText(text if text else "No request data")
 
     def clear(self) -> None:
         """Reset to the empty state."""
@@ -403,10 +555,12 @@ class ResponseViewerWidget(_SearchFilterMixin, QWidget):
         self._status_label.setText("")
         self._time_label.setText("")
         self._size_label.setText("")
+        self._set_body_simple_error_mode(False)
+        self._body_error_edit.clear()
         self._body_edit.clear()
         self._headers_edit.clear()
         self._cookies_edit.clear()
-        self._error_label.setText("")
+        self._request_headers_edit.clear()
         self._last_live_response = None
         self._raw_body = ""
         self._filtered_body = ""
@@ -418,6 +572,9 @@ class ResponseViewerWidget(_SearchFilterMixin, QWidget):
         self._filter_error_label.hide()
         self._filter_clear_btn.hide()
         self._filter_apply_btn.show()
+        self._clear_test_results_rows()
+        self._tabs.setTabVisible(self._test_tab_index, False)
+        self._clear_pre_request_tab()
         self._wrap_btn.setChecked(True)
         self._body_edit.set_word_wrap(True)
 
@@ -434,6 +591,8 @@ class ResponseViewerWidget(_SearchFilterMixin, QWidget):
         against the (possibly reformatted) body so the filtered view
         stays consistent across format switches.
         """
+        if self._body_simple_error_mode:
+            return
         fmt = self._format_combo.currentText()
         body = self._raw_body
 
@@ -472,6 +631,8 @@ class ResponseViewerWidget(_SearchFilterMixin, QWidget):
 
     def _on_beautify(self) -> None:
         """Format the response body using pretty-printing."""
+        if self._body_simple_error_mode:
+            return
         body = self._raw_body
         if not body:
             return
@@ -542,67 +703,24 @@ class ResponseViewerWidget(_SearchFilterMixin, QWidget):
             return "text"
         return None
 
-    # -- Popup handlers ------------------------------------------------
-
-    def _close_other_popups(self, keep: InfoPopup | None) -> None:
-        """Close every open popup except *keep*."""
-        for popup in (
-            self._status_popup,
-            self._timing_popup,
-            self._size_popup,
-            self._network_popup,
-        ):
-            if popup is not None and popup is not keep and popup.isVisible():
-                popup.close()
-
-    def _on_status_clicked(self) -> None:
-        """Open or refresh the status description popup."""
-        if self._status_popup is None:
-            self._status_popup = StatusPopup(self)
-        self._close_other_popups(self._status_popup)
-        self._status_popup.update_status(
-            self._last_status_code,
-            self._last_status_text,
-            self._last_status_color,
-        )
-        self._status_popup.show_below(self._status_label)
-
-    def _on_time_clicked(self) -> None:
-        """Open or refresh the timing breakdown popup."""
-        if self._timing_popup is None:
-            self._timing_popup = TimingPopup(self)
-        self._close_other_popups(self._timing_popup)
-        if self._timing_data is not None:
-            self._timing_popup.update_timing(self._timing_data, self._last_elapsed_ms)
-        self._timing_popup.show_below(self._time_label)
-
-    def _on_size_clicked(self) -> None:
-        """Open or refresh the size breakdown popup."""
-        if self._size_popup is None:
-            self._size_popup = SizePopup(self)
-        self._close_other_popups(self._size_popup)
-        self._size_popup.update_sizes(self._size_data)
-        self._size_popup.show_below(self._size_label)
-
-    def _on_network_clicked(self) -> None:
-        """Open or refresh the network info popup."""
-        if self._network_popup is None:
-            self._network_popup = NetworkPopup(self)
-        self._close_other_popups(self._network_popup)
-        self._network_popup.update_network(self._network_data)
-        self._network_popup.show_below(self._network_icon)
-
     # -- Toolbar handlers ----------------------------------------------
 
     def _on_wrap_toggle(self) -> None:
         """Toggle word wrap on the response body editor."""
+        if self._body_simple_error_mode:
+            return
         self._body_edit.set_word_wrap(self._wrap_btn.isChecked())
 
     def _on_copy_body(self) -> None:
         """Copy the current response body text to the system clipboard."""
         clipboard = QApplication.clipboard()
         if clipboard is not None:
-            clipboard.setText(self._body_edit.toPlainText())
+            text = (
+                self._body_error_edit.toPlainText()
+                if self._body_simple_error_mode
+                else self._body_edit.toPlainText()
+            )
+            clipboard.setText(text)
         # Brief visual feedback — swap icon to a check mark for 1.5 s
         self._copy_btn.setIcon(phi("check"))
         btn = self._copy_btn

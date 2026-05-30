@@ -18,6 +18,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
@@ -116,8 +117,8 @@ class RightSidebar(QWidget):
 
         # Derive sizes from the application font.
         em = self.fontMetrics().height()
-        self._rail_width: int = round(2.0 * em)
-        self._icon_size: int = round(1.25 * em)
+        self._rail_width: int = round(2.4 * em)
+        self._icon_size: int = round(1.35 * em)
         self._btn_size: int = self._rail_width - round(0.35 * em)
         self._panel_hint_width: int = round(15.0 * em)
 
@@ -357,14 +358,41 @@ class RightSidebar(QWidget):
         """Create a single rail icon button."""
         btn = QToolButton()
         btn.setObjectName("sidebarRailButton")
-        btn.setIcon(phi(icon_name, size=self._icon_size))
         btn.setIconSize(QSize(self._icon_size, self._icon_size))
         btn.setToolTip(tooltip)
         btn.setCheckable(True)
         btn.setFixedSize(self._btn_size, self._btn_size)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.setEnabled(False)
+        btn.setProperty("rail_icon_name", icon_name)
+        self._apply_rail_icon(btn, icon_name)
         return btn
+
+    def _apply_rail_icon(self, btn: QToolButton, icon_name: str) -> None:
+        # Two-state icon: muted Off, accent On. Qt swaps automatically when
+        # the QToolButton is toggled, giving a clear VSCode-style indicator.
+        from ui.styling.theme import COLOR_ACCENT, COLOR_TEXT_MUTED
+
+        size = self._icon_size
+        icon = QIcon()
+        icon.addPixmap(
+            phi(icon_name, color=COLOR_TEXT_MUTED, size=size).pixmap(size, size),
+            QIcon.Mode.Normal,
+            QIcon.State.Off,
+        )
+        icon.addPixmap(
+            phi(icon_name, color=COLOR_ACCENT, size=size).pixmap(size, size),
+            QIcon.Mode.Normal,
+            QIcon.State.On,
+        )
+        btn.setIcon(icon)
+
+    def refresh_theme(self) -> None:
+        """Re-render rail-button icons against the current palette."""
+        for btn in (self._var_btn, self._snippet_btn, self._saved_btn):
+            name = btn.property("rail_icon_name")
+            if isinstance(name, str) and name:
+                self._apply_rail_icon(btn, name)
 
     def _toggle_panel(self, panel: str) -> None:
         """Toggle the given panel open or closed."""
@@ -383,13 +411,12 @@ class RightSidebar(QWidget):
         self._var_btn.setChecked(panel == "variables")
         self._snippet_btn.setChecked(panel == "snippet")
         self._saved_btn.setChecked(panel == "saved_responses")
-        self._title_label.setText(
-            "Variables"
-            if panel == "variables"
-            else "Code snippet"
-            if panel == "snippet"
-            else "Saved Responses",
-        )
+        titles = {
+            "variables": "Variables",
+            "snippet": "Code snippet",
+            "saved_responses": "Saved Responses",
+        }
+        self._title_label.setText(titles.get(panel, panel))
         self._flyout.show()
         self._expand_flyout()
 

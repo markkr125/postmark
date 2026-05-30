@@ -18,6 +18,7 @@ class TestRequestEditorGraphQL:
         qtbot.addWidget(editor)
 
         editor.load_request({"name": "X", "method": "POST", "url": "http://x"})
+        editor._ensure_body_editors()
         editor._body_mode_buttons["graphql"].setChecked(True)
 
         assert editor._body_stack.currentIndex() == 4
@@ -27,6 +28,7 @@ class TestRequestEditorGraphQL:
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
 
+        editor._ensure_body_editors()
         assert hasattr(editor, "_gql_query_editor")
         assert hasattr(editor, "_gql_variables_editor")
 
@@ -35,6 +37,7 @@ class TestRequestEditorGraphQL:
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
 
+        editor._ensure_body_editors()
         assert editor._gql_query_editor.language == "graphql"
 
     def test_graphql_variables_editor_language(self, qapp: QApplication, qtbot) -> None:
@@ -42,6 +45,7 @@ class TestRequestEditorGraphQL:
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
 
+        editor._ensure_body_editors()
         assert editor._gql_variables_editor.language == "json"
 
     def test_get_request_data_graphql_wraps_json(self, qapp: QApplication, qtbot) -> None:
@@ -50,6 +54,7 @@ class TestRequestEditorGraphQL:
         qtbot.addWidget(editor)
 
         editor.load_request({"name": "X", "method": "POST", "url": "http://x"})
+        editor._ensure_body_editors()
         editor._body_mode_buttons["graphql"].setChecked(True)
         editor._gql_query_editor.setPlainText("{ users { id name } }")
         editor._gql_variables_editor.setPlainText('{"limit": 10}')
@@ -66,6 +71,7 @@ class TestRequestEditorGraphQL:
         qtbot.addWidget(editor)
 
         editor.load_request({"name": "X", "method": "POST", "url": "http://x"})
+        editor._ensure_body_editors()
         editor._body_mode_buttons["graphql"].setChecked(True)
         editor._gql_query_editor.setPlainText("{ me { id } }")
 
@@ -80,6 +86,7 @@ class TestRequestEditorGraphQL:
         qtbot.addWidget(editor)
 
         editor.load_request({"name": "X", "method": "POST", "url": "http://x"})
+        editor._ensure_body_editors()
         editor._body_mode_buttons["graphql"].setChecked(True)
         editor._gql_query_editor.setPlainText("query Q { x }")
         editor._gql_variables_editor.setPlainText("{not valid json")
@@ -94,6 +101,7 @@ class TestRequestEditorGraphQL:
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
 
+        editor._ensure_body_editors()
         stored_body = json.dumps({"query": "{ users { id } }", "variables": {"page": 1}})
         editor.load_request(
             {
@@ -104,6 +112,7 @@ class TestRequestEditorGraphQL:
                 "body": stored_body,
             }
         )
+        editor._ensure_body_editors()
 
         assert editor._body_mode_buttons["graphql"].isChecked()
         assert editor._gql_query_editor.toPlainText() == "{ users { id } }"
@@ -124,6 +133,7 @@ class TestRequestEditorGraphQL:
                 "body": "{ legacyQuery { name } }",
             }
         )
+        editor._ensure_body_editors()
 
         assert editor._gql_query_editor.toPlainText() == "{ legacyQuery { name } }"
         assert editor._gql_variables_editor.toPlainText() == ""
@@ -142,6 +152,7 @@ class TestRequestEditorGraphQL:
                 "body": "",
             }
         )
+        editor._ensure_body_editors()
 
         assert editor._gql_query_editor.toPlainText() == ""
         assert editor._gql_variables_editor.toPlainText() == ""
@@ -151,6 +162,7 @@ class TestRequestEditorGraphQL:
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
 
+        editor._ensure_body_editors()
         stored_body = json.dumps({"query": "{ x }", "variables": {"v": 1}})
         editor.load_request(
             {
@@ -161,6 +173,7 @@ class TestRequestEditorGraphQL:
                 "body": stored_body,
             }
         )
+        editor._ensure_body_editors()
         editor.clear_request()
 
         assert editor._gql_query_editor.toPlainText() == ""
@@ -184,6 +197,7 @@ class TestRequestEditorGraphQL:
                 "body": stored_body,
             }
         )
+        editor._ensure_body_editors()
 
         data = editor.get_request_data()
         body = json.loads(data["body"])
@@ -204,6 +218,7 @@ class TestRequestEditorGraphQL:
                 "body": json.dumps({"query": "{ x }", "variables": {}}),
             }
         )
+        editor._ensure_body_editors()
         assert not editor.is_dirty
         editor._gql_query_editor.setPlainText("{ y }")
         assert editor.is_dirty
@@ -222,6 +237,7 @@ class TestRequestEditorGraphQL:
                 "body": json.dumps({"query": "{ x }", "variables": {}}),
             }
         )
+        editor._ensure_body_editors()
         assert not editor.is_dirty
         editor._gql_variables_editor.setPlainText('{"a": 1}')
         assert editor.is_dirty
@@ -231,6 +247,7 @@ class TestRequestEditorGraphQL:
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
 
+        editor._ensure_body_editors()
         # Access the gql splitter from the stack page (page index 4).
         from PySide6.QtWidgets import QSplitter
 
@@ -258,6 +275,7 @@ class TestRequestEditorGraphQL:
                 "body": stored,
             }
         )
+        editor._ensure_body_editors()
 
         data = editor.get_request_data()
         body = json.loads(data["body"])
@@ -281,6 +299,7 @@ class TestRequestEditorGraphQL:
                 "body": stored,
             }
         )
+        editor._ensure_body_editors()
 
         assert editor._gql_query_editor.toPlainText() == query
         data = editor.get_request_data()
@@ -304,6 +323,7 @@ class TestRequestEditorGraphQL:
                 "body": stored,
             }
         )
+        editor._ensure_body_editors()
 
         data = editor.get_request_data()
         body = json.loads(data["body"])
@@ -315,6 +335,7 @@ class TestRequestEditorGraphQL:
         qtbot.addWidget(editor)
 
         editor.load_request({"name": "X", "method": "POST", "url": "http://x"})
+        editor._ensure_body_editors()
         editor._body_mode_buttons["graphql"].setChecked(True)
         editor._gql_query_editor.setPlainText("{ me { id } }")
         editor._gql_variables_editor.setPlainText('{"page": 1}')
@@ -335,6 +356,7 @@ class TestRequestEditorGraphQLSchema:
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
 
+        editor._ensure_body_editors()
         assert hasattr(editor, "_gql_schema_label")
         assert editor._gql_schema_label.text() == "No schema"
 
@@ -343,6 +365,7 @@ class TestRequestEditorGraphQLSchema:
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
 
+        editor._ensure_body_editors()
         assert hasattr(editor, "_gql_fetch_schema_btn")
 
     def test_no_schema_initially(self, qapp: QApplication, qtbot) -> None:
@@ -350,6 +373,7 @@ class TestRequestEditorGraphQLSchema:
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
 
+        editor._ensure_body_editors()
         assert editor._gql_schema is None
 
     def test_fetch_without_url_shows_no_url(self, qapp: QApplication, qtbot) -> None:
@@ -358,6 +382,7 @@ class TestRequestEditorGraphQLSchema:
         qtbot.addWidget(editor)
 
         editor.load_request({"name": "X", "method": "POST", "url": ""})
+        editor._ensure_body_editors()
         editor._on_fetch_schema()
 
         assert editor._gql_schema_label.text() == "No URL"
@@ -367,6 +392,7 @@ class TestRequestEditorGraphQLSchema:
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
 
+        editor._ensure_body_editors()
         mock_result = {
             "query_type": "Query",
             "mutation_type": "Mutation",
@@ -389,6 +415,7 @@ class TestRequestEditorGraphQLSchema:
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
 
+        editor._ensure_body_editors()
         editor._on_schema_error("Connection refused")
 
         assert editor._gql_schema_label.text() == "Schema error"
@@ -402,6 +429,7 @@ class TestRequestEditorGraphQLSchema:
         qtbot.addWidget(editor)
 
         editor.load_request({"name": "X", "method": "POST", "url": "http://gql"})
+        editor._ensure_body_editors()
         editor._on_schema_fetched(
             {
                 "query_type": "Query",
@@ -424,6 +452,7 @@ class TestRequestEditorGraphQLSchema:
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
 
+        editor._ensure_body_editors()
         mock_result = {
             "query_type": "Query",
             "mutation_type": "",
@@ -449,6 +478,7 @@ class TestRequestEditorGraphQLSchema:
 
         # No URL set, so fetch will show "No URL"
         editor.load_request({"name": "X", "method": "POST", "url": ""})
+        editor._ensure_body_editors()
         editor._on_schema_label_clicked()
 
         assert editor._gql_schema_label.text() == "No URL"
@@ -459,6 +489,7 @@ class TestRequestEditorGraphQLSchema:
         qtbot.addWidget(editor)
 
         editor.load_request({"name": "X", "method": "POST", "url": "http://example.com/graphql"})
+        editor._ensure_body_editors()
 
         # Simulate in-flight state by calling the start logic path
         # We can't actually run a full network fetch in tests, so we

@@ -31,7 +31,12 @@ from PySide6.QtWidgets import (
 from services.import_parser.models import ImportSummary
 from services.import_service import ImportService
 from ui.styling.icons import phi
-from ui.styling.theme import COLOR_ACCENT, COLOR_IMPORT_ERROR, COLOR_IMPORT_SUCCESS
+from ui.styling.theme import (
+    COLOR_ACCENT,
+    COLOR_IMPORT_ERROR,
+    COLOR_IMPORT_SUCCESS,
+    COLOR_IMPORT_WARN,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +86,7 @@ class _ImportWorker(QObject):
                     requests_imported=0,
                     responses_imported=0,
                     environments_imported=0,
+                    scripts_detected=0,
                     errors=["No input provided"],
                 )
             self.finished.emit(dict(result))
@@ -442,6 +448,14 @@ class ImportDialog(QDialog):
             )
         else:
             self._result_log.append("No data was imported.")
+
+        scripts = summary.get("scripts_detected", 0)
+        if scripts:
+            self._result_log.append(
+                f'<span style="color: {COLOR_IMPORT_WARN}; font-weight: bold;">'
+                f"\u26a0 {scripts} item(s) contain scripts. "
+                f"Review them in the script editor before running.</span>"
+            )
 
         for err in errors:
             self._result_log.append(f'<span style="color: {COLOR_IMPORT_ERROR};">{err}</span>')

@@ -12,37 +12,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPainter
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel, QScrollArea, QVBoxLayout, QWidget
+
+from ui.sidebar._kv_list import DEFAULT_KV_KEY_WIDTH, add_kv_row, add_section_header, add_separator
 
 if TYPE_CHECKING:
     from services.environment_service import LocalOverride, VariableDetail
-
-
-class _ElidedLabel(QLabel):
-    """QLabel that elides text with an ellipsis when space is tight."""
-
-    def __init__(self, text: str = "", parent: QWidget | None = None) -> None:
-        super().__init__(text, parent)
-        self._full_text = text
-
-    def setText(self, text: str) -> None:
-        """Store full text and trigger repaint."""
-        self._full_text = text
-        super().setText(text)
-
-    def paintEvent(self, event: object) -> None:
-        """Draw text with right-elision when it overflows."""
-        painter = QPainter(self)
-        fm = self.fontMetrics()
-        elided = fm.elidedText(
-            self._full_text,
-            Qt.TextElideMode.ElideRight,
-            self.width(),
-        )
-        painter.setPen(self.palette().color(self.foregroundRole()))
-        painter.drawText(self.rect(), int(Qt.AlignmentFlag.AlignVCenter), elided)
-        painter.end()
 
 
 class VariablesPanel(QWidget):
@@ -208,49 +183,12 @@ class VariablesPanel(QWidget):
 
     def _add_section_header(self, title: str, source: str) -> None:
         """Add a section header with a colored source dot and title."""
-        row = QHBoxLayout()
-        row.setContentsMargins(0, 8, 0, 4)
-        row.setSpacing(6)
-
-        dot = QLabel("\u2022")
-        dot.setObjectName("sidebarSourceDot")
-        dot.setProperty("varSource", source)
-        dot.setFixedWidth(12)
-        dot.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        row.addWidget(dot)
-
-        label = QLabel(title)
-        label.setObjectName("sidebarSectionLabel")
-        row.addWidget(label)
-        row.addStretch()
-
-        self._content_layout.addLayout(row)
+        add_section_header(self._content_layout, title, source)
 
     def _add_variable_row(self, name: str, value: str) -> None:
         """Add a single key-value variable row."""
-        row = QHBoxLayout()
-        row.setContentsMargins(18, 2, 0, 2)
-        row.setSpacing(12)
-
-        key_label = _ElidedLabel(name)
-        key_label.setObjectName("variableKeyLabel")
-        key_label.setFixedWidth(120)
-        key_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        row.addWidget(key_label)
-
-        val_label = _ElidedLabel(value)
-        val_label.setObjectName("variableValueLabel")
-        val_label.setToolTip(value)
-        val_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        val_label.setMinimumWidth(0)
-        row.addWidget(val_label, 1)
-
-        self._content_layout.addLayout(row)
+        add_kv_row(self._content_layout, name, value, tooltip=value, key_width=DEFAULT_KV_KEY_WIDTH)
 
     def _add_separator(self) -> None:
         """Add a thin horizontal separator line."""
-        sep = QLabel()
-        sep.setObjectName("sidebarSeparator")
-        sep.setFixedHeight(1)
-        self._content_layout.addWidget(sep)
-        self._content_layout.addWidget(sep)
+        add_separator(self._content_layout)

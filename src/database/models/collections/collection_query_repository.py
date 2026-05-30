@@ -448,3 +448,67 @@ def _saved_response_to_dict(response: Any) -> dict[str, Any]:
         "original_request": response.original_request,
         "created_at": created_at,
     }
+
+
+def get_script_chain(request_id: int) -> list[dict[str, Any]]:
+    """Walk from *request_id* to root and collect scripts/events at each level.
+
+    Returns an ordered list from root (collection) to leaf (request).
+    Each entry has ``source`` (``"collection"`` or ``"request"``),
+    ``id``, ``name``, and ``scripts`` (raw events/scripts dict).
+
+    Folder levels use ``CollectionModel.events``.      The request level
+    uses ``RequestModel.scripts`` (falling back to ``RequestModel.events``
+    for Postman-imported data).  The request's layer also carries
+    ``disabled_inherited`` (normalized) when present in ``RequestModel.scripts``.
+    """
+    with get_session() as session:
+        req = session.get(RequestModel, request_id)
+        if req is None:
+            return []
+
+        # 1. Walk parent chain: nearest → root.
+        ancestor_layers: list[dict[str, Any]] = []
+        coll = session.get(CollectionModel, req.collection_id)
+        while coll is not None:
+            ancestor_layers.append(
+                {
+                    "source": "collection",
+                    "id": coll.id,
+                    "name": coll.name,
+                    "scripts": coll.events,
+                }
+            )
+            if coll.parent_id is None:
+                break
+            coll = session.get(CollectionModel, coll.parent_id)
+
+        # 2. Reverse so root comes first (collection → folder → … → leaf).
+        ancestor_layers.reverse()
+
+        # 3. Append the request itself.
+        from services.script_service import normalize_disabled_inherited
+        from services.scripting.context import normalize_events
+
+        req_scripts_dict: dict[str, Any] = req.scripts if isinstance(req.scripts, dict) else {}
+        disabled = normalize_disabled_inherited(req_scripts_dict.get("disabled_inherited"))
+        # Prefer executable scripts in ``scripts``; fall back to imported Postman
+        # ``events`` only when ``scripts`` carries no script *body* (e.g. it holds
+        # just ``disabled_inherited`` metadata after a disable-only save), so those
+        # imported bodies aren't silently masked by the metadata dict.
+        normalized_scripts = normalize_events(req.scripts)
+        has_script_body = bool(
+            normalized_scripts.get("pre_request") or normalized_scripts.get("test")
+        )
+        scripts_payload = req.scripts if has_script_body else (req.events or req.scripts)
+        ancestor_layers.append(
+            {
+                "source": "request",
+                "id": req.id,
+                "name": req.name,
+                "scripts": scripts_payload,
+                "disabled_inherited": disabled,
+            }
+        )
+
+        return ancestor_layers

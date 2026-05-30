@@ -14,15 +14,21 @@ httpx = "^0.28.1"
 pygments = "^2.19"
 jsonpath-ng = "^1.8.0"
 lxml = "^6.0.2"
+RestrictedPython = "^7.4"
+websockets = "^15"
+jedi-language-server = "^0.45"
+ruff = "^0.9"
+keyring = ">=24.0,<26"
+cryptography = ">=42.0,<49"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0"
-ruff = "^0.9"
 mypy = "^1.14"
 pytest-qt = "^4.5.0"
 types-pygments = "^2.19.0.20251121"
 types-lxml = "^2026.2.16"
 pytest-xdist = "^3.8.0"
+pytest-timeout = "^2.3.1"
 
 [build-system]
 requires = ["poetry-core"]
@@ -52,6 +58,8 @@ convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["D102"]   # test methods don't need docstrings
+# Many tiny parity checks; names + assertions are the documentation.
+"tests/unit/services/test_pm_python_parity.py" = ["D103"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["database", "ui", "services"]
@@ -67,6 +75,10 @@ warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false          # relax for now; tighten later
 
+[[tool.mypy.overrides]]
+module = "tests.ui.dialogs.test_settings_dialog"
+disable_error_code = ["union-attr"]
+
 # --------------------------------------------------------------------------
 # Pyright / Pylance
 # --------------------------------------------------------------------------
@@ -81,6 +93,6 @@ reportTypedDictNotRequiredAccess = "error"
 # --------------------------------------------------------------------------
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
-addopts = "-n auto --dist loadfile"
+pythonpath = ["src", "tests"]
+addopts = "-n auto --dist loadfile --timeout=120"
 

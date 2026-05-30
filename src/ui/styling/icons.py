@@ -134,6 +134,9 @@ def clear_cache() -> None:
     Call after a theme change so colours are re-rendered on next access.
     """
     _icon_cache.clear()
+    from ui.styling.language_icons import clear_language_icon_cache
+
+    clear_language_icon_cache()
 
 
 def glyph_char(name: str) -> str:
@@ -199,7 +202,4 @@ def _device_pixel_ratio() -> float:
         screen = app.primaryScreen()
         if screen is not None:
             return float(screen.devicePixelRatio())
-    return 1.0
-    return 1.0
-    return 1.0
     return 1.0

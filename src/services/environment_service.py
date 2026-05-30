@@ -310,14 +310,23 @@ class EnvironmentService:
     def substitute(text: str, variables: dict[str, str]) -> str:
         """Replace ``{{variable}}`` placeholders in *text*.
 
-        Unknown variables are left unchanged.
+        Unknown static variables are left unchanged. Keys starting with ``$``
+        resolve via Postman dynamic variables even when *variables* is empty.
         """
-        if not variables or "{{" not in text:
+        if "{{" not in text:
             return text
+
+        from services.scripting.dynamic_variables import resolve as resolve_dynamic
 
         def _replace(match: re.Match[str]) -> str:
             key = match.group(1).strip()
-            return variables.get(key, match.group(0))
+            if key in variables:
+                return variables[key]
+            if key.startswith("$"):
+                dyn = resolve_dynamic(key)
+                if dyn is not None:
+                    return dyn
+            return match.group(0)
 
         return _VAR_PATTERN.sub(_replace, text)
 

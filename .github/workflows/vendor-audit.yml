@@ -1,0 +1,36 @@
+name: Vendor Security Audit
+
+on:
+  workflow_dispatch: # Allow manual trigger from GitHub UI.
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: vendor-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Poetry
+        run: pipx install poetry
+
+      - name: Install dependencies
+        run: poetry install --with dev
+
+      - name: Run vendor audit
+        run: poetry run python scripts/audit_vendor.py

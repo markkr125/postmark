@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QApplication
+from unittest.mock import Mock
+
+import pytest
+from PySide6.QtWidgets import QApplication, QCheckBox
 
 from services.environment_service import VariableDetail
 from ui.request.request_editor import RequestEditorWidget
+from ui.widgets.key_value_table import _COL_KEY, _COL_VALUE
 
 
 class TestRequestEditorWidget:
@@ -29,6 +33,8 @@ class TestRequestEditorWidget:
         """Loading a request hides the empty state and shows content."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
 
         editor.load_request(
             {
@@ -43,7 +49,7 @@ class TestRequestEditorWidget:
 
         assert editor._empty_label.isHidden()
         assert not editor._tabs.isHidden()
-        assert editor._url_input.text() == "https://api.example.com/users"
+        assert editor._url_input.text() == "https://api.example.com/users?page=1"
         assert editor._method_combo.currentText() == "GET"
         # Params and headers are now key-value tables
         params_data = editor._params_table.get_data()
@@ -59,6 +65,8 @@ class TestRequestEditorWidget:
         """Clearing resets to the empty state."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
 
         editor.load_request({"name": "X", "method": "POST", "url": "http://x"})
         editor.clear_request()
@@ -68,21 +76,63 @@ class TestRequestEditorWidget:
         assert editor._url_input.text() == ""
 
     def test_load_request_with_scripts_dict(self, qapp: QApplication, qtbot) -> None:
-        """Scripts dict is displayed as formatted JSON."""
+        """Scripts dict populates the pre-request editor."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
 
         editor.load_request(
             {
                 "name": "X",
                 "method": "GET",
                 "url": "http://x",
-                "scripts": {"pre": "console.log('hi')"},
+                "scripts": {"pre_request": "console.log('hi')"},
             }
         )
 
-        text = editor._scripts_edit.toPlainText()
+        text = editor._pre_request_edit.toPlainText()
         assert "console.log" in text
+
+    def test_deno_runtime_banner_shows_after_load_when_deno_unavailable(
+        self, qapp: QApplication, qtbot, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Deno prompt must run after load; script text is set under ``_loading``."""
+        from services.scripting import runtime_settings as rs
+
+        def _fake_validate(_path: object) -> dict[str, object]:
+            return {
+                "path": "",
+                "available": False,
+                "version": "",
+                "error": "unavailable",
+            }
+
+        monkeypatch.setattr(
+            rs.RuntimeSettings,
+            "validate_deno",
+            staticmethod(_fake_validate),  # type: ignore[arg-type]
+        )
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
+        editor.load_request(
+            {
+                "name": "X",
+                "method": "GET",
+                "url": "http://x",
+                "scripts": {"pre_request": "// script"},
+            }
+        )
+        editor.show()
+        qtbot.waitExposed(editor)
+        # Pre-request runtime banner is inside the Scripts section tab; it is not
+        # top-level visible until that tab (index 5) is active.
+        editor._tabs.setCurrentIndex(5)
+        # The Deno probe runs off the UI thread and updates the banner via a
+        # queued signal, so wait for the event loop to deliver it.
+        qtbot.waitUntil(editor._pre_runtime_banner.isVisible)
 
 
 class TestRequestEditorDirtyTracking:
@@ -92,6 +142,8 @@ class TestRequestEditorDirtyTracking:
         """Editor is not dirty immediately after loading a request."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
 
         editor.load_request({"name": "X", "method": "GET", "url": "http://x"})
         assert not editor.is_dirty
@@ -100,6 +152,8 @@ class TestRequestEditorDirtyTracking:
         """Editing the URL marks the editor as dirty."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
 
         editor.load_request({"name": "X", "method": "GET", "url": "http://x"})
         editor._url_input.setText("http://changed")
@@ -109,6 +163,8 @@ class TestRequestEditorDirtyTracking:
         """Editing the body marks the editor as dirty."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
 
         editor.load_request({"name": "X", "method": "GET", "url": "http://x"})
         editor._body_mode_buttons["raw"].setChecked(True)
@@ -119,6 +175,8 @@ class TestRequestEditorDirtyTracking:
         """Dirty state is tracked via the is_dirty flag."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
 
         editor.load_request({"name": "My Request", "method": "GET", "url": "http://x"})
         editor._url_input.setText("http://changed")
@@ -128,6 +186,8 @@ class TestRequestEditorDirtyTracking:
         """Clearing dirty state resets the flag."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
 
         editor.load_request({"name": "My Request", "method": "GET", "url": "http://x"})
         editor._url_input.setText("http://changed")
@@ -138,6 +198,8 @@ class TestRequestEditorDirtyTracking:
         """load_request stores the request_id."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
 
         editor.load_request({"name": "X", "method": "GET", "url": "http://x"}, request_id=42)
         assert editor.request_id == 42
@@ -146,6 +208,8 @@ class TestRequestEditorDirtyTracking:
         """clear_request resets the dirty flag."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
 
         editor.load_request({"name": "X", "method": "GET", "url": "http://x"})
         editor._url_input.setText("http://changed")
@@ -161,6 +225,8 @@ class TestRequestEditorBodyMode:
         """All body mode radio buttons are present."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
 
         assert "none" in editor._body_mode_buttons
         assert "raw" in editor._body_mode_buttons
@@ -170,6 +236,8 @@ class TestRequestEditorBodyMode:
         """Default body mode is 'none'."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
 
         assert editor._body_mode_buttons["none"].isChecked()
 
@@ -177,6 +245,8 @@ class TestRequestEditorBodyMode:
         """Raw format dropdown is visible when 'raw' mode is selected."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
 
         editor.load_request({"name": "X", "method": "POST", "url": "http://x"})
         editor._body_mode_buttons["raw"].setChecked(True)
@@ -186,6 +256,8 @@ class TestRequestEditorBodyMode:
         """Raw format dropdown is hidden when mode is not 'raw'."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
 
         editor.load_request({"name": "X", "method": "POST", "url": "http://x"})
         editor._body_mode_buttons["form-data"].setChecked(True)
@@ -195,6 +267,8 @@ class TestRequestEditorBodyMode:
         """Loading a request with body_mode sets the correct radio."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
 
         editor.load_request(
             {
@@ -213,6 +287,8 @@ class TestRequestEditorBodyMode:
         """get_request_data returns the current body mode."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
 
         editor.load_request({"name": "X", "method": "POST", "url": "http://x"})
         editor._body_mode_buttons["raw"].setChecked(True)
@@ -237,6 +313,8 @@ class TestRequestEditorDescription:
         """Loading a request with a description populates the field."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
         editor.load_request(
             {
                 "name": "Test",
@@ -251,6 +329,8 @@ class TestRequestEditorDescription:
         """get_request_data returns the description."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
         editor.load_request(
             {
                 "name": "Test",
@@ -266,6 +346,8 @@ class TestRequestEditorDescription:
         """Clearing the editor resets the description field."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
         editor.load_request(
             {
                 "name": "Test",
@@ -285,6 +367,8 @@ class TestRequestEditorDirtyChanged:
         """dirty_changed signal fires when dirty state transitions."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
         editor.load_request({"name": "X", "method": "GET", "url": "http://x"})
 
         signals: list[bool] = []
@@ -300,6 +384,8 @@ class TestRequestEditorDirtyChanged:
         """dirty_changed does not fire when dirty stays the same."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
         editor.load_request({"name": "X", "method": "GET", "url": "http://x"})
 
         signals: list[bool] = []
@@ -322,6 +408,8 @@ class TestRequestEditorTabIndicators:
         """All tabs show plain names after loading an empty request."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
         editor.load_request({"name": "X", "method": "GET", "url": "http://x"})
         for i, name in enumerate(("Params", "Headers", "Body", "Auth", "Description", "Scripts")):
             assert editor._tabs.tabText(i) == name
@@ -330,6 +418,8 @@ class TestRequestEditorTabIndicators:
         """Params tab gets a dot when parameters are present."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
         editor.load_request(
             {
                 "name": "X",
@@ -344,6 +434,8 @@ class TestRequestEditorTabIndicators:
         """Headers tab gets a dot when headers are present."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
         editor.load_request(
             {
                 "name": "X",
@@ -358,6 +450,8 @@ class TestRequestEditorTabIndicators:
         """Body tab gets a dot when body mode is not 'none'."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
         editor.load_request(
             {
                 "name": "X",
@@ -373,6 +467,8 @@ class TestRequestEditorTabIndicators:
         """Auth tab gets a dot when auth is configured."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
         editor.load_request(
             {
                 "name": "X",
@@ -387,6 +483,8 @@ class TestRequestEditorTabIndicators:
         """Description tab gets a dot when description is non-empty."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
         editor.load_request(
             {
                 "name": "X",
@@ -401,12 +499,14 @@ class TestRequestEditorTabIndicators:
         """Scripts tab gets a dot when scripts are present."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
         editor.load_request(
             {
                 "name": "X",
                 "method": "GET",
                 "url": "http://x",
-                "scripts": {"pre": "console.log('hi')"},
+                "scripts": {"pre_request": "console.log('hi')"},
             }
         )
         assert editor._tabs.tabText(5).endswith(" \u2022")
@@ -415,6 +515,8 @@ class TestRequestEditorTabIndicators:
         """Dot disappears when tab content is emptied."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
         editor.load_request(
             {
                 "name": "X",
@@ -443,6 +545,8 @@ class TestRequestEditorMethodComboColors:
 
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
         delegate = cast(QStyledItemDelegate, editor._method_combo.itemDelegate())
         model = editor._method_combo.model()
         for i in range(editor._method_combo.count()):
@@ -459,6 +563,8 @@ class TestRequestEditorMethodComboColors:
 
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
         for method in ("POST", "DELETE", "GET"):
             editor._method_combo.setCurrentText(method)
             color = method_color(method)
@@ -496,6 +602,7 @@ class TestRequestEditorVariableMap:
         """set_variable_map pushes the map to key-value tables."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
         m: dict[str, VariableDetail] = {
             "key": {"value": "value", "source": "collection", "source_id": 1}
         }
@@ -508,6 +615,7 @@ class TestRequestEditorVariableMap:
         """set_variable_map pushes the map to code editors."""
         editor = RequestEditorWidget()
         qtbot.addWidget(editor)
+        editor._ensure_body_editors()
         m: dict[str, VariableDetail] = {
             "url": {"value": "https://api.test", "source": "environment", "source_id": 10}
         }
@@ -535,3 +643,433 @@ class TestRequestEditorVariableMap:
         assert isinstance(editor._basic_password_input, VariableLineEdit)
         assert isinstance(editor._apikey_key_input, VariableLineEdit)
         assert isinstance(editor._apikey_value_input, VariableLineEdit)
+
+
+class TestRequestEditorStatusBar:
+    """Tests for the script editor status bar in request editor."""
+
+    def test_status_bar_widgets_exist(self, qapp: QApplication, qtbot) -> None:
+        """Both script editors have line/column labels and a language picker."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor._ensure_scripts_editors()
+        assert hasattr(editor, "_pre_status_ln_lbl")
+        assert hasattr(editor, "_test_status_ln_lbl")
+        assert hasattr(editor, "_pre_lang_menu_btn")
+        assert hasattr(editor, "_test_lang_menu_btn")
+
+    def test_status_bar_initial_text(self, qapp: QApplication, qtbot) -> None:
+        """Status bar shows initial cursor position, language control, and char count."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor._ensure_scripts_editors()
+        assert "Ln 1" in editor._pre_status_ln_lbl.text()
+        assert "Col 1" in editor._pre_status_ln_lbl.text()
+        assert editor._pre_lang_menu_btn.text() == "JavaScript"
+        assert "chars" in editor._pre_status_chars_lbl.text()
+
+
+class TestRequestEditorScriptSearchBar:
+    """Tests for the search bars on script editor tabs."""
+
+    def test_search_bars_exist(self, qapp: QApplication, qtbot) -> None:
+        """Both script tabs have a search bar attached."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor._ensure_scripts_editors()
+        assert hasattr(editor, "_pre_search_bar")
+        assert hasattr(editor, "_test_search_bar")
+
+    def test_search_bars_start_hidden(self, qapp: QApplication, qtbot) -> None:
+        """Search bars are hidden by default."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor._ensure_scripts_editors()
+        assert editor._pre_search_bar.isHidden()
+        assert editor._test_search_bar.isHidden()
+
+    def test_search_bar_toggle(self, qapp: QApplication, qtbot) -> None:
+        """Toggling the search bar shows it."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor._ensure_scripts_editors()
+        editor._pre_search_bar.toggle_search()
+        assert not editor._pre_search_bar.isHidden()
+
+    def test_editor_minimum_height(self, qapp: QApplication, qtbot) -> None:
+        """Script editors have a non-zero minimum height."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor._ensure_scripts_editors()
+        assert editor._pre_request_edit.minimumHeight() >= 80
+        assert editor._test_script_edit.minimumHeight() >= 80
+
+    def test_test_run_live_mode_delegates_to_main_window(self, qapp: QApplication, qtbot) -> None:
+        """Post-response Run delegates to live-send pipeline in default mode."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
+        editor.load_request({"name": "X", "method": "GET", "url": "https://x"})
+        editor._test_script_edit.setPlainText("pm.test('ok', () => true)")
+
+        delegated: list[dict[str, object]] = []
+
+        def _capture(**kwargs: object) -> None:
+            delegated.append(kwargs)
+
+        editor.run_post_response_script_with_live_response = _capture  # type: ignore[attr-defined]
+        editor._run_inline_script("test")
+
+        assert len(delegated) == 1
+        assert delegated[0]["editor"] is editor
+        assert delegated[0]["panel"] is editor._test_output_panel
+        assert delegated[0]["script"] == "pm.test('ok', () => true)"
+
+    def test_test_run_manual_mode_uses_inline_worker(self, qapp: QApplication, qtbot) -> None:
+        """Manual mode keeps existing inline script execution path."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
+        editor.load_request({"name": "X", "method": "GET", "url": "https://x"})
+        editor._test_script_edit.setPlainText("pm.test('ok', () => true)")
+        editor._test_output_panel.set_response_source_mode("manual")
+
+        called = Mock()
+        editor._test_output_panel.run_script = called  # type: ignore[method-assign]
+        editor._run_inline_script("test")
+        assert called.called
+
+    def test_debug_inline_preserves_leading_whitespace_for_breakpoint_lines(
+        self, qapp: QApplication, qtbot
+    ) -> None:
+        """Debug must NOT strip leading lines: breakpoints are 0-based on the unmodified document."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
+        editor.load_request({"name": "X", "method": "GET", "url": "https://x"})
+        editor._test_output_panel.set_response_source_mode("manual")
+        src = "\n\n// blank lines above\npm.test('foo', () => true);\n"
+        editor._test_script_edit.setPlainText(src)
+
+        captured: dict[str, object] = {}
+
+        def _capture(**kwargs: object) -> None:
+            captured.update(kwargs)
+
+        editor._test_output_panel.run_script_debug = _capture  # type: ignore[method-assign]
+        editor._debug_inline_script("test")
+        assert captured.get("script") == src
+
+    def test_body_editors_not_built_until_body_tab_shown(self, qapp: QApplication, qtbot) -> None:
+        """Heavy body widgets stay unloaded until the Body tab is selected."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor.load_request(
+            {
+                "name": "T",
+                "method": "POST",
+                "url": "http://x",
+                "body_mode": "raw",
+                "body": "{}",
+            }
+        )
+        assert not editor._body_editor_materialized
+        assert not hasattr(editor, "_body_code_editor")
+
+        editor._tabs.setCurrentIndex(2)
+        assert editor._body_editor_materialized
+        assert hasattr(editor, "_body_code_editor")
+
+    def test_scripts_editors_not_built_until_scripts_tab_shown(
+        self, qapp: QApplication, qtbot
+    ) -> None:
+        """Script editors stay unloaded until the Scripts tab is selected."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor.load_request({"name": "T", "method": "GET", "url": "http://x"})
+        assert not editor._scripts_editor_materialized
+        assert not hasattr(editor, "_pre_request_edit")
+
+        editor._tabs.setCurrentIndex(5)
+        assert editor._scripts_editor_materialized
+        assert hasattr(editor, "_pre_request_edit")
+
+
+class TestUrlParamsSync:
+    """Bidirectional URL bar ↔ Params table sync (Postman-style)."""
+
+    @staticmethod
+    def _editor(qapp: QApplication, qtbot) -> RequestEditorWidget:
+        """Construct a loaded request editor for sync tests."""
+        editor = RequestEditorWidget()
+        qtbot.addWidget(editor)
+        editor._ensure_body_editors()
+        editor._ensure_scripts_editors()
+        return editor
+
+    def test_url_edit_updates_params_table(self, qapp: QApplication, qtbot) -> None:
+        """Editing the URL query rebuilds the Params table."""
+        editor = self._editor(qapp, qtbot)
+        editor.load_request({"name": "T", "method": "GET", "url": "https://h/p"})
+        editor._url_input.setText("https://h/p?foo=bar&baz=2")
+        rows = editor._params_table.get_data()
+        assert [r["key"] for r in rows] == ["foo", "baz"]
+        assert rows[0]["value"] == "bar"
+        assert rows[1]["value"] == "2"
+
+    def test_params_data_changed_updates_url(self, qapp: QApplication, qtbot) -> None:
+        """Table ``data_changed`` (ghost-row key entry) updates the URL."""
+        editor = self._editor(qapp, qtbot)
+        editor.load_request({"name": "T", "method": "GET", "url": "https://h/p"})
+        ghost = editor._params_table.row_count() - 1
+        key_item = editor._params_table._table.item(ghost, _COL_KEY)
+        assert key_item is not None
+        with qtbot.waitSignal(editor._params_table.data_changed, timeout=1000):
+            key_item.setText("page")
+        value_item = editor._params_table._table.item(0, _COL_VALUE)
+        assert value_item is not None
+        value_item.setText("1")
+        editor._params_table._on_cell_changed(0, _COL_VALUE)
+        assert editor._url_input.text() == "https://h/p?page=1"
+
+    def test_on_params_changed_sync_direct(self, qapp: QApplication, qtbot) -> None:
+        """``_on_params_changed_sync`` rebuilds the URL after programmatic ``set_data``."""
+        editor = self._editor(qapp, qtbot)
+        editor.load_request({"name": "T", "method": "GET", "url": "https://h/p"})
+        editor._params_table.set_data(
+            [
+                {"key": "a", "value": "1", "enabled": True},
+                {"key": "b", "value": "2", "enabled": True},
+            ]
+        )
+        editor._on_params_changed_sync()
+        assert editor._url_input.text() == "https://h/p?a=1&b=2"
+
+    def test_load_promotes_params_when_url_has_no_query(self, qapp: QApplication, qtbot) -> None:
+        """Stored params are merged into the URL when the loaded URL has no ``?``."""
+        editor = self._editor(qapp, qtbot)
+        editor.load_request(
+            {
+                "name": "T",
+                "method": "GET",
+                "url": "https://api.example.com/users",
+                "request_parameters": [{"key": "page", "value": "1", "enabled": True}],
+            }
+        )
+        assert editor._url_input.text() == "https://api.example.com/users?page=1"
+
+    def test_load_url_query_wins_over_stored_params(self, qapp: QApplication, qtbot) -> None:
+        """When the URL already has a query, its pairs override stored param values."""
+        editor = self._editor(qapp, qtbot)
+        editor.load_request(
+            {
+                "name": "T",
+                "method": "GET",
+                "url": "https://h/p?token=from_url",
+                "request_parameters": [
+                    {"key": "token", "value": "from_db", "enabled": True},
+                ],
+            }
+        )
+        assert editor._url_input.text() == "https://h/p?token=from_url"
+        assert editor._params_table.get_data()[0]["value"] == "from_url"
+
+    def test_disabled_param_omitted_from_url(self, qapp: QApplication, qtbot) -> None:
+        """Disabled rows stay in the table but are not written into the URL."""
+        editor = self._editor(qapp, qtbot)
+        editor.load_request({"name": "T", "method": "GET", "url": "https://h/p"})
+        editor._params_table.set_data(
+            [
+                {"key": "on", "value": "1", "enabled": True},
+                {"key": "off", "value": "2", "enabled": False},
+            ]
+        )
+        editor._on_params_changed_sync()
+        url = editor._url_input.text()
+        assert "on=1" in url
+        assert "off=" not in url
+        keys = [r["key"] for r in editor._params_table.get_data()]
+        assert "off" in keys
+
+    def test_uncheck_param_removes_from_url(self, qapp: QApplication, qtbot) -> None:
+        """Unchecking a param drops it from the URL via ``data_changed``."""
+        editor = self._editor(qapp, qtbot)
+        editor.load_request(
+            {
+                "name": "T",
+                "method": "GET",
+                "url": "https://h/p?keep=1&drop=2",
+            }
+        )
+        container = editor._params_table._table.cellWidget(1, 0)
+        cb = container.findChild(QCheckBox)
+        assert cb is not None
+        with qtbot.waitSignal(editor._params_table.data_changed, timeout=1000):
+            cb.setChecked(False)
+        assert "keep=1" in editor._url_input.text()
+        assert "drop=" not in editor._url_input.text()
+
+    def test_variable_placeholder_preserved(self, qapp: QApplication, qtbot) -> None:
+        """``{{…}}`` placeholders survive URL ↔ Params sync."""
+        editor = self._editor(qapp, qtbot)
+        url = "https://h/p?token={{api_key}}"
+        editor.load_request({"name": "T", "method": "GET", "url": url})
+        assert editor._params_table.get_data()[0]["value"] == "{{api_key}}"
+        editor._url_input.setText("https://h/p?token={{api_key}}&x=1")
+        assert "{{api_key}}" in editor._url_input.text()
+        assert "%" not in editor._url_input.text()
+
+    def test_fragment_preserved_on_params_sync(self, qapp: QApplication, qtbot) -> None:
+        """Rebuilding the query from Params keeps the URL fragment."""
+        editor = self._editor(qapp, qtbot)
+        editor.load_request({"name": "T", "method": "GET", "url": "https://h/p#frag"})
+        editor._params_table.set_data([{"key": "q", "value": "1", "enabled": True}])
+        editor._on_params_changed_sync()
+        assert editor._url_input.text() == "https://h/p?q=1#frag"
+
+    def test_url_edit_keeps_disabled_rows_at_bottom(self, qapp: QApplication, qtbot) -> None:
+        """A manual URL edit keeps disabled table rows appended after URL pairs."""
+        editor = self._editor(qapp, qtbot)
+        editor.load_request(
+            {
+                "name": "T",
+                "method": "GET",
+                "url": "https://h/p?a=1",
+                "request_parameters": [
+                    {"key": "a", "value": "1", "enabled": True},
+                    {"key": "b", "value": "2", "enabled": False},
+                ],
+            }
+        )
+        editor._url_input.setText("https://h/p?x=9")
+        rows = editor._params_table.get_data()
+        assert [r["key"] for r in rows] == ["x", "b"]
+        assert rows[0]["value"] == "9"
+        assert rows[1]["enabled"] is False
+
+    def test_editing_one_param_preserves_flag_sibling(self, qapp: QApplication, qtbot) -> None:
+        """Changing one table row must not rewrite flag-style siblings in the URL."""
+        editor = self._editor(qapp, qtbot)
+        editor.load_request({"name": "T", "method": "GET", "url": "https://h/p?verbose&a=1"})
+        assert editor._params_table.get_data()[0].get("flag") is True
+        value_item = editor._params_table._table.item(1, _COL_VALUE)
+        assert value_item is not None
+        value_item.setText("2")
+        editor._params_table._on_cell_changed(1, _COL_VALUE)
+        assert editor._url_input.text() == "https://h/p?verbose&a=2"
+
+    def test_mustache_ampersand_in_value_survives_sync(self, qapp: QApplication, qtbot) -> None:
+        """``&`` inside ``{{…}}`` is not split when syncing URL to Params."""
+        editor = self._editor(qapp, qtbot)
+        url = "https://h/p?token={{a&b}}"
+        editor.load_request({"name": "T", "method": "GET", "url": url})
+        assert editor._params_table.get_data()[0]["value"] == "{{a&b}}"
+        editor._params_table.set_data([{"key": "token", "value": "{{a&b}}", "enabled": True}])
+        editor._on_params_changed_sync()
+        assert editor._url_input.text() == url
+
+    def test_bulk_mode_locks_url_and_syncs_on_exit(self, qapp: QApplication, qtbot) -> None:
+        """Bulk mode makes the URL read-only; leaving bulk applies params to the URL."""
+        editor = self._editor(qapp, qtbot)
+        editor.load_request({"name": "T", "method": "GET", "url": "https://h/p?a=1"})
+        assert not editor._url_input.isReadOnly()
+        editor._params_table._bulk_enter_btn.click()
+        assert editor._params_table.is_bulk_mode()
+        assert editor._url_input.isReadOnly()
+        editor._url_input.setText("https://h/p?a=1&ignored=while_locked")
+        editor._params_table._bulk_text.setPlainText("a: 1\nnew: 2")
+        editor._params_table._bulk_back_btn.click()
+        assert not editor._params_table.is_bulk_mode()
+        assert not editor._url_input.isReadOnly()
+        assert "new=2" in editor._url_input.text()
+        assert "ignored=while_locked" not in editor._url_input.text()
+
+    def test_url_edit_skipped_while_params_bulk_mode(self, qapp: QApplication, qtbot) -> None:
+        """URL edits do not clobber unsaved bulk text."""
+        editor = self._editor(qapp, qtbot)
+        editor.load_request({"name": "T", "method": "GET", "url": "https://h/p?a=1"})
+        editor._params_table._bulk_enter_btn.click()
+        editor._params_table._bulk_text.setPlainText("draft: 9")
+        editor._url_input.setText("https://h/p?only=url")
+        assert editor._params_table._bulk_text.toPlainText() == "draft: 9"
+
+    def test_load_request_unlocks_url_after_bulk_mode(self, qapp: QApplication, qtbot) -> None:
+        """Loading another request restores URL editability after bulk mode."""
+        editor = self._editor(qapp, qtbot)
+        editor.load_request({"name": "T", "method": "GET", "url": "https://h/p?a=1"})
+        editor._params_table._bulk_enter_btn.click()
+        assert editor._url_input.isReadOnly()
+        editor.load_request({"name": "U", "method": "GET", "url": "https://other/p?q=1"})
+        assert not editor._params_table.is_bulk_mode()
+        assert not editor._url_input.isReadOnly()
+        assert editor._url_input.text() == "https://other/p?q=1"
+
+    def test_clear_request_unlocks_url_after_bulk_mode(self, qapp: QApplication, qtbot) -> None:
+        """``clear_request`` restores URL editability after bulk mode."""
+        editor = self._editor(qapp, qtbot)
+        editor.load_request({"name": "T", "method": "GET", "url": "https://h/p?a=1"})
+        editor._params_table._bulk_enter_btn.click()
+        assert editor._url_input.isReadOnly()
+        editor.clear_request()
+        assert not editor._params_table.is_bulk_mode()
+        assert not editor._url_input.isReadOnly()
+
+    def test_reconcile_preserves_description_fifo(self, qapp: QApplication, qtbot) -> None:
+        """Descriptions for duplicate keys are re-attached in FIFO order on URL sync."""
+        editor = self._editor(qapp, qtbot)
+        editor.load_request(
+            {
+                "name": "T",
+                "method": "GET",
+                "url": "https://h/p",
+                "request_parameters": [
+                    {"key": "x", "value": "1", "description": "first", "enabled": True},
+                    {"key": "x", "value": "2", "description": "second", "enabled": True},
+                ],
+            }
+        )
+        editor._url_input.setText("https://h/p?x=9&x=8")
+        rows = editor._params_table.get_data()
+        assert rows[0]["description"] == "first"
+        assert rows[1]["description"] == "second"
+
+    def test_load_respects_enabled_field(self, qapp: QApplication, qtbot) -> None:
+        """``enabled: false`` on stored params is honoured (not only ``disabled``)."""
+        editor = self._editor(qapp, qtbot)
+        editor.load_request(
+            {
+                "name": "T",
+                "method": "GET",
+                "url": "https://h/p?a=1",
+                "request_parameters": [
+                    {"key": "b", "value": "2", "enabled": False},
+                ],
+            }
+        )
+        rows = editor._params_table.get_data()
+        assert any(r["key"] == "b" and not r.get("enabled", True) for r in rows)
+
+    def test_clear_request_resets_syncing_query(self, qapp: QApplication, qtbot) -> None:
+        """``clear_request`` leaves ``_syncing_query`` false and the URL bar editable."""
+        editor = self._editor(qapp, qtbot)
+        editor.load_request({"name": "T", "method": "GET", "url": "https://h/p?a=1"})
+        editor._syncing_query = True
+        editor._url_input.setReadOnly(True)
+        editor.clear_request()
+        assert editor._syncing_query is False
+        assert not editor._url_input.isReadOnly()
+
+    def test_sync_no_infinite_loop(self, qapp: QApplication, qtbot) -> None:
+        """URL→Params→URL round-trip settles without repeated URL rewrites."""
+        editor = self._editor(qapp, qtbot)
+        editor.load_request({"name": "T", "method": "GET", "url": "https://h/p?verbose&a=1"})
+        changes: list[str] = []
+        editor._url_input.textChanged.connect(lambda: changes.append(editor._url_input.text()))
+        changes.clear()
+        editor._url_input.setText("https://h/p?verbose&a=2")
+        assert editor._url_input.text() == "https://h/p?verbose&a=2"
+        assert not editor._syncing_query
+        assert changes.count("https://h/p?verbose&a=2") == 1

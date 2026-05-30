@@ -8,7 +8,7 @@ the codebase quickly.
 
 ```text
 src/
-+-- main.py                          Entry point -- QApplication + init_db()
++-- main.py                          Entry point -- QApplication + MainWindow bootstrap
 +-- database/                        Engine, models, repository
 |   +-- database.py                  init_db(), get_session(), forward-only migration
 |   +-- models/
@@ -53,8 +53,10 @@ src/
     |   +-- draft_controller.py      _DraftControllerMixin -- draft tab open/save
     |   +-- tab_controller.py        _TabControllerMixin -- tab open/close/switch
     |   +-- variable_controller.py   _VariableControllerMixin -- env variable + sidebar management
-    +-- sidebar/                     Right sidebar sub-package
+    +-- sidebar/                     Sidebar rails + flyout panels
     |   +-- sidebar_widget.py        RightSidebar (icon rail) + _FlyoutPanel
+    |   +-- left_sidebar.py          LeftSidebar — activity rail + stacked flyout (collections | local scripts)
+    |   +-- local_scripts_sidebar_panel.py  LocalScriptsSidebarPanel — local scripts list placeholder
     |   +-- variables_panel.py       VariablesPanel -- read-only variable display
     |   +-- snippet_panel.py         SnippetPanel -- inline code snippet generator
     |   +-- saved_responses/         Saved responses sub-package
@@ -63,7 +65,7 @@ src/
     |       +-- helpers.py           Formatting helpers (body size, language detect)
     |       +-- delegate.py          Custom delegate for saved response list items
     +-- styling/                     Visual theming and icons
-    |   +-- theme.py                 Palettes, colours, badge geometry, method_color(), status_color()
+    |   +-- theme.py                 Palettes, colours, status bar / left-rail chrome, badge/tree geometry, left-nav panel margins, method_color(), status_color()
     |   +-- theme_manager.py         ThemeManager -- QPalette + QSettings
     |   +-- tab_settings_manager.py  TabSettingsManager -- request-tab QSettings bridge
     |   +-- global_qss.py           build_global_qss() -- global stylesheet builder
@@ -73,10 +75,24 @@ src/
     |   |   +-- editor_widget.py     CodeEditorWidget -- main editor class
     |   |   +-- highlighter.py       Syntax highlighting engine
     |   |   +-- folding.py           Code folding logic
-    |   |   +-- gutter.py            Line-number gutter
+    |   |   +-- gutter.py            Line-number gutter + minimap (_MinimapArea)
     |   |   +-- painting.py          Custom painting helpers
+    |   |   +-- completion/          Autocomplete sub-package
+    |   |       +-- schema/          Schema sub-package
+    |   |       |   +-- core.py      SchemaNode TypedDict, expectation chain, shared helpers
+    |   |       |   +-- js.py        JS_SCHEMA (pm, console, CryptoJS, postman) + JS_GLOBALS
+    |   |       |   +-- py.py        PY_SCHEMA + PY_GLOBALS (Python variant)
+    |   |       +-- engine.py        CompletionEngine -- dot-path/variable resolver + resolve_call_signature + resolve_nearest_call_signature + resolve_symbol/find_definition_pos/is_linkable_symbol (Ctrl+hover/Ctrl+click)
+    |   |       +-- mixin.py         _CompletionMixin -- completion + parameter hint triggers + Ctrl+hover/click symbol-link handling
+    |   |       +-- parameter_hint.py  ParameterHintPopup -- call signature tooltip
+    |   |       +-- popup.py         CompletionPopup -- floating autocomplete widget
+    |   |       +-- symbol_doc_popup.py  SymbolDocPopup -- Ctrl+hover/Ctrl+Q quick-doc tooltip
     |   +-- info_popup.py            InfoPopup (QFrame) base + ClickableLabel
+    |   +-- key_value_column_widths.py  QSettings persistence for Key/Value column widths
+    |   +-- key_value_bulk.py          Postman-style bulk text serialize/parse for key-value tables
     |   +-- key_value_table.py       Reusable key-value editor widget
+    |   +-- key_value_table_delegate.py  Variable {{…}} highlight delegate
+    |   +-- search_replace_bar.py    SearchReplaceBar -- find/replace + go-to-line for CodeEditorWidget
     |   +-- variable_line_edit.py    VariableLineEdit -- QLineEdit with {{var}} highlighting + popup
     |   +-- variable_popup.py        VariablePopup -- singleton hover popup for variable details
     +-- collections/                 Collection sidebar
@@ -90,18 +106,26 @@ src/
     |       +-- tree_actions.py      _TreeActionsMixin -- context menus, rename, delete
     |       +-- collection_tree_delegate.py  Custom delegate for method badges
     +-- dialogs/                     Modal dialogs
-    |   +-- collection_runner.py     CollectionRunnerWidget -- run all requests in a collection
+    |   +-- collection_runner/       Shared runner widgets + RunnerWorker (no modal shell)
+    |   |   +-- __init__.py          Re-exports RunnerConfigView, RunnerResultsView, RunnerWorker
+    |   |   +-- config.py            RunnerConfigView (env selector, request checklist, data file, iterations, delay)
+    |   |   +-- results.py           RunnerResultsView (summary + results table + detail panel + export)
+    |   |   +-- worker.py            RunnerWorker (QThread), parse_data_file, env var substitution
     |   +-- import_dialog.py         ImportDialog -- select format + import
     |   +-- save_request_dialog.py   SaveRequestDialog -- save draft to collection
     |   +-- settings_dialog.py       SettingsDialog -- theme + request-tab behaviour
     +-- environments/                Environment management widgets
-    |   +-- environment_editor.py    EnvironmentEditor dialog
-    |   +-- environment_selector.py  EnvironmentSelector dropdown
+    |   +-- environment_editor.py    EnvironmentEditorWidget + EnvironmentEditorDialog wrapper
+    |   +-- environment_selector.py  EnvironmentSelector dropdown (dialogs / legacy)
+    |   +-- environment_sidebar_panel.py  EnvironmentSidebarPanel — left column global env picker
     +-- panels/                      Bottom panels
     |   +-- console_panel.py         Console output panel
     |   +-- history_panel.py         Request history panel
     +-- request/                     Request/response editing
-        +-- folder_editor.py         FolderEditorWidget -- folder/collection detail editor
+        +-- folder_editor/              Folder/collection detail editor sub-package
+        |   +-- editor_widget.py        FolderEditorWidget -- main editor class
+        |   +-- runner_panel.py         _RunnerPanel -- inline collection runner (Runs -> New run)
+        |   +-- runs.py                 _RunsMixin + _build_runs_table (run history table)
         +-- http_worker.py           HttpSendWorker + SchemaFetchWorker (QThread)
         +-- auth/                    Shared auth sub-package (12 auth types)
         |   +-- auth_field_specs.py  Per-type FieldSpec definitions (AUTH_FIELD_SPECS dict)
@@ -117,6 +141,8 @@ src/
         +-- response_viewer/         ResponseViewer sub-package
         |   +-- viewer_widget.py     ResponseViewer -- response display widget
         |   +-- search_filter.py     _SearchFilterMixin -- response search/filter
+        |   +-- test_results_mixin.py _TestResultsMixin -- test results tab
+        |   +-- pre_request_mixin.py _PreRequestMixin -- pre-request script output tab
         +-- navigation/              Tab switching and path navigation
         |   +-- breadcrumb_bar.py    BreadcrumbBar widget
         |   +-- request_tab_bar.py   Compatibility wrapper re-exporting wrapped deck
@@ -167,6 +193,7 @@ tests/
     |   +-- test_icons.py           Icon system tests
     +-- sidebar/
     |   +-- test_sidebar.py          RightSidebar tests
+    |   +-- test_left_sidebar.py     LeftSidebar tests
     |   +-- test_variables_panel.py  VariablesPanel tests
     |   +-- test_snippet_panel.py    SnippetPanel tests
     |   +-- test_saved_responses_panel.py  SavedResponsesPanel tests
@@ -175,11 +202,15 @@ tests/
     |   +-- test_code_editor_folding.py  Folding tests
     |   +-- test_code_editor_painting.py Painting tests
     |   +-- test_code_editor_memory.py   Memory/performance tests
+    |   +-- test_code_editor_minimap.py   Minimap tests
+    |   +-- test_completion_engine.py    CompletionEngine tests
+    |   +-- test_completion_popup.py     CompletionPopup tests
     |   +-- test_info_popup.py       InfoPopup tests
     |   +-- test_key_value_table.py  KeyValueTable tests
     |   +-- test_variable_line_edit.py  VariableLineEdit tests
     |   +-- test_variable_popup.py   VariablePopup tests
     |   +-- test_variable_popup_local.py  VariablePopup local override tests
+    |   +-- test_search_replace_bar.py   SearchReplaceBar tests
     +-- collections/
     |   +-- test_collection_header.py    CollectionHeader tests
     |   +-- test_collection_tree.py      CollectionTree tests
@@ -194,12 +225,14 @@ tests/
     +-- environments/
     |   +-- test_environment_editor.py   EnvironmentEditor tests
     |   +-- test_environment_selector.py EnvironmentSelector tests
+    |   +-- test_environment_sidebar_panel.py EnvironmentSidebarPanel tests
     +-- panels/
     |   +-- test_console_panel.py        ConsolePanel tests
     |   +-- test_history_panel.py        HistoryPanel tests
     +-- request/
         +-- conftest.py                  make_request_dict fixture factory
         +-- test_folder_editor.py        FolderEditorWidget tests
+        +-- test_folder_editor_scripts.py Script editor, history, search tests
         +-- test_http_worker.py          HttpSendWorker tests
         +-- test_request_editor.py       RequestEditor tests
         +-- test_request_editor_auth.py  Auth tab tests
@@ -208,6 +241,8 @@ tests/
         +-- test_request_editor_search.py  Body search tests
         +-- test_response_viewer.py      ResponseViewer tests
         +-- test_response_viewer_search.py Response search tests
+        +-- test_response_viewer_tests.py Test results tab tests
+        +-- test_version_history.py       VersionHistoryDialog tests
         +-- navigation/
         |   +-- test_breadcrumb_bar.py   BreadcrumbBar tests
         |   +-- test_request_tab_bar.py  RequestTabBar tests

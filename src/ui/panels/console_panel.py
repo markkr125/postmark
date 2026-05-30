@@ -7,12 +7,14 @@ are captured and displayed with thread-safe signal delivery.
 
 from __future__ import annotations
 
+import html
 import logging
 
 from PySide6.QtCore import QObject, Qt, Signal, Slot
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QTextEdit, QVBoxLayout, QWidget
 
 from ui.styling.icons import phi
+from ui.styling.theme import COLOR_DANGER
 
 # Maximum number of log lines kept in the console output.
 _MAX_LOG_LINES = 2000
@@ -118,10 +120,17 @@ class ConsolePanel(QWidget):
         """Clear the console output."""
         self._output.clear()
 
+    def append_message(self, message: str) -> None:
+        """Append a message to the console (thread-safe via signal bridge)."""
+        self._bridge.log_message.emit(message)
+
+    def append_error(self, message: str) -> None:
+        """Append an error message in red to the console."""
+        escaped = html.escape(message)
+        colored = f'<span style="color:{COLOR_DANGER}">{escaped}</span>'
+        self._bridge.log_message.emit(colored)
+
     def cleanup(self) -> None:
         """Remove the log handler (call on shutdown)."""
-        logging.getLogger().removeHandler(self._handler)
-        logging.getLogger().removeHandler(self._handler)
-        logging.getLogger().removeHandler(self._handler)
         logging.getLogger().removeHandler(self._handler)
         logging.getLogger().removeHandler(self._handler)

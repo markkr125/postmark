@@ -6,7 +6,6 @@ from collections.abc import Iterator
 from typing import Any
 
 import pytest
-from PySide6.QtCore import QEvent
 from PySide6.QtWidgets import QApplication, QTreeWidgetItem
 
 from ui.collections.collection_widget import CollectionWidget
@@ -25,6 +24,25 @@ def _no_fetch(monkeypatch: pytest.MonkeyPatch) -> None:
     widget integration (signals, service calls) is still exercised.
     """
     monkeypatch.setattr(CollectionWidget, "_start_fetch", lambda self: None)
+
+
+@pytest.fixture(autouse=True)
+def _no_script_linter(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Prevent ``ScriptLinter`` from spawning Deno subprocesses in most UI tests.
+
+    Every ``CodeEditorWidget`` with language ``javascript`` or ``python``
+    triggers ``_validate_script()`` on a 300 ms debounce timer, which
+    for JavaScript runs Esprima through ``deno run``.  In a full test run
+    with many editor instances, the accumulated child processes are slow
+    and can stress the test runner.
+
+    Tests that specifically verify linting integration should override
+    this fixture with ``@pytest.mark.usefixtures()`` or call
+    ``monkeypatch.undo()`` to restore the real ``ScriptLinter``.
+    """
+    from services.scripting.engine import ScriptLinter
+
+    monkeypatch.setattr(ScriptLinter, "check", staticmethod(lambda *_a, **_kw: []))
 
 
 @pytest.fixture(autouse=True)
@@ -55,8 +73,14 @@ def _reset_popup_and_flush_widgets(qapp: QApplication) -> Iterator[None]:
     VariablePopup._reset_local_override_callback = None
     VariablePopup._add_variable_callback = None
 
-    # 2. Dispatch every queued DeferredDelete so C++ widgets are freed.
-    qapp.sendPostedEvents(None, int(QEvent.Type.DeferredDelete))
+    # 2. Reset code-editor popup singletons (see ``tests/qt_popup_cleanup.py``).
+    from tests.qt_popup_cleanup import (
+        flush_deferred_widget_deletes,
+        reset_code_editor_popups,
+    )
+
+    reset_code_editor_popups()
+    flush_deferred_widget_deletes(qapp)
 
 
 # ------------------------------------------------------------------

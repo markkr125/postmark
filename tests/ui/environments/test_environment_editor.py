@@ -5,7 +5,7 @@ from __future__ import annotations
 from PySide6.QtWidgets import QApplication
 
 from services.environment_service import EnvironmentService
-from ui.environments.environment_editor import EnvironmentEditorDialog
+from ui.environments.environment_editor import EnvironmentEditorDialog, EnvironmentEditorWidget
 
 
 class TestEnvironmentEditorDialog:
@@ -54,3 +54,39 @@ class TestEnvironmentEditorDialog:
         qtbot.addWidget(dialog)
         with qtbot.waitSignal(dialog.environments_changed, timeout=1000):
             dialog._on_add()
+
+
+class TestEnvironmentEditorWidget:
+    """Tests for :class:`EnvironmentEditorWidget` dirty / save state."""
+
+    def test_empty_state_hides_editor_until_environment_exists(
+        self, qapp: QApplication, qtbot
+    ) -> None:
+        """With zero environments, the stacked pane shows the placeholder, not the editor."""
+        editor = EnvironmentEditorWidget()
+        qtbot.addWidget(editor)
+        assert editor._right_stack.currentIndex() == 0
+        assert "You do not have any environments yet" in editor._intro.text()
+
+        editor._on_add()
+        assert editor._right_stack.currentIndex() == 1
+        assert "Each environment is a named group" in editor._intro.text()
+
+    def test_save_variables_disabled_until_changed(self, qapp: QApplication, qtbot) -> None:
+        """Save Variables stays disabled until the table differs from the loaded snapshot."""
+        EnvironmentService.create_environment(
+            "A",
+            [{"key": "k", "value": "v", "description": "", "enabled": True}],
+        )
+        editor = EnvironmentEditorWidget()
+        qtbot.addWidget(editor)
+        assert not editor._save_btn.isEnabled()
+
+        editor._var_table.set_data(
+            [{"key": "k", "value": "v2", "description": "", "enabled": True}],
+        )
+        editor._on_vars_changed()
+        assert editor._save_btn.isEnabled()
+
+        editor._on_save_vars()
+        assert not editor._save_btn.isEnabled()

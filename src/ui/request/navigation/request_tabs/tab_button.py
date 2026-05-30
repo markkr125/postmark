@@ -33,6 +33,7 @@ class TabButton(QFrame):
         self._label_widget = label_widget
         self._selected = False
         self._hovered = False
+        self._debugging = False
         self._hover_suppressed = False
         self._press_pos: QPoint | None = None
         self._drag_active = False
@@ -59,8 +60,22 @@ class TabButton(QFrame):
         self._index = index
 
     def set_selected(self, selected: bool) -> None:
-        """Update selected state and refresh the chip style."""
+        """Update selected state and refresh the chip style.
+
+        No-op when *selected* matches the current state — avoids redundant
+        ``setStyleSheet`` calls during bulk operations like session restore
+        where ``_sync_selection_styles`` iterates every tab.
+        """
+        if self._selected == selected:
+            return
         self._selected = selected
+        self.refresh_style()
+
+    def set_debugging(self, debugging: bool) -> None:
+        """Update whether this tab owns an active debug session."""
+        if self._debugging == debugging:
+            return
+        self._debugging = debugging
         self.refresh_style()
 
     def close_button(self) -> QToolButton:
@@ -78,6 +93,7 @@ class TabButton(QFrame):
         text = ui_theme.COLOR_TEXT_MUTED
         bottom_width = "1px"
         bottom_border = ui_theme.COLOR_BORDER
+        border_left = f"1px solid {border}"
         if self._selected:
             background = ui_theme.COLOR_SELECTED_BG
             text = ui_theme.COLOR_TEXT
@@ -86,11 +102,18 @@ class TabButton(QFrame):
         elif self._hovered:
             background = ui_theme.COLOR_SELECTED_BG
             text = ui_theme.COLOR_TEXT
+        elif self._debugging:
+            background = ui_theme.COLOR_SELECTED_BG
+            text = ui_theme.COLOR_TEXT
+            bottom_width = "2px"
+            bottom_border = ui_theme.COLOR_ACCENT
+            border_left = f"3px solid {ui_theme.COLOR_ACCENT}"
 
         self.setStyleSheet(
             "TabButton {"
             f"background: {background};"
             f"border: 1px solid {border};"
+            f"border-left: {border_left};"
             f"border-bottom: {bottom_width} solid {bottom_border};"
             "border-radius: 4px;"
             "}"
@@ -100,7 +123,7 @@ class TabButton(QFrame):
             "background: transparent;"
             "border: none;"
             f"color: {text};"
-            "font-size: 13px;"
+            "font-size: 12px;"
             "font-weight: bold;"
             "}"
             f"QToolButton:hover {{ color: {ui_theme.COLOR_TEXT}; }}"
@@ -166,27 +189,44 @@ class TabButton(QFrame):
             self._press_pos = event.position().toPoint()
             self._drag_active = False
             self.clicked.emit(self._index)
+            event.accept()
+            return
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         """Mark the interaction as a drag once the cursor passes the threshold."""
-        if (
-            self._press_pos is not None
-            and event.buttons() & Qt.MouseButton.LeftButton
-            and (event.position().toPoint() - self._press_pos).manhattanLength() >= 8
-        ):
-            self._drag_active = True
+        if self._press_pos is not None and event.buttons() & Qt.MouseButton.LeftButton:
+            if (
+                not self._drag_active
+                and (event.position().toPoint() - self._press_pos).manhattanLength() >= 8
+            ):
+                self._drag_active = True
+                self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            if self._drag_active:
+                parent = self._parent_bar()
+                if parent is not None:
+                    bar_pos = parent.mapFromGlobal(event.globalPosition().toPoint())
+                    parent.show_drop_indicator(bar_pos, self._index)
+                event.accept()
+                return
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         """Emit a reorder request when a drag ends above another tab."""
-        if event.button() == Qt.MouseButton.LeftButton and self._drag_active:
-            parent = self._parent_bar()
-            if parent is not None:
-                drop_pos = parent.mapFromGlobal(event.globalPosition().toPoint())
-                target = parent.tabAt(drop_pos)
-                if target >= 0 and target != self._index:
-                    self.reorder_requested.emit(self._index, target)
+        if event.button() == Qt.MouseButton.LeftButton:
+            if self._drag_active:
+                parent = self._parent_bar()
+                if parent is not None:
+                    parent.hide_drop_indicator()
+                    drop_pos = parent.mapFromGlobal(event.globalPosition().toPoint())
+                    target = parent.drop_target_index(drop_pos, self._index)
+                    if target >= 0 and target != self._index:
+                        self.reorder_requested.emit(self._index, target)
+                self.unsetCursor()
+            self._press_pos = None
+            self._drag_active = False
+            event.accept()
+            return
         self._press_pos = None
         self._drag_active = False
         super().mouseReleaseEvent(event)

@@ -1,7 +1,6 @@
 # TypedDict Catalogue
 
-Complete reference of all `TypedDict` schemas used to pass structured
-data across module boundaries.
+All `TypedDict` schemas used to pass structured data across modules.
 
 ## Service Layer
 
@@ -316,100 +315,19 @@ Summary of what was actually persisted to the database.
 Colour slots consumed by the global stylesheet and widget painting.
 Every field is a hex colour string.
 
-**Neutral colours:**
+| Category | Fields | Examples |
+|----------|--------|----------|
+| Neutral | 9 | `bg`, `bg_alt`, `text`, `text_muted`, `border`, `hover_bg`, `selected_bg` |
+| Semantic | 9 | `accent`, `accent_hover`, `success`, `warning`, `danger`, `danger_hover`, `solid_button_fg`, `muted`, `delete` |
+| HTTP method | 8 | `head`, `options`, `get`, `post`, `put`, `patch`, `delete` |
+| Functional | 3 | `sending`, `breadcrumb_sep`, `status_bar_bg` |
+| Import dialog | 5 | `drop_zone_border`, `import_success`, `import_error` |
+| Console | 2 | `console_bg`, `console_text` |
+| Timing phases | 7 | `timing_prepare`, `timing_dns`, `timing_tcp`, `timing_tls` |
+| Variable highlight | 3 | `variable_highlight`, `variable_unresolved_highlight` |
+| Code editor | 22 | `editor_bracket_match`, `editor_string`, `editor_keyword` |
 
-| Field | Description |
-|-------|-------------|
-| `bg` | Background |
-| `bg_alt` | Alternate background |
-| `text` | Primary text |
-| `text_muted` | Muted/secondary text |
-| `border` | Border |
-| `hover_bg` | Hover state background |
-| `hover_tree_bg` | Tree item hover |
-| `selected_bg` | Selection highlight |
-| `input_bg` | Input field background |
-
-**Semantic colours:**
-
-| Field | Description |
-|-------|-------------|
-| `accent` | Primary accent |
-| `success` | Success/positive |
-| `warning` | Warning |
-| `danger` | Danger/error |
-| `muted` | Muted/disabled |
-| `delete` | Delete action |
-| `head` | Heading |
-| `options` | Options/settings |
-
-**Functional colours:**
-
-| Field | Description |
-|-------|-------------|
-| `sending` | In-flight request indicator |
-| `breadcrumb_sep` | Breadcrumb separator |
-
-**Import dialog colours:**
-
-| Field | Description |
-|-------|-------------|
-| `drop_zone_border` | Drop zone border |
-| `drop_zone_bg` | Drop zone background |
-| `drop_zone_active_bg` | Drop zone active state |
-| `import_success` | Import success message |
-| `import_error` | Import error message |
-
-**Console colours:**
-
-| Field | Description |
-|-------|-------------|
-| `console_bg` | Console background |
-| `console_text` | Console text |
-
-**Timing phase colours:**
-
-| Field | Description |
-|-------|-------------|
-| `timing_prepare` | Preparation phase |
-| `timing_dns` | DNS resolution |
-| `timing_tcp` | TCP connection |
-| `timing_tls` | TLS handshake |
-| `timing_ttfb` | Time to first byte |
-| `timing_download` | Download |
-| `timing_process` | Processing |
-
-**Variable colours:**
-
-| Field | Description |
-|-------|-------------|
-| `variable_highlight` | Variable highlight background |
-| `variable_unresolved_highlight` | Unresolved variable highlight |
-| `variable_unresolved_text` | Unresolved variable text |
-
-**Code editor colours:**
-
-| Field | Description |
-|-------|-------------|
-| `editor_bracket_match` | Matched bracket highlight |
-| `editor_gutter_bg` | Line number gutter background |
-| `editor_gutter_text` | Line number text |
-| `editor_error_underline` | Error squiggle |
-| `editor_fold_indicator` | Code folding indicator |
-| `editor_string` | String literal |
-| `editor_number` | Number literal |
-| `editor_keyword` | Keyword |
-| `editor_comment` | Comment |
-| `editor_tag` | XML/HTML tag |
-| `editor_attribute` | Attribute name |
-| `editor_punctuation` | Punctuation |
-| `editor_fold_highlight` | Folded code highlight |
-| `editor_indent_guide` | Indentation guide |
-| `editor_active_indent_guide` | Active indentation guide |
-| `editor_error_gutter_bg` | Error gutter background |
-| `editor_fold_badge_bg` | Fold badge background |
-| `editor_fold_badge_text` | Fold badge text |
-| `editor_whitespace_dot` | Whitespace indicator |
+See `src/ui/styling/theme.py` for the full field list.
 
 ### CollectionDict
 
@@ -425,3 +343,59 @@ Nested dict flowing between collection fetcher and tree widget
 | `type` | `str` | "folder" or "request" |
 | `children` | `dict[str, CollectionDict]` | Nested items (folders only) |
 | `method` | `str` | HTTP method (requests only) |
+
+## Scripting Types
+
+Defined in `services/scripting/__init__.py`.  See
+[ScriptEngine](services/script-engine.md) for usage.
+
+### `ScriptInput`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `request` | `dict[str, Any]` | Request data (url, method, headers, body) |
+| `response` | `dict[str, Any] \| None` | Response data (`None` in pre-request) |
+| `variables` | `dict[str, str]` | Merged variable scope |
+| `environment_vars` | `dict[str, str]` | Environment-scoped variables |
+| `collection_vars` | `dict[str, str]` | Collection-scoped variables |
+| `global_vars` | `dict[str, str]` | Global variables (persisted to disk) |
+| `info` | `dict[str, Any]` | Execution metadata (name, iteration) |
+| `iteration_data` | `dict[str, Any]` | Data-driven row (runner only, optional) |
+
+### `ScriptOutput`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `test_results` | `list[TestResult]` | `pm.test()` assertion results |
+| `console_logs` | `list[ConsoleLog]` | Console output lines |
+| `variable_changes` | `dict[str, str]` | Variable scope mutations |
+| `global_variable_changes` | `dict[str, str]` | Global scope mutations (optional) |
+| `request_mutations` | `dict[str, Any] \| None` | Request mutations (pre-request only) |
+| `next_request` | `str \| None` | `setNextRequest()` target (optional) |
+| `skip_request` | `bool` | `skipRequest()` flag (optional) |
+
+### `ScriptEntry`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `code` | `str` | Script source code |
+| `language` | `str` | `"javascript"`, `"typescript"`, or `"python"` |
+| `source_name` | `str` | Display label (e.g. collection/folder name) |
+
+### `TestResult`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | `str` | Test description |
+| `passed` | `bool` | Assertion outcome |
+| `error` | `str \| None` | Failure message |
+| `duration_ms` | `float` | Execution time in milliseconds |
+
+### `ConsoleLog`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `level` | `str` | `"log"`, `"warn"`, `"error"`, or `"info"` |
+| `message` | `str` | Formatted message |
+| `timestamp` | `float` | UNIX timestamp |
+| `source_line` | `int \| None` | Optional 0-based editor line (best-effort stack / frame mapping) |

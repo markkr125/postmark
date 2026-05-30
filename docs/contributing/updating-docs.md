@@ -17,17 +17,17 @@ Update docs whenever you:
 
 After any code change, review and update:
 
-1. **Architecture tree** in `copilot-instructions.md` — add new files,
+1. **Architecture tree** in root [`AGENTS.md`](../../AGENTS.md) — add new files,
    remove deleted files
-2. **`architecture.instructions.md`** — new signals, data flows,
+2. **[`src/AGENTS.md`](../../src/AGENTS.md)** — new signals, data flows,
    TypedDicts, service methods
-3. **`pyside6.instructions.md`** — new `objectName` values used in QSS
-4. **`testing.instructions.md`** — new test files or directories
-5. **`sqlalchemy.instructions.md`** — new models, relationships,
+3. **[`src/ui/AGENTS.md`](../../src/ui/AGENTS.md)** — new `objectName` values used in QSS
+4. **[`tests/AGENTS.md`](../../tests/AGENTS.md)** — new test files or directories
+5. **[`src/database/AGENTS.md`](../../src/database/AGENTS.md)** — new models, relationships,
    repository functions
-6. **Skills** (`.github/skills/`) — signals, services, TypedDicts,
+6. **Skills** ([`.agents/skills/`](../../.agents/skills/)) — signals, services, TypedDicts,
    widgets, parsers
-7. **Instruction files** — stale references to renamed or deleted code
+7. **`AGENTS.md` files** — stale references to renamed or deleted code
 8. **Docs pages** — affected API reference, UI reference, or guide pages
 
 ## Which Docs Pages to Update
@@ -46,7 +46,7 @@ After any code change, review and update:
 
 ## Doc Authoring Rules
 
-Full rules are in `.github/instructions/documentation.instructions.md`.
+Full rules are in [`docs/AGENTS.md`](../AGENTS.md).
 Key points:
 
 - **Plain text diagrams** — use ASCII box/arrow diagrams, never
