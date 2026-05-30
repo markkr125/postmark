@@ -23,9 +23,11 @@ from ui.local_scripts.script_filename import folder_name_from_input, script_fold
 from ui.widgets.tree_rename_overlay import TreeRenameClickAway
 
 if TYPE_CHECKING:
+    from PySide6.QtCore import QObject
+
     from ui.collections.tree.draggable_tree_widget import DraggableTreeWidget
 
-    _TreeOverlayRenameBase = object
+    _TreeOverlayRenameBase = QObject
 else:
     _TreeOverlayRenameBase = object
 

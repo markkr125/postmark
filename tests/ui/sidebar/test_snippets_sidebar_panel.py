@@ -31,7 +31,12 @@ def _snippet_leaf_names(tree: QTreeWidget) -> list[str]:
 
 def _top_level_titles(tree: QTreeWidget) -> list[str]:
     """Language root labels in order."""
-    return [tree.topLevelItem(i).text(0) for i in range(tree.topLevelItemCount())]
+    titles: list[str] = []
+    for i in range(tree.topLevelItemCount()):
+        item = tree.topLevelItem(i)
+        if item is not None:
+            titles.append(item.text(0))
+    return titles
 
 
 def _find_snippet_leaf(tree: QTreeWidget, name: str) -> QTreeWidgetItem | None:
