@@ -324,14 +324,6 @@ Source: `ui/panels/console_panel.py`
 |--------|------------|-------------|
 | `log_message` | `str` | New log message received |
 
-### HistoryPanel
-
-Source: `ui/panels/history_panel.py`
-
-| Signal | Parameters | Description |
-|--------|------------|-------------|
-| `entry_clicked` | `str, str` | History entry clicked (method, url) |
-
 ## Signal Patterns
 
 **Worker threads** use a consistent `finished`/`error` pair.  The

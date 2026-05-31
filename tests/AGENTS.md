@@ -283,8 +283,7 @@ tests/
     │   ├── test_environment_selector.py
     │   └── test_environment_sidebar_panel.py
     ├── panels/                    # Panel tests
-    │   ├── test_console_panel.py
-    │   └── test_history_panel.py
+    │   └── test_console_panel.py
     └── request/                   # Request/response editing tests
         ├── test_folder_editor.py
         ├── test_folder_editor_scripts.py

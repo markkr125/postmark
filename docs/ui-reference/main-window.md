@@ -34,7 +34,7 @@ QMainWindow
 |     |               |  (status | time | size | network)    |        |   |
 |     |               |  (Body | Headers)                    |        |   |
 +------------------------------------------------------------------------+
-| Console / History (collapsible bottom panel)                          |
+| Console (collapsible bottom panel)                                     |
 +------------------------------------------------------------------------+
 ```
 

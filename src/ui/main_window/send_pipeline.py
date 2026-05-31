@@ -15,7 +15,6 @@ from PySide6.QtCore import QSettings, QThread
 if TYPE_CHECKING:
     from services.scripting.debug import DebugProtocol
     from ui.environments.environment_sidebar_panel import EnvironmentSidebarPanel
-    from ui.panels.history_panel import HistoryPanel
     from ui.request.http_worker import HttpSendWorker
     from ui.request.navigation.request_tab_bar import RequestTabBar
     from ui.request.navigation.tab_manager import TabContext
@@ -87,8 +86,7 @@ class _SendPipelineMixin:
 
     Expects the host class to provide ``_tabs``, ``_tab_bar``,
     ``_send_thread``, ``_send_worker``, ``request_widget``,
-    ``response_widget``, ``_env_selector`` (``EnvironmentSidebarPanel``),
-    and ``_history_panel``.
+    ``response_widget``, and ``_env_selector`` (``EnvironmentSidebarPanel``).
     """
 
     # -- Host-class interface (declared for mypy) -----------------------
@@ -96,7 +94,6 @@ class _SendPipelineMixin:
     _send_worker: HttpSendWorker | None
     _tab_bar: RequestTabBar
     _env_selector: EnvironmentSidebarPanel
-    _history_panel: HistoryPanel
     _right_sidebar: RightSidebar
     request_widget: RequestEditorWidget
     response_widget: ResponseViewerWidget
@@ -304,12 +301,6 @@ class _SendPipelineMixin:
             ctx.cleanup_thread()
         else:
             self._cleanup_send_thread()
-        # Add error entry to history panel
-        editor = ctx.require_editor() if ctx is not None else self.request_widget
-        self._history_panel.add_entry(
-            editor._method_combo.currentText(),
-            editor._url_input.text(),
-        )
         self._refresh_sidebar()
         if inline_test is not None:
             panel = inline_test.get("panel")

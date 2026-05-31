@@ -60,9 +60,7 @@ MainWindow (QMainWindow)
               |     +-- SnippetPanel (code snippet generator)
               |     +-- SavedResponsesPanel (saved examples)
               +-- RightSidebar (right activity rail)
-  +-- QTabWidget (bottom panels)
-        +-- ConsolePanel (HTTP traffic log)
-        +-- HistoryPanel (request history)
+  +-- ConsolePanel (collapsible bottom log)
 ```
 
 ## Background Workers

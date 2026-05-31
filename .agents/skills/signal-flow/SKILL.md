@@ -276,13 +276,6 @@ FolderEditor.collection_changed(dict)
   → MainWindow handler → CollectionService.update_collection(...)
 ```
 
-### History panel flow
-
-```
-HistoryPanel.entry_clicked(method, url)
-  → (wired to open or populate editor)
-```
-
 ### Toggle actions flow
 
 ```
@@ -293,7 +286,7 @@ MainWindow._toggle_sidebar_action.triggered
   → _toggle_sidebar (collapse/expand left flyout; rail stays visible; stacked page unchanged)
 
 MainWindow._toggle_bottom_action.triggered
-  → _toggle_bottom_panel (show/hide console/history)
+  → _toggle_bottom_panel (show/hide console)
 
 MainWindow._toggle_layout_action.triggered
   → _toggle_layout_orientation (horizontal ↔ vertical)
@@ -579,7 +572,6 @@ All other signals in the flow diagrams above are fully wired.
 | `CodeEditorWidget` | `validation_changed` | `Signal(list)` |
 | `CodeEditorWidget` | `run_single_test_requested` | `Signal(str)` — per-`pm.test` gutter Run |
 | `CodeEditorWidget` | `debug_single_test_requested` | `Signal(str)` — per-`pm.test` gutter Debug |
-| `HistoryPanel` | `entry_clicked` | `Signal(str, str)` |
 
 ## MainWindow signal wiring summary
 

@@ -22,7 +22,6 @@ from PySide6.QtWidgets import (
     QSplitter,
     QStackedWidget,
     QStatusBar,
-    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -37,7 +36,6 @@ from ui.main_window.tab_controller import _TabControllerMixin
 from ui.main_window.tab_nav import _TabNavHistoryMixin
 from ui.main_window.variable_controller import _VariableControllerMixin
 from ui.panels.console_panel import ConsolePanel
-from ui.panels.history_panel import HistoryPanel
 from ui.request.navigation.breadcrumb_bar import BreadcrumbBar
 from ui.request.navigation.request_tab_bar import RequestTabBar
 from ui.request.navigation.tab_manager import TabContext
@@ -326,7 +324,7 @@ class MainWindow(
         self._toggle_sidebar_action.triggered.connect(self._toggle_sidebar)
         view_menu.addAction(self._toggle_sidebar_action)
 
-        self._toggle_bottom_action = QAction("Toggle &Bottom Panel", self)
+        self._toggle_bottom_action = QAction("Toggle &Console", self)
         self._toggle_bottom_action.setShortcut(QKeySequence("Ctrl+J"))
         self._toggle_bottom_action.triggered.connect(self._toggle_bottom_panel)
         view_menu.addAction(self._toggle_bottom_action)
@@ -559,13 +557,9 @@ class MainWindow(
         self._response_area = self._build_response_area()
         self._right_splitter.addWidget(self._response_area)
 
-        # --- Bottom panel (History + Console) ---
-        self._bottom_panel = QTabWidget()
-        self._bottom_panel.setTabPosition(QTabWidget.TabPosition.South)
-        self._history_panel = HistoryPanel()
+        # --- Bottom panel (Console) ---
         self._console_panel = ConsolePanel()
-        self._bottom_panel.addTab(self._history_panel, "History")
-        self._bottom_panel.addTab(self._console_panel, "Console")
+        self._bottom_panel = self._console_panel  # alias for toggle/tests
         self._bottom_panel.hide()
         self._right_splitter.addWidget(self._bottom_panel)
 
@@ -665,7 +659,7 @@ class MainWindow(
         self._sync_sidebar_toggle_btn()
 
     def _toggle_bottom_panel(self) -> None:
-        """Show or hide the bottom panel (History / Console)."""
+        """Show or hide the bottom panel (Console)."""
         self._bottom_panel.setVisible(self._bottom_panel.isHidden())
 
     def _toggle_layout_orientation(self) -> None:

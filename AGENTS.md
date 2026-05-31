@@ -403,8 +403,7 @@ src/
     │   ├── environment_selector.py
     │   └── environment_sidebar_panel.py
     ├── panels/                    # Bottom / side panels
-    │   ├── console_panel.py
-    │   └── history_panel.py
+    │   └── console_panel.py
     └── request/                   # Request/response editing
         ├── folder_editor/           # Folder/collection detail editor sub-package
         │   ├── editor_widget.py     # FolderEditorWidget — main editor class
@@ -570,8 +569,7 @@ tests/
     │   ├── test_environment_selector.py
     │   └── test_environment_sidebar_panel.py
     ├── panels/                    # Panel tests
-    │   ├── test_console_panel.py
-    │   └── test_history_panel.py
+    │   └── test_console_panel.py
     └── request/                   # Request/response editing tests
         ├── conftest.py              # make_request_dict fixture factory
         ├── test_folder_editor.py

@@ -96,13 +96,6 @@ def on_send_finished(window: Any, data: dict) -> None:
         ctx.cleanup_thread()
     else:
         window._cleanup_send_thread()
-    editor = ctx.require_editor() if ctx is not None else window.request_widget
-    window._history_panel.add_entry(
-        editor._method_combo.currentText(),
-        editor._url_input.text(),
-        data.get("status_code"),
-        data.get("elapsed_ms", 0),
-    )
     window._refresh_sidebar()
 
     if inline_test is not None:

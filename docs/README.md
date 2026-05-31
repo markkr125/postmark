@@ -75,7 +75,7 @@
 | [Navigation](ui-reference/navigation.md) | Tab manager, breadcrumb bar, wrapped tab deck |
 | [Sidebar](ui-reference/sidebar.md) | Right sidebar — variables, snippets, saved responses |
 | [Dialogs](ui-reference/dialogs.md) | Import, Save, Settings, Collection Runner |
-| [Panels](ui-reference/panels.md) | Console and History panels |
+| [Panels](ui-reference/panels.md) | Console panel |
 | [Shared Widgets](ui-reference/widgets.md) | Code editor, key-value table, popups, variable widgets |
 | [Styling](ui-reference/styling.md) | Theme manager, palettes, global QSS, icon system |
 

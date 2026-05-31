@@ -357,7 +357,6 @@ varies at runtime and cannot be expressed with objectName selectors:
 
 - Method badge background-color (varies by HTTP method)
 - Status label colour (varies by HTTP status code)
-- History row method colour
 - Breadcrumb per-segment colour
 - Spinner animation colours
 - Drop-zone active hover overlay

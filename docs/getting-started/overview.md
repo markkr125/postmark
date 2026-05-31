@@ -47,8 +47,8 @@ external service required.
 - **Collection runner** — execute all requests in a folder tab (**Runs →
   New run**) with per-request test results, script flow control
   (`setNextRequest`, `skipRequest`), and data-driven iterations.
-- **Console and history panels** — log panel for HTTP traffic, history of
-  sent requests.  Script `console.log()` / `print()` output appears here.
+- **Console panel** — application log and script `console.log()` /
+  `print()` output (View → Toggle Console, `Ctrl+J`).
 - **Theming** — dark and light themes with Fusion and native Qt styles.
 - **Code editor** — syntax highlighting, code folding, line numbers,
   bracket matching, search and replace.

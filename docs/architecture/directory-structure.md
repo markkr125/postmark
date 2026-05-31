@@ -120,7 +120,6 @@ src/
     |   +-- environment_sidebar_panel.py  EnvironmentSidebarPanel — left column global env picker
     +-- panels/                      Bottom panels
     |   +-- console_panel.py         Console output panel
-    |   +-- history_panel.py         Request history panel
     +-- request/                     Request/response editing
         +-- folder_editor/              Folder/collection detail editor sub-package
         |   +-- editor_widget.py        FolderEditorWidget -- main editor class
@@ -228,7 +227,6 @@ tests/
     |   +-- test_environment_sidebar_panel.py EnvironmentSidebarPanel tests
     +-- panels/
     |   +-- test_console_panel.py        ConsolePanel tests
-    |   +-- test_history_panel.py        HistoryPanel tests
     +-- request/
         +-- conftest.py                  make_request_dict fixture factory
         +-- test_folder_editor.py        FolderEditorWidget tests
