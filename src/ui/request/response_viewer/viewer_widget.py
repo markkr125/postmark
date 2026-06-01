@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
 )
 
 from ui.request.response_viewer.popup_mixin import _PopupMixin
+from ui.request.response_viewer.replay_indicator import ResponseReplayIndicator
 from ui.request.response_viewer.pre_request_mixin import _PreRequestMixin
 from ui.request.response_viewer.search_filter import _SearchFilterMixin
 from ui.request.response_viewer.test_results_mixin import _TestResultsMixin
@@ -97,6 +98,7 @@ class ResponseViewerWidget(
 
     save_response_requested = Signal(dict)
     save_availability_changed = Signal(bool)
+    replay_history_link_clicked = Signal(int)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Initialise the response viewer layout."""
@@ -115,6 +117,12 @@ class ResponseViewerWidget(
         status_row = QHBoxLayout()
         status_row.setSpacing(12)
         status_row.setContentsMargins(0, 0, 0, 0)
+
+        self._replay_indicator = ResponseReplayIndicator()
+        self._replay_indicator.link_clicked.connect(self.replay_history_link_clicked.emit)
+        status_row.addWidget(self._replay_indicator)
+
+        status_row.addStretch(1)
 
         self._status_label = ClickableLabel()
         self._status_label.setStyleSheet("font-weight: bold; padding: 2px 8px; border-radius: 3px;")
@@ -366,8 +374,17 @@ class ResponseViewerWidget(
             return
         super()._toggle_filter()
 
+    def set_replay_history_source(self, entry_id: int, link_text: str) -> None:
+        """Show the replay banner pointing at send-history row *entry_id*."""
+        self._replay_indicator.set_source(entry_id, link_text)
+
+    def clear_replay_history_source(self) -> None:
+        """Hide the replay banner."""
+        self._replay_indicator.clear_source()
+
     def show_loading(self) -> None:
         """Display the indeterminate progress bar (request in flight)."""
+        self._replay_indicator.hide()
         self._set_state("loading")
 
     def show_error(self, message: str) -> None:

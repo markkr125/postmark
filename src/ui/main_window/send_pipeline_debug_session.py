@@ -137,7 +137,11 @@ def on_debug_step(window: Any, mode_name: str) -> None:
 def on_debug_finished(window: Any, data: dict) -> None:
     """Handle completion of a debug send."""
     window._debug_protocol = None
-    window._on_send_finished(data)
+    window._suppress_history_record = True
+    try:
+        window._on_send_finished(data)
+    finally:
+        window._suppress_history_record = False
     end_debug_ui(window)
 
 

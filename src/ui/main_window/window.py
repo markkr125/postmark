@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QThread, QTimer
+from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QAction, QCloseEvent, QCursor, QGuiApplication, QKeySequence
 
 if TYPE_CHECKING:
@@ -44,6 +44,7 @@ from ui.request.response_viewer import ResponseViewerWidget
 from ui.sidebar import LeftSidebar, RightSidebar
 from ui.sidebar.snippets_sidebar_panel import SnippetsSidebarPanel
 from ui.styling.icons import phi
+from ui.styling.history_settings_manager import HistorySettingsManager
 from ui.styling.tab_settings_manager import TabSettingsManager
 from ui.styling.theme import COLOR_ACCENT, COLOR_TEXT_MUTED
 from ui.styling.theme_manager import ThemeManager
@@ -69,16 +70,23 @@ class MainWindow(
     (Go menu, Ctrl+Alt+Left/Right), and cyclic tab deck (View, Ctrl+Tab).
     """
 
+    session_restore_finished = Signal()
+
     def __init__(
         self,
         theme_manager: ThemeManager | None = None,
         tab_settings_manager: TabSettingsManager | None = None,
+        history_settings_manager: HistorySettingsManager | None = None,
     ) -> None:
         """Initialise the main window, layout, and child widgets."""
         super().__init__()
         self._theme_manager = theme_manager
         app = QApplication.instance()
         self._tab_settings_manager = tab_settings_manager or TabSettingsManager(app)
+        self._history_settings = history_settings_manager or HistorySettingsManager(self)
+        self._pending_request_snapshot = None
+        self._pending_history_context = None
+        self._suppress_history_record = False
         self.setWindowTitle("Postmark")
 
         # Pre-size to the available screen geometry so the window fills
@@ -98,6 +106,7 @@ class MainWindow(
         self._tab_open_counter: int = 0
         self._tab_activation_counter: int = 0
         self._restoring_session: bool = False
+        self._session_restore_state = None
 
         # Per-tab state: tab-bar index -> TabContext
         self._tabs: dict[int, TabContext] = {}
@@ -108,6 +117,8 @@ class MainWindow(
         # Legacy single-send state (used when no tab is found)
         self._send_thread: QThread | None = None
         self._send_worker: HttpSendWorker | None = None
+        self._local_project_thread: QThread | None = None
+        self._local_project_worker: QObject | None = None
         self._debug_protocol: DebugProtocol | None = None
         self._debug_script_host: Any | None = None
 
@@ -116,7 +127,13 @@ class MainWindow(
 
         # Side rails (created before _setup_ui so layout can embed them)
         self._left_sidebar = LeftSidebar()
-        self._right_sidebar = RightSidebar()
+        from ui.sidebar.history.panel import HistoryPanel
+
+        self._request_history_panel = HistoryPanel()
+        self._right_sidebar = RightSidebar(request_history_panel=self._request_history_panel)
+        self._request_history_panel.refresh_requested.connect(self._request_history_panel.refresh)
+        self._request_history_panel.replay_requested.connect(self._replay_request_history_entry)
+        self._request_history_panel.delete_requested.connect(self._delete_request_history_entry)
         if self._theme_manager is not None:
             self._theme_manager.theme_changed.connect(self._left_sidebar.refresh_theme)
             self._theme_manager.theme_changed.connect(self._right_sidebar.refresh_theme)
@@ -207,6 +224,29 @@ class MainWindow(
 
         # ---- Move to the screen that contains the mouse --------------
         self._move_to_mouse_screen()
+
+        self._start_local_project_config_sync()
+
+    def _start_local_project_config_sync(self) -> None:
+        """Sync the Deno local-script mirror on a background thread (non-blocking startup)."""
+        from ui.main_window.startup_workers import LocalProjectConfigWorker
+
+        thread = QThread(self)
+        worker = LocalProjectConfigWorker()
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(self._clear_local_project_sync_refs)
+        self._local_project_thread = thread
+        self._local_project_worker = worker
+        thread.start()
+
+    def _clear_local_project_sync_refs(self) -> None:
+        """Drop thread/worker refs after background mirror sync completes."""
+        self._local_project_thread = None
+        self._local_project_worker = None
 
     def _move_to_mouse_screen(self) -> None:
         """Center the window on the monitor that the cursor is on."""
@@ -417,6 +457,9 @@ class MainWindow(
 
         # Default response viewer
         self._default_response_viewer = ResponseViewerWidget()
+        self._default_response_viewer.replay_history_link_clicked.connect(
+            self._on_replay_history_link_clicked,
+        )
         self.response_widget = self._default_response_viewer
         self._response_stack.addWidget(self._default_response_viewer)
 
@@ -606,13 +649,13 @@ class MainWindow(
         self._request_area.setMinimumHeight(bottom)
 
     def _on_load_finished(self) -> None:
-        """Switch from the loading screen to the main UI."""
+        """Switch from the loading screen to the main UI and begin batched tab restore."""
         self._loading_screen.stop_animation()
         self._main_stack.setCurrentIndex(1)
         self.menuBar().show()
         self.statusBar().show()
 
-        # Restore tabs from the previous session after collections are ready.
+        # Restore tabs incrementally so the event loop stays responsive.
         self._restore_tabs()
 
     def refresh_snippets_sidebar(self) -> None:
@@ -697,6 +740,7 @@ class MainWindow(
             self._tab_settings_manager,
             self,
             initial_category=initial_category,
+            history_settings_manager=self._history_settings,
         )
         dialog.exec()
         w = self._editor_stack.currentWidget()

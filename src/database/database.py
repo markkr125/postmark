@@ -24,6 +24,9 @@ from .models import RunResultModel as RunResultModel
 from .models import SavedResponseModel as SavedResponseModel
 from .models import ScriptVersionModel as ScriptVersionModel
 from .models import SnippetModel as SnippetModel
+from .models.request_history.model.request_history_entry_model import (
+    RequestHistoryEntryModel as RequestHistoryEntryModel,
+)
 from .models.base import Base
 
 logger = logging.getLogger(__name__)
@@ -52,8 +55,9 @@ def init_db(db_path: Path | None = None) -> None:
         return
 
     if db_path is None:
-        project_root = Path(__file__).resolve().parents[2]
-        db_path = project_root / "data" / "database" / "main.db"
+        from database.data_paths import project_root
+
+        db_path = project_root() / "data" / "database" / "main.db"
 
     os.makedirs(db_path.parent, exist_ok=True)
     database_url = f"sqlite:///{db_path}"
@@ -75,6 +79,12 @@ def init_db(db_path: Path | None = None) -> None:
     _SessionLocal = sessionmaker(
         bind=_engine, autoflush=False, autocommit=False, expire_on_commit=False
     )
+
+    from database.models.request_history import body_store
+
+    body_store.migrate_legacy_paths_and_files()
+    body_store.reconcile_orphans()
+
     logger.info("Database initialised: %s", database_url)
 
 

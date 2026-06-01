@@ -10,6 +10,7 @@ from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QApplication
 
 from ui.dialogs.settings_dialog import SettingsDialog
+from ui.styling.history_settings_manager import HistorySettingsManager
 from ui.styling.tab_settings_manager import (
     ACTIVATE_MRU,
     LIMIT_CLOSE_UNUSED,
@@ -41,12 +42,14 @@ def _clear_theme_settings() -> Generator[None, None, None]:
     settings.remove("theme")
     settings.remove("tabs")
     settings.remove("scripting")
+    settings.remove("history")
     settings.sync()
     yield
     settings = QSettings(_ORG, _APP)
     settings.remove("theme")
     settings.remove("tabs")
     settings.remove("scripting")
+    settings.remove("history")
     settings.sync()
 
 
@@ -96,7 +99,7 @@ class TestSettingsDialogConstruction:
             dialog._cat_tree.topLevelItem(i).text(0)
             for i in range(dialog._cat_tree.topLevelItemCount())
         ]
-        assert labels == ["Appearance", "Tabs", "Scripting", "Private packages"]
+        assert labels == ["Appearance", "Tabs", "Scripting", "History", "Private packages"]
 
     def test_private_packages_has_provider_children(self, qapp: QApplication, qtbot) -> None:
         """Private packages has npm / JSR / PyPI children."""
@@ -372,6 +375,62 @@ class TestSettingsDialogScripting:
         dialog._lsp_enabled_check.setChecked(True)
         dialog._on_apply()
         assert RuntimeSettings.lsp_enabled() is True
+
+
+class TestSettingsDialogHistory:
+    """Request history retention settings."""
+
+    def test_history_page_widgets_exist(self, qapp: QApplication, qtbot) -> None:
+        """History page exposes retention controls."""
+        tm = ThemeManager(qapp)
+        hm = HistorySettingsManager()
+        dialog = SettingsDialog(tm, history_settings_manager=hm)
+        qtbot.addWidget(dialog)
+        w = dialog._history_widgets
+        assert w is not None
+        assert w.retention_days_spin is not None
+        assert w.unlimited_check is not None
+        assert w.max_mib_spin is not None
+
+    def test_apply_persists_history_settings(self, qapp: QApplication, qtbot) -> None:
+        """Apply writes history/* QSettings keys."""
+        tm = ThemeManager(qapp)
+        hm = HistorySettingsManager()
+        dialog = SettingsDialog(tm, history_settings_manager=hm)
+        qtbot.addWidget(dialog)
+        w = dialog._history_widgets
+        assert w is not None
+        w.retention_days_spin.setValue(14)
+        w.unlimited_check.setChecked(True)
+        w.max_mib_spin.setValue(2)
+        dialog._on_apply()
+        assert hm.retention_days == 14
+        assert hm.unlimited_per_day is True
+        assert hm.max_response_bytes == 2 * 1024 * 1024
+
+    def test_unlimited_toggle_disables_max_items_spin(self, qapp: QApplication, qtbot) -> None:
+        """Unlimited per day disables the per-day cap spin."""
+        tm = ThemeManager(qapp)
+        hm = HistorySettingsManager()
+        dialog = SettingsDialog(tm, history_settings_manager=hm)
+        qtbot.addWidget(dialog)
+        w = dialog._history_widgets
+        assert w is not None
+        w.unlimited_check.setChecked(True)
+        w.unlimited_check.toggled.emit(True)
+        assert w.max_items_spin.isEnabled() is False
+
+    def test_max_mib_minimum_on_apply(self, qapp: QApplication, qtbot) -> None:
+        """Apply stores at least 1 MiB for max response body size."""
+        tm = ThemeManager(qapp)
+        hm = HistorySettingsManager()
+        dialog = SettingsDialog(tm, history_settings_manager=hm)
+        qtbot.addWidget(dialog)
+        w = dialog._history_widgets
+        assert w is not None
+        w.max_mib_spin.setValue(1)
+        dialog._on_apply()
+        assert hm.max_response_bytes >= 1024 * 1024
 
 
 class TestSettingsDialogPrivatePackages:

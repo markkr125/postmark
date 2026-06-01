@@ -87,6 +87,14 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
 - `RunHistoryService` follows the same `@staticmethod` pattern.  It wraps
   `run_history_repository` for run history CRUD (create, finish, add result,
   query runs/results, delete).
+- `RequestHistoryService` (`request_history_service.py`) persists HTTP **send**
+  history: `gather_send_identity` at send start, `record_send` at the end of
+  `on_send_finished` (skipped when `_suppress_history_record` is set during
+  debug replay). Settings come from `HistorySettingsManager` (`history/*`
+  QSettings). Bodies and request snapshots live under `user_history_root()`;
+  metadata in `request_history_entries`. **Replay** uses
+  `build_send_payload_from_entry` (snapshot + `sent_headers`; no editor auth);
+  `delete_entry` removes row and payload files.
 - `ScriptService` and `ScriptEngine` also follow the `@staticmethod`
   pattern.  `ScriptService.build_script_chain(request_id)` walks the
   ancestor chain to collect inherited scripts.  `ScriptEngine` dispatches
@@ -607,8 +615,10 @@ into `%Y-%m-%d %H:%M` strings for the UI.
   active index after every tab open/close/reorder and in `closeEvent`.
   **Environments** tabs are saved as ``{"type": "environments"}`` (no id)
   and recreated on restore in their saved order.
-  **Deferred tab materialisation:** `_restore_tabs()` restores tabs
-  lazily after `CollectionWidget.load_finished` fires.  Request tabs
+  **Deferred tab materialisation:** `session_restore.begin_session_restore`
+  (via `_restore_tabs()`) restores tabs in batches after
+  `CollectionWidget.load_finished` so the GUI thread stays responsive.
+  Request tabs
   with `method` and `name` in the session data are created as
   lightweight tab-bar chips stored in `_deferred_tabs`; the editor and
   viewer widgets are built on first selection via

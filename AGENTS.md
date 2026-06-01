@@ -106,8 +106,9 @@ Fastest paths to understand and navigate the codebase:
 
 - **All services at a glance:** Read `src/services/__init__.py` — re-exports
   `CollectionService`, `EnvironmentService`, `ImportService`,
-  `RunHistoryService`, and key TypedDicts (`RequestLoadDict`,
-  `VariableDetail`, `LocalOverride`).
+  `RunHistoryService`, `RequestHistoryService`, and key TypedDicts
+  (`RequestLoadDict`, `VariableDetail`, `LocalOverride`,
+  `RequestHistoryEntryDict`, `SendIdentityDict`).
 - **HTTP subsystem:** Read `src/services/http/__init__.py` — re-exports
   `HttpService`, `GraphQLSchemaService`, `SnippetGenerator`,
   `SnippetOptions`, `HttpResponseDict`, `parse_header_dict`.
@@ -116,8 +117,8 @@ Fastest paths to understand and navigate the codebase:
 - **All DB models:** Read `src/database/database.py` — re-exports collection,
   environment, run-history, and local-script ORM models (`CollectionModel`,
   `RequestModel`, `SavedResponseModel`, `EnvironmentModel`, `RunHistoryModel`,
-  `RunResultModel`, `LocalScriptFolderModel`, `LocalScriptModel`,
-  `SnippetModel`).
+  `RunResultModel`, `RequestHistoryEntryModel`, `LocalScriptFolderModel`,
+  `LocalScriptModel`, `SnippetModel`).
 - **Collection CRUD vs queries:** Mutations live in
   `collection_repository.py`; read-only tree/breadcrumb/ancestor queries
   live in `collection_query_repository.py`.
@@ -148,7 +149,8 @@ src/
 ├── main.py                        # Entry point — configure_before_qapplication + QApplication + init_db()
 ├── qt_app_init.py                 # Hi-DPI bootstrap (before first QApplication; tests + app)
 ├── database/                      # Engine, models, repository
-│   ├── database.py                # init_db(), get_session(), migration
+│   ├── data_paths.py              # project_root(), postmark_user_data_dir(), user_history_root()
+│   ├── database.py                # init_db(), get_session(), migration; reconcile_orphans on startup
 │   └── models/
 │       ├── base.py                # DeclarativeBase
 │       ├── collections/
@@ -187,6 +189,11 @@ src/
 │           ├── request_assertion_repository.py  # CRUD for declarative assertion rows
 │           └── model/
 │               └── request_assertion_model.py   # RequestAssertionModel (subject/operator/expected)
+│       └── request_history/
+│           ├── body_store.py                    # Atomic body/snapshot files under user_history_root()
+│           ├── request_history_repository.py      # insert, get, list, prune, nullify_request_id
+│           └── model/
+│               └── request_history_entry_model.py  # RequestHistoryEntryModel (metadata in SQLite)
 ├── services/                      # Service layer (UI ↔ DB bridge)
 │   ├── collection_service.py      # CollectionService (static methods)
 │   ├── assertion_service.py       # AssertionService + AssertionDict — declarative tests CRUD + compile
@@ -195,6 +202,7 @@ src/
 │   ├── environment_service.py     # EnvironmentService (variable substitution + TypedDicts)
 │   ├── import_service.py          # ImportService (parse + persist)
 │   ├── run_history_service.py     # RunHistoryService (run history CRUD bridge)
+│   ├── request_history_service.py # RequestHistoryService — gather_send_identity, record_send, get/list
 │   ├── script_service.py          # ScriptService (script chain resolution)
 │   ├── scripting/                 # Script execution sub-package
 │   │   ├── local_path_policy.py   # Re-export path_policy (UI/service)
@@ -285,6 +293,8 @@ src/
     │   ├── send_pipeline_debug_session.py # on_debug_paused/step/finished, end_debug_ui
     │   ├── draft_controller.py    # _DraftControllerMixin — draft tab open/save
     │   ├── tab_controller.py      # _TabControllerMixin — tab open/close/switch
+    │   ├── session_restore.py   # Batched session tab restore after load_finished
+    │   ├── startup_workers.py   # LocalProjectConfigWorker — mirror sync off GUI thread
     │   ├── tab_nav/               # Tab activation back/forward stacks
     │   │   ├── history.py         # _TabNavHistoryMixin — Go menu Ctrl+Alt+arrows
     │   │   └── __init__.py
@@ -310,16 +320,23 @@ src/
     │   ├── debug_panel.py         # DebugPanel facade — DebugControls + DebugInspectorSplit
     │   ├── debug_call_stack_panel.py  # CallStackPanel — frame list + frame_selected
     │   ├── debug_watch_in_tree.py # Watches section rows + format_watch_display / rebuild_watch_rows
-    │   └── saved_responses/           # Saved responses sub-package
-    │       ├── panel.py               # SavedResponsesPanel — saved example list/detail flyout
-    │       ├── search_filter.py       # _PanelSearchFilterMixin — body search/filter
-    │       ├── helpers.py             # Formatting helpers (body size, language detect, etc.)
-    │       └── delegate.py            # Custom delegate for saved response list items
+    │   ├── saved_responses/           # Saved responses sub-package
+    │   │   ├── panel.py               # SavedResponsesPanel — saved example list/detail flyout
+    │   │   ├── search_filter.py       # _PanelSearchFilterMixin — body search/filter
+    │   │   ├── helpers.py             # Formatting helpers (body size, language detect, etc.)
+    │   │   └── delegate.py            # Custom delegate for saved response list items
+    │   └── history/                 # Per-request History flyout (right rail)
+    │       ├── panel.py               # HistoryPanel — list/detail + requestHistorySearch
+    │       ├── panel_detail_tabs.py   # Read-only Headers / Request Headers / Request Body tabs
+    │       ├── delegate.py            # HistoryEntryDelegate — status badge + date group headers
+    │       ├── helpers.py             # Date grouping, list populate, row meta, sent headers
+    │       └── search_filter.py       # Re-exports body search mixin
     ├── styling/                   # Visual theming and icons
     │   ├── theme.py               # Palettes, colours, status bar / left-rail chrome, badge/tree geometry, left-nav panel margins, method_color(), status_color()
     │   ├── language_icons.py      # Brand SVG pixmaps for JS / TS / Python tiles
     │   ├── theme_manager.py       # ThemeManager — QPalette + QSettings
     │   ├── tab_settings_manager.py # TabSettingsManager — request-tab QSettings bridge (preview, limits, activate-on-close, wrap mode)
+    │   ├── history_settings_manager.py # HistorySettingsManager — QSettings history/* send retention
     │   ├── global_qss.py          # build_global_qss() — global stylesheet builder
     │   └── icons.py               # Phosphor font-glyph icon provider (phi())
     ├── widgets/                   # Reusable shared components
@@ -390,6 +407,8 @@ src/
     │       ├── tree_overlay_rename.py # _TreeOverlayRenameMixin — overlay rename + click-away
     │       └── collection_tree_delegate.py  # Custom delegate for method badges
     ├── dialogs/                   # Modal dialogs
+    │   ├── settings/
+    │   │   └── history_page.py    # Settings → History page (retention, bodies, storage path)
     │   ├── collection_runner/
     │   │   ├── __init__.py        # Re-exports RunnerConfigView, RunnerResultsView, RunnerWorker
     │   │   ├── config.py          # RunnerConfigView (env selector, request checklist, data file, iterations, delay)
@@ -453,6 +472,7 @@ src/
         │           └── toolbar.py   # _DiffToolbar — search, nav, whitespace, copy
         ├── response_viewer/         # ResponseViewer sub-package
         │   ├── viewer_widget.py     # ResponseViewer — response display widget
+        │   ├── replay_indicator.py  # ResponseReplayIndicator — replayed-send status corner pill
         │   ├── search_filter.py     # _SearchFilterMixin — response search/filter
         │   ├── test_results_mixin.py # _TestResultsMixin — test results tab
         │   └── pre_request_mixin.py # _PreRequestMixin — pre-request script output tab
@@ -481,7 +501,10 @@ tests/
 │   │   ├── test_request_assertion_repository.py
 │   │   ├── test_script_version_local_script.py
 │   │   ├── test_environment_repository.py
-│   │   └── test_run_history_repository.py
+│   │   ├── test_run_history_repository.py
+│   │   ├── test_data_paths.py
+│   │   ├── test_request_history_body_store.py
+│   │   └── test_request_history_repository.py
 │   └── services/                  # Service layer tests
 │       ├── test_service.py
 │       ├── test_environment_service.py
@@ -503,6 +526,7 @@ tests/
 │       ├── test_assertions_compiler.py
 │       ├── test_deno_manager.py
 │       ├── test_runtime_settings.py
+│       ├── test_request_history_service.py
 │       └── http/                  # HTTP service tests
 │           ├── test_http_service.py
 │           ├── test_graphql_schema_service.py

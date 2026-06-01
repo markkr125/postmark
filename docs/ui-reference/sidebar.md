@@ -112,6 +112,7 @@ Always-visible fixed-width icon rail.
 | Variables | `{}` | Read-only variable list |
 | Code Snippet | `<>` | Code snippet generator |
 | Saved Responses | `[]` | Saved response browser |
+| History | clock (counter-clockwise) | Per-request send log (read-only) |
 
 ### Key Attributes
 
@@ -128,13 +129,14 @@ Always-visible fixed-width icon rail.
 | `load_variables(variables, local_overrides)` | Refresh variables panel |
 | `load_snippet_for_request(request_id)` | Refresh snippet (live on change) |
 | `load_saved_responses(request_id)` | Refresh saved responses list |
+| `set_request_history_context(...)` | Configure History panel for active request |
 | `install_in_splitter(splitter)` | Place flyout and rail as splitter children |
 
 ## FlyoutPanel
 
 Collapsible content area as a splitter child.
 
-Contains three stacked panels with a title bar and close button.
+Contains four stacked panels with a title bar and close button.
 The flyout can snap closed via its splitter handle.
 
 ## VariablesPanel
@@ -278,3 +280,47 @@ response name, and timestamp.
 ### Search and Filter (_PanelSearchFilterMixin)
 
 Filter by name and search within response bodies.
+
+## HistoryPanel
+
+Read-only list/detail flyout for HTTP sends recorded for the **active saved
+request** (not draft tabs).
+
+Source: `src/ui/sidebar/history/`
+
+### objectNames
+
+| Widget | objectName |
+|--------|------------|
+| Panel | `requestHistoryPanel` |
+| Search field | `requestHistorySearch` |
+| Tree | `requestHistoryTree` |
+| Replay | `requestHistoryReplayButton` |
+
+Refresh uses the flyout title-bar icon (same row as the panel close button), not
+a control inside the panel body.
+
+### Behaviour
+
+- Persisted request: `RequestHistoryService.list_for_request(request_id)`; a
+  `QTreeWidget` groups sends under local calendar days (Today, Yesterday, or a
+  formatted date) with expand/collapse like the collections tree.
+- `requestHistorySearch` filters by URL/name/method substring and exact HTTP status
+  when the term is all digits (e.g. `200`, `400`).
+- Draft tab: empty state — save the request first (does not list global draft sends)
+- Detail tabs: Body, Headers, Request Headers, Request Body (from stored snapshot)
+- `refresh_requested` → `refresh()` reloads metadata; full bodies loaded on selection
+- **Replay** (white icon, top-right of the detail header): sends the stored snapshot over
+  the network and updates the centre **response** pane only — the request editor
+  (URL, params, headers, body) is left unchanged. Context menu on send rows:
+  **Replay this request**, **Delete item**.
+- After a replay completes, the **response viewer** shows a `responseReplayIndicator`
+  pill (left of the status badge) with a link to open this panel and select the
+  **source** send that was replayed.
+
+### Signals
+
+| Signal | Parameters | Description |
+|--------|------------|-------------|
+| `refresh_requested` | *(none)* | Reload list for current request |
+| `replay_requested` | `entry_id: int` | Replay the selected send (response pane only) |

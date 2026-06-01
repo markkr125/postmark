@@ -79,6 +79,24 @@ cross-layer data interchange.
 | `delete_run(run_id)` | `bool` | Delete a single run (True if found) |
 | `delete_runs_for_collection(collection_id)` | `int` | Delete all runs for a collection, return count |
 
+### Request history repository (`request_history_repository.py`)
+
+Metadata in SQLite; bodies/snapshots via `body_store.py` under
+`user_history_root()` (`postmark_user_data_dir()/history`).
+
+| Function | Returns | Purpose |
+|----------|---------|---------|
+| `insert_entry(...)` | `dict[str, Any]` | Insert row + write body/snapshot files; truncate body to `max_response_bytes` |
+| `get_entry(entry_id)` | `dict \| None` | Row + loaded body/snapshot bytes |
+| `list_entries_for_sidebar(search?, limit?)` | `list[dict]` | Newest-first global list (future left rail) |
+| `list_for_request(request_id, search?, limit?)` | `list[dict]` | Newest-first rows for one persisted `request_id` |
+| `prune_old_entries(retention_days, max_items_per_day, unlimited_per_day)` | `None` | Drop rows older than retention and over per-day cap |
+| `nullify_request_id(request_id)` | `None` | Set `request_id` NULL when collection request deleted |
+| `local_date(executed_at)` | `date` | Local calendar date for per-day caps |
+
+`body_store`: `write_body`, `read_body`, `write_request_snapshot`,
+`read_request_snapshot`, `delete_entry_files`, `reconcile_orphans`.
+
 ### Local script repository (`local_script_repository.py`)
 
 | Function | Returns | Purpose |
@@ -211,6 +229,24 @@ history CRUD.
 | `get_results(run_id)` | Results for a run as list of dicts |
 | `delete_run(run_id)` | Delete a single run |
 | `delete_runs(collection_id)` | Delete all runs for a collection |
+
+### RequestHistoryService (`services/request_history_service.py`)
+
+Module-level functions; class re-exports them as `@staticmethod` aliases.
+
+| Method | Purpose |
+|--------|---------|
+| `gather_send_identity(ctx, editor, data)` | Capture method/url/name at send start |
+| `record_send(identity, response, original_request, settings)` | Persist send; prune per settings; return entry id |
+| `list_for_sidebar(search?)` | List all entries (global; future left rail) |
+| `list_for_request(request_id, search?)` | List sends for one saved request (right rail) |
+| `get_entry(entry_id)` | Full row with file payloads |
+| `entry_to_detail_snapshot(entry)` | Shape for future response viewer replay |
+
+TypedDicts: `SendIdentityDict`, `RequestHistoryEntryDict`.
+
+Settings: `HistorySettingsManager` (`history/retention_days`, `max_items_per_day`,
+`unlimited_per_day`, `save_responses`, `max_response_bytes`).
 
 ### LocalScriptService (`services/local_script_service.py`)
 

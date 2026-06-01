@@ -269,6 +269,35 @@ def build_global_qss(p: ThemePalette) -> str:
         background: {"rgba(79, 193, 255, 0.40)" if p is DARK_PALETTE else "rgba(52, 152, 219, 0.40)"};
         color: {p["solid_button_fg"]};
     }}
+    QPushButton[objectName="requestHistoryReplayButton"] {{
+        background: {p["accent"]};
+        border: none;
+        border-radius: 4px;
+    }}
+    QPushButton[objectName="requestHistoryReplayButton"]:hover {{
+        background: {p["accent_hover"]};
+    }}
+    QPushButton[objectName="requestHistoryReplayButton"]:disabled {{
+        background: {"rgba(79, 193, 255, 0.40)" if p is DARK_PALETTE else "rgba(52, 152, 219, 0.40)"};
+    }}
+    QFrame[objectName="responseReplayIndicator"] {{
+        background: {p["bg_alt"]};
+        border: 1px solid {p["border"]};
+        border-radius: 6px;
+    }}
+    QLabel[objectName="responseReplayPrefix"] {{
+        color: {p["text_muted"]};
+        font-size: 12px;
+    }}
+    QLabel[objectName="responseReplayLink"] {{
+        color: {p["accent"]};
+        font-size: 12px;
+        font-weight: 500;
+        text-decoration: underline;
+    }}
+    QLabel[objectName="responseReplayLink"]:hover {{
+        color: {p["accent_hover"]};
+    }}
     QPushButton[objectName="outlineButton"] {{
         border: 1px solid {p["border"]};
         padding: 4px 12px;
@@ -1348,6 +1377,32 @@ def build_global_qss(p: ThemePalette) -> str:
         background: {p["hover_tree_bg"]};
     }}
     QTreeWidget[objectName="collectionTree"]::item:selected {{
+        background: {p["selected_bg"]};
+        color: {p["text"]};
+    }}
+
+    QStackedWidget[objectName="requestHistoryList"] {{
+        border: 1px solid {p["border"]};
+        background: {p["input_bg"]};
+        border-radius: 4px;
+    }}
+    QFrame[objectName="requestHistoryListEmpty"] {{
+        background: transparent;
+        border: none;
+    }}
+    QTreeWidget[objectName="requestHistoryTree"] {{
+        border: none;
+        background: transparent;
+        outline: none;
+    }}
+    QTreeWidget[objectName="requestHistoryTree"]::item {{
+        padding: 6px 8px;
+        border: none;
+    }}
+    QTreeWidget[objectName="requestHistoryTree"]::item:hover {{
+        background: {p["hover_tree_bg"]};
+    }}
+    QTreeWidget[objectName="requestHistoryTree"]::item:selected {{
         background: {p["selected_bg"]};
         color: {p["text"]};
     }}

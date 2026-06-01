@@ -75,17 +75,36 @@ def _reset_popup_and_flush_widgets(qapp: QApplication) -> Iterator[None]:
 
     # 2. Reset code-editor popup singletons (see ``tests/qt_popup_cleanup.py``).
     from tests.qt_popup_cleanup import (
+        dismiss_all_top_level_test_widgets,
         flush_deferred_widget_deletes,
         reset_code_editor_popups,
     )
 
     reset_code_editor_popups()
+    dismiss_all_top_level_test_widgets(qapp)
     flush_deferred_widget_deletes(qapp)
 
 
 # ------------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------------
+def finish_main_window_startup(window: object) -> None:
+    """Emit ``load_finished`` when needed and run session restore to completion."""
+    from ui.main_window.session_restore import flush_session_restore
+
+    if window._main_stack.currentIndex() == 0:  # type: ignore[attr-defined]
+        window.collection_widget.load_finished.emit()  # type: ignore[attr-defined]
+    flush_session_restore(window)  # type: ignore[arg-type]
+
+
+@pytest.fixture(autouse=True)
+def _inline_local_project_config_sync(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Avoid background mirror sync threads in UI tests (sync on demand elsewhere)."""
+    from ui.main_window import MainWindow
+
+    monkeypatch.setattr(MainWindow, "_start_local_project_config_sync", lambda self: None)
+
+
 def make_collection_dict(
     collections: list[dict[str, Any]],
 ) -> dict[str, Any]:

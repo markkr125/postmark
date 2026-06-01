@@ -134,6 +134,9 @@ def create_new_request(
 
 def delete_request(request_id: int) -> None:
     """Delete the request identified by *request_id*."""
+    from database.models.request_history import request_history_repository
+
+    request_history_repository.nullify_request_id(request_id)
     with get_session() as session:
         req = session.get(RequestModel, request_id)
         if req is None:

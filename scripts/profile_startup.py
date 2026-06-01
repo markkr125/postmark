@@ -125,10 +125,13 @@ def main() -> None:
     profiler.enable()
 
     window.collection_widget.load_finished.emit()
+    from ui.main_window.session_restore import flush_session_restore
+
+    flush_session_restore(window)
 
     profiler.disable()
 
-    _snapshot("Phase 4 — load_finished + _restore_tabs", t4, mem4)
+    _snapshot("Phase 4 — load_finished + restore_tabs", t4, mem4)
 
     # -- Phase 5: show() -------------------------------------------------
     mem5 = _rss_mb()

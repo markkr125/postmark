@@ -74,6 +74,8 @@ class TabContext:
             Used by policies such as "Close unused" and
             "Activate most recently used tab on close".
         nav_token: Stable id for tab activation back/forward stacks.
+        replay_source_entry_id: When set, the in-flight or last response is from
+            replaying this send-history row (for the response viewer banner).
     """
 
     def __init__(
@@ -124,6 +126,7 @@ class TabContext:
         self.opened_order: int = opened_order
         self.last_activated_order: int = 0
         self.nav_token: int = nav_token if nav_token is not None else allocate_tab_nav_token()
+        self.replay_source_entry_id: int | None = None
 
     def require_editor(self) -> RequestEditorWidget:
         """Return the request editor when this tab mounts one.

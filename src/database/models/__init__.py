@@ -18,6 +18,7 @@ from .runs.model.run_history_model import RunHistoryModel
 from .runs.model.run_result_model import RunResultModel
 from .request_assertions.model.request_assertion_model import RequestAssertionModel
 from .script_versions.model.script_version_model import ScriptVersionModel
+from .request_history.model.request_history_entry_model import RequestHistoryEntryModel
 from .snippets.model.snippet_model import SnippetModel
 
 __all__ = [
@@ -26,6 +27,7 @@ __all__ = [
     "LocalScriptFolderModel",
     "LocalScriptModel",
     "RequestAssertionModel",
+    "RequestHistoryEntryModel",
     "RequestModel",
     "RunHistoryModel",
     "RunResultModel",

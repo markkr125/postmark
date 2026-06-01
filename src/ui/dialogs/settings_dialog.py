@@ -46,6 +46,12 @@ from services.scripting.runtime_settings import (
 )
 from services.scripting.secret_store import backend_status
 from ui.styling.icons import phi
+from ui.dialogs.settings.history_page import (
+    HistoryPageWidgets,
+    apply_history_page,
+    build_history_page,
+)
+from ui.styling.history_settings_manager import HistorySettingsManager
 from ui.styling.tab_settings_manager import (
     ACTIVATE_LEFT,
     ACTIVATE_MRU,
@@ -80,6 +86,7 @@ class SettingsDialog(QDialog):
         parent: QWidget | None = None,
         *,
         initial_category: str = "Appearance",
+        history_settings_manager: HistorySettingsManager | None = None,
     ) -> None:
         """Initialise the settings dialog.
 
@@ -108,6 +115,8 @@ class SettingsDialog(QDialog):
 
         self._tm = theme_manager
         self._tab_settings = tab_settings_manager or TabSettingsManager(self)
+        self._history_settings = history_settings_manager or HistorySettingsManager(self)
+        self._history_widgets: HistoryPageWidgets | None = None
         self._deno_download_thread: QThread | None = None
         self._deno_download_worker: DenoDownloadWorker | None = None
 
@@ -145,6 +154,7 @@ class SettingsDialog(QDialog):
         self._build_appearance_page()
         self._build_tabs_page()
         self._build_scripting_page()
+        self._build_history_page()
         self._build_private_packages_pages()
         self._populate_category_tree()
 
@@ -206,6 +216,7 @@ class SettingsDialog(QDialog):
         appearance = _leaf(self._cat_tree, "Appearance", self._page_indices["appearance"])
         _leaf(self._cat_tree, "Tabs", self._page_indices["tabs"])
         _leaf(self._cat_tree, "Scripting", self._page_indices["scripting"])
+        _leaf(self._cat_tree, "History", self._page_indices["history"])
 
         private_parent = QTreeWidgetItem(["Private packages"])
         private_parent.setData(0, Qt.ItemDataRole.UserRole, self._page_indices["private_overview"])
@@ -228,6 +239,7 @@ class SettingsDialog(QDialog):
             "appearance": "Appearance",
             "tabs": "Tabs",
             "scripting": "Scripting",
+            "history": "History",
             "private packages": "Private packages",
             "private": "Private packages",
             "npm": "npm",
@@ -565,6 +577,23 @@ class SettingsDialog(QDialog):
 
         layout.addStretch()
         self._page_indices["scripting"] = self._stack.addWidget(page)
+
+    def _build_history_page(self) -> None:
+        """Build the History settings page."""
+        page, widgets = build_history_page(self._history_settings)
+        self._history_widgets = widgets
+        widgets.unlimited_check.toggled.connect(self._on_history_unlimited_toggled)
+        widgets.unlimited_check.toggled.connect(self._mark_dirty)
+        widgets.retention_days_spin.valueChanged.connect(self._mark_dirty)
+        widgets.max_items_spin.valueChanged.connect(self._mark_dirty)
+        widgets.save_responses_check.toggled.connect(self._mark_dirty)
+        widgets.max_mib_spin.valueChanged.connect(self._mark_dirty)
+        self._page_indices["history"] = self._stack.addWidget(page)
+
+    def _on_history_unlimited_toggled(self, checked: bool) -> None:
+        """Enable or disable the per-day cap spinbox."""
+        if self._history_widgets is not None:
+            self._history_widgets.max_items_spin.setEnabled(not checked)
 
     # -- Private packages pages ----------------------------------------
 
@@ -1609,6 +1638,9 @@ class SettingsDialog(QDialog):
             RuntimeSettings.clear_python_path()
         self._refresh_deno_status()
         self._refresh_python_status()
+
+        if self._history_widgets is not None:
+            apply_history_page(self._history_settings, self._history_widgets)
 
         # Private packages: persist registry list, default-npm, PyPI.
         # B6 fix: drop invalid rows (empty scope/URL or non-https URL)

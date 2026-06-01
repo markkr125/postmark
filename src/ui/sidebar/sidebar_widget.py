@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 )
 
 from services.collection_service import SavedResponseDict
+from ui.sidebar.history.panel import HistoryPanel
 from ui.sidebar.saved_responses.panel import SavedResponsesPanel
 from ui.sidebar.snippet_panel import SnippetPanel
 from ui.sidebar.variables_panel import VariablesPanel
@@ -45,7 +46,11 @@ if TYPE_CHECKING:
 class _FlyoutPanel(QWidget):
     """Collapsible content panel placed as its own splitter child."""
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        request_history_panel: HistoryPanel | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
         """Build title bar and all flyout content panels."""
         super().__init__(parent)
         self.setObjectName("sidebarPanelArea")
@@ -58,7 +63,15 @@ class _FlyoutPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Title bar
+        self.variables_panel = VariablesPanel()
+        self.snippet_panel = SnippetPanel()
+        self.saved_responses_panel = SavedResponsesPanel()
+        self.request_history_panel = request_history_panel or HistoryPanel()
+        self.snippet_panel.setSizePolicy(
+            QSizePolicy.Policy.Preferred,
+            QSizePolicy.Policy.Expanding,
+        )
+
         from PySide6.QtWidgets import QHBoxLayout
 
         title_bar = QHBoxLayout()
@@ -70,6 +83,11 @@ class _FlyoutPanel(QWidget):
         title_bar.addWidget(self.title_label)
         title_bar.addStretch()
 
+        self._history_refresh_btn = self.request_history_panel.refresh_button()
+        self._history_refresh_btn.setFixedSize(28, 28)
+        self._history_refresh_btn.hide()
+        title_bar.addWidget(self._history_refresh_btn)
+
         self.close_btn = QPushButton()
         self.close_btn.setObjectName("iconButton")
         self.close_btn.setFixedSize(28, 28)
@@ -79,21 +97,14 @@ class _FlyoutPanel(QWidget):
         title_bar.addWidget(self.close_btn)
 
         layout.addLayout(title_bar)
-
-        # Content panels
-        self.variables_panel = VariablesPanel()
-        self.snippet_panel = SnippetPanel()
-        self.saved_responses_panel = SavedResponsesPanel()
-        self.snippet_panel.setSizePolicy(
-            QSizePolicy.Policy.Preferred,
-            QSizePolicy.Policy.Expanding,
-        )
         layout.addWidget(self.variables_panel, 1)
         layout.addWidget(self.snippet_panel, 1)
         layout.addWidget(self.saved_responses_panel, 1)
+        layout.addWidget(self.request_history_panel, 1)
         self.variables_panel.hide()
         self.snippet_panel.hide()
         self.saved_responses_panel.hide()
+        self.request_history_panel.hide()
 
     def minimumSizeHint(self) -> QSize:
         """Enforce a readable minimum width for the flyout."""
@@ -110,7 +121,12 @@ class RightSidebar(QWidget):
     both the flyout and the rail into the parent splitter.
     """
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        *,
+        request_history_panel: HistoryPanel | None = None,
+    ) -> None:
         """Initialise the icon rail and create the flyout panel."""
         super().__init__(parent)
         self.setObjectName("sidebarRail")
@@ -125,12 +141,13 @@ class RightSidebar(QWidget):
         self.setFixedWidth(self._rail_width)
 
         # --- Flyout (separate widget, placed in splitter later) -------
-        self._flyout = _FlyoutPanel()
+        self._flyout = _FlyoutPanel(request_history_panel)
         self._close_btn = self._flyout.close_btn
         self._title_label = self._flyout.title_label
         self._variables_panel = self._flyout.variables_panel
         self._snippet_panel = self._flyout.snippet_panel
         self._saved_responses_panel = self._flyout.saved_responses_panel
+        self._request_history_panel = self._flyout.request_history_panel
         self._close_btn.clicked.connect(self._close_panel)
 
         # --- Rail layout ----------------------------------------------
@@ -144,11 +161,14 @@ class RightSidebar(QWidget):
         )
         self._snippet_btn = self._make_rail_button("code", "Code snippet")
         self._saved_btn = self._make_rail_button("floppy-disk-back", "Saved responses")
+        self._history_btn = self._make_rail_button("clock-counter-clockwise", "History")
         self._snippet_btn.hide()
         self._saved_btn.hide()
+        self._history_btn.hide()
         rail_layout.addWidget(self._var_btn)
         rail_layout.addWidget(self._snippet_btn)
         rail_layout.addWidget(self._saved_btn)
+        rail_layout.addWidget(self._history_btn)
         rail_layout.addStretch()
 
         # State
@@ -166,6 +186,9 @@ class RightSidebar(QWidget):
         )
         self._saved_btn.clicked.connect(
             lambda: self._toggle_panel("saved_responses"),
+        )
+        self._history_btn.clicked.connect(
+            lambda: self._toggle_panel("request_history"),
         )
 
     # Keep a reference for the ``_rail`` attribute used by tests.
@@ -231,6 +254,11 @@ class RightSidebar(QWidget):
         return self._saved_responses_panel
 
     @property
+    def request_history_panel(self) -> HistoryPanel:
+        """Return the per-request send history panel widget."""
+        return self._request_history_panel
+
+    @property
     def active_panel(self) -> str | None:
         """Return the key of the currently open panel, or *None*."""
         return self._active_panel
@@ -260,13 +288,15 @@ class RightSidebar(QWidget):
         auth: dict | None = None,
     ) -> None:
         """Configure the sidebar for a request tab."""
-        self._available_panels = {"variables", "snippet", "saved_responses"}
+        self._available_panels = {"variables", "snippet", "saved_responses", "request_history"}
         self._default_panel = "snippet"
         self._var_btn.setEnabled(True)
         self._snippet_btn.show()
         self._snippet_btn.setEnabled(True)
         self._saved_btn.show()
         self._saved_btn.setEnabled(True)
+        self._history_btn.show()
+        self._history_btn.setEnabled(True)
 
         self._variables_panel.load_variables(
             variables,
@@ -295,13 +325,14 @@ class RightSidebar(QWidget):
         self._var_btn.setEnabled(True)
         self._snippet_btn.hide()
         self._saved_btn.hide()
+        self._history_btn.hide()
 
         self._variables_panel.load_variables(
             variables,
             has_environment=has_environment,
         )
 
-        if self._active_panel in {"snippet", "saved_responses"}:
+        if self._active_panel in {"snippet", "saved_responses", "request_history"}:
             self._close_panel()
 
     def set_saved_response_context(
@@ -327,16 +358,42 @@ class RightSidebar(QWidget):
             return
         self._saved_responses_panel.set_saved_responses(items)
 
+    def set_request_history_context(
+        self,
+        *,
+        request_id: int | None,
+        request_name: str | None,
+        is_persisted_request: bool,
+    ) -> None:
+        """Populate the send-history panel for the active request context."""
+        self._history_btn.setVisible(True)
+        self._history_btn.setEnabled(is_persisted_request)
+        self._request_history_panel.set_request_context(
+            request_id,
+            request_name,
+            is_persisted_request=is_persisted_request,
+        )
+        if not is_persisted_request:
+            if self._active_panel == "request_history":
+                self._close_panel()
+            self._request_history_panel.show_request_required_state(
+                "Save the request first to browse history for this request."
+            )
+            return
+        self._request_history_panel.refresh()
+
     def clear(self) -> None:
         """Reset the sidebar to an empty state (no tab open)."""
         self._available_panels = set()
         self._var_btn.setEnabled(False)
         self._snippet_btn.hide()
         self._saved_btn.hide()
+        self._history_btn.hide()
         self._close_panel()
         self._variables_panel.clear()
         self._snippet_panel.clear()
         self._saved_responses_panel.clear()
+        self._request_history_panel.clear()
 
     def open_panel(self, panel: str) -> None:
         """Programmatically open a specific panel by key."""
@@ -389,7 +446,7 @@ class RightSidebar(QWidget):
 
     def refresh_theme(self) -> None:
         """Re-render rail-button icons against the current palette."""
-        for btn in (self._var_btn, self._snippet_btn, self._saved_btn):
+        for btn in (self._var_btn, self._snippet_btn, self._saved_btn, self._history_btn):
             name = btn.property("rail_icon_name")
             if isinstance(name, str) and name:
                 self._apply_rail_icon(btn, name)
@@ -408,15 +465,19 @@ class RightSidebar(QWidget):
         self._variables_panel.setVisible(panel == "variables")
         self._snippet_panel.setVisible(panel == "snippet")
         self._saved_responses_panel.setVisible(panel == "saved_responses")
+        self._request_history_panel.setVisible(panel == "request_history")
         self._var_btn.setChecked(panel == "variables")
         self._snippet_btn.setChecked(panel == "snippet")
         self._saved_btn.setChecked(panel == "saved_responses")
+        self._history_btn.setChecked(panel == "request_history")
         titles = {
             "variables": "Variables",
             "snippet": "Code snippet",
             "saved_responses": "Saved Responses",
+            "request_history": "History",
         }
         self._title_label.setText(titles.get(panel, panel))
+        self._flyout._history_refresh_btn.setVisible(panel == "request_history")
         self._flyout.show()
         self._expand_flyout()
 
@@ -426,9 +487,12 @@ class RightSidebar(QWidget):
         self._variables_panel.hide()
         self._snippet_panel.hide()
         self._saved_responses_panel.hide()
+        self._request_history_panel.hide()
         self._var_btn.setChecked(False)
         self._snippet_btn.setChecked(False)
         self._saved_btn.setChecked(False)
+        self._history_btn.setChecked(False)
+        self._flyout._history_refresh_btn.hide()
         self._collapse_flyout()
 
     def _expand_flyout(self, target_width: int | None = None) -> None:

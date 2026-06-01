@@ -193,7 +193,9 @@ class TestTabActivationHistoryMenu:
         """Go menu lists tab Back and Forward actions."""
         window = MainWindow()
         qtbot.addWidget(window)
-        window.collection_widget.load_finished.emit()
+        from tests.ui.conftest import finish_main_window_startup
+
+        finish_main_window_startup(window)
         menubar = window.menuBar()
         go_top = next(
             (a for a in menubar.actions() if a.text().replace("&", "") == "Go"),

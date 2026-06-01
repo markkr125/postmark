@@ -11,6 +11,11 @@ from __future__ import annotations
 from services.collection_service import CollectionService, RequestLoadDict
 from services.environment_service import EnvironmentService, LocalOverride, VariableDetail
 from services.import_service import ImportService
+from services.request_history_service import (
+    RequestHistoryEntryDict,
+    RequestHistoryService,
+    SendIdentityDict,
+)
 from services.run_history_service import RunHistoryService
 from services.script_service import ScriptService
 from services.script_version_service import ScriptVersionService
@@ -29,6 +34,8 @@ __all__ = [
     "EnvironmentService",
     "ImportService",
     "LocalOverride",
+    "RequestHistoryEntryDict",
+    "RequestHistoryService",
     "RequestLoadDict",
     "RunHistoryService",
     "ScriptEngine",
@@ -37,6 +44,7 @@ __all__ = [
     "ScriptOutput",
     "ScriptService",
     "ScriptVersionService",
+    "SendIdentityDict",
     "TestResult",
     "VariableDetail",
 ]

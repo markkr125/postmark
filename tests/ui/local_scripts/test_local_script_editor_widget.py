@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -19,49 +18,42 @@ from services.scripting.local_script_modules import build_module_index
 from ui.local_scripts.local_script_editor_widget import LocalScriptEditorWidget
 
 
-@pytest.fixture
-def _cancel_local_script_lsp_prep_after_test() -> Iterator[None]:
-    """Stop any in-flight LSP prep worker started during a test."""
-    yield
-    app = QApplication.instance()
-    if isinstance(app, QApplication):
-        app.processEvents()
-
-
-def test_autosave_persist_writes_script_content(qapp: QApplication) -> None:
+def test_autosave_persist_writes_script_content(
+    local_script_editor: LocalScriptEditorWidget,
+) -> None:
     """Auto-save callback persists buffer text to the database."""
     folder = create_folder("Scripts")
     script = create_script(folder.id, "Helper", language="javascript", content="original")
 
-    editor = LocalScriptEditorWidget()
-    editor.load_script(LocalScriptService.get_script_load_dict(script.id) or {})
-    editor._pane.editor.setPlainText("updated body")
-    editor._persist_for_autosave()
+    local_script_editor.load_script(LocalScriptService.get_script_load_dict(script.id) or {})
+    local_script_editor._pane.editor.setPlainText("updated body")
+    local_script_editor._persist_for_autosave()
 
     loaded = LocalScriptService.get_script_load_dict(script.id)
     assert loaded is not None
     assert loaded["content"] == "updated body"
-    assert not editor.is_dirty()
+    assert not local_script_editor.is_dirty()
 
 
-def test_js_local_script_defers_lsp_attach_until_loaded(qapp: QApplication) -> None:
+def test_js_local_script_defers_lsp_attach_until_loaded(
+    local_script_editor: LocalScriptEditorWidget,
+) -> None:
     """LSP attach stays deferred at init; with LSP disabled in tests, sync attach after load."""
     folder = create_folder("Mods")
     script = create_script(folder.id, "Entry", language="javascript", content="export const x = 1;")
 
-    editor = LocalScriptEditorWidget()
-    assert editor._pane.editor._lsp_attach_deferred is True
+    assert local_script_editor._pane.editor._lsp_attach_deferred is True
 
-    editor.load_script(LocalScriptService.get_script_load_dict(script.id) or {})
+    local_script_editor.load_script(LocalScriptService.get_script_load_dict(script.id) or {})
     # Tests autouse-disable LSP, so async prep falls back to immediate attach.
-    assert editor._pane.editor._lsp_attach_deferred is False
-    assert editor._pane._local_script_id == script.id
+    assert local_script_editor._pane.editor._lsp_attach_deferred is False
+    assert local_script_editor._pane._local_script_id == script.id
 
 
 def test_js_local_script_async_prep_keeps_deferred_until_finalize(
+    local_script_editor: LocalScriptEditorWidget,
     qapp: QApplication,
     monkeypatch: pytest.MonkeyPatch,
-    _cancel_local_script_lsp_prep_after_test: None,
 ) -> None:
     """When async prep is enabled, load returns before LSP attach finalizes."""
     folder = create_folder("AsyncMods")
@@ -85,26 +77,23 @@ def test_js_local_script_async_prep_keeps_deferred_until_finalize(
         _SlowWorker,
     )
 
-    editor = LocalScriptEditorWidget()
-    editor.show()
-    editor.load_script(LocalScriptService.get_script_load_dict(script.id) or {})
+    local_script_editor.load_script(LocalScriptService.get_script_load_dict(script.id) or {})
     qapp.processEvents()
 
     assert started, "expected async prep worker to start"
-    assert editor.isVisible()
-    assert "export const y" in editor._pane.editor.toPlainText()
-    assert editor._pane.editor._lsp_attach_deferred is True
-    assert editor._pane._local_script_id == script.id
+    assert "export const y" in local_script_editor._pane.editor.toPlainText()
+    assert local_script_editor._pane.editor._lsp_attach_deferred is True
+    assert local_script_editor._pane._local_script_id == script.id
 
-    editor._pane.cancel_async_lsp_prep()
+    local_script_editor._pane.cancel_async_lsp_prep()
     settings.setValue("scripting/lsp_enabled", False)
     qapp.processEvents()
 
 
 def test_load_script_does_not_build_module_index_on_gui_thread(
+    local_script_editor: LocalScriptEditorWidget,
     qapp: QApplication,
     monkeypatch: pytest.MonkeyPatch,
-    _cancel_local_script_lsp_prep_after_test: None,
 ) -> None:
     """``load_script`` does not scan the module index on the GUI thread; prep does later."""
     folder = create_folder("GuiIndex")
@@ -149,13 +138,11 @@ def test_load_script_does_not_build_module_index_on_gui_thread(
         _SlowWorker,
     )
 
-    editor = LocalScriptEditorWidget()
-    editor.show()
-    editor.load_script(data)
+    local_script_editor.load_script(data)
     qapp.processEvents()
 
     assert index_calls == 0
-    assert editor._pane.editor._lsp_attach_deferred is True
+    assert local_script_editor._pane.editor._lsp_attach_deferred is True
 
     result = prepare_local_script_lsp_attach(
         script_id=script.id,
@@ -166,6 +153,6 @@ def test_load_script_does_not_build_module_index_on_gui_thread(
     assert result.ok is True
     assert index_calls >= 1
 
-    editor._pane.cancel_async_lsp_prep()
+    local_script_editor._pane.cancel_async_lsp_prep()
     settings.setValue("scripting/lsp_enabled", False)
     qapp.processEvents()

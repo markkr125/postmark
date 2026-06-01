@@ -283,6 +283,11 @@ class _VariableControllerMixin:
                 can_save_current=ctx.response_viewer.has_live_response(),
                 is_persisted_request=is_persisted_request,
             )
+            self._right_sidebar.set_request_history_context(
+                request_id=ctx.request_id,
+                request_name=request_name,
+                is_persisted_request=is_persisted_request,
+            )
 
     def _schedule_sidebar_snippet_refresh(self) -> None:
         """Debounce snippet refresh (300 ms) on request editor changes."""

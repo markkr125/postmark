@@ -12,6 +12,7 @@ from qt_app_init import configure_before_qapplication
 from services.lsp.server_registry import LspRegistry
 from ui.main_window import MainWindow
 from ui.styling.icons import load_font
+from ui.styling.history_settings_manager import HistorySettingsManager
 from ui.styling.tab_settings_manager import TabSettingsManager
 from ui.styling.theme_manager import ThemeManager
 
@@ -27,6 +28,7 @@ if __name__ == "__main__":
     # Apply theme (reads QSettings, sets style + palette + global QSS)
     theme_manager = ThemeManager(app)
     tab_settings_manager = TabSettingsManager(app)
+    history_settings_manager = HistorySettingsManager(app)
 
     # Load the Phosphor icon font (must happen after QApplication)
     load_font()
@@ -35,13 +37,11 @@ if __name__ == "__main__":
 
     # Initialise the database before any widget accesses it
     init_db()
-    from services.scripting.local_scripts_project.deno_config import ensure_local_project_config
-
-    ensure_local_project_config()
 
     window = MainWindow(
         theme_manager=theme_manager,
         tab_settings_manager=tab_settings_manager,
+        history_settings_manager=history_settings_manager,
     )
     window.showMaximized()
     ret = app.exec()

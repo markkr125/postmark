@@ -80,6 +80,7 @@ class _TabControllerMixin:
     def _on_send_request(self) -> None: ...
     def _on_save_request(self) -> None: ...
     def _on_save_response(self, data: dict) -> None: ...
+    def _on_replay_history_link_clicked(self, entry_id: int) -> None: ...
     def _sync_save_btn(self, dirty: bool) -> None: ...
     def _current_tab_context(self) -> TabContext | None: ...
     def _on_run_collection_by_id(self, collection_id: int) -> None: ...
@@ -239,6 +240,7 @@ class _TabControllerMixin:
         editor.request_changed.connect(lambda _: self._schedule_sidebar_snippet_refresh())
         editor.scripts_tab_active_changed.connect(self._on_editor_scripts_tab_changed)
         viewer.save_response_requested.connect(self._on_save_response)
+        viewer.replay_history_link_clicked.connect(self._on_replay_history_link_clicked)
         viewer.save_availability_changed.connect(lambda _enabled: self._refresh_sidebar())
 
         # Now switch to the tab (triggers _on_tab_changed safely)
@@ -703,81 +705,13 @@ class _TabControllerMixin:
         self._tab_settings_manager.save_open_tabs(data)
 
     def _restore_tabs(self) -> None:
-        """Restore tabs from the last session after collections have loaded.
+        """Restore tabs from the last session (batched; see ``session_restore``)."""
+        from typing import cast
 
-        Request tabs are restored **lazily**: only a lightweight tab-bar
-        chip is created upfront.  The actual editor and response viewer
-        widgets are materialised on first selection via
-        :meth:`_materialise_deferred_tab`.  Draft and folder tabs are
-        still created eagerly because they require immediate state
-        (editor snapshot / folder metadata).  **Environments** tabs are
-        materialised eagerly (no database id); each ``{"type": "environments"}``
-        entry creates the global editor widget.
-        """
-        data = self._tab_settings_manager.load_open_tabs()
-        if data is None:
-            self._left_sidebar.open_panel()
-            return
+        from ui.main_window.session_restore import begin_session_restore
+        from ui.main_window.window import MainWindow
 
-        tabs_list = data.get("tabs")
-        if not isinstance(tabs_list, list):
-            return
-
-        active = data.get("active", 0)
-
-        # Suppress per-tab persist calls — the data is already saved.
-        self._restoring_session = True
-        try:
-            for entry in tabs_list:
-                if not isinstance(entry, dict):
-                    continue
-                tab_type = entry.get("type")
-                if tab_type == "draft":
-                    self._restore_draft(entry)
-                    continue
-                if tab_type == "environments":
-                    if self._find_environments_tab_index() is not None:
-                        continue
-                    if not self._enforce_tab_limit_before_open():
-                        logger.warning(
-                            "Skipping environments tab restore: tab limit reached",
-                        )
-                        continue
-                    self._materialize_environments_tab_at(self._tab_bar.count())
-                    continue
-                item_id = entry.get("id")
-                if not isinstance(item_id, int):
-                    continue
-                if tab_type == "request":
-                    self._restore_request_deferred(entry, item_id)
-                elif tab_type == "folder":
-                    self._open_folder(item_id, show_missing_warning=False)
-                elif tab_type == "local_script":
-                    if LocalScriptService.get_script(item_id) is None:
-                        continue
-                    self._restore_local_script_deferred(entry, item_id)
-        finally:
-            self._restoring_session = False
-
-        if isinstance(active, int) and 0 <= active < self._tab_bar.count():
-            self._tab_bar.setCurrentIndex(active)
-            self._on_tab_changed(active)
-            self._flush_tab_change()
-
-        self._seed_tab_nav_after_restore()
-
-        left_panel = data.get("left_sidebar_panel")
-        if isinstance(left_panel, str):
-            self._left_sidebar.open_panel(left_panel)
-        elif not self._left_sidebar.is_open:
-            self._left_sidebar.open_panel()
-
-        sidebar_panel = data.get("sidebar_panel")
-        if isinstance(sidebar_panel, str):
-            self._right_sidebar.open_panel(sidebar_panel)
-            sidebar_width = data.get("sidebar_width")
-            if isinstance(sidebar_width, int) and sidebar_width > 0:
-                self._right_sidebar._expand_flyout(sidebar_width)
+        begin_session_restore(cast(MainWindow, self))
 
     def _restore_request_deferred(self, entry: dict, request_id: int) -> None:
         """Create a lightweight tab chip for a persisted request tab.
@@ -907,6 +841,7 @@ class _TabControllerMixin:
         editor.request_changed.connect(lambda _: self._schedule_sidebar_snippet_refresh())
         editor.scripts_tab_active_changed.connect(self._on_editor_scripts_tab_changed)
         viewer.save_response_requested.connect(self._on_save_response)
+        viewer.replay_history_link_clicked.connect(self._on_replay_history_link_clicked)
         viewer.save_availability_changed.connect(lambda _enabled: self._refresh_sidebar())
 
         # Fetch breadcrumb once — reused by both the tab tooltip and
@@ -1106,6 +1041,7 @@ class _TabControllerMixin:
             editor.dirty_changed.disconnect(self._on_editor_dirty_changed)
             editor.request_changed.disconnect()
             viewer.save_response_requested.disconnect(self._on_save_response)
+            viewer.replay_history_link_clicked.disconnect(self._on_replay_history_link_clicked)
 
             # Remove from stacked widgets and detach from parent hierarchy.
             self._editor_stack.removeWidget(editor)

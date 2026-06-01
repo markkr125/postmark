@@ -99,6 +99,8 @@ class _SendPipelineMixin:
     response_widget: ResponseViewerWidget
     _debug_protocol: DebugProtocol | None
     _inline_test_run: dict[str, Any] | None
+    _pending_request_snapshot: dict[str, Any] | None
+    _pending_history_context: Any
 
     def _current_tab_context(self) -> TabContext | None: ...
 
@@ -130,13 +132,17 @@ class _SendPipelineMixin:
         if ctx is not None:
             editor = ctx.require_editor()
             viewer = ctx.require_response_viewer()
+            ctx.replay_source_entry_id = None
+            viewer.clear_replay_history_source()
         else:
             editor = self.request_widget
             viewer = self.response_widget
+            viewer.clear_replay_history_source()
 
         method = editor._method_combo.currentText()
         url = editor._url_input.text().strip()
         if not url:
+            self._clear_pending_history_capture()
             viewer.show_error("URL is empty")
             inline_test = getattr(self, "_inline_test_run", None)
             if inline_test is not None:
@@ -161,8 +167,6 @@ class _SendPipelineMixin:
             if inherited:
                 auth_data = inherited
 
-        env_id = self._env_selector.current_environment_id()
-
         request_id = ctx.request_id if ctx else None
         request_name = ""
         if ctx and ctx.request_id:
@@ -174,23 +178,16 @@ class _SendPipelineMixin:
         elif ctx and ctx.draft_name:
             request_name = str(ctx.draft_name)
 
-        # 3. Tear down any previous send thread
-        if ctx is not None:
-            ctx.cleanup_thread()
-        else:
-            self._cleanup_send_thread()
+        self._pending_request_snapshot = editor.get_request_data()
+        self._pending_history_context = {
+            "request_id": request_id,
+            "request_name": request_name,
+            "method": method,
+            "url": url,
+            "tab_type": ctx.tab_type if ctx is not None else "request",
+        }
 
-        # 4. Show loading state, spinner, and toggle button to Cancel
-        viewer.show_loading()
-        self._set_send_button_cancel(True)
-        if ctx is not None:
-            idx = self._tab_bar.currentIndex()
-            self._tab_bar.update_tab(idx, is_sending=True)
-
-        # 5. Create worker — variable resolution + auth on worker thread
-        # 5a. Resolve script chain for this request
         from services.script_service import ScriptService
-        from ui.request.http_worker import HttpSendWorker
 
         inline_test = getattr(self, "_inline_test_run", None)
         pre_scripts = None
@@ -205,7 +202,6 @@ class _SendPipelineMixin:
                     test_scripts,
                 )
             else:
-                # Draft: use inline scripts from the editor
                 scripts_data = editor.get_request_data().get("scripts")
                 if scripts_data:
                     pre_scripts, test_scripts = ScriptService.build_collection_script_chain(
@@ -227,41 +223,20 @@ class _SendPipelineMixin:
                 message_prefix="Pre-request script",
             )
 
-        worker = HttpSendWorker()
-        worker.set_request(
+        self._launch_http_send(
+            ctx,
+            viewer=viewer,
             method=method,
             url=url,
             headers=headers,
             body=body,
-            env_id=env_id,
+            auth_data=auth_data,
             request_id=request_id,
             request_name=request_name,
-            auth_data=auth_data,
-            local_overrides={k: v["value"] for k, v in ctx.local_overrides.items()}
-            if ctx
-            else None,
             pre_scripts=pre_scripts,
             test_scripts=test_scripts,
             declarative_test_script=declarative_test_script,
         )
-
-        thread = QThread()
-        worker.moveToThread(thread)
-
-        thread.started.connect(worker.run)
-        worker.finished.connect(self._on_send_finished)
-        worker.error.connect(self._on_send_error)
-        worker.finished.connect(thread.quit)
-        worker.error.connect(thread.quit)
-
-        if ctx is not None:
-            ctx.thread = thread
-            ctx.worker = worker
-            ctx.is_sending = True
-        else:
-            self._send_thread = thread
-            self._send_worker = worker
-        thread.start()
 
     def run_post_response_script_with_live_response(
         self,
@@ -284,6 +259,164 @@ class _SendPipelineMixin:
             debug_btn=debug_btn,
         )
 
+    def _clear_pending_history_capture(self) -> None:
+        """Drop send-time history capture after record or cancel."""
+        self._pending_request_snapshot = None
+        self._pending_history_context = None
+
+    def _launch_http_send(
+        self,
+        ctx: TabContext | None,
+        *,
+        viewer: Any,
+        method: str,
+        url: str,
+        headers: str | None,
+        body: str | None,
+        auth_data: dict | None,
+        request_id: int | None,
+        request_name: str,
+        pre_scripts: list[Any] | None = None,
+        test_scripts: list[Any] | None = None,
+        declarative_test_script: Any = None,
+    ) -> None:
+        """Start ``HttpSendWorker`` without modifying the request editor."""
+        from ui.request.http_worker import HttpSendWorker
+
+        if ctx is not None:
+            ctx.cleanup_thread()
+        else:
+            self._cleanup_send_thread()
+
+        viewer.show_loading()
+        self._set_send_button_cancel(True)
+        if ctx is not None:
+            idx = self._tab_bar.currentIndex()
+            self._tab_bar.update_tab(idx, is_sending=True)
+
+        env_id = self._env_selector.current_environment_id()
+        worker = HttpSendWorker()
+        worker.set_request(
+            method=method,
+            url=url,
+            headers=headers,
+            body=body,
+            env_id=env_id,
+            request_id=request_id,
+            request_name=request_name,
+            auth_data=auth_data,
+            local_overrides={k: v["value"] for k, v in ctx.local_overrides.items()}
+            if ctx
+            else None,
+            pre_scripts=pre_scripts or [],
+            test_scripts=test_scripts or [],
+            declarative_test_script=declarative_test_script,
+        )
+
+        thread = QThread()
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.finished.connect(self._on_send_finished)
+        worker.error.connect(self._on_send_error)
+        worker.finished.connect(thread.quit)
+        worker.error.connect(thread.quit)
+
+        if ctx is not None:
+            ctx.thread = thread
+            ctx.worker = worker
+            ctx.is_sending = True
+        else:
+            self._send_thread = thread
+            self._send_worker = worker
+        thread.start()
+
+    def _replay_request_history_entry(self, entry_id: int) -> None:
+        """Replay a history send: HTTP from snapshot, response pane only."""
+        from services.request_history_service import RequestHistoryService
+
+        ctx = self._current_tab_context()
+        panel = getattr(self, "_request_history_panel", None)
+        if ctx is None or ctx.tab_type != "request" or ctx.request_id is None:
+            return
+        if panel is not None and panel._request_id != ctx.request_id:
+            return
+        if ctx.is_sending:
+            return
+
+        entry = RequestHistoryService.entry_for_replay(entry_id)
+        if entry is None:
+            status = self.statusBar() if hasattr(self, "statusBar") else None
+            if status is not None:
+                status.showMessage("Cannot replay: request snapshot is missing a URL", 6000)
+            return
+
+        payload = RequestHistoryService.build_send_payload_from_entry(entry)
+        if payload is None:
+            return
+
+        viewer = ctx.require_response_viewer()
+        ctx.replay_source_entry_id = entry_id
+        self._pending_request_snapshot = payload["history_snapshot"]
+        self._pending_history_context = {
+            "request_id": ctx.request_id,
+            "request_name": str(entry.get("request_name", "")),
+            "method": payload["method"],
+            "url": payload["url"],
+            "tab_type": "request",
+        }
+
+        self._launch_http_send(
+            ctx,
+            viewer=viewer,
+            method=payload["method"],
+            url=payload["url"],
+            headers=payload["headers"],
+            body=payload["body"],
+            auth_data=None,
+            request_id=ctx.request_id,
+            request_name=str(entry.get("request_name", "")),
+            pre_scripts=[],
+            test_scripts=[],
+            declarative_test_script=None,
+        )
+
+    def _on_replay_history_link_clicked(self, entry_id: int) -> None:
+        """Open send history and select the source row for a replayed response."""
+        ctx = self._current_tab_context()
+        if ctx is None or ctx.tab_type != "request" or ctx.request_id is None:
+            return
+        panel = getattr(self, "_request_history_panel", None)
+        if panel is None:
+            return
+        if panel._request_id != ctx.request_id:
+            _, request_name = self._tab_bar.tab_request_info(self._tab_bar.currentIndex())
+            self._right_sidebar.set_request_history_context(
+                request_id=ctx.request_id,
+                request_name=request_name,
+                is_persisted_request=True,
+            )
+        self._right_sidebar.open_panel("request_history")
+        if not panel.focus_entry(entry_id):
+            status = self.statusBar() if hasattr(self, "statusBar") else None
+            if status is not None:
+                status.showMessage("History entry is no longer available", 5000)
+
+    def _delete_request_history_entry(self, entry_id: int) -> None:
+        """Remove one send-history row and refresh the panel."""
+        from services.request_history_service import RequestHistoryService
+
+        ctx = self._current_tab_context()
+        panel = getattr(self, "_request_history_panel", None)
+        if panel is None:
+            return
+        if ctx is not None and ctx.request_id is not None and panel._request_id != ctx.request_id:
+            return
+        if not RequestHistoryService.delete_entry(entry_id):
+            return
+        if panel._current_entry_id == entry_id:
+            panel._current_entry_id = None
+        panel.refresh()
+
     def _on_send_finished(self, data: dict) -> None:
         """Handle a successful HTTP response from the worker thread."""
         _impl_on_send_finished(self, data)
@@ -294,6 +427,9 @@ class _SendPipelineMixin:
         ctx = self._current_tab_context()
         viewer = ctx.require_response_viewer() if ctx is not None else self.response_widget
         viewer.show_error(message)
+        from ui.main_window.send_pipeline_postresponse import _apply_replay_indicator
+
+        _apply_replay_indicator(self, ctx, viewer)
         self._set_send_button_cancel(False)
         if ctx is not None:
             idx = self._tab_bar.currentIndex()
@@ -301,6 +437,9 @@ class _SendPipelineMixin:
             ctx.cleanup_thread()
         else:
             self._cleanup_send_thread()
+        from ui.main_window.send_pipeline_postresponse import _record_request_history
+
+        _record_request_history(self, ctx, {"error": message})
         self._refresh_sidebar()
         if inline_test is not None:
             panel = inline_test.get("panel")
@@ -329,6 +468,7 @@ class _SendPipelineMixin:
                 self._send_worker.cancel()
             self.response_widget.show_error("Request cancelled")
             self._cleanup_send_thread()
+        self._clear_pending_history_capture()
         self._set_send_button_cancel(False)
 
     def _set_send_button_cancel(self, is_cancel: bool) -> None:

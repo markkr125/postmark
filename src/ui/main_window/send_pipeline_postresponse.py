@@ -5,11 +5,111 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from ui.request.request_editor import RequestEditorWidget
     from ui.request.request_editor.scripts.output_panel import ScriptOutputPanel
+
+
+def _apply_replay_indicator(window: Any, ctx: Any, viewer: Any) -> None:
+    """Show or clear the response viewer replay banner from tab context."""
+    replay_id = getattr(ctx, "replay_source_entry_id", None) if ctx is not None else None
+    if replay_id is None:
+        viewer.clear_replay_history_source()
+        return
+    from services.request_history_service import RequestHistoryService
+
+    entry = RequestHistoryService.get_entry(int(replay_id))
+    if entry is not None:
+        viewer.set_replay_history_source(
+            int(replay_id),
+            RequestHistoryService.replay_source_link_text(entry),
+        )
+    else:
+        viewer.clear_replay_history_source()
+    if ctx is not None:
+        ctx.replay_source_entry_id = None
+
+
+def _record_request_history(
+    window: Any,
+    ctx: Any,
+    data: dict,
+) -> None:
+    """Persist this send to request history when guards pass."""
+    cap = getattr(window, "_pending_history_context", None)
+    tab_type = cap.get("tab_type") if isinstance(cap, dict) else None
+    if tab_type is None and ctx is not None:
+        tab_type = getattr(ctx, "tab_type", None)
+    if tab_type != "request":
+        if hasattr(window, "_clear_pending_history_capture"):
+            window._clear_pending_history_capture()
+        else:
+            window._pending_request_snapshot = None
+            window._pending_history_context = None
+        return
+    if getattr(window, "_suppress_history_record", False):
+        if hasattr(window, "_clear_pending_history_capture"):
+            window._clear_pending_history_capture()
+        return
+    settings = getattr(window, "_history_settings", None)
+    if settings is None:
+        if hasattr(window, "_clear_pending_history_capture"):
+            window._clear_pending_history_capture()
+        return
+    from services.request_history_service import (
+        PendingHistoryContextDict,
+        RequestHistoryService,
+        SendIdentityDict,
+    )
+
+    identity: SendIdentityDict
+    if isinstance(cap, dict):
+        cap_dict = cast(PendingHistoryContextDict, cap)
+        identity = SendIdentityDict(
+            request_id=cap_dict.get("request_id"),
+            request_name=str(cap_dict.get("request_name", "")),
+            method=str(data.get("request_method") or cap_dict.get("method", "GET")),
+            url=str(data.get("request_url") or cap_dict.get("url", "")).strip(),
+        )
+    elif ctx is not None:
+        editor = ctx.require_editor()
+        identity = RequestHistoryService.gather_send_identity(ctx, editor, data)
+    else:
+        if hasattr(window, "_clear_pending_history_capture"):
+            window._clear_pending_history_capture()
+        return
+
+    snapshot = getattr(window, "_pending_request_snapshot", None)
+    try:
+        entry_id = RequestHistoryService.record_send(
+            identity=identity,
+            response=data,
+            original_request=snapshot if isinstance(snapshot, dict) else None,
+            settings=settings,
+        )
+        if entry_id is not None:
+            panel = getattr(window, "_request_history_panel", None)
+            recorded_id = identity.get("request_id")
+            active_id = cap.get("request_id") if isinstance(cap, dict) else None
+            if active_id is None and ctx is not None:
+                active_id = ctx.request_id
+            if panel is not None and recorded_id is not None and active_id == recorded_id:
+                panel.refresh()
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).exception("Failed to record request history")
+        status = window.statusBar() if hasattr(window, "statusBar") else None
+        if status is not None:
+            status.showMessage("History was not saved (see application log)", 8000)
+    finally:
+        if hasattr(window, "_clear_pending_history_capture"):
+            window._clear_pending_history_capture()
+        else:
+            window._pending_request_snapshot = None
+            window._pending_history_context = None
 
 
 def run_post_response_script_with_live_response(
@@ -51,6 +151,7 @@ def on_send_finished(window: Any, data: dict) -> None:
     )
 
     viewer.load_response(data)
+    _apply_replay_indicator(window, ctx, viewer)
 
     test_results = data.get("test_results", [])
     console_logs = data.get("console_logs", [])
@@ -97,6 +198,7 @@ def on_send_finished(window: Any, data: dict) -> None:
     else:
         window._cleanup_send_thread()
     window._refresh_sidebar()
+    _record_request_history(window, ctx, data)
 
     if inline_test is not None:
         from ui.request.request_editor.scripts.script_run_worker import build_inline_context

@@ -267,6 +267,39 @@ ResponseViewerWidget.save_availability_changed(bool)
   → _TabControllerMixin lambda
     → MainWindow._refresh_sidebar()
       → RightSidebar.set_saved_response_context(...can_save_current=...)
+
+MainWindow._refresh_sidebar (request tab)
+  → RightSidebar.set_request_history_context(...)
+    → HistoryPanel.set_request_context(...) + refresh()
+
+on_send_finished → _record_request_history
+  → RequestHistoryService.record_send(...)
+  → HistoryPanel.refresh() when recorded request_id matches active tab
+
+HistoryPanel.replay_requested(int entry_id)
+  → MainWindow._replay_request_history_entry
+    → RequestHistoryService.build_send_payload_from_entry
+    → _launch_http_send (auth_data=None; no pre/post scripts)
+    → ResponseViewer only; new history row on finish
+    → ResponseViewer ``responseReplayIndicator`` (source row link)
+
+ResponseViewer.replay_history_link_clicked(int entry_id)
+  → MainWindow._on_replay_history_link_clicked
+    → RightSidebar.open_panel("request_history")
+    → HistoryPanel.focus_entry(entry_id)
+
+HistoryPanel.delete_requested(int entry_id)
+  → MainWindow._delete_request_history_entry
+    → RequestHistoryService.delete_entry
+    → HistoryPanel.refresh()
+
+CollectionWidget.load_finished
+  → MainWindow._on_load_finished (main stack + menu/status)
+  → session_restore.begin_session_restore (batched tab restore)
+  → MainWindow.session_restore_finished
+
+MainWindow (startup)
+  → LocalProjectConfigWorker (QThread): ensure_local_project_config / sync_all
 ```
 
 ### Folder editor flow

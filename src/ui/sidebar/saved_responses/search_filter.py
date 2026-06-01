@@ -90,6 +90,9 @@ class _PanelSearchFilterMixin:
 
     def _copy_editor(self, editor: CodeEditorWidget) -> None: ...
 
+    def _body_toolbar_extras(self, toolbar: QHBoxLayout) -> None:
+        """Add panel-specific controls after Pretty/Raw (override in hosts)."""
+
     # -- Body tab construction -----------------------------------------
 
     def _build_body_tab(self) -> None:
@@ -106,6 +109,7 @@ class _PanelSearchFilterMixin:
         self._body_view_combo.setFixedWidth(90)
         self._body_view_combo.currentTextChanged.connect(self._refresh_body_view)
         body_toolbar.addWidget(self._body_view_combo)
+        self._body_toolbar_extras(body_toolbar)
         body_toolbar.addStretch()
         self._body_edit = CodeEditorWidget(read_only=True)
         self._body_copy_btn = self._make_icon_btn(
