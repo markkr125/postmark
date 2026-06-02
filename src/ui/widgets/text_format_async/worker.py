@@ -2,16 +2,23 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QObject, QRunnable, Signal
+from PySide6.QtCore import QObject, QRunnable, Signal, Slot
 from shiboken6 import isValid
 
 from ui.sidebar.saved_responses.helpers import format_code_text
+from ui.widgets.qt_thread_delivery import queue_int_str
 
 
 class FormatTextSignals(QObject):
     """Cross-thread delivery of formatted text (queued to the GUI thread)."""
 
     finished = Signal(int, str)
+
+    @Slot(int, str)
+    def deliver(self, generation: int, text: str) -> None:
+        """Emit ``finished`` on the GUI thread (called via :func:`queue_int_str`)."""
+        if isValid(self):
+            self.finished.emit(generation, text)
 
 
 class FormatTextRunnable(QRunnable):
@@ -43,9 +50,7 @@ class FormatTextRunnable(QRunnable):
             formatted = format_code_text(self._text, self._language, pretty=self._pretty)
         except Exception:
             formatted = self._text
-        if not isValid(self._signals):
-            return
-        self._signals.finished.emit(self._generation, formatted)
+        queue_int_str(self._signals, "deliver", self._generation, formatted)
 
 
 # Backward-compatible alias for tests.

@@ -82,6 +82,9 @@ def _reset_popup_and_flush_widgets(qapp: QApplication) -> Iterator[None]:
 
     reset_code_editor_popups()
     dismiss_all_top_level_test_widgets(qapp)
+    from PySide6.QtCore import QThreadPool
+
+    QThreadPool.globalInstance().waitForDone(5000)
     flush_deferred_widget_deletes(qapp)
 
 

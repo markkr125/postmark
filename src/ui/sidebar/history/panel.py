@@ -420,7 +420,7 @@ class HistoryPanel(  # type: ignore[misc]
 
     def closeEvent(self, event: QCloseEvent) -> None:
         """Cancel in-flight detail/format work before widget teardown."""
-        self._detail_loader.cancel()
+        self._detail_loader.shutdown()
         self._body_format_runner.cancel()
         self._req_body_format_runner.cancel()
         super().closeEvent(event)

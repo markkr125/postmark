@@ -872,6 +872,8 @@ class MainWindow(
         from services.scripting.engine import ScriptLinter
 
         ScriptLinter.shutdown()
+        self._orphan_history_open_loader.shutdown()
+        self._request_history_panel._detail_loader.shutdown()
 
         super().closeEvent(event)
 
