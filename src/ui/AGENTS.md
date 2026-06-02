@@ -270,7 +270,18 @@ standard object names:
 | `sidebarRailButton` | `QToolButton` | Checkable icon button in the right rail |
 | `leftSidebarRail` | `QWidget` | Left activity rail: background uses palette ``status_bar_bg`` (same as ``QStatusBar#appStatusBar``); no outer layout padding |
 | `leftSidebarRailButton` | `QToolButton` | Rail icon (``_LeftRailButton``): width ``round(LEFT_RAIL_WIDTH_EM * em)``, icon ``round(LEFT_RAIL_ICON_EM * em)``, height ``icon_size + LEFT_RAIL_BUTTON_EXTRA_HEIGHT_PX``; checked left accent **painted** full height (``LEFT_RAIL_ACCENT_STRIPE_WIDTH_PX``); QSS margin/padding ``0`` |
-| `sidebarPanelArea` | `QWidget` | Right sidebar collapsible flyout panel (separate splitter child) |
+| `sidebarPanelArea` | `QWidget` | Right sidebar collapsible flyout panel (separate splitter child); ``border-right`` vs icon rail only — left edge is ``mainWindowHorizontalSplitter`` handle (no ``border-left``) |
+| `requestHistoryPanel` | `HistoryPanel` | Per-request History flyout (right rail, 4th button) |
+| `globalHistoryPanel` | `HistoryPanel` | Workspace History flyout (left rail, 3rd button; `set_global_mode`) |
+| `globalHistoryHeader` | `QWidget` | Left global History title row (History label + refresh) |
+| `requestHistoryOpenButton` | `QPushButton` | Hidden; global History opens on tree single-click |
+| `requestHistorySearch` | `QLineEdit` | Filter History by URL substring or status code (e.g. `200`) |
+| `requestHistoryList` | `QStackedWidget` | Bordered list area (tree or no-match empty state) |
+| `requestHistoryTree` | `QTreeWidget` | History tree inside `requestHistoryList` (date groups → sends) |
+| `requestHistoryReplayButton` | `QPushButton` | Replay selected send (detail header; snapshot-only HTTP, response pane only) |
+| `responseReplayIndicator` | `QFrame` | Response viewer corner pill when the current response is from a history replay |
+| `responseReplayPrefix` | `QLabel` | Muted "Replayed request" label inside `responseReplayIndicator` |
+| `responseReplayLink` | `ClickableLabel` | Link to open History and select the source row |
 | `leftSidebarFlyout` | `QWidget` | Left collections flyout: ``border-left`` vs rail only; right edge uses the main splitter handle (no ``border-right``, avoids a double line when open). At 0 width uses a local ``setStyleSheet`` to strip chrome. Nav horizontal inset lives on ``CollectionWidget`` / ``EnvironmentSidebarPanel`` (``LEFT_NAV_PANEL_MARGIN_H_*`` in ``theme.py``) so the collections|environments splitter handle is not inset. |
 | `sidebarTitleLabel` | `QLabel` | Bold panel title in **right** flyout header; debug panel position label (left flyout has no title row) |
 | `variableKeyLabel` | `QLineEdit` | Variable key (read-only, selectable) in variables / debug KV rows |
@@ -357,7 +368,6 @@ varies at runtime and cannot be expressed with objectName selectors:
 
 - Method badge background-color (varies by HTTP method)
 - Status label colour (varies by HTTP status code)
-- History row method colour
 - Breadcrumb per-segment colour
 - Spinner animation colours
 - Drop-zone active hover overlay

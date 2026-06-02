@@ -42,7 +42,7 @@ pm.environment.set("token", pm.response.json()["token"])
 ## Features
 
 ### Requests & Collections
-- Organise requests into nested collections (folders), with drag-and-drop reordering and in-place rename (rollback on failure)
+- Organise requests into nested collections (folders), with drag-and-drop reordering, in-place rename (rollback on failure), and **duplicate request** (copies saved responses and assertions)
 - Import from **Postman collections, cURL commands, or raw URLs**
 - **GraphQL support** — schema introspection, syntax highlighting, and prettify
 - Tabbed request editing with breadcrumb navigation and back/forward **tab history**
@@ -84,12 +84,15 @@ pm.environment.set("token", pm.response.json()["token"])
 - **Encrypted credential storage** for private package registries (OS keychain or encrypted file); secrets are resolved only at run time and never written to plain settings
 
 ### History & Versioning
+- **HTTP send history** — every Send is recorded (metadata in SQLite, bodies and request snapshots on disk). Browse **per-request** sends on the right History rail or **all workspace** sends on the left; search, date filters, **Replay** (HTTP from snapshot), and **Open** from global history into the correct tab
+- **History settings** — retention days, per-day caps, optional response-body storage and size limits (Settings → History)
 - **Automatic script version history** — snapshots saved as you edit, with a searchable timeline and one-click restore
 - **Side-by-side diff viewer** — two-column, syntax-highlighted diffs with intra-line change marking, change navigation, and whitespace-aware comparison
 - **Collection run history** — per-run totals (pass/fail/skip, duration, average response time) with a per-request breakdown
 
 ### Workspace & UI
-- **VS Code-style left activity rail** with collapsible flyout pages: **Collections & Environments** and **Local scripts & snippets**
+- **VS Code-style left activity rail** with collapsible flyout pages: **Collections & Environments**, **Local scripts & snippets**, and **History** (workspace send log)
+- **Right icon rail** — Variables, code snippets, saved responses, and per-request **History** (fourth button)
 - **Bulk key-value editing** — paste many params/headers as one-row-per-line text (`key: value`); prefix a line with `//` to keep but disable it
 - Resizable key-value columns with inline `{{variable}}` highlighting (distinct colour for unresolved variables)
 - **Theme support** — automatic OS dark/light detection with manual override — plus Fusion or native widget style and Hi-DPI scaling

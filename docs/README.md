@@ -56,6 +56,7 @@
 | [Import Parsers](api-reference/services/import-parsers.md) | Postman, cURL, and URL parser modules |
 | [ScriptEngine](api-reference/services/script-engine.md) | Script execution engine, runtimes, context builders |
 | [ScriptService](api-reference/services/script-service.md) | Script chain resolution from database ancestry |
+| [RequestHistoryService](api-reference/services/request-history-service.md) | Send history persistence, labels, stored response mapping |
 
 ### API Reference — Cross-Cutting
 
@@ -73,9 +74,9 @@
 | [Request Editor](ui-reference/request-editor.md) | Request editing — auth, body search, GraphQL mode |
 | [Response Viewer](ui-reference/response-viewer.md) | Response display — search, filter, JSONPath/XPath |
 | [Navigation](ui-reference/navigation.md) | Tab manager, breadcrumb bar, wrapped tab deck |
-| [Sidebar](ui-reference/sidebar.md) | Right sidebar — variables, snippets, saved responses |
+| [Sidebar](ui-reference/sidebar.md) | Left and right rails — variables, snippets, saved responses, send history (`HistoryPanel`) |
 | [Dialogs](ui-reference/dialogs.md) | Import, Save, Settings, Collection Runner |
-| [Panels](ui-reference/panels.md) | Console and History panels |
+| [Panels](ui-reference/panels.md) | Console panel |
 | [Shared Widgets](ui-reference/widgets.md) | Code editor, key-value table, popups, variable widgets |
 | [Styling](ui-reference/styling.md) | Theme manager, palettes, global QSS, icon system |
 

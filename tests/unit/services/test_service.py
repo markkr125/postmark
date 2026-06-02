@@ -201,6 +201,20 @@ class TestSavedResponses:
         assert response["id"] == sr_id
         assert response["request_id"] == req.id
 
+    def test_duplicate_request(self) -> None:
+        """duplicate_request clones the request and its saved responses."""
+        svc = CollectionService()
+        coll = svc.create_collection("C")
+        req = svc.create_request(coll.id, "GET", "http://x", "Original")
+        svc.save_response(req.id, "Ex", "OK", 200, [], "body")
+
+        dup = svc.duplicate_request(req.id)
+
+        assert dup.id != req.id
+        assert dup.name == "Original Copy"
+        assert len(svc.get_saved_responses(dup.id)) == 1
+        assert svc.get_saved_responses(dup.id)[0]["name"] == "Ex"
+
     def test_rename_duplicate_and_delete(self) -> None:
         """Saved responses support rename, duplicate, and delete operations."""
         svc = CollectionService()

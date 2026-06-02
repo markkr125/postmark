@@ -136,6 +136,30 @@ class TestRightSidebar:
         assert not sidebar._saved_btn.isHidden()
         assert sidebar._saved_btn.isEnabled()
 
+    def test_orphan_history_tab_shows_rail_tooltips(self, qapp: QApplication, qtbot) -> None:
+        """Disabled saved/history rail icons explain deleted-request history tabs."""
+        sidebar = RightSidebar()
+        qtbot.addWidget(sidebar)
+        sidebar.show_request_panels({}, method="GET", url="http://example.com")
+        sidebar.set_saved_response_context(
+            request_id=None,
+            request_name="Gone",
+            items=[],
+            can_save_current=False,
+            is_persisted_request=False,
+            from_deleted_request_history=True,
+        )
+        sidebar.set_request_history_context(
+            request_id=None,
+            request_name="Gone",
+            is_persisted_request=False,
+            from_deleted_request_history=True,
+        )
+        assert not sidebar._saved_btn.isEnabled()
+        assert "deleted" in sidebar._saved_btn.toolTip().lower()
+        assert not sidebar._history_btn.isEnabled()
+        assert "deleted" in sidebar._history_btn.toolTip().lower()
+
     def test_show_folder_panels_disables_snippet(
         self,
         qapp: QApplication,

@@ -8,6 +8,7 @@ from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QApplication
 
 from services.collection_service import CollectionService
+from tests.ui.conftest import finish_main_window_startup
 from ui.main_window import MainWindow
 from ui.styling.tab_settings_manager import TabSettingsManager
 
@@ -151,6 +152,18 @@ class TestPersistOpenTabs:
         assert saved is not None
         assert saved.get("left_sidebar_panel") == "local_scripts"
 
+    def test_persist_records_history_left_sidebar_panel(self, qapp: QApplication, qtbot) -> None:
+        """_persist_open_tabs saves the History left-rail flyout page."""
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._left_sidebar.open_panel("history")
+        window._persist_open_tabs()
+
+        saved = window._tab_settings_manager.load_open_tabs()
+        assert saved is not None
+        assert saved.get("left_sidebar_panel") == "history"
+
     def test_persist_records_local_script_tabs(self, qapp: QApplication, qtbot) -> None:
         """_persist_open_tabs saves local script tab ids and names."""
         from database.models.local_scripts.local_script_repository import (
@@ -227,7 +240,7 @@ class TestRestoreTabs:
         qtbot.addWidget(window)
 
         # Simulate load_finished which triggers _restore_tabs
-        window.collection_widget.load_finished.emit()
+        finish_main_window_startup(window)
 
         assert window._tab_bar.count() == 2
         assert window._tab_bar.currentIndex() == 1
@@ -250,7 +263,7 @@ class TestRestoreTabs:
         window = MainWindow(tab_settings_manager=tab_settings)
         qtbot.addWidget(window)
 
-        window.collection_widget.load_finished.emit()
+        finish_main_window_startup(window)
 
         assert window._tab_bar.count() == 1
         ctx = window._tabs[0]
@@ -271,9 +284,28 @@ class TestRestoreTabs:
         window = MainWindow(tab_settings_manager=tab_settings)
         qtbot.addWidget(window)
 
-        window.collection_widget.load_finished.emit()
+        finish_main_window_startup(window)
 
         assert window._left_sidebar.active_panel == "local_scripts"
+        assert window._left_sidebar.is_open
+
+    def test_restore_opens_history_left_sidebar_panel(self, qapp: QApplication, qtbot) -> None:
+        """_restore_tabs reopens the persisted History left-rail flyout."""
+        tab_settings = TabSettingsManager(qapp)
+        tab_settings.save_open_tabs(
+            {
+                "tabs": [],
+                "active": 0,
+                "left_sidebar_panel": "history",
+            }
+        )
+
+        window = MainWindow(tab_settings_manager=tab_settings)
+        qtbot.addWidget(window)
+
+        finish_main_window_startup(window)
+
+        assert window._left_sidebar.active_panel == "history"
         assert window._left_sidebar.is_open
 
     def test_restore_opens_local_script_tabs(self, qapp: QApplication, qtbot) -> None:
@@ -303,7 +335,7 @@ class TestRestoreTabs:
         window = MainWindow(tab_settings_manager=tab_settings)
         qtbot.addWidget(window)
 
-        window.collection_widget.load_finished.emit()
+        finish_main_window_startup(window)
 
         assert window._tab_bar.count() == 1
         ctx = window._tabs[0]
@@ -336,7 +368,7 @@ class TestRestoreTabs:
         window = MainWindow(tab_settings_manager=tab_settings)
         qtbot.addWidget(window)
 
-        window.collection_widget.load_finished.emit()
+        finish_main_window_startup(window)
 
         assert window._tab_bar.count() == 3
         env_ctx = window._tabs.get(1)
@@ -359,7 +391,7 @@ class TestRestoreTabs:
         window = MainWindow(tab_settings_manager=tab_settings)
         qtbot.addWidget(window)
 
-        window.collection_widget.load_finished.emit()
+        finish_main_window_startup(window)
 
         assert window._tab_bar.count() == 0
 
@@ -380,7 +412,7 @@ class TestRestoreTabs:
             qtbot.addWidget(window)
             warning.assert_not_called()
 
-        window.collection_widget.load_finished.emit()
+        finish_main_window_startup(window)
 
         assert window._tab_bar.count() == 0
 
@@ -389,7 +421,7 @@ class TestRestoreTabs:
         window = MainWindow()
         qtbot.addWidget(window)
 
-        window.collection_widget.load_finished.emit()
+        finish_main_window_startup(window)
 
         assert window._tab_bar.count() == 0
 
@@ -413,7 +445,7 @@ class TestRestoreTabs:
         window = MainWindow(tab_settings_manager=tab_settings)
         qtbot.addWidget(window)
 
-        window.collection_widget.load_finished.emit()
+        finish_main_window_startup(window)
 
         assert window._tab_bar.count() == 1
         assert window.request_widget._url_input.text() == "http://alive.com"
@@ -435,7 +467,7 @@ class TestRestoreTabs:
         window = MainWindow(tab_settings_manager=tab_settings)
         qtbot.addWidget(window)
 
-        window.collection_widget.load_finished.emit()
+        finish_main_window_startup(window)
 
         # Should not crash; tab 0 is the only option
         assert window._tab_bar.count() == 1
@@ -460,7 +492,7 @@ class TestRestoreTabs:
         window = MainWindow(tab_settings_manager=tab_settings)
         qtbot.addWidget(window)
 
-        window.collection_widget.load_finished.emit()
+        finish_main_window_startup(window)
 
         assert window._tab_bar.count() == 1
 
@@ -523,7 +555,7 @@ class TestDraftSessionPersistence:
         window = MainWindow(tab_settings_manager=tab_settings)
         qtbot.addWidget(window)
 
-        window.collection_widget.load_finished.emit()
+        finish_main_window_startup(window)
 
         assert window._tab_bar.count() == 1
         assert window.request_widget._url_input.text() == "http://draft.test"
@@ -550,7 +582,7 @@ class TestDraftSessionPersistence:
         window = MainWindow(tab_settings_manager=tab_settings)
         qtbot.addWidget(window)
 
-        window.collection_widget.load_finished.emit()
+        finish_main_window_startup(window)
 
         assert window._tab_bar.count() == 1
         ctx = window._tabs[0]
@@ -569,7 +601,7 @@ class TestDraftSessionPersistence:
         window = MainWindow(tab_settings_manager=tab_settings)
         qtbot.addWidget(window)
 
-        window.collection_widget.load_finished.emit()
+        finish_main_window_startup(window)
 
         assert window._tab_bar.count() == 0
 
@@ -596,7 +628,7 @@ class TestDraftSessionPersistence:
         window = MainWindow(tab_settings_manager=tab_settings)
         qtbot.addWidget(window)
 
-        window.collection_widget.load_finished.emit()
+        finish_main_window_startup(window)
 
         assert window._tab_bar.count() == 2
         # Tab 0: persisted request
@@ -632,7 +664,7 @@ class TestDeferredTabRestore:
 
         window = MainWindow(tab_settings_manager=tab_settings)
         qtbot.addWidget(window)
-        window.collection_widget.load_finished.emit()
+        finish_main_window_startup(window)
 
         assert window._tab_bar.count() == 2
         # Active tab (0) is materialised
@@ -663,7 +695,7 @@ class TestDeferredTabRestore:
 
         window = MainWindow(tab_settings_manager=tab_settings)
         qtbot.addWidget(window)
-        window.collection_widget.load_finished.emit()
+        finish_main_window_startup(window)
 
         # Switch to the deferred tab
         window._tab_bar.setCurrentIndex(1)
@@ -695,7 +727,7 @@ class TestDeferredTabRestore:
 
         window = MainWindow(tab_settings_manager=tab_settings)
         qtbot.addWidget(window)
-        window.collection_widget.load_finished.emit()
+        finish_main_window_startup(window)
 
         assert window._tab_bar.count() == 2
         # Select the deferred tab pointing to a deleted request
@@ -720,7 +752,7 @@ class TestDeferredTabRestore:
 
         window = MainWindow(tab_settings_manager=tab_settings)
         qtbot.addWidget(window)
-        window.collection_widget.load_finished.emit()
+        finish_main_window_startup(window)
 
         # Eagerly materialised — no deferred entry
         assert 0 in window._tabs
@@ -747,7 +779,7 @@ class TestDeferredTabRestore:
 
         window = MainWindow(tab_settings_manager=tab_settings)
         qtbot.addWidget(window)
-        window.collection_widget.load_finished.emit()
+        finish_main_window_startup(window)
 
         # Close the deferred tab (index 1)
         window._on_tab_close(1)

@@ -27,7 +27,6 @@ User clicks Send
       7. MainWindow._on_response_received(response_dict)
          --> ResponseViewer.display_response(response_dict)
          --> Console logs the request/response
-         --> History panel records the entry
 ```
 
 ## 2. Open Request from Collection Tree

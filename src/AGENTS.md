@@ -87,6 +87,24 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
 - `RunHistoryService` follows the same `@staticmethod` pattern.  It wraps
   `run_history_repository` for run history CRUD (create, finish, add result,
   query runs/results, delete).
+- `RequestHistoryService` (`request_history_service.py`) persists HTTP **send**
+  history: `gather_send_identity` at send start, `record_send` at the end of
+  `on_send_finished` (skipped when `_suppress_history_record` is set during
+  debug replay); refreshes `_global_history_panel` always and
+  `_request_history_panel` when the active tab matches the recorded request.
+  Settings: `HistorySettingsManager` (`history/*` QSettings). Bodies and
+  snapshots under `user_history_root()`; metadata in `request_history_entries`.
+  **Lists:** `list_for_sidebar` (left global rail), `list_for_request` (right
+  per-request). **Labels:** `was_persisted_request` drives `source_label`
+  `(deleted)` vs `(draft)` when `request_id` is null. **Display:**
+  Orphan/deleted rows: draft tab opens instantly from metadata; full payload loads
+  on a worker thread (`history_navigation/orphan_open.py`). ``TabContext.variable_collection_id``
+  restores collection variables/auth when ``request_id`` is ``None``.
+  `entry_to_http_response_dict` → `ResponseViewer.load_stored_response` (not
+  live/saveable). **Replay:** `build_send_payload_from_entry`; `delete_entry`
+  removes row and files. **Global open:** `_HistoryNavigationMixin`
+  (`history_navigation/`) — `entry_open_requested` → `_open_from_global_history`
+  (existing tab + right `focus_entry` only; centre `load_stored_response` for orphans).
 - `ScriptService` and `ScriptEngine` also follow the `@staticmethod`
   pattern.  `ScriptService.build_script_chain(request_id)` walks the
   ancestor chain to collect inherited scripts.  `ScriptEngine` dispatches
@@ -435,6 +453,10 @@ Key signals to know (always-on summary):
   when those sections are not materialised yet.
 - `ResponseViewerWidget.save_response_requested(dict)` → saves the current live response.
 - `ResponseViewerWidget.save_availability_changed(bool)` → refreshes right-sidebar saved-response affordances.
+- `ResponseViewerWidget.load_stored_response(dict)` → history/replay display from
+  `entry_to_http_response_dict`; clears test/pre-request tabs, disables Save Response,
+  does not set `_last_live_response`. `show_loading()` discards stored body when no
+  live response is loaded.
 - `SavedResponsesPanel` emits `save_current_requested`,
   `rename_requested`, `duplicate_requested`, and `delete_requested` — all
   handled in `MainWindow` through `CollectionService`.
@@ -586,7 +608,9 @@ into `%Y-%m-%d %H:%M` strings for the UI.
    value goes into `local_overrides`.  They are merged on top of the
    combined variable map in `MainWindow._refresh_variable_map()` and
    tagged with `is_local=True` in `VariableDetail` so the popup can show
-   Update/Reset buttons.
+   Update/Reset buttons.  For draft tabs from deleted-request history,
+   pass `collection_id=ctx.variable_collection_id` (same as
+   `_refresh_sidebar`) so Auth/URL fields resolve collection variables.
 7. **`TabContext.draft_name` tracks the display name of unsaved tabs** —
    Set to `"Untitled Request"` when a draft tab is opened.  Updated when
    the user renames via the breadcrumb bar.  Used as fallback label in the
@@ -607,8 +631,10 @@ into `%Y-%m-%d %H:%M` strings for the UI.
   active index after every tab open/close/reorder and in `closeEvent`.
   **Environments** tabs are saved as ``{"type": "environments"}`` (no id)
   and recreated on restore in their saved order.
-  **Deferred tab materialisation:** `_restore_tabs()` restores tabs
-  lazily after `CollectionWidget.load_finished` fires.  Request tabs
+  **Deferred tab materialisation:** `session_restore.begin_session_restore`
+  (via `_restore_tabs()`) restores tabs in batches after
+  `CollectionWidget.load_finished` so the GUI thread stays responsive.
+  Request tabs
   with `method` and `name` in the session data are created as
   lightweight tab-bar chips stored in `_deferred_tabs`; the editor and
   viewer widgets are built on first selection via

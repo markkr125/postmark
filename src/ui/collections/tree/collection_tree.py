@@ -63,6 +63,7 @@ class CollectionTree(_TreeActionsMixin, QWidget):
         int, str, str, str
     )  # script_id, basename, language, module_format
     request_delete_requested = Signal(int)  # request_id
+    request_duplicate_requested = Signal(int)  # request_id
     request_moved = Signal(int, int)  # request_id, new_collection_id
     collection_moved = Signal(int, object)  # collection_id, new_parent_id
     new_collection_requested = Signal(object)  # parent_id (int | None)

@@ -8,6 +8,7 @@ from typing import Any, Literal, cast
 
 from PySide6.QtCore import QPoint, QSettings, Qt, QTimer
 from PySide6.QtWidgets import QFrame, QSplitter, QToolButton, QVBoxLayout, QWidget
+from shiboken6 import Shiboken
 
 from database.models.collections.collection_query_repository import get_script_chain
 from services.script_service import normalize_disabled_inherited
@@ -346,9 +347,13 @@ class _ScriptsMixin(_DebugMetadataPersistMixin):
 
     def _script_split_full_width_line_should_show(self) -> bool:
         """True when the Scripts section tab is active and editors exist."""
+        if not Shiboken.isValid(self):
+            return False
         tabs = getattr(self, "_tabs", None)
         scripts_tab = getattr(self, "_scripts_tab", None)
         if tabs is None or scripts_tab is None:
+            return False
+        if not Shiboken.isValid(tabs) or not Shiboken.isValid(scripts_tab):
             return False
         if tabs.currentIndex() != tabs.indexOf(scripts_tab):
             return False
@@ -373,6 +378,8 @@ class _ScriptsMixin(_DebugMetadataPersistMixin):
 
     def _refresh_script_split_full_width_line(self, *_args: object) -> None:
         """Show or hide the overlay and align it to the editor/output seam."""
+        if not Shiboken.isValid(self):
+            return
         line = getattr(self, "_script_split_full_width_line", None)
         if line is None:
             return

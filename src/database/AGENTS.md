@@ -221,6 +221,35 @@ Core ORM models, all inheriting from `Base`:
 | `LocalScriptModel` | `local_scripts` | `database/models/local_scripts/model/local_script_model.py` |
 | `SnippetModel` | `snippets` | `database/models/snippets/model/snippet_model.py` |
 | `RequestAssertionModel` | `request_assertions` | `database/models/request_assertions/model/request_assertion_model.py` |
+| `RequestHistoryEntryModel` | `request_history_entries` | `database/models/request_history/model/request_history_entry_model.py` — includes `was_persisted_request` (required on disk in some DBs) |
+
+### Path helpers (`data_paths.py`)
+
+| Helper | Location |
+|--------|----------|
+| `project_root()` | Repository root (parent of `src/`). Default SQLite: `project_root()/data/database/main.db` |
+| `postmark_user_data_dir()` | OS user-data folder only — **not** the project DB |
+| `user_history_root()` | `{postmark_user_data_dir}/history` — response bodies + request snapshots |
+
+### Request send history — metadata vs files
+
+HTTP send history stores **metadata** in the **project** SQLite (`request_history_entries`
+in `data/database/main.db`) and **payloads** under the OS user-data directory:
+
+| Path helper | Purpose |
+|-------------|---------|
+| `postmark_user_data_dir()` | `~/.local/share/postmark` (Linux), `~/Library/Application Support/postmark` (macOS), `%LOCALAPPDATA%/postmark` (Windows) |
+| `user_history_root()` | `{postmark_user_data_dir}/history` |
+| `bodies/{id}.bin` | Response body bytes (relative paths stored in DB) |
+| `requests/{id}.json` | Request snapshot JSON at send time |
+
+`init_db()` runs `migrate_legacy_paths_and_files()` (imports from project
+``data/history`` when present, normalizes DB paths) then `reconcile_orphans()`.
+Orphan cleanup **skips** when body files exist but the DB table is empty (avoids
+wiping real payloads during isolated test DB init).
+`delete_request()` calls `nullify_request_id()` so history rows survive with
+`request_id = NULL`. Repository: `request_history_repository.py`; file I/O:
+`body_store.py`.
 
 ### Local scripts — `module_format`
 
@@ -237,7 +266,7 @@ in the service layer.
 ### Re-exports in database.py
 
 `database.py` re-exports collection, environment, run-history, local-script,
-snippet, and request-assertion models using the `import X as X` pattern
+snippet, request-assertion, and request-history models using the `import X as X` pattern
 (PEP 484 explicit re-export) so that `Base.metadata.create_all()` discovers
 every table.  These imports must remain even though `database.py` itself
 does not use the models directly.  Include ``LocalScriptFolderModel`` and

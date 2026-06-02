@@ -61,6 +61,7 @@ class HttpSendWorker(QObject):
         self._timeout: float = 30.0
         self._env_id: int | None = None
         self._request_id: int | None = None
+        self._variable_collection_id: int | None = None
         self._request_name: str = ""
         self._auth_data: dict | None = None
         self._local_overrides: dict[str, str] = {}
@@ -84,6 +85,7 @@ class HttpSendWorker(QObject):
         request_id: int | None = None,
         request_name: str = "",
         auth_data: dict | None = None,
+        variable_collection_id: int | None = None,
         local_overrides: dict[str, str] | None = None,
         pre_scripts: list[ScriptEntry] | None = None,
         test_scripts: list[ScriptEntry] | None = None,
@@ -113,6 +115,7 @@ class HttpSendWorker(QObject):
         self._timeout = timeout
         self._env_id = env_id
         self._request_id = request_id
+        self._variable_collection_id = variable_collection_id
         self._request_name = request_name or ""
         self._auth_data = auth_data
         self._local_overrides = local_overrides or {}
@@ -171,6 +174,7 @@ class HttpSendWorker(QObject):
             variables = EnvironmentService.build_combined_variable_map(
                 self._env_id,
                 self._request_id,
+                collection_id=self._variable_collection_id,
             )
 
             # 2b. Apply per-request local overrides (highest precedence)

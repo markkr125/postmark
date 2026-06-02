@@ -63,7 +63,9 @@ Status badge colour follows HTTP status ranges:
 | Method | Description |
 |--------|-------------|
 | `load_response(data)` | Populate from `HttpResponseDict` |
-| `show_loading()` | Show progress bar |
+| `show_loading()` | Show progress bar; clears stored-history body when no live response |
+| `load_stored_response(data)` | History open display; no Save Response; clears script tabs |
+| Pretty / JSON body | Raw text shown immediately; pretty-print runs on a thread pool |
 | `show_error(msg)` | Display error state |
 | `set_variable_map(variables)` | Propagate to body editor |
 | `load_test_results(results)` | Populate Test Results tab from `list[TestResult]` |

@@ -9,11 +9,13 @@ from typing import Any
 from services.scripting._sandbox_pm import _Pm, _serialize_request_mutations
 from services.scripting._sandbox_runtime import (
     _ConsolePrintCollector,
+    _apply_resource_limits,
     _console_emit,
     _console_logs,
     _error_output,
     _getattr_guard,
 )
+from services.scripting.context import harvest_legacy_tests
 from services.scripting._sandbox_safe_globals import _SAFE_BUILTINS, _SAFE_STDLIB
 
 try:
@@ -352,6 +354,7 @@ def _execute_debug(script: str, pm: _Pm, debug_cfg: dict[str, Any]) -> dict[str,
     initial_namespace.update(restricted_globals.keys())
 
     sys.settrace(_trace_fn)
+    _apply_resource_limits()
     try:
         exec(code, restricted_globals)
     except SystemExit:
@@ -363,8 +366,6 @@ def _execute_debug(script: str, pm: _Pm, debug_cfg: dict[str, Any]) -> dict[str,
         )
     finally:
         sys.settrace(None)
-
-    from services.scripting.context import harvest_legacy_tests
 
     harvest_legacy_tests(restricted_globals.get("tests"), pm._test_results)
 

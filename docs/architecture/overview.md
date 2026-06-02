@@ -112,11 +112,12 @@ MainWindow._on_send()
 main.py
   1. QApplication()
   2. ThemeManager / TabSettingsManager / load_font()
-  3. MainWindow()       -- loading screen shown; main UI built with WA_DontShowOnScreen
-  4. Collection fetch worker runs init_db() before fetch_all()
-  5. load_finished      -- clears DontShowOnScreen, switches stack to main UI
-  6. window.showMaximized()
-  7. app.exec()
+  3. init_db()          -- on the main thread before any window
+  4. MainWindow()       -- loading screen; local mirror sync starts on a worker thread
+  5. window.showMaximized()
+  6. Collection fetch worker runs init_db() (no-op) then fetch_all()
+  7. load_finished      -- switches stack to main UI; session tabs restore in batches
+  8. app.exec()
 ```
 
 ## Further Reading

@@ -267,6 +267,47 @@ ResponseViewerWidget.save_availability_changed(bool)
   → _TabControllerMixin lambda
     → MainWindow._refresh_sidebar()
       → RightSidebar.set_saved_response_context(...can_save_current=...)
+
+MainWindow._refresh_sidebar (request tab)
+  → RightSidebar.set_request_history_context(...)
+    → HistoryPanel.set_request_context(...) + refresh()
+
+on_send_finished → _record_request_history
+  → RequestHistoryService.record_send(...)
+  → _request_history_panel.refresh() when recorded request_id matches active tab
+  → _global_history_panel.refresh() always
+
+HistoryPanel.entry_open_requested(int entry_id)  [global instance only]
+  → MainWindow._open_from_global_history
+    → existing request: _open_request + right History schedule_detail_load (async detail)
+      + RightSidebar.open_panel("request_history") + focus_entry (deferred)
+    → orphan/deleted: _open_draft_request + load_request(snapshot) + load_stored_response
+      (draft sidebar: History/Saved Responses disabled)
+
+HistoryPanel.replay_requested(int entry_id)
+  → MainWindow._replay_request_history_entry
+    → RequestHistoryService.build_send_payload_from_entry
+    → _launch_http_send (auth_data=None; no pre/post scripts)
+    → ResponseViewer only; new history row on finish
+    → ResponseViewer ``responseReplayIndicator`` (source row link)
+
+ResponseViewer.replay_history_link_clicked(int entry_id)
+  → MainWindow._on_replay_history_link_clicked
+    → RightSidebar.open_panel("request_history")
+    → HistoryPanel.focus_entry(entry_id)
+
+HistoryPanel.delete_requested(int entry_id)
+  → MainWindow._delete_request_history_entry
+    → RequestHistoryService.delete_entry
+    → HistoryPanel.refresh()
+
+CollectionWidget.load_finished
+  → MainWindow._on_load_finished (main stack + menu/status)
+  → session_restore.begin_session_restore (batched tab restore)
+  → MainWindow.session_restore_finished
+
+MainWindow (startup)
+  → LocalProjectConfigWorker (QThread): ensure_local_project_config / sync_all
 ```
 
 ### Folder editor flow
@@ -274,13 +315,6 @@ ResponseViewerWidget.save_availability_changed(bool)
 ```
 FolderEditor.collection_changed(dict)
   → MainWindow handler → CollectionService.update_collection(...)
-```
-
-### History panel flow
-
-```
-HistoryPanel.entry_clicked(method, url)
-  → (wired to open or populate editor)
 ```
 
 ### Toggle actions flow
@@ -293,7 +327,7 @@ MainWindow._toggle_sidebar_action.triggered
   → _toggle_sidebar (collapse/expand left flyout; rail stays visible; stacked page unchanged)
 
 MainWindow._toggle_bottom_action.triggered
-  → _toggle_bottom_panel (show/hide console/history)
+  → _toggle_bottom_panel (show/hide console)
 
 MainWindow._toggle_layout_action.triggered
   → _toggle_layout_orientation (horizontal ↔ vertical)
@@ -579,7 +613,6 @@ All other signals in the flow diagrams above are fully wired.
 | `CodeEditorWidget` | `validation_changed` | `Signal(list)` |
 | `CodeEditorWidget` | `run_single_test_requested` | `Signal(str)` — per-`pm.test` gutter Run |
 | `CodeEditorWidget` | `debug_single_test_requested` | `Signal(str)` — per-`pm.test` gutter Debug |
-| `HistoryPanel` | `entry_clicked` | `Signal(str, str)` |
 
 ## MainWindow signal wiring summary
 

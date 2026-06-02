@@ -18,8 +18,8 @@
    group and the ``ui/kv_col_widths`` key (key-value table column widths)
    so preview/tab-limit settings and persisted table columns never leak
    between cases.
-4b. **Settings → Scripting tests** — `test_settings_dialog` uses an
-   autouse fixture that removes `scripting` (as well as `theme` and `tabs`)
+4b. **Settings dialog tests** — `test_settings_dialog` uses an autouse fixture
+   that removes `scripting` and `history` (as well as `theme` and `tabs`)
    **before and after** each test so a fake persisted `scripting/deno_path`
    from the Apply test cannot affect later test modules in the same session
    (which would break Deno-based script tests).  Mypy: that module has a
@@ -36,6 +36,15 @@
 8. **JS tests that need Esprima** can use ``from esprima_test_util import deno_and_esprima_available`` — ``deno --version`` alone is not enough when the Esprima subprocess is broken.
 9. **Do not test the session or engine directly** — test through the
    repository or service layer.
+
+## Isolated user-data and send-history directories (autouse fixtures)
+
+`conftest.py` provides `_isolated_postmark_user_data`, which monkeypatches
+`postmark_user_data_dir()` to a per-test folder under `tmp_path`.
+
+`_isolated_request_history` monkeypatches `user_history_root()` to a temp folder.
+**Required** so `init_db()` → `reconcile_orphans()` on an empty per-test DB does
+not delete the developer's real `~/.local/share/postmark/history/` payloads.
 
 ## Fresh database per test (autouse fixture)
 
@@ -127,7 +136,7 @@ test file still exceeds 600 lines, split by test class into separate files.
 ```
 tests/
 ├── conftest.py                    # Root: configure_before_qapplication + _fresh_db + _reset_tab_settings + _disable_script_lsp_in_tests + _shutdown_lsp_clients + _reset_code_editor_popups_after_test (autouse) + qapp
-├── qt_popup_cleanup.py            # reset_code_editor_popups + flush_deferred_widget_deletes (shared by root + ui conftest)
+├── qt_popup_cleanup.py            # reset_code_editor_popups + dismiss_all_top_level_test_widgets
 ├── esprima_test_util.py           # deno_and_esprima_available() for JS parse-dependent tests
 ├── unit/                          # Pure logic — no Qt widgets
 │   ├── database/                  # Repository layer tests
@@ -142,7 +151,10 @@ tests/
 │   │   ├── test_request_assertion_repository.py
 │   │   ├── test_script_version_local_script.py
 │   │   ├── test_environment_repository.py
-│   │   └── test_run_history_repository.py
+│   │   ├── test_run_history_repository.py
+│   │   ├── test_data_paths.py
+│   │   ├── test_request_history_body_store.py
+│   │   └── test_request_history_repository.py
 │   ├── local_scripts/             # Script filename display helpers
 │   │   └── test_script_filename.py
 │   └── services/                  # Service layer tests
@@ -178,6 +190,9 @@ tests/
 │       ├── test_python_format.py
 │       ├── test_script_error_format.py
 │       ├── test_runtime_settings.py
+│       ├── test_request_history_service.py
+│       ├── test_request_history_replay.py
+│       ├── test_request_history_snapshot_headers.py
 │       ├── test_secret_store.py     # SecretStore backends: keyring / encrypted-file / noop; default-store self-test fallback
 │       ├── test_deno_runtime_registries.py  # _build_npmrc_text + deno_ipc_argv_and_env private-registry plumbing
 │       ├── test_cjs_deno_interop.py       # Gate 0 Deno ``import *`` from ``.cjs``
@@ -217,6 +232,7 @@ tests/
     ├── test_main_window_draft.py  # Draft tab open/save lifecycle tests
     ├── test_main_window_session.py # Tab session persistence (save/restore) tests
     ├── local_scripts/
+    │   ├── conftest.py                # local_script_editor fixture (WA_DontShowOnScreen) + autouse teardown
     │   └── test_local_script_editor_widget.py # LocalScriptEditorWidget auto-save + async LSP prep defer tests
     ├── styling/                   # Theme and icon tests
     │   ├── test_theme_manager.py
@@ -260,7 +276,12 @@ tests/
    │   ├── test_debug_variables_watches.py
    │   ├── test_debug_metadata_persist.py
    │   ├── test_snippets_sidebar_panel.py
-   │   └── test_saved_responses_panel.py
+   │   ├── test_saved_responses_panel.py
+   │   ├── test_request_history_panel.py
+   │   ├── test_global_history_panel.py
+   │   ├── test_left_sidebar_global_history.py
+   │   ├── test_global_history_open_navigation.py
+   │   └── test_right_sidebar_request_history.py
     ├── collections/               # Collection sidebar tests
     │   ├── test_collection_header.py
     │   ├── test_collection_tree.py
@@ -283,8 +304,7 @@ tests/
     │   ├── test_environment_selector.py
     │   └── test_environment_sidebar_panel.py
     ├── panels/                    # Panel tests
-    │   ├── test_console_panel.py
-    │   └── test_history_panel.py
+    │   └── test_console_panel.py
     └── request/                   # Request/response editing tests
         ├── test_folder_editor.py
         ├── test_folder_editor_scripts.py
@@ -298,6 +318,7 @@ tests/
         ├── test_request_editor_search.py
         ├── test_assertions_tab.py
         ├── test_response_viewer.py
+        ├── test_response_replay_indicator.py
         ├── test_response_viewer_search.py
         ├── test_response_viewer_tests.py
         ├── test_version_history.py
@@ -350,13 +371,17 @@ When testing PySide6 widgets:
 7. For signal-to-service integration, emit signals directly on the tree widget
    and verify the DB changed via `CollectionService`.
 
-Shared helpers (`make_collection_dict`, `top_level_items`) live in
-`tests/ui/conftest.py` and can be imported via relative import from any
-subfolder:
+Shared helpers (`make_collection_dict`, `top_level_items`,
+`finish_main_window_startup`) live in `tests/ui/conftest.py` and can be
+imported via relative import from any subfolder:
 
 ```python
-from ..conftest import make_collection_dict, top_level_items
+from ..conftest import finish_main_window_startup, make_collection_dict, top_level_items
 ```
+
+Call ``finish_main_window_startup(window)`` after ``MainWindow`` construction
+when a test depends on session tab restore (replaces ``load_finished.emit()``
+alone).
 
 ## Assertions and error testing
 

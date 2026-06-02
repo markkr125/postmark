@@ -280,6 +280,12 @@ def get_request_variable_chain_detailed(request_id: int) -> dict[str, tuple[str,
         return merged
 
 
+def get_collection_variable_chain(collection_id: int) -> dict[str, str]:
+    """Walk the parent chain from *collection_id* and merge collection variables."""
+    detailed = get_collection_variable_chain_detailed(collection_id)
+    return {key: value for key, (value, _coll_id) in detailed.items()}
+
+
 def get_collection_variable_chain_detailed(
     collection_id: int,
 ) -> dict[str, tuple[str, int]]:

@@ -269,6 +269,35 @@ def build_global_qss(p: ThemePalette) -> str:
         background: {"rgba(79, 193, 255, 0.40)" if p is DARK_PALETTE else "rgba(52, 152, 219, 0.40)"};
         color: {p["solid_button_fg"]};
     }}
+    QPushButton[objectName="requestHistoryReplayButton"] {{
+        background: {p["accent"]};
+        border: none;
+        border-radius: 4px;
+    }}
+    QPushButton[objectName="requestHistoryReplayButton"]:hover {{
+        background: {p["accent_hover"]};
+    }}
+    QPushButton[objectName="requestHistoryReplayButton"]:disabled {{
+        background: {"rgba(79, 193, 255, 0.40)" if p is DARK_PALETTE else "rgba(52, 152, 219, 0.40)"};
+    }}
+    QFrame[objectName="responseReplayIndicator"] {{
+        background: {p["bg_alt"]};
+        border: 1px solid {p["border"]};
+        border-radius: 6px;
+    }}
+    QLabel[objectName="responseReplayPrefix"] {{
+        color: {p["text_muted"]};
+        font-size: 12px;
+    }}
+    QLabel[objectName="responseReplayLink"] {{
+        color: {p["accent"]};
+        font-size: 12px;
+        font-weight: 500;
+        text-decoration: underline;
+    }}
+    QLabel[objectName="responseReplayLink"]:hover {{
+        color: {p["accent_hover"]};
+    }}
     QPushButton[objectName="outlineButton"] {{
         border: 1px solid {p["border"]};
         padding: 4px 12px;
@@ -1352,13 +1381,53 @@ def build_global_qss(p: ThemePalette) -> str:
         color: {p["text"]};
     }}
 
+    #globalHistoryPanel QStackedWidget[objectName="requestHistoryList"],
+    #requestHistoryPanel QStackedWidget[objectName="requestHistoryList"],
+    QStackedWidget[objectName="requestHistoryList"] {{
+        border: 1px solid {p["border"]};
+        background: {p["input_bg"]};
+        border-radius: 4px;
+    }}
+    #globalHistoryPanel QFrame[objectName="requestHistoryListEmpty"],
+    #requestHistoryPanel QFrame[objectName="requestHistoryListEmpty"],
+    QFrame[objectName="requestHistoryListEmpty"] {{
+        background: transparent;
+        border: none;
+    }}
+    #globalHistoryPanel QTreeWidget[objectName="requestHistoryTree"],
+    #requestHistoryPanel QTreeWidget[objectName="requestHistoryTree"],
+    QTreeWidget[objectName="requestHistoryTree"] {{
+        border: none;
+        background: transparent;
+        outline: none;
+    }}
+    #globalHistoryPanel QTreeWidget[objectName="requestHistoryTree"]::item,
+    #requestHistoryPanel QTreeWidget[objectName="requestHistoryTree"]::item,
+    QTreeWidget[objectName="requestHistoryTree"]::item {{
+        padding: 6px 8px;
+        border: none;
+    }}
+    #globalHistoryPanel QTreeWidget[objectName="requestHistoryTree"]::item:hover,
+    #requestHistoryPanel QTreeWidget[objectName="requestHistoryTree"]::item:hover,
+    QTreeWidget[objectName="requestHistoryTree"]::item:hover {{
+        background: {p["hover_tree_bg"]};
+    }}
+    #globalHistoryPanel QTreeWidget[objectName="requestHistoryTree"]::item:selected,
+    #requestHistoryPanel QTreeWidget[objectName="requestHistoryTree"]::item:selected,
+    QTreeWidget[objectName="requestHistoryTree"]::item:selected {{
+        background: {p["selected_bg"]};
+        color: {p["text"]};
+    }}
+
     /* ---- Right sidebar ------------------------------------------ */
     QWidget[objectName="sidebarPanelArea"] {{
         background: {p["bg"]};
-        border-left: 1px solid {p["border"]};
+        /* Left edge: mainWindowHorizontalSplitter handle only (no border-left —
+           a full-widget border-left showed only beside the title row because
+           QScrollArea children paint over it below the header). */
         border-right: 1px solid {p["border"]};
     }}
-    /* Scroll area inside expanded sidebar must not override parent's right border */
+    /* Scroll area must not override the flyout's right border vs the icon rail */
     QWidget[objectName="sidebarPanelArea"] QScrollArea {{
         border: none;
         border-right: 1px solid {p["border"]};

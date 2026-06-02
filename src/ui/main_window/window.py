@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QThread, QTimer
+from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QAction, QCloseEvent, QCursor, QGuiApplication, QKeySequence
 
 if TYPE_CHECKING:
@@ -22,7 +22,6 @@ from PySide6.QtWidgets import (
     QSplitter,
     QStackedWidget,
     QStatusBar,
-    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -32,12 +31,12 @@ from ui.collections.collection_widget import CollectionWidget
 from ui.environments.environment_sidebar_panel import EnvironmentSidebarPanel
 from ui.loading_screen import LoadingScreen
 from ui.main_window.draft_controller import _DraftControllerMixin
+from ui.main_window.history_navigation import _HistoryNavigationMixin
 from ui.main_window.send_pipeline import _SendPipelineMixin
 from ui.main_window.tab_controller import _TabControllerMixin
 from ui.main_window.tab_nav import _TabNavHistoryMixin
 from ui.main_window.variable_controller import _VariableControllerMixin
 from ui.panels.console_panel import ConsolePanel
-from ui.panels.history_panel import HistoryPanel
 from ui.request.navigation.breadcrumb_bar import BreadcrumbBar
 from ui.request.navigation.request_tab_bar import RequestTabBar
 from ui.request.navigation.tab_manager import TabContext
@@ -46,6 +45,7 @@ from ui.request.response_viewer import ResponseViewerWidget
 from ui.sidebar import LeftSidebar, RightSidebar
 from ui.sidebar.snippets_sidebar_panel import SnippetsSidebarPanel
 from ui.styling.icons import phi
+from ui.styling.history_settings_manager import HistorySettingsManager
 from ui.styling.tab_settings_manager import TabSettingsManager
 from ui.styling.theme import COLOR_ACCENT, COLOR_TEXT_MUTED
 from ui.styling.theme_manager import ThemeManager
@@ -55,6 +55,7 @@ logger = logging.getLogger(__name__)
 
 class MainWindow(
     _SendPipelineMixin,
+    _HistoryNavigationMixin,
     _VariableControllerMixin,
     _DraftControllerMixin,
     _TabNavHistoryMixin,
@@ -71,16 +72,25 @@ class MainWindow(
     (Go menu, Ctrl+Alt+Left/Right), and cyclic tab deck (View, Ctrl+Tab).
     """
 
+    session_restore_finished = Signal()
+
     def __init__(
         self,
         theme_manager: ThemeManager | None = None,
         tab_settings_manager: TabSettingsManager | None = None,
+        history_settings_manager: HistorySettingsManager | None = None,
     ) -> None:
         """Initialise the main window, layout, and child widgets."""
         super().__init__()
         self._theme_manager = theme_manager
         app = QApplication.instance()
         self._tab_settings_manager = tab_settings_manager or TabSettingsManager(app)
+        self._history_settings = history_settings_manager or HistorySettingsManager(self)
+        self._pending_request_snapshot = None
+        self._pending_history_context = None
+        self._suppress_history_record = False
+        self._global_history_open_busy = False
+        self._init_orphan_history_open_loader()
         self.setWindowTitle("Postmark")
 
         # Pre-size to the available screen geometry so the window fills
@@ -100,6 +110,7 @@ class MainWindow(
         self._tab_open_counter: int = 0
         self._tab_activation_counter: int = 0
         self._restoring_session: bool = False
+        self._session_restore_state = None
 
         # Per-tab state: tab-bar index -> TabContext
         self._tabs: dict[int, TabContext] = {}
@@ -110,6 +121,8 @@ class MainWindow(
         # Legacy single-send state (used when no tab is found)
         self._send_thread: QThread | None = None
         self._send_worker: HttpSendWorker | None = None
+        self._local_project_thread: QThread | None = None
+        self._local_project_worker: QObject | None = None
         self._debug_protocol: DebugProtocol | None = None
         self._debug_script_host: Any | None = None
 
@@ -118,7 +131,17 @@ class MainWindow(
 
         # Side rails (created before _setup_ui so layout can embed them)
         self._left_sidebar = LeftSidebar()
-        self._right_sidebar = RightSidebar()
+        from ui.sidebar.history.panel import HistoryPanel
+
+        self._request_history_panel = HistoryPanel()
+        self._global_history_panel: HistoryPanel = HistoryPanel()
+        self._global_history_panel.set_global_mode()
+        self._right_sidebar = RightSidebar(request_history_panel=self._request_history_panel)
+        self._request_history_panel.refresh_requested.connect(self._request_history_panel.refresh)
+        self._request_history_panel.replay_requested.connect(self._replay_request_history_entry)
+        self._request_history_panel.delete_requested.connect(self._delete_request_history_entry)
+        self._global_history_panel.refresh_requested.connect(self._global_history_panel.refresh)
+        self._global_history_panel.entry_open_requested.connect(self._open_from_global_history)
         if self._theme_manager is not None:
             self._theme_manager.theme_changed.connect(self._left_sidebar.refresh_theme)
             self._theme_manager.theme_changed.connect(self._right_sidebar.refresh_theme)
@@ -209,6 +232,29 @@ class MainWindow(
 
         # ---- Move to the screen that contains the mouse --------------
         self._move_to_mouse_screen()
+
+        self._start_local_project_config_sync()
+
+    def _start_local_project_config_sync(self) -> None:
+        """Sync the Deno local-script mirror on a background thread (non-blocking startup)."""
+        from ui.main_window.startup_workers import LocalProjectConfigWorker
+
+        thread = QThread(self)
+        worker = LocalProjectConfigWorker()
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(self._clear_local_project_sync_refs)
+        self._local_project_thread = thread
+        self._local_project_worker = worker
+        thread.start()
+
+    def _clear_local_project_sync_refs(self) -> None:
+        """Drop thread/worker refs after background mirror sync completes."""
+        self._local_project_thread = None
+        self._local_project_worker = None
 
     def _move_to_mouse_screen(self) -> None:
         """Center the window on the monitor that the cursor is on."""
@@ -326,7 +372,7 @@ class MainWindow(
         self._toggle_sidebar_action.triggered.connect(self._toggle_sidebar)
         view_menu.addAction(self._toggle_sidebar_action)
 
-        self._toggle_bottom_action = QAction("Toggle &Bottom Panel", self)
+        self._toggle_bottom_action = QAction("Toggle &Console", self)
         self._toggle_bottom_action.setShortcut(QKeySequence("Ctrl+J"))
         self._toggle_bottom_action.triggered.connect(self._toggle_bottom_panel)
         view_menu.addAction(self._toggle_bottom_action)
@@ -419,6 +465,9 @@ class MainWindow(
 
         # Default response viewer
         self._default_response_viewer = ResponseViewerWidget()
+        self._default_response_viewer.replay_history_link_clicked.connect(
+            self._on_replay_history_link_clicked,
+        )
         self.response_widget = self._default_response_viewer
         self._response_stack.addWidget(self._default_response_viewer)
 
@@ -533,6 +582,7 @@ class MainWindow(
         self._local_scripts_snippets_splitter.setSizes([360, 200])
 
         self._left_sidebar.set_local_scripts_panel(self._local_scripts_snippets_splitter)
+        self._left_sidebar.set_history_panel(self._global_history_panel)
         self._left_sidebar.install_in_splitter(self._main_splitter)
 
         # --- Centre: vertical splitter (request + response) ---
@@ -559,13 +609,9 @@ class MainWindow(
         self._response_area = self._build_response_area()
         self._right_splitter.addWidget(self._response_area)
 
-        # --- Bottom panel (History + Console) ---
-        self._bottom_panel = QTabWidget()
-        self._bottom_panel.setTabPosition(QTabWidget.TabPosition.South)
-        self._history_panel = HistoryPanel()
+        # --- Bottom panel (Console) ---
         self._console_panel = ConsolePanel()
-        self._bottom_panel.addTab(self._history_panel, "History")
-        self._bottom_panel.addTab(self._console_panel, "Console")
+        self._bottom_panel = self._console_panel  # alias for toggle/tests
         self._bottom_panel.hide()
         self._right_splitter.addWidget(self._bottom_panel)
 
@@ -612,13 +658,13 @@ class MainWindow(
         self._request_area.setMinimumHeight(bottom)
 
     def _on_load_finished(self) -> None:
-        """Switch from the loading screen to the main UI."""
+        """Switch from the loading screen to the main UI and begin batched tab restore."""
         self._loading_screen.stop_animation()
         self._main_stack.setCurrentIndex(1)
         self.menuBar().show()
         self.statusBar().show()
 
-        # Restore tabs from the previous session after collections are ready.
+        # Restore tabs incrementally so the event loop stays responsive.
         self._restore_tabs()
 
     def refresh_snippets_sidebar(self) -> None:
@@ -665,7 +711,7 @@ class MainWindow(
         self._sync_sidebar_toggle_btn()
 
     def _toggle_bottom_panel(self) -> None:
-        """Show or hide the bottom panel (History / Console)."""
+        """Show or hide the bottom panel (Console)."""
         self._bottom_panel.setVisible(self._bottom_panel.isHidden())
 
     def _toggle_layout_orientation(self) -> None:
@@ -703,6 +749,7 @@ class MainWindow(
             self._tab_settings_manager,
             self,
             initial_category=initial_category,
+            history_settings_manager=self._history_settings,
         )
         dialog.exec()
         w = self._editor_stack.currentWidget()
@@ -825,6 +872,8 @@ class MainWindow(
         from services.scripting.engine import ScriptLinter
 
         ScriptLinter.shutdown()
+        self._orphan_history_open_loader.shutdown()
+        self._request_history_panel._detail_loader.shutdown()
 
         super().closeEvent(event)
 

@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
 )
 
 from ui.request.response_viewer.popup_mixin import _PopupMixin
+from ui.request.response_viewer.replay_indicator import ResponseReplayIndicator
 from ui.request.response_viewer.pre_request_mixin import _PreRequestMixin
 from ui.request.response_viewer.search_filter import _SearchFilterMixin
 from ui.request.response_viewer.test_results_mixin import _TestResultsMixin
@@ -47,6 +48,7 @@ from ui.styling.theme import (
     COLOR_WHITE,
 )
 from ui.widgets.code_editor import CodeEditorWidget
+from ui.widgets.text_format_async import AsyncTextFormatRunner, skip_inline_text_for_async_pretty
 from ui.widgets.info_popup import ClickableLabel
 
 if TYPE_CHECKING:
@@ -97,6 +99,7 @@ class ResponseViewerWidget(
 
     save_response_requested = Signal(dict)
     save_availability_changed = Signal(bool)
+    replay_history_link_clicked = Signal(int)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Initialise the response viewer layout."""
@@ -115,6 +118,12 @@ class ResponseViewerWidget(
         status_row = QHBoxLayout()
         status_row.setSpacing(12)
         status_row.setContentsMargins(0, 0, 0, 0)
+
+        self._replay_indicator = ResponseReplayIndicator()
+        self._replay_indicator.link_clicked.connect(self.replay_history_link_clicked.emit)
+        status_row.addWidget(self._replay_indicator)
+
+        status_row.addStretch(1)
 
         self._status_label = ClickableLabel()
         self._status_label.setStyleSheet("font-weight: bold; padding: 2px 8px; border-radius: 3px;")
@@ -164,6 +173,9 @@ class ResponseViewerWidget(
         self._last_status_color: str = ""
         self._last_elapsed_ms: float = 0.0
         self._last_live_response: dict | None = None
+        self._body_format_generation = 0
+        self._body_format_runner = AsyncTextFormatRunner(self)
+        self._body_format_runner.formatted.connect(self._on_async_body_formatted)
 
         # -- Progress bar (loading state) -----------------------------
         self._progress_bar = QProgressBar()
@@ -366,9 +378,39 @@ class ResponseViewerWidget(
             return
         super()._toggle_filter()
 
+    def set_replay_history_source(self, entry_id: int, link_text: str) -> None:
+        """Show the replay banner pointing at send-history row *entry_id*."""
+        self._replay_indicator.set_source(entry_id, link_text)
+
+    def clear_replay_history_source(self) -> None:
+        """Hide the replay banner."""
+        self._replay_indicator.clear_source()
+
     def show_loading(self) -> None:
         """Display the indeterminate progress bar (request in flight)."""
+        if not self.has_live_response():
+            self._discard_stored_response_for_send()
+        else:
+            self._replay_indicator.hide()
         self._set_state("loading")
+
+    def _discard_stored_response_for_send(self) -> None:
+        """Clear stored-history response data before a new in-flight send."""
+        self._replay_indicator.hide()
+        self._clear_stored_script_tabs()
+        self._last_live_response = None
+        self._set_save_enabled(False)
+        self._status_label.setText("")
+        self._time_label.setText("")
+        self._size_label.setText("")
+        self._set_body_simple_error_mode(False)
+        self._body_error_edit.clear()
+        self._body_edit.clear()
+        self._headers_edit.clear()
+        self._cookies_edit.clear()
+        self._request_headers_edit.clear()
+        self._raw_body = ""
+        self._filtered_body = ""
 
     def show_error(self, message: str) -> None:
         """Display an error in the tabbed view (e.g. validation, worker exception)."""
@@ -389,6 +431,27 @@ class ResponseViewerWidget(
         self._set_save_enabled(True)
 
         self._render_response_data(data)
+
+    def load_stored_response(self, data: dict) -> None:
+        """Show a persisted send-history response without enabling Save Response.
+
+        Clears test/pre-request script tabs so stale output from a prior live
+        send is not shown alongside historical data.
+        """
+        self._replay_indicator.hide()
+        self._clear_stored_script_tabs()
+        self._last_live_response = None
+        self._set_save_enabled(False)
+        if "error" in data:
+            self._load_network_error_response(data)
+            return
+        self._render_response_data(data)
+
+    def _clear_stored_script_tabs(self) -> None:
+        """Hide script result tabs before showing stored or error responses."""
+        self._clear_test_results_rows()
+        self._tabs.setTabVisible(self._test_tab_index, False)
+        self._clear_pre_request_tab()
 
     def _load_network_error_response(self, data: dict) -> None:
         """Render a failed send (``error`` in :class:`HttpResponseDict`) in the tabbed view."""
@@ -515,6 +578,7 @@ class ResponseViewerWidget(
         self._network_data = data.get("network")
 
         # Body — store raw and apply current format
+        self._body_format_runner.cancel()
         self._raw_body = data.get("body", "")
         self._apply_body_format()
 
@@ -550,6 +614,8 @@ class ResponseViewerWidget(
 
     def clear(self) -> None:
         """Reset to the empty state."""
+        self._body_format_runner.cancel()
+        self._body_format_generation += 1
         self._set_save_enabled(False)
         self._set_state("empty")
         self._status_label.setText("")
@@ -587,17 +653,20 @@ class ResponseViewerWidget(
     def _apply_body_format(self) -> None:
         """Render ``_raw_body`` according to the current format selection.
 
-        When a filter is active the filter expression is re-evaluated
-        against the (possibly reformatted) body so the filtered view
-        stays consistent across format switches.
+        Pretty/JSON modes show raw text immediately, then replace with
+        formatted output from a background thread when ready.
         """
         if self._body_simple_error_mode:
             return
+        self._body_format_runner.cancel()
+        self._body_format_generation += 1
+        generation = self._body_format_generation
+
         fmt = self._format_combo.currentText()
         body = self._raw_body
+        use_async_pretty = fmt in ("Pretty", "JSON") and bool(body)
 
         if fmt == "Pretty" or fmt == "JSON":
-            body = self._try_pretty_json(body)
             self._body_edit.set_language("json")
         elif fmt == "XML":
             self._body_edit.set_language("xml")
@@ -606,15 +675,37 @@ class ResponseViewerWidget(
         else:
             self._body_edit.set_language("text")
 
-        # Re-apply active filter if one exists
         if self._is_filtered and self._filter_expression:
             self._run_filter(self._filter_expression, body)
+            if use_async_pretty:
+                self._body_format_runner.format_async(
+                    generation,
+                    body,
+                    "json",
+                    pretty=True,
+                )
             return
 
-        self._body_edit.set_text(body)
+        if not skip_inline_text_for_async_pretty(body, pretty=use_async_pretty):
+            self._body_edit.set_text(body)
+        if use_async_pretty:
+            self._body_format_runner.format_async(
+                generation,
+                body,
+                "json",
+                pretty=True,
+            )
 
-        # Update filter placeholder based on detected language
         self._update_filter_placeholder()
+
+    def _on_async_body_formatted(self, generation: int, text: str) -> None:
+        """Apply background pretty-print result when still the active body job."""
+        if generation != self._body_format_generation or self._body_simple_error_mode:
+            return
+        if self._is_filtered and self._filter_expression:
+            self._run_filter(self._filter_expression, text)
+            return
+        self._body_edit.set_text(text)
 
     @staticmethod
     def _try_pretty_json(text: str) -> str:
@@ -630,20 +721,22 @@ class ResponseViewerWidget(
     # -- Beautify / Save -----------------------------------------------
 
     def _on_beautify(self) -> None:
-        """Format the response body using pretty-printing."""
+        """Format the response body using pretty-printing (background thread)."""
         if self._body_simple_error_mode:
             return
         body = self._raw_body
         if not body:
             return
-        pretty = self._try_pretty_json(body)
-        if pretty != body:
-            self._body_edit.set_text(pretty)
-            return
-        # Try XML beautification
-        pretty = self._try_pretty_xml(body)
-        if pretty != body:
-            self._body_edit.set_text(pretty)
+        self._body_format_runner.cancel()
+        self._body_format_generation += 1
+        generation = self._body_format_generation
+        language = self._body_edit.language or "text"
+        self._body_format_runner.format_async(
+            generation,
+            body,
+            language,
+            pretty=True,
+        )
 
     @staticmethod
     def _try_pretty_xml(text: str) -> str:

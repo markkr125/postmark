@@ -44,6 +44,7 @@ from services.scripting._sandbox_runtime import (
     _write_done,
 )
 from services.scripting._sandbox_safe_globals import _SAFE_BUILTINS, _SAFE_STDLIB
+from services.scripting.context import harvest_legacy_tests
 
 __all__ = [
     "_HeaderList",
@@ -59,7 +60,6 @@ __all__ = [
 
 def main() -> None:
     """Read ScriptInput from stdin, execute script, write ScriptOutput to stdout."""
-    _apply_resource_limits()
     raw = sys.stdin.readline()
     if not raw or not raw.strip():
         _write_done(_error_output("No input received"))
@@ -120,7 +120,8 @@ def _execute_restricted(script: str, pm: _Pm) -> dict[str, Any]:
     # object whose ``_call_print`` forwards to our console capture.
     restricted_globals["_print_"] = _ConsolePrintCollector
 
-    # 3. Execute.
+    # 3. Execute (resource limits after compile/setup — RLIMIT_NOFILE=3 breaks imports).
+    _apply_resource_limits()
     try:
         exec(code, restricted_globals)
     except Exception as e:
@@ -128,8 +129,6 @@ def _execute_restricted(script: str, pm: _Pm) -> dict[str, Any]:
         pm._test_results.append(
             {"name": "(runtime error)", "passed": False, "error": str(e), "duration_ms": 0.0}
         )
-
-    from services.scripting.context import harvest_legacy_tests
 
     harvest_legacy_tests(restricted_globals.get("tests"), pm._test_results)
 

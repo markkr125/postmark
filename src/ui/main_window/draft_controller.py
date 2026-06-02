@@ -51,8 +51,12 @@ class _DraftControllerMixin:
         def _on_send_request(self) -> None: ...
         def _on_save_request(self) -> None: ...
         def _on_save_response(self, data: dict) -> None: ...
+        def _on_replay_history_link_clicked(self, entry_id: int) -> None: ...
         def _sync_save_btn(self, dirty: bool) -> None: ...
         def _on_editor_dirty_changed(self, dirty: bool) -> None: ...
+        def _on_editor_request_changed(self, _data: dict | None = None) -> None: ...
+        def _on_editor_scripts_tab_changed(self, active: bool) -> None: ...
+        def _on_viewer_save_availability_changed(self, _enabled: bool = False) -> None: ...
         def _on_tab_changed(self, index: int) -> None: ...
         def _flush_tab_change(self) -> None: ...
         def _enforce_tab_limit_before_open(self) -> bool: ...
@@ -74,15 +78,18 @@ class _DraftControllerMixin:
     # ------------------------------------------------------------------
     # Open a new draft request tab
     # ------------------------------------------------------------------
-    def _open_draft_request(self) -> None:
+    def _open_draft_request(self) -> bool:
         """Open a new draft request tab that is not yet persisted to the DB.
 
         The tab has ``request_id=None`` and is marked dirty immediately so
         the Save button is enabled.  Saving triggers the save-to-collection
         dialog.
+
+        Returns:
+            ``True`` when a new draft tab was created and activated.
         """
         if not self._enforce_tab_limit_before_open():
-            return
+            return False
 
         data: RequestLoadDict = {
             "name": _DRAFT_TAB_NAME,
@@ -128,7 +135,11 @@ class _DraftControllerMixin:
         editor.save_requested.connect(self._on_save_request)
         editor.dirty_changed.connect(self._sync_save_btn)
         editor.dirty_changed.connect(self._on_editor_dirty_changed)
+        editor.request_changed.connect(self._on_editor_request_changed)
+        editor.scripts_tab_active_changed.connect(self._on_editor_scripts_tab_changed)
         viewer.save_response_requested.connect(self._on_save_response)
+        viewer.replay_history_link_clicked.connect(self._on_replay_history_link_clicked)
+        viewer.save_availability_changed.connect(self._on_viewer_save_availability_changed)
 
         # Mark as dirty so Save button is enabled for the new draft
         editor._set_dirty(True)
@@ -138,6 +149,7 @@ class _DraftControllerMixin:
         # Flush the debounced heavy work immediately for programmatic opens
         self._flush_tab_change()
         self._persist_open_tabs()  # type: ignore[attr-defined]
+        return True
 
     # ------------------------------------------------------------------
     # Save draft request → save-to-collection dialog

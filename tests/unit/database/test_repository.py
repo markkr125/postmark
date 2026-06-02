@@ -13,18 +13,26 @@ from database.models.collections.collection_query_repository import (
     get_request_by_id,
     get_request_variable_chain,
     get_request_variable_chain_detailed,
+    get_saved_responses_for_request,
 )
 from database.models.collections.collection_repository import (
     create_new_collection,
     create_new_request,
     delete_collection,
     delete_request,
+    duplicate_request,
     rename_collection,
     rename_request,
+    save_response,
+    unique_duplicate_request_name,
     update_collection,
     update_collection_parent,
     update_request,
     update_request_collection,
+)
+from database.models.request_assertions.request_assertion_repository import (
+    fetch_assertions_for_request,
+    replace_assertions_for_request,
 )
 
 
@@ -125,6 +133,71 @@ class TestRequestCRUD:
     def test_delete_nonexistent_request_raises(self):
         with pytest.raises(ValueError, match="No request found"):
             delete_request(99999)
+
+    def test_unique_duplicate_request_name(self) -> None:
+        """Copy suffix increments when sibling names already exist."""
+        assert unique_duplicate_request_name("Search", set()) == "Search Copy"
+        assert unique_duplicate_request_name("Search", {"Search Copy"}) == "Search Copy 2"
+        assert (
+            unique_duplicate_request_name(
+                "Search",
+                {"Search Copy", "Search Copy 2"},
+            )
+            == "Search Copy 3"
+        )
+
+    def test_duplicate_request_clones_fields_saved_responses_and_assertions(self) -> None:
+        """duplicate_request copies the full request payload into the same folder."""
+        coll = create_new_collection("Coll")
+        source = create_new_request(
+            coll.id,
+            "POST",
+            "http://api.test",
+            "Source",
+            body='{"a":1}',
+            scripts={"test": "pm.test('x', () => {})"},
+            auth={"type": "noauth"},
+        )
+        save_response(source.id, "Example", "OK", 200, [{"key": "X", "value": "1"}], '{"ok":true}')
+        replace_assertions_for_request(
+            source.id,
+            [
+                {
+                    "subject": "status",
+                    "operator": "eq",
+                    "expected": "200",
+                    "enabled": True,
+                    "order_index": 0,
+                }
+            ],
+        )
+
+        duplicate = duplicate_request(source.id)
+
+        assert duplicate.id != source.id
+        assert duplicate.collection_id == coll.id
+        assert duplicate.name == "Source Copy"
+        assert duplicate.method == "POST"
+        assert duplicate.url == "http://api.test"
+        assert duplicate.body == '{"a":1}'
+        assert duplicate.scripts == {"test": "pm.test('x', () => {})"}
+
+        responses = get_saved_responses_for_request(duplicate.id)
+        assert len(responses) == 1
+        assert responses[0]["name"] == "Example"
+        assert responses[0]["body"] == '{"ok":true}'
+
+        assertions = fetch_assertions_for_request(duplicate.id)
+        assert len(assertions) == 1
+        assert assertions[0]["subject"] == "status"
+        assert assertions[0]["expected"] == "200"
+
+        second = duplicate_request(source.id)
+        assert second.name == "Source Copy 2"
+
+    def test_duplicate_nonexistent_request_raises(self) -> None:
+        with pytest.raises(ValueError, match="No request found"):
+            duplicate_request(99999)
 
     def test_move_request_to_different_collection(self):
         coll_a = create_new_collection("A")

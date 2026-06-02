@@ -231,11 +231,21 @@ def _run_restricted_subprocess(script: str, context: ScriptInput) -> ScriptOutpu
         if result is not None:
             _apply_result(result, output)
         else:
+            err_tail = ""
+            if proc.stderr is not None:
+                with contextlib.suppress(OSError, ValueError):
+                    err_tail = proc.stderr.read().decode(errors="replace").strip()
+            detail = "Sandbox produced no output"
+            rc = proc.poll()
+            if rc not in (None, 0):
+                detail = f"Sandbox exited with code {rc}"
+            if err_tail:
+                detail = f"{detail}: {err_tail[:400]}"
             output["test_results"].append(
                 {
                     "name": "(runtime error)",
                     "passed": False,
-                    "error": "Sandbox produced no output",
+                    "error": detail,
                     "duration_ms": (time.monotonic() - start) * 1000,
                 }
             )
@@ -262,6 +272,17 @@ def _run_restricted_subprocess(script: str, context: ScriptInput) -> ScriptOutpu
     return output
 
 
+def _parse_ipc_line(line: bytes) -> dict[str, Any] | None:
+    """Parse one stdout line; return payload when it is a terminal ``__done__`` row."""
+    try:
+        data: dict[str, Any] = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    if data.get("__done__"):
+        return data
+    return None
+
+
 def _ipc_loop(proc: subprocess.Popen[bytes]) -> dict[str, Any] | None:
     """Read lines from the sandbox, fulfilling IPC requests."""
     from services.scripting.context import execute_sub_request
@@ -271,10 +292,18 @@ def _ipc_loop(proc: subprocess.Popen[bytes]) -> dict[str, Any] | None:
     assert proc.stdin is not None
 
     total = 0
-    while True:
+    deadline = time.monotonic() + _SUBPROCESS_TIMEOUT
+    while time.monotonic() < deadline:
         line = proc.stdout.readline()
         if not line:
-            return None
+            if proc.poll() is not None:
+                for raw in proc.stdout.read().splitlines():
+                    done = _parse_ipc_line(raw)
+                    if done is not None:
+                        return done
+                break
+            time.sleep(0.01)
+            continue
 
         try:
             data: dict[str, Any] = json.loads(line)
@@ -294,6 +323,8 @@ def _ipc_loop(proc: subprocess.Popen[bytes]) -> dict[str, Any] | None:
                 resp = execute_sub_request(data.get("spec", {}))
             proc.stdin.write(json.dumps(resp).encode() + b"\n")
             proc.stdin.flush()
+
+    return None
 
 
 def _kill_proc(proc: subprocess.Popen[bytes]) -> None:

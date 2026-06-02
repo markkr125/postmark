@@ -30,7 +30,7 @@ QSettings.setPath(QSettings.Format.IniFormat, QSettings.Scope.UserScope, _settin
 # QApplication (session-scoped, created once for all UI tests)
 # ------------------------------------------------------------------
 @pytest.fixture(scope="session")
-def qapp() -> QApplication:
+def qapp() -> Generator[QApplication, None, None]:
     """Return the single QApplication instance shared across all tests.
 
     If an instance already exists (e.g. from pytest-qt) it is reused;
@@ -39,14 +39,36 @@ def qapp() -> QApplication:
     app = QApplication.instance()
     if not isinstance(app, QApplication):
         app = QApplication([])
-    return app
+    app.setApplicationName("PostmarkTests")
+    app.setApplicationDisplayName("Postmark Tests")
+    yield app
+    from tests.qt_popup_cleanup import dismiss_all_top_level_test_widgets
+
+    dismiss_all_top_level_test_widgets(app)
 
 
 # ------------------------------------------------------------------
 # Fresh database (autouse, per-test)
 # ------------------------------------------------------------------
 @pytest.fixture(autouse=True)
-def _fresh_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def _isolated_request_history(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep send-history payloads out of the developer's real user-data history tree.
+
+    Without this, ``init_db()`` → ``reconcile_orphans()`` on an empty per-test
+    SQLite DB would delete bodies in the real storage directory while metadata
+    in ``data/database/main.db`` remained — the “erased after restart” symptom.
+    """
+    history = tmp_path / "history"
+
+    def _history() -> Path:
+        history.mkdir(parents=True, exist_ok=True)
+        return history
+
+    monkeypatch.setattr("database.data_paths.user_history_root", _history)
+
+
+@pytest.fixture(autouse=True)
+def _fresh_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _isolated_request_history: None):
     """Provide every test with a fresh, isolated SQLite database.
 
     The database is created in a temporary directory and torn down
@@ -66,6 +88,18 @@ def _fresh_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     # Cleanup: reset state for the next test
     db_mod._engine = None
     db_mod._SessionLocal = None
+
+
+@pytest.fixture(autouse=True)
+def _isolated_postmark_user_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Redirect ``postmark_user_data_dir()`` to a temp folder for every test."""
+    root = tmp_path / "postmark"
+
+    def _root() -> Path:
+        root.mkdir(parents=True, exist_ok=True)
+        return root
+
+    monkeypatch.setattr("database.data_paths.postmark_user_data_dir", _root)
 
 
 @pytest.fixture(autouse=True)
@@ -127,11 +161,13 @@ def _reset_code_editor_popups_after_test(qapp: QApplication) -> Generator[None, 
     """Dismiss app-wide completion/hint popups so non-``tests/ui`` Qt tests cannot leave windows up."""
     yield
     from tests.qt_popup_cleanup import (
+        dismiss_all_top_level_test_widgets,
         flush_deferred_widget_deletes,
         reset_code_editor_popups,
     )
 
     reset_code_editor_popups()
+    dismiss_all_top_level_test_widgets(qapp)
     flush_deferred_widget_deletes(qapp)
 
 

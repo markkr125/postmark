@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from shiboken6 import Shiboken
 
 from services.lsp.local_script_lsp_prep import (
     ASYNC_LOCAL_LSP_PREP,
@@ -661,8 +662,10 @@ class ScriptEditorPane(QWidget):
 
     def _refresh_script_split_full_width_line(self, *_args: object) -> None:
         """Show or hide the overlay and align it to the editor/output seam."""
+        if not Shiboken.isValid(self):
+            return
         line = self._script_split_full_width_line
-        if line is None or not self.isVisible():
+        if line is None or not Shiboken.isValid(line) or not self.isVisible():
             return
         if self._splitter.count() < 2:
             line.hide()

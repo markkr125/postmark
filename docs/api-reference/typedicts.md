@@ -46,6 +46,16 @@ Full saved-response payload used by the sidebar UI.
 | `created_at` | `str \| None` | ISO 8601 timestamp |
 | `body_size` | `int` | Body size in bytes |
 
+### RequestHistoryEntryDict
+
+**Module:** `services/request_history_service.py`  
+**Full reference:** [RequestHistoryService](services/request-history-service.md)
+
+Send-history row (metadata plus optional loaded `body` / `original_request`).
+Includes `was_persisted_request` for `(deleted)` vs `(draft)` labels when
+`request_id` is null. See also `SendIdentityDict` and `HistorySendPayloadDict`
+in the same module.
+
 ### VariableDetail
 
 **Module:** `services/environment_service.py`
