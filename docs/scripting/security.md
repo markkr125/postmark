@@ -109,7 +109,10 @@ removed:
 | Memory (address space) | 128 MB | `RLIMIT_AS` |
 | File descriptors | 3 (stdin/stdout/stderr only) | `RLIMIT_NOFILE` |
 
-Implementation: `_py_sandbox.py::_apply_resource_limits()`.  On
+Implementation: `_sandbox_runtime._apply_resource_limits()`, called
+immediately before ``exec()`` in the sandbox worker (after compile and
+namespace setup).  Applying ``RLIMIT_NOFILE`` earlier would break
+``compile_restricted`` and module imports under parallel test load.  On
 non-Linux systems, limits are best-effort (may not apply).
 
 ### Attribute Guard

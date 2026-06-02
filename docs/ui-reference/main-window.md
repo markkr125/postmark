@@ -38,10 +38,12 @@ QMainWindow
 +------------------------------------------------------------------------+
 ```
 
-The narrow **left rail** (`LeftSidebar`, Phosphor **files** and **code** icons)
-mirrors the right rail: it toggles a collapsible flyout with a ``QStackedWidget``
-whose default page is ``_left_nav_splitter`` (collections above environments).
-The **code** icon switches to ``LocalScriptsSidebarPanel`` (placeholder).  **View → Toggle Sidebar** (``Ctrl+B``)
+The narrow **left rail** (`LeftSidebar`, Phosphor **files**, **code**, and
+**clock-counter-clockwise** icons) mirrors the right rail: it toggles a
+collapsible flyout with a ``QStackedWidget``.  Page 0 is ``_left_nav_splitter``
+(collections above environments).  The **code** icon opens local scripts and
+snippets.  The **History** icon opens ``HistoryPanel`` in global mode (workspace
+send log).  **View → Toggle Sidebar** (``Ctrl+B``)
 collapses or expands that flyout to the same widths as dragging the splitter
 handle; the rail stays visible.  The main central ``QHBoxLayout`` has **no**
 outer margins so the left rail is flush with the window edge and its
@@ -56,8 +58,10 @@ strip.
 | `_editor_stack` | `QStackedWidget` | Per-tab request editor stack |
 | `_response_stack` | `QStackedWidget` | Per-tab response viewer stack |
 | `_breadcrumb_bar` | `BreadcrumbBar` | Path navigation bar |
-| `_left_sidebar` | `LeftSidebar` | Left activity rail + stacked flyout (collections / environments vs local scripts) |
-| `_right_sidebar` | `RightSidebar` | Right icon rail and flyout panel |
+| `_left_sidebar` | `LeftSidebar` | Left activity rail + stacked flyout (collections / environments, local scripts & snippets, global history) |
+| `_right_sidebar` | `RightSidebar` | Right icon rail and flyout panel (variables, snippets, saved responses, per-request history) |
+| `_global_history_panel` | `HistoryPanel` | Left-rail workspace send history (`globalHistoryPanel`) |
+| `_request_history_panel` | `HistoryPanel` | Right-rail per-request send history (`requestHistoryPanel`) |
 | `collection_widget` | `CollectionWidget` | Collection tree + header (top of left column) |
 | `_left_nav_splitter` | `QSplitter` | Vertical splitter inside the left flyout: collections above environments |
 | `_local_scripts_sidebar` | `LocalScriptsSidebarPanel` | Local scripts flyout page (placeholder list shell) |

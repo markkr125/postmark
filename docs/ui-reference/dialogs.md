@@ -49,9 +49,9 @@ Save a draft request to an existing or new collection.
 ## SettingsDialog
 
 Application preferences dialog.  Optional constructor keyword
-`initial_category` (``"Appearance"``, ``"Tabs"``, or ``"Scripting"``)
-selects the list row on open; the **Scripting** page holds the Deno path
-and managed download.
+`initial_category` (``"Appearance"``, ``"Tabs"``, ``"Scripting"``, or
+``"History"``) selects the list row on open; the **Scripting** page holds
+the Deno path and managed download.
 
 ### Category Pages
 
@@ -60,6 +60,7 @@ and managed download.
 | Appearance | Style (Fusion / Native), colour scheme (Auto / Light / Dark) |
 | Tabs | Tab limit, close policies, activate-on-close, wrap mode |
 | Scripting | Deno executable path, validation, managed download; Python path; LSP toggle (tooltip notes debounced `didChange` / `pm.require` indexing); **Reset LSP workspace caches** (`pm_require_types.reset_workspace`); auto-save default; **Private package registries** (npm / JSR scope-mapped + default-npm override + PyPI primary/extra index with embedded auth) |
+| History | Send retention (days), max entries per day (or unlimited), save response bodies toggle, max response size (MiB), read-only storage path under user data (`history/`). Applied on next send and by background prune. See [RequestHistoryService](../api-reference/services/request-history-service.md). |
 
 ### Private package registries (Scripting page)
 

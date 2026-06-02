@@ -29,6 +29,13 @@ external service required.
   network metadata popups.
 - **Saved responses** — save HTTP responses as named examples attached to
   requests.
+- **HTTP send history** — automatic log of every Send with search and
+  calendar date filters. **Right sidebar → History** for the active saved
+  request (detail, replay from snapshot). **Left sidebar → History** for
+  all workspace sends (open into the matching request tab or a draft for
+  deleted/orphan rows).
+- **Request duplication** — duplicate a saved request from the collection
+  tree (includes saved responses and assertions).
 - **Code snippets** — generate request code in 23 languages (cURL, Python,
   JavaScript, Go, Rust, Java, etc.).
 - **Import** — import from Postman collections/environments, cURL commands,
@@ -54,6 +61,9 @@ external service required.
   bracket matching, search and replace.
 - **SQLite persistence** — all data stored locally with WAL journal mode
   for concurrent reads.
+- **Send history storage** — history metadata in the app database; response
+  bodies and request snapshots under the user data directory (configurable
+  in Settings → History).
 
 ## Technology Stack
 
