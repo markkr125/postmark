@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication, QSplitter, QWidget
 
 from ui.sidebar.history.panel import HistoryPanel
 from ui.sidebar.sidebar_widget import RightSidebar
@@ -59,3 +60,41 @@ class TestRightSidebarRequestHistory:
         assert sidebar.active_panel == "request_history"
         assert sidebar._history_btn.isChecked()
         assert sidebar.request_history_panel.isVisible()
+
+    def test_drag_collapse_clears_history_rail_highlight(self, qapp: QApplication, qtbot) -> None:
+        """Dragging the flyout shut must uncheck the history rail icon."""
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        filler = QWidget()
+        filler.setMinimumWidth(320)
+        filler.setMinimumHeight(120)
+
+        sidebar = RightSidebar()
+        qtbot.addWidget(splitter)
+        sidebar.install_in_splitter(splitter)
+        splitter.addWidget(filler)
+        splitter.resize(900, 400)
+        splitter.setSizes([400, 300, 50])
+        splitter.show()
+        qapp.processEvents()
+
+        sidebar.show_request_panels({}, method="GET", url="http://x")
+        sidebar.set_request_history_context(
+            request_id=1,
+            request_name="Req",
+            is_persisted_request=True,
+        )
+        sidebar.open_panel("request_history")
+        qapp.processEvents()
+        assert sidebar._history_btn.isChecked()
+        flyout_idx = splitter.indexOf(sidebar._flyout)
+
+        sizes = list(splitter.sizes())
+        freed = sizes[flyout_idx]
+        sizes[0] += freed
+        sizes[flyout_idx] = 0
+        splitter.setSizes(sizes)
+        sidebar._on_splitter_moved(0, flyout_idx)
+        qapp.processEvents()
+
+        assert sidebar.active_panel is None
+        assert not sidebar._history_btn.isChecked()

@@ -1422,10 +1422,12 @@ def build_global_qss(p: ThemePalette) -> str:
     /* ---- Right sidebar ------------------------------------------ */
     QWidget[objectName="sidebarPanelArea"] {{
         background: {p["bg"]};
-        border-left: 1px solid {p["border"]};
+        /* Left edge: mainWindowHorizontalSplitter handle only (no border-left —
+           a full-widget border-left showed only beside the title row because
+           QScrollArea children paint over it below the header). */
         border-right: 1px solid {p["border"]};
     }}
-    /* Scroll area inside expanded sidebar must not override parent's right border */
+    /* Scroll area must not override the flyout's right border vs the icon rail */
     QWidget[objectName="sidebarPanelArea"] QScrollArea {{
         border: none;
         border-right: 1px solid {p["border"]};

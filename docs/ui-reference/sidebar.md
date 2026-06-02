@@ -137,10 +137,15 @@ Always-visible fixed-width icon rail.
 
 ## FlyoutPanel
 
-Collapsible content area as a splitter child.
+Collapsible content area as a splitter child (`objectName` ``sidebarPanelArea``).
 
 Contains four stacked panels with a title bar and close button.
-The flyout can snap closed via its splitter handle.
+The flyout can snap closed via its splitter handle.  The **left** edge against
+the editor is the ``mainWindowHorizontalSplitter`` handle only (no flyout
+``border-left`` — a full-height left border was hidden under ``QScrollArea``
+children and looked like a stray line beside the title row).  The **right**
+edge uses a flyout ``border-right`` (and the same on inner ``QScrollArea``
+widgets so the viewport does not paint over it) before the icon rail.
 
 ## VariablesPanel
 

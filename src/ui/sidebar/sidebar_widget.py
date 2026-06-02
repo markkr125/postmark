@@ -510,7 +510,7 @@ class RightSidebar(QWidget):
         else:
             self._show_panel(panel)
 
-    def _show_panel(self, panel: str) -> None:
+    def _show_panel(self, panel: str, *, expand_flyout: bool = True) -> None:
         """Open *panel*, configuring the flyout content."""
         self._active_panel = panel
         self._last_panel = panel
@@ -531,7 +531,8 @@ class RightSidebar(QWidget):
         self._title_label.setText(titles.get(panel, panel))
         self._flyout._history_refresh_btn.setVisible(panel == "request_history")
         self._flyout.show()
-        self._expand_flyout()
+        if expand_flyout:
+            self._expand_flyout()
 
     def _close_panel(self) -> None:
         """Collapse the flyout, keeping the icon rail visible."""
@@ -581,36 +582,13 @@ class RightSidebar(QWidget):
         flyout_width = self._splitter.sizes()[self._flyout_idx]
 
         if flyout_width == 0 and self._active_panel:
-            # User collapsed the flyout by dragging.
-            self._active_panel = None
-            self._variables_panel.hide()
-            self._snippet_panel.hide()
-            self._saved_responses_panel.hide()
-            self._var_btn.setChecked(False)
-            self._snippet_btn.setChecked(False)
-            self._saved_btn.setChecked(False)
+            # User collapsed the flyout by dragging — same state as close/toggle.
+            self._close_panel()
 
         if flyout_width > 0 and not self._active_panel:
-            # User expanded the flyout by dragging — open a panel.
+            # User expanded the flyout by dragging — restore last panel content.
             panel = self._last_panel
             if not panel or panel not in self._available_panels:
                 panel = self._default_panel
             if panel:
-                # Only configure content — don't call _expand_flyout
-                # again since the user is already controlling the width.
-                self._active_panel = panel
-                self._last_panel = panel
-                self._variables_panel.setVisible(panel == "variables")
-                self._snippet_panel.setVisible(panel == "snippet")
-                self._saved_responses_panel.setVisible(panel == "saved_responses")
-                self._var_btn.setChecked(panel == "variables")
-                self._snippet_btn.setChecked(panel == "snippet")
-                self._saved_btn.setChecked(panel == "saved_responses")
-                self._title_label.setText(
-                    "Variables"
-                    if panel == "variables"
-                    else "Code snippet"
-                    if panel == "snippet"
-                    else "Saved Responses",
-                )
-                self._flyout.show()
+                self._show_panel(panel, expand_flyout=False)

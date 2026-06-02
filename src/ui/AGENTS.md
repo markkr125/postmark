@@ -270,7 +270,7 @@ standard object names:
 | `sidebarRailButton` | `QToolButton` | Checkable icon button in the right rail |
 | `leftSidebarRail` | `QWidget` | Left activity rail: background uses palette ``status_bar_bg`` (same as ``QStatusBar#appStatusBar``); no outer layout padding |
 | `leftSidebarRailButton` | `QToolButton` | Rail icon (``_LeftRailButton``): width ``round(LEFT_RAIL_WIDTH_EM * em)``, icon ``round(LEFT_RAIL_ICON_EM * em)``, height ``icon_size + LEFT_RAIL_BUTTON_EXTRA_HEIGHT_PX``; checked left accent **painted** full height (``LEFT_RAIL_ACCENT_STRIPE_WIDTH_PX``); QSS margin/padding ``0`` |
-| `sidebarPanelArea` | `QWidget` | Right sidebar collapsible flyout panel (separate splitter child) |
+| `sidebarPanelArea` | `QWidget` | Right sidebar collapsible flyout panel (separate splitter child); ``border-right`` vs icon rail only — left edge is ``mainWindowHorizontalSplitter`` handle (no ``border-left``) |
 | `requestHistoryPanel` | `HistoryPanel` | Per-request History flyout (right rail, 4th button) |
 | `globalHistoryPanel` | `HistoryPanel` | Workspace History flyout (left rail, 3rd button; `set_global_mode`) |
 | `globalHistoryHeader` | `QWidget` | Left global History title row (History label + refresh) |
