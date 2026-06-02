@@ -101,7 +101,7 @@ class TestRequestHistoryPanel:
         assert _entry_count(panel._tree_widget) == 1
         assert first_history_entry_id(panel._tree_widget) is not None
         assert "Example" in panel._detail_name.text()
-        assert "hello" in panel._body_edit.toPlainText()
+        qtbot.waitUntil(lambda: "hello" in panel._body_edit.toPlainText(), timeout=5000)
 
     def test_search_filters_by_status(
         self,

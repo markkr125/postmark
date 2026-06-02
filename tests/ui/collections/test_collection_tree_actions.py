@@ -101,6 +101,46 @@ class TestCollectionTreeContextMenuOverview:
         assert blocker.args == ["folder", 7, "Open"]
 
 
+class TestCollectionTreeDuplicateAction:
+    """Tests for the Duplicate context-menu action on requests."""
+
+    def test_duplicate_action_exists_in_request_menu(self, qapp: QApplication, qtbot) -> None:
+        """The request context menu includes a Duplicate action."""
+        tree = CollectionTree()
+        qtbot.addWidget(tree)
+        data_names = [a.data() for a in tree._request_menu.actions()]
+        assert "Duplicate" in data_names
+
+    def test_duplicate_action_emits_request_duplicate_requested(
+        self, qapp: QApplication, qtbot
+    ) -> None:
+        """Triggering Duplicate emits request_duplicate_requested with the request ID."""
+        tree = CollectionTree()
+        qtbot.addWidget(tree)
+
+        data = make_collection_dict(
+            [
+                {
+                    "id": 1,
+                    "name": "Coll",
+                    "requests": [{"id": 42, "name": "Req", "method": "GET"}],
+                },
+            ]
+        )
+        tree.set_collections(data)
+
+        folder = top_level_items(tree)[0]
+        req_item = folder.child(0)
+        tree._current_item = req_item
+
+        duplicate_action = next(a for a in tree._request_menu.actions() if a.data() == "Duplicate")
+
+        with qtbot.waitSignal(tree.request_duplicate_requested, timeout=1000) as blocker:
+            tree._emit_menu_action(duplicate_action)
+
+        assert blocker.args == [42]
+
+
 class TestCollectionTreeRunAction:
     """Tests for the Run context-menu action on folders."""
 

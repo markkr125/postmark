@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import date
+from http import HTTPStatus
 from typing import Any, TypedDict, cast
 
 from database.models.request_history import request_history_repository
@@ -25,6 +27,7 @@ class RequestHistoryEntryDict(TypedDict, total=False):
     id: int
     executed_at: str
     request_id: int | None
+    was_persisted_request: bool
     request_name: str
     method: str
     url: str
@@ -94,17 +97,56 @@ def _body_bytes_from_response(data: dict[str, Any]) -> bytes | None:
     return str(body).encode("utf-8", errors="replace")
 
 
-def _source_label(request_id: int | None, request_name: str) -> str | None:
-    """Return a muted UI label for unattached rows (metadata only).
+def _source_label(request_id: int | None, was_persisted_request: bool) -> str | None:
+    """Return a muted UI label for unattached rows (metadata only)."""
+    if request_id is not None:
+        return None
+    if was_persisted_request:
+        return "(deleted)"
+    return "(draft)"
 
-    Rows with ``request_id is NULL`` are either unsaved-tab sends or orphaned
-    after the collection request was deleted; v1 uses ``(deleted)`` when the
-    id is missing and a name was stored (draft sends are hidden on the
-    per-request rail).
-    """
-    if request_id is None:
-        return "(deleted)" if request_name.strip() else "(draft)"
-    return None
+
+def _normalize_history_response_headers(
+    raw: list[Any] | dict[str, Any] | None,
+) -> list[dict[str, str]]:
+    """Convert stored history headers to the list shape expected by the response viewer."""
+    if isinstance(raw, dict):
+        return [{"key": str(key), "value": str(value)} for key, value in raw.items()]
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, str]] = []
+    for row in raw:
+        if isinstance(row, dict):
+            out.append(
+                {
+                    "key": str(row.get("key", "")),
+                    "value": str(row.get("value", "")),
+                }
+            )
+    return out
+
+
+def _request_headers_for_viewer(snapshot: Mapping[str, Any] | None) -> list[dict[str, str]]:
+    """Build outgoing header rows for the response viewer Request Headers tab."""
+    if not snapshot:
+        return []
+    sent = snapshot.get("sent_headers")
+    if isinstance(sent, dict):
+        return [{"key": str(k), "value": str(v)} for k, v in sent.items()]
+    if isinstance(sent, list):
+        return _normalize_history_response_headers(sent)
+    headers = snapshot.get("headers")
+    if isinstance(headers, list):
+        rows: list[dict[str, str]] = []
+        for row in headers:
+            if not isinstance(row, dict) or not row.get("enabled", True):
+                continue
+            key = str(row.get("key", "")).strip()
+            if not key:
+                continue
+            rows.append({"key": key, "value": str(row.get("value", ""))})
+        return rows
+    return []
 
 
 def enrich_snapshot_for_history(
@@ -175,22 +217,58 @@ def _entries_with_labels(rows: list[dict[str, Any]]) -> list[RequestHistoryEntry
     for row in rows:
         entry = cast(RequestHistoryEntryDict, dict(row))
         entry["source_label"] = _source_label(
-            row.get("request_id"), str(row.get("request_name", ""))
+            row.get("request_id"),
+            bool(row.get("was_persisted_request")),
         )
         out.append(entry)
     return out
 
 
-def list_for_sidebar(search: str = "") -> list[RequestHistoryEntryDict]:
+def list_for_sidebar(
+    search: str = "",
+    *,
+    executed_from: date | None = None,
+    executed_to: date | None = None,
+) -> list[RequestHistoryEntryDict]:
     """List all history metadata (global sidebar; newest first)."""
-    rows = request_history_repository.list_entries_for_sidebar(search=search, limit=500)
+    rows = request_history_repository.list_entries_for_sidebar(
+        search=search,
+        limit=500,
+        executed_from=executed_from,
+        executed_to=executed_to,
+    )
     return _entries_with_labels(rows)
 
 
-def list_for_request(request_id: int, search: str = "") -> list[RequestHistoryEntryDict]:
+def list_for_request(
+    request_id: int,
+    search: str = "",
+    *,
+    executed_from: date | None = None,
+    executed_to: date | None = None,
+) -> list[RequestHistoryEntryDict]:
     """List send history for one persisted request."""
-    rows = request_history_repository.list_for_request(request_id, search=search, limit=200)
+    rows = request_history_repository.list_for_request(
+        request_id,
+        search=search,
+        limit=200,
+        executed_from=executed_from,
+        executed_to=executed_to,
+    )
     return _entries_with_labels(rows)
+
+
+def get_entry_metadata(entry_id: int) -> RequestHistoryEntryDict | None:
+    """Load database metadata for a history row (no body/snapshot file reads)."""
+    row = request_history_repository.get_entry_metadata(entry_id)
+    if row is None:
+        return None
+    entry = cast(RequestHistoryEntryDict, dict(row))
+    entry["source_label"] = _source_label(
+        row.get("request_id"),
+        bool(row.get("was_persisted_request")),
+    )
+    return entry
 
 
 def get_entry(entry_id: int) -> RequestHistoryEntryDict | None:
@@ -199,7 +277,10 @@ def get_entry(entry_id: int) -> RequestHistoryEntryDict | None:
     if row is None:
         return None
     entry = cast(RequestHistoryEntryDict, dict(row))
-    entry["source_label"] = _source_label(row.get("request_id"), str(row.get("request_name", "")))
+    entry["source_label"] = _source_label(
+        row.get("request_id"),
+        bool(row.get("was_persisted_request")),
+    )
     return entry
 
 
@@ -301,6 +382,57 @@ def replay_source_link_text(entry: RequestHistoryEntryDict) -> str:
     return f"View {method}{status_part} ({when})"
 
 
+def _http_status_reason_phrase(code: int) -> str:
+    """Return the standard HTTP reason phrase for *code*, or empty if unknown."""
+    try:
+        return HTTPStatus(code).phrase
+    except ValueError:
+        return ""
+
+
+def entry_to_http_response_dict(entry: RequestHistoryEntryDict) -> dict[str, Any]:
+    """Map a full history entry to the dict shape used by :meth:`ResponseViewer.load_stored_response`."""
+    err = entry.get("error")
+    elapsed = float(entry.get("elapsed_ms", 0.0) or 0.0)
+    snapshot = entry.get("original_request")
+    snap_dict = snapshot if isinstance(snapshot, dict) else {}
+    req_method = str(entry.get("method", "") or snap_dict.get("method", "GET"))
+    req_url = str(entry.get("url", "") or snap_dict.get("url", ""))
+    req_headers = _request_headers_for_viewer(snap_dict)
+
+    if err:
+        return {
+            "error": str(err),
+            "elapsed_ms": elapsed,
+            "request_method": req_method,
+            "request_url": req_url,
+            "request_headers": req_headers,
+        }
+
+    code = int(entry.get("status_code", 0) or 0)
+    body_bytes = entry.get("body")
+    body_text = ""
+    if body_bytes:
+        body_text = body_bytes.decode("utf-8", errors="replace")
+    elif entry.get("response_size_bytes"):
+        body_text = "[Response body unavailable — history file missing from storage]"
+    if entry.get("body_truncated") and body_text and not body_text.startswith("["):
+        body_text = f"{body_text}\n\n[Response body truncated in history storage]"
+
+    headers = _normalize_history_response_headers(entry.get("response_headers"))
+    return {
+        "status_code": code,
+        "status_text": _http_status_reason_phrase(code),
+        "elapsed_ms": elapsed,
+        "headers": headers,
+        "body": body_text,
+        "size_bytes": int(entry.get("response_size_bytes", 0) or 0),
+        "request_method": req_method,
+        "request_url": req_url,
+        "request_headers": req_headers,
+    }
+
+
 def entry_to_detail_snapshot(entry: RequestHistoryEntryDict) -> dict[str, Any]:
     """Shape a history row for read-only detail panes (future sidebar)."""
     body_bytes = entry.get("body")
@@ -335,6 +467,7 @@ class RequestHistoryService:
     record_send = staticmethod(record_send)
     list_for_sidebar = staticmethod(list_for_sidebar)
     list_for_request = staticmethod(list_for_request)
+    get_entry_metadata = staticmethod(get_entry_metadata)
     get_entry = staticmethod(get_entry)
     build_replay_request_dict = staticmethod(build_replay_request_dict)
     build_send_payload_from_entry = staticmethod(build_send_payload_from_entry)
@@ -342,4 +475,5 @@ class RequestHistoryService:
     can_replay_entry = staticmethod(can_replay_entry)
     entry_for_replay = staticmethod(entry_for_replay)
     entry_to_detail_snapshot = staticmethod(entry_to_detail_snapshot)
+    entry_to_http_response_dict = staticmethod(entry_to_http_response_dict)
     replay_source_link_text = staticmethod(replay_source_link_text)

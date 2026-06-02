@@ -106,7 +106,12 @@ class _SendPipelineMixin:
 
     if TYPE_CHECKING:
 
-        def _refresh_sidebar(self, ctx: TabContext | None = None) -> None: ...
+        def _refresh_sidebar(
+            self,
+            ctx: TabContext | None = None,
+            *,
+            history_load_detail: bool = True,
+        ) -> None: ...
 
     def _on_send_request(self) -> None:
         """Send the current request on a background thread."""
@@ -162,10 +167,17 @@ class _SendPipelineMixin:
         from services.collection_service import CollectionService
 
         auth_data = editor._get_auth_data()
-        if ctx and ctx.request_id and auth_data is None:
-            inherited = CollectionService.get_request_inherited_auth(ctx.request_id)
-            if inherited:
-                auth_data = inherited
+        if ctx and auth_data is None:
+            if ctx.request_id is not None:
+                inherited = CollectionService.get_request_inherited_auth(ctx.request_id)
+                if inherited:
+                    auth_data = inherited
+            elif ctx.variable_collection_id is not None:
+                inherited = CollectionService.get_collection_inherited_auth(
+                    ctx.variable_collection_id
+                )
+                if inherited:
+                    auth_data = inherited
 
         request_id = ctx.request_id if ctx else None
         request_name = ""
@@ -178,7 +190,16 @@ class _SendPipelineMixin:
         elif ctx and ctx.draft_name:
             request_name = str(ctx.draft_name)
 
-        self._pending_request_snapshot = editor.get_request_data()
+        snapshot = editor.get_request_data()
+        if ctx and ctx.request_id is not None:
+            req_model = CollectionService.get_request(ctx.request_id)
+            if req_model is not None:
+                snapshot = dict(snapshot)
+                snapshot["collection_id"] = req_model.collection_id
+        elif ctx and ctx.variable_collection_id is not None:
+            snapshot = dict(snapshot)
+            snapshot["collection_id"] = ctx.variable_collection_id
+        self._pending_request_snapshot = snapshot
         self._pending_history_context = {
             "request_id": request_id,
             "request_name": request_name,
@@ -223,6 +244,7 @@ class _SendPipelineMixin:
                 message_prefix="Pre-request script",
             )
 
+        variable_collection_id = ctx.variable_collection_id if ctx else None
         self._launch_http_send(
             ctx,
             viewer=viewer,
@@ -233,6 +255,7 @@ class _SendPipelineMixin:
             auth_data=auth_data,
             request_id=request_id,
             request_name=request_name,
+            variable_collection_id=variable_collection_id,
             pre_scripts=pre_scripts,
             test_scripts=test_scripts,
             declarative_test_script=declarative_test_script,
@@ -276,6 +299,7 @@ class _SendPipelineMixin:
         auth_data: dict | None,
         request_id: int | None,
         request_name: str,
+        variable_collection_id: int | None = None,
         pre_scripts: list[Any] | None = None,
         test_scripts: list[Any] | None = None,
         declarative_test_script: Any = None,
@@ -305,6 +329,7 @@ class _SendPipelineMixin:
             request_id=request_id,
             request_name=request_name,
             auth_data=auth_data,
+            variable_collection_id=variable_collection_id,
             local_overrides={k: v["value"] for k, v in ctx.local_overrides.items()}
             if ctx
             else None,

@@ -1,9 +1,10 @@
 # Sidebar
 
 Icon rails with collapsible flyout panels: **LeftSidebar** hosts the
-collections and environment picker on one stacked page and **Local scripts &
-snippets** on another (Phosphor **code** icon); **RightSidebar** hosts variables,
-snippets, and saved responses.
+collections and environment picker on one stacked page, **Local scripts &
+snippets** on another (Phosphor **code** icon), and workspace **History** on a
+third (Phosphor **clock-counter-clockwise**); **RightSidebar** hosts variables,
+snippets, saved responses, and per-request History.
 
 Source: `src/ui/sidebar/`
 
@@ -34,7 +35,8 @@ When open, the flyout uses a **left** border only (vs the rail); the **right**
 edge is the main horizontal splitter handle only, so there is no double line
 beside the editor.  Page 0 is installed via :meth:`LeftSidebar.set_content`; page
 1 via :meth:`LeftSidebar.set_local_scripts_panel` (which also reveals the second
-rail icon).
+rail icon); page 2 via :meth:`LeftSidebar.set_history_panel` (workspace send
+history, ``objectName`` ``globalHistoryPanel``).
 
 ### Rail Buttons
 
@@ -42,6 +44,7 @@ rail icon).
 |--------|-----------------|-------|
 | Collections | `files` | Collections tree + environment rows (``_left_nav_splitter``) |
 | Local scripts & snippets | `code` | Local scripts tree + ``SnippetsSidebarPanel`` (vertical splitter) |
+| History | `clock-counter-clockwise` | ``HistoryPanel`` in global mode — all sends; Open navigates to editor |
 
 ### Signals
 
@@ -283,44 +286,90 @@ Filter by name and search within response bodies.
 
 ## HistoryPanel
 
-Read-only list/detail flyout for HTTP sends recorded for the **active saved
-request** (not draft tabs).
+Read-only list/detail UI for HTTP **send history**. The same widget class is
+used twice:
 
-Source: `src/ui/sidebar/history/`
+| Instance | `objectName` | Rail | Data source |
+|----------|--------------|------|-------------|
+| Per-request | `requestHistoryPanel` | Right (4th button) | `RequestHistoryService.list_for_request(request_id)` |
+| Workspace global | `globalHistoryPanel` | Left (3rd button) | `RequestHistoryService.list_for_sidebar()` |
+
+Source: `src/ui/sidebar/history/` (`panel.py`, `global_mode/`).
+
+See also [RequestHistoryService](../api-reference/services/request-history-service.md).
 
 ### objectNames
 
-| Widget | objectName |
-|--------|------------|
-| Panel | `requestHistoryPanel` |
-| Search field | `requestHistorySearch` |
-| Tree | `requestHistoryTree` |
-| Replay | `requestHistoryReplayButton` |
+| Widget | objectName | Mode |
+|--------|------------|------|
+| Panel (request) | `requestHistoryPanel` | Right rail |
+| Panel (global) | `globalHistoryPanel` | Left rail |
+| Global header row | `globalHistoryHeader` | Left rail only (title + date filter + refresh) |
+| Date filter button | `iconButton` (funnel) | Global header; per-request search row |
+| Date filter popup | `infoPopup` | From/To pickers, presets (Today, 7/30 days, All), Apply, Clear |
+| Date editors | `historyDateFilterEdit` | Inside the filter popup |
+| Search field | `requestHistorySearch` | Both |
+| List stack | `requestHistoryList` | Both |
+| Tree | `requestHistoryTree` | Both |
+| Replay | `requestHistoryReplayButton` | Request mode only |
+| Open | `requestHistoryOpenButton` | Unused in UI (hidden); global open is single-click on tree |
 
-Refresh uses the flyout title-bar icon (same row as the panel close button), not
-a control inside the panel body.
+**Refresh:** On the right, `RightSidebar` reparents `refresh_button()` into the
+flyout title bar. On the left, refresh stays in `globalHistoryHeader`.
 
-### Behaviour
+### Shared behaviour
 
-- Persisted request: `RequestHistoryService.list_for_request(request_id)`; a
-  `QTreeWidget` groups sends under local calendar days (Today, Yesterday, or a
-  formatted date) with expand/collapse like the collections tree.
-- `requestHistorySearch` filters by URL/name/method substring and exact HTTP status
-  when the term is all digits (e.g. `200`, `400`).
-- Draft tab: empty state — save the request first (does not list global draft sends)
-- Detail tabs: Body, Headers, Request Headers, Request Body (from stored snapshot)
-- `refresh_requested` → `refresh()` reloads metadata; full bodies loaded on selection
-- **Replay** (white icon, top-right of the detail header): sends the stored snapshot over
-  the network and updates the centre **response** pane only — the request editor
-  (URL, params, headers, body) is left unchanged. Context menu on send rows:
-  **Replay this request**, **Delete item**.
-- After a replay completes, the **response viewer** shows a `responseReplayIndicator`
-  pill (left of the status badge) with a link to open this panel and select the
-  **source** send that was replayed.
+- `QTreeWidget` groups sends under local calendar days (Today, Yesterday, or a
+  formatted date).
+- `requestHistorySearch` filters by URL, request name, and method (substring) and
+  by **exact** HTTP status when the term is all digits (e.g. `200`, `400` — `40`
+  does not match `400`).
+- **Date range** (funnel): inline popup with local-calendar From/To dates and
+  presets; filters at query time via `executed_from` / `executed_to` on
+  `list_for_sidebar` / `list_for_request`. Active filter shows a checked funnel
+  and a summary tooltip.
+- `refresh_requested` → `refresh()` reloads metadata.
+
+### Per-request detail (right rail only)
+
+- Detail tabs: Body, Headers, Request Headers, Request Body (from stored snapshot).
+- Full payloads load on selection in **request** mode only.
+- Row meta may include `(deleted)` or `(draft)` when `request_id` is null (see
+  `was_persisted_request` in the service docs).
+
+### Request mode (right rail)
+
+- Active **saved** request tab only; draft tabs disable the rail icons with a tooltip
+  (“save the request first”, or “original request was deleted” for tabs opened from
+  deleted-request history).
+- Empty copy: no sends yet for this request.
+- **Replay** (detail header): HTTP from stored snapshot; updates centre response only.
+- Context menu: **Replay this request**, **Delete item**.
+- `replay_requested` / `delete_requested` → `MainWindow` handlers.
+- After replay, `responseReplayIndicator` links back to this panel (`focus_entry`).
+
+### Global mode (left rail)
+
+- **List only** — no Body/Headers detail stack on the left (preview lives on the
+  right History panel after **Open**).
+- Lists all workspace sends (including draft-tab sends and orphaned rows after
+  request delete). Default cap: 500 rows (search applies the same limit).
+- Empty copy: no send history yet (with hint to send a request).
+- **Open** on **single-click** of a send row (also context menu and **Enter**):
+  emits `entry_open_requested(entry_id)` → `MainWindow._open_from_global_history`.
+  - **Existing request** (`request_id` set and still in DB): open/focus request tab,
+    open right History, select the send, then load detail asynchronously (loading bar).
+    Centre response viewer is unchanged.
+  - **Deleted / orphan / draft history row**: new draft tab prefilled from snapshot,
+    stored response in viewer; right History and Saved Responses stay disabled (hover
+    the greyed rail icons for why).
+- No replay/delete on the global instance (use the right panel after navigating).
 
 ### Signals
 
-| Signal | Parameters | Description |
-|--------|------------|-------------|
-| `refresh_requested` | *(none)* | Reload list for current request |
-| `replay_requested` | `entry_id: int` | Replay the selected send (response pane only) |
+| Signal | Parameters | Mode | Description |
+|--------|------------|------|-------------|
+| `refresh_requested` | *(none)* | Both | Reload list for current scope |
+| `entry_open_requested` | `entry_id: int` | Global | Open send in editor + right History |
+| `replay_requested` | `entry_id: int` | Request | Replay selected send |
+| `delete_requested` | `entry_id: int` | Request | Delete selected send |

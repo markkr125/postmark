@@ -81,7 +81,7 @@ Stored on each `QTreeWidgetItem`:
 
 ### Context Menus (_TreeActionsMixin)
 
-**Request context menu:** Open, Rename (F2), Delete
+**Request context menu:** Open, Rename (F2), Duplicate, Delete
 
 **Folder context menu:** Overview, Add request, Add folder, Expand all,
 Collapse all, Rename, Delete

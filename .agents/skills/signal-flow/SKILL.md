@@ -274,7 +274,15 @@ MainWindow._refresh_sidebar (request tab)
 
 on_send_finished → _record_request_history
   → RequestHistoryService.record_send(...)
-  → HistoryPanel.refresh() when recorded request_id matches active tab
+  → _request_history_panel.refresh() when recorded request_id matches active tab
+  → _global_history_panel.refresh() always
+
+HistoryPanel.entry_open_requested(int entry_id)  [global instance only]
+  → MainWindow._open_from_global_history
+    → existing request: _open_request + right History schedule_detail_load (async detail)
+      + RightSidebar.open_panel("request_history") + focus_entry (deferred)
+    → orphan/deleted: _open_draft_request + load_request(snapshot) + load_stored_response
+      (draft sidebar: History/Saved Responses disabled)
 
 HistoryPanel.replay_requested(int entry_id)
   → MainWindow._replay_request_history_entry

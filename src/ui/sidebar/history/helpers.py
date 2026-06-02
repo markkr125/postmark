@@ -15,6 +15,7 @@ from ui.sidebar.history.delegate import (
     ROLE_HISTORY_IS_DATE_GROUP,
     ROLE_HISTORY_META,
     ROLE_HISTORY_NAME,
+    ROLE_HISTORY_URL,
 )
 from ui.sidebar.saved_responses.helpers import (
     extract_snapshot_headers,
@@ -101,8 +102,10 @@ def populate_history_tree_widget(
             row.setData(0, Qt.ItemDataRole.UserRole, entry_id)
             row.setData(0, ROLE_HISTORY_CODE, item.get("status_code"))
             row.setData(0, ROLE_HISTORY_NAME, build_row_name(item))
+            url = build_history_row_url(item)
+            row.setData(0, ROLE_HISTORY_URL, url)
             row.setData(0, ROLE_HISTORY_META, build_history_row_meta(item))
-            row.setToolTip(0, build_row_name(item))
+            row.setToolTip(0, build_history_row_tooltip(item))
         group.setExpanded(True)
     tree.expandAll()
 
@@ -147,6 +150,20 @@ def extract_history_request_headers(snapshot: Mapping[str, Any] | None) -> str:
     if sent:
         return format_headers(sent)
     return extract_snapshot_headers(snapshot)
+
+
+def build_history_row_url(entry: Mapping[str, Any]) -> str:
+    """Return the request URL for the secondary list line (elided when painted)."""
+    return str(entry.get("url", "")).strip()
+
+
+def build_history_row_tooltip(entry: Mapping[str, Any]) -> str:
+    """Tooltip with full name and URL for a send-history row."""
+    name = build_row_name(entry)
+    url = build_history_row_url(entry)
+    if url:
+        return f"{name}\n{url}"
+    return name
 
 
 def build_history_row_meta(entry: Mapping[str, Any]) -> str:

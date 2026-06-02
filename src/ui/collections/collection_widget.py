@@ -146,6 +146,8 @@ class CollectionWidget(QWidget):
             self._tree_widget.script_rename_requested.connect(self._on_script_rename)
             self._tree_widget.script_rename_requested.connect(self.script_rename_requested.emit)
         self._tree_widget.request_delete_requested.connect(self._on_request_delete)
+        if self._tree_kind == "collections":
+            self._tree_widget.request_duplicate_requested.connect(self._on_request_duplicate)
         self._tree_widget.request_moved.connect(self._on_request_moved)
         self._tree_widget.collection_moved.connect(self._on_collection_moved)
         self._tree_widget.new_collection_requested.connect(self._create_new_collection)
@@ -273,6 +275,31 @@ class CollectionWidget(QWidget):
             self._safe_svc_call("delete script", LocalScriptService.delete_script, request_id)
             return
         self._safe_svc_call("delete request", CollectionService.delete_request, request_id)
+
+    @Slot(int)
+    def _on_request_duplicate(self, request_id: int) -> None:
+        """Clone *request_id*, add it to the tree, and open it in a tab."""
+        try:
+            new_request = CollectionService.duplicate_request(request_id)
+        except Exception as exc:
+            logger.error("Failed to duplicate request: %s", exc)
+            QMessageBox.warning(
+                self,
+                "Operation Failed",
+                f"Failed to duplicate request:\n{exc}",
+            )
+            return
+        self._tree_widget.add_request(
+            {
+                "name": new_request.name,
+                "url": new_request.url,
+                "id": new_request.id,
+                "method": new_request.method,
+            },
+            new_request.collection_id,
+        )
+        self._tree_widget.select_item_by_id(new_request.id, "request")
+        self.item_action_triggered.emit("request", new_request.id, "Open")
 
     @Slot(int, int)
     def _on_request_moved(self, request_id: int, new_collection_id: int) -> None:

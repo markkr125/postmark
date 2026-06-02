@@ -20,6 +20,7 @@ Source: `ui/collections/tree/collection_tree.py`
 | `new_script_clicked` (popup) | `str, str` | Language code, module_format |
 | `new_script_requested` (header) | `object, str, str` | Parent folder ID or `None`, language, module_format |
 | `request_delete_requested` | `int` | Request ID |
+| `request_duplicate_requested` | `int` | Request ID to clone |
 | `request_moved` | `int, int` | Request ID, new collection ID |
 | `collection_moved` | `int, object` | Collection ID, new parent ID (int or None) |
 | `new_collection_requested` | `object` | Parent ID (int or None) |

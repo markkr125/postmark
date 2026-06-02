@@ -1381,27 +1381,39 @@ def build_global_qss(p: ThemePalette) -> str:
         color: {p["text"]};
     }}
 
+    #globalHistoryPanel QStackedWidget[objectName="requestHistoryList"],
+    #requestHistoryPanel QStackedWidget[objectName="requestHistoryList"],
     QStackedWidget[objectName="requestHistoryList"] {{
         border: 1px solid {p["border"]};
         background: {p["input_bg"]};
         border-radius: 4px;
     }}
+    #globalHistoryPanel QFrame[objectName="requestHistoryListEmpty"],
+    #requestHistoryPanel QFrame[objectName="requestHistoryListEmpty"],
     QFrame[objectName="requestHistoryListEmpty"] {{
         background: transparent;
         border: none;
     }}
+    #globalHistoryPanel QTreeWidget[objectName="requestHistoryTree"],
+    #requestHistoryPanel QTreeWidget[objectName="requestHistoryTree"],
     QTreeWidget[objectName="requestHistoryTree"] {{
         border: none;
         background: transparent;
         outline: none;
     }}
+    #globalHistoryPanel QTreeWidget[objectName="requestHistoryTree"]::item,
+    #requestHistoryPanel QTreeWidget[objectName="requestHistoryTree"]::item,
     QTreeWidget[objectName="requestHistoryTree"]::item {{
         padding: 6px 8px;
         border: none;
     }}
+    #globalHistoryPanel QTreeWidget[objectName="requestHistoryTree"]::item:hover,
+    #requestHistoryPanel QTreeWidget[objectName="requestHistoryTree"]::item:hover,
     QTreeWidget[objectName="requestHistoryTree"]::item:hover {{
         background: {p["hover_tree_bg"]};
     }}
+    #globalHistoryPanel QTreeWidget[objectName="requestHistoryTree"]::item:selected,
+    #requestHistoryPanel QTreeWidget[objectName="requestHistoryTree"]::item:selected,
     QTreeWidget[objectName="requestHistoryTree"]::item:selected {{
         background: {p["selected_bg"]};
         color: {p["text"]};

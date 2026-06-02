@@ -9,10 +9,11 @@ UI code must **not** import this directly -- use the service layer
 
 from __future__ import annotations
 
+import copy
 import logging
 from typing import Any
 
-from sqlalchemy import update
+from sqlalchemy import select, update
 
 from database.database import get_session
 
@@ -130,6 +131,91 @@ def create_new_request(
         session.flush()
         session.refresh(new_request)
         return new_request
+
+
+def unique_duplicate_request_name(base_name: str, existing_names: set[str]) -> str:
+    """Return ``{base_name} Copy`` or ``{base_name} Copy N`` unique in *existing_names*."""
+    first = f"{base_name} Copy"
+    if first not in existing_names:
+        return first
+    n = 2
+    while True:
+        candidate = f"{base_name} Copy {n}"
+        if candidate not in existing_names:
+            return candidate
+        n += 1
+
+
+def duplicate_request(request_id: int) -> RequestModel:
+    """Deep-copy a request, its saved responses, and assertions into the same folder."""
+    from database.models.request_assertions.model.request_assertion_model import (
+        RequestAssertionModel,
+    )
+
+    from .model.saved_response_model import SavedResponseModel
+
+    with get_session() as session:
+        source = session.get(RequestModel, request_id)
+        if source is None:
+            raise ValueError(f"No request found with id={request_id}")
+
+        sibling_names = {
+            row[0]
+            for row in session.execute(
+                select(RequestModel.name).where(RequestModel.collection_id == source.collection_id)
+            ).all()
+        }
+        new_name = unique_duplicate_request_name(source.name, sibling_names)
+
+        duplicate = RequestModel(
+            collection_id=source.collection_id,
+            name=new_name,
+            method=source.method,
+            url=source.url,
+            body=source.body,
+            request_parameters=copy.deepcopy(source.request_parameters),
+            headers=copy.deepcopy(source.headers),
+            description=source.description,
+            body_mode=source.body_mode,
+            body_options=copy.deepcopy(source.body_options),
+            auth=copy.deepcopy(source.auth),
+            scripts=copy.deepcopy(source.scripts),
+            settings=copy.deepcopy(source.settings),
+            events=copy.deepcopy(source.events),
+            protocol_profile_behavior=copy.deepcopy(source.protocol_profile_behavior),
+        )
+        session.add(duplicate)
+        session.flush()
+
+        for saved in list(source.saved_responses):
+            session.add(
+                SavedResponseModel(
+                    request_id=duplicate.id,
+                    name=saved.name,
+                    status=saved.status,
+                    code=saved.code,
+                    headers=copy.deepcopy(saved.headers),
+                    body=saved.body,
+                    preview_language=saved.preview_language,
+                    original_request=copy.deepcopy(saved.original_request),
+                )
+            )
+
+        for assertion in list(source.assertions):
+            session.add(
+                RequestAssertionModel(
+                    request_id=duplicate.id,
+                    subject=assertion.subject,
+                    operator=assertion.operator,
+                    expected=assertion.expected,
+                    enabled=assertion.enabled,
+                    order_index=assertion.order_index,
+                )
+            )
+
+        session.flush()
+        session.refresh(duplicate)
+        return duplicate
 
 
 def delete_request(request_id: int) -> None:

@@ -18,6 +18,7 @@ ROLE_HISTORY_CODE = Qt.ItemDataRole.UserRole + 1
 ROLE_HISTORY_NAME = Qt.ItemDataRole.UserRole + 2
 ROLE_HISTORY_META = Qt.ItemDataRole.UserRole + 3
 ROLE_HISTORY_IS_DATE_GROUP = Qt.ItemDataRole.UserRole + 4
+ROLE_HISTORY_URL = Qt.ItemDataRole.UserRole + 5
 
 _BADGE_WIDTH = 36
 _BADGE_HEIGHT = 16
@@ -25,7 +26,10 @@ _BADGE_NAME_SPACING = 6
 _LEFT_PADDING = 6
 _TOP_PADDING = 6
 _LINE_SPACING = 2
-_ROW_HEIGHT = 44
+_URL_LINE_HEIGHT = 14
+_META_LINE_HEIGHT = 16
+_ROW_HEIGHT_NO_URL = 44
+_ROW_HEIGHT_WITH_URL = 60
 _DATE_GROUP_HEIGHT = 28
 
 
@@ -58,6 +62,7 @@ class HistoryEntryDelegate(QStyledItemDelegate):
 
         code = index.data(ROLE_HISTORY_CODE)
         name = index.data(ROLE_HISTORY_NAME) or ""
+        url = str(index.data(ROLE_HISTORY_URL) or "").strip()
         meta = index.data(ROLE_HISTORY_META) or ""
         rect: QRect = option.rect  # type: ignore[assignment]
 
@@ -101,14 +106,23 @@ class HistoryEntryDelegate(QStyledItemDelegate):
         elided = fm.elidedText(name, Qt.TextElideMode.ElideRight, available_w)
         painter.drawText(name_rect, Qt.AlignmentFlag.AlignVCenter, elided)
 
-        meta_y = rect.top() + _TOP_PADDING + _BADGE_HEIGHT + _LINE_SPACING
-        meta_rect = QRect(
-            rect.left() + _LEFT_PADDING,
-            meta_y,
-            rect.width() - _LEFT_PADDING * 2,
-            16,
-        )
+        content_left = rect.left() + _LEFT_PADDING
+        content_width = rect.width() - _LEFT_PADDING * 2
+        next_y = rect.top() + _TOP_PADDING + _BADGE_HEIGHT + _LINE_SPACING
 
+        if url:
+            url_rect = QRect(content_left, next_y, content_width, _URL_LINE_HEIGHT)
+            url_font = QFont(painter.font())
+            url_font.setPixelSize(11)
+            url_font.setBold(False)
+            painter.setPen(QPen(QColor(COLOR_TEXT_MUTED)))
+            painter.setFont(url_font)
+            fm_url = QFontMetrics(url_font)
+            elided_url = fm_url.elidedText(url, Qt.TextElideMode.ElideRight, content_width)
+            painter.drawText(url_rect, Qt.AlignmentFlag.AlignVCenter, elided_url)
+            next_y += _URL_LINE_HEIGHT + _LINE_SPACING
+
+        meta_rect = QRect(content_left, next_y, content_width, _META_LINE_HEIGHT)
         meta_font = QFont(painter.font())
         meta_font.setPixelSize(11)
         meta_font.setBold(False)
@@ -156,4 +170,6 @@ class HistoryEntryDelegate(QStyledItemDelegate):
         """Return a fixed row height for date groups and send rows."""
         if index.data(ROLE_HISTORY_IS_DATE_GROUP):
             return QSize(option.rect.width(), _DATE_GROUP_HEIGHT)
-        return QSize(option.rect.width(), _ROW_HEIGHT)
+        url = str(index.data(ROLE_HISTORY_URL) or "").strip()
+        height = _ROW_HEIGHT_WITH_URL if url else _ROW_HEIGHT_NO_URL
+        return QSize(option.rect.width(), height)

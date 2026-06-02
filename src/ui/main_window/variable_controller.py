@@ -8,7 +8,7 @@ right-sidebar refresh logic.  Mixed into ``MainWindow``.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QTimer
 
@@ -47,6 +47,8 @@ class _VariableControllerMixin:
         editor: RequestEditorWidget,
         request_id: int | None,
         local_overrides: dict[str, LocalOverride] | None = None,
+        *,
+        collection_id: int | None = None,
     ) -> None:
         """Build the combined variable map and push it to *editor*.
 
@@ -54,9 +56,18 @@ class _VariableControllerMixin:
         via the variable popup), those entries are layered on top with
         ``is_local=True`` so the popup shows a **Local** badge while
         preserving the original source for the **Update** action.
+
+        For draft tabs opened from deleted-request history, pass
+        *collection_id* (from ``TabContext.variable_collection_id``) so
+        collection variables resolve in the editor the same way as in the
+        variables sidebar.
         """
         env_id = self._env_selector.current_environment_id()
-        variables = EnvironmentService.build_combined_variable_detail_map(env_id, request_id)
+        variables = EnvironmentService.build_combined_variable_detail_map(
+            env_id,
+            request_id,
+            collection_id=collection_id if request_id is None else None,
+        )
 
         # Layer per-request overrides on top
         if local_overrides:
@@ -70,6 +81,16 @@ class _VariableControllerMixin:
 
         editor.set_variable_map(variables)
 
+    @staticmethod
+    def _variable_map_collection_id(
+        request_id: int | None,
+        variable_collection_id: int | None,
+    ) -> int | None:
+        """Return the collection id used for variable resolution on draft tabs."""
+        if request_id is not None:
+            return None
+        return variable_collection_id
+
     def _on_environment_changed(self, _env_id: object) -> None:
         """Refresh variable maps in all open request editors."""
         from ui.widgets.variable_popup import VariablePopup
@@ -77,7 +98,14 @@ class _VariableControllerMixin:
         VariablePopup.set_has_environment(self._env_selector.current_environment_id() is not None)
         for ctx in self._tabs.values():
             if ctx.tab_type == "request" and ctx.editor is not None:
-                self._refresh_variable_map(ctx.editor, ctx.request_id, ctx.local_overrides)
+                self._refresh_variable_map(
+                    ctx.editor,
+                    ctx.request_id,
+                    ctx.local_overrides,
+                    collection_id=self._variable_map_collection_id(
+                        ctx.request_id, ctx.variable_collection_id
+                    ),
+                )
         self._refresh_sidebar()
 
     def _on_environments_data_changed(self) -> None:
@@ -86,7 +114,12 @@ class _VariableControllerMixin:
         for tab_ctx in self._tabs.values():
             if tab_ctx.tab_type == "request" and tab_ctx.editor is not None:
                 self._refresh_variable_map(
-                    tab_ctx.editor, tab_ctx.request_id, tab_ctx.local_overrides
+                    tab_ctx.editor,
+                    tab_ctx.request_id,
+                    tab_ctx.local_overrides,
+                    collection_id=self._variable_map_collection_id(
+                        tab_ctx.request_id, tab_ctx.variable_collection_id
+                    ),
                 )
         self._refresh_sidebar()
 
@@ -113,7 +146,14 @@ class _VariableControllerMixin:
         # Refresh variable maps in all open request editors
         for ctx in self._tabs.values():
             if ctx.tab_type == "request" and ctx.editor is not None:
-                self._refresh_variable_map(ctx.editor, ctx.request_id, ctx.local_overrides)
+                self._refresh_variable_map(
+                    ctx.editor,
+                    ctx.request_id,
+                    ctx.local_overrides,
+                    collection_id=self._variable_map_collection_id(
+                        ctx.request_id, ctx.variable_collection_id
+                    ),
+                )
 
     def _on_local_variable_override(
         self,
@@ -137,7 +177,14 @@ class _VariableControllerMixin:
             "original_source": source,
             "original_source_id": source_id,
         }
-        self._refresh_variable_map(ctx.editor, ctx.request_id, ctx.local_overrides)
+        self._refresh_variable_map(
+            ctx.editor,
+            ctx.request_id,
+            ctx.local_overrides,
+            collection_id=self._variable_map_collection_id(
+                ctx.request_id, ctx.variable_collection_id
+            ),
+        )
 
     def _on_reset_local_override(self, var_name: str) -> None:
         """Remove a per-request variable override and refresh.
@@ -150,7 +197,14 @@ class _VariableControllerMixin:
             return
 
         ctx.local_overrides.pop(var_name, None)
-        self._refresh_variable_map(ctx.editor, ctx.request_id, ctx.local_overrides)
+        self._refresh_variable_map(
+            ctx.editor,
+            ctx.request_id,
+            ctx.local_overrides,
+            collection_id=self._variable_map_collection_id(
+                ctx.request_id, ctx.variable_collection_id
+            ),
+        )
 
     def _on_add_unresolved_variable(
         self,
@@ -168,15 +222,21 @@ class _VariableControllerMixin:
         ctx = self._current_tab_context()
 
         if target == "collection":
-            request_id = ctx.request_id if ctx else None
-            if request_id is None:
-                return
-            from database.models.collections.collection_query_repository import get_request_by_id
+            coll_id: int | None = None
+            if ctx is not None:
+                if ctx.request_id is not None:
+                    from database.models.collections.collection_query_repository import (
+                        get_request_by_id,
+                    )
 
-            req = get_request_by_id(request_id)
-            if req is None:
+                    req = get_request_by_id(ctx.request_id)
+                    if req is not None:
+                        coll_id = req.collection_id
+                elif ctx.variable_collection_id is not None:
+                    coll_id = ctx.variable_collection_id
+            if coll_id is None:
                 return
-            EnvironmentService.add_variable("collection", req.collection_id, var_name, value)
+            EnvironmentService.add_variable("collection", coll_id, var_name, value)
         elif target == "environment":
             env_id = self._env_selector.current_environment_id()
             if env_id is None:
@@ -192,13 +252,21 @@ class _VariableControllerMixin:
                     tab_ctx.editor,
                     tab_ctx.request_id,
                     tab_ctx.local_overrides,
+                    collection_id=self._variable_map_collection_id(
+                        tab_ctx.request_id, tab_ctx.variable_collection_id
+                    ),
                 )
         self._refresh_sidebar()
 
     # ------------------------------------------------------------------
     # Right-sidebar helpers
     # ------------------------------------------------------------------
-    def _refresh_sidebar(self, ctx: TabContext | None = None) -> None:
+    def _refresh_sidebar(
+        self,
+        ctx: TabContext | None = None,
+        *,
+        history_load_detail: bool = True,
+    ) -> None:
         """Update the right sidebar panels for the active tab."""
         if ctx is None:
             ctx = self._current_tab_context()
@@ -235,7 +303,9 @@ class _VariableControllerMixin:
             ctx.tab_type == "request" and ctx.editor is not None and ctx.response_viewer is not None
         ):
             variables = EnvironmentService.build_combined_variable_detail_map(
-                env_id, ctx.request_id
+                env_id,
+                ctx.request_id,
+                collection_id=ctx.variable_collection_id if ctx.request_id is None else None,
             )
             # Layer per-request overrides on top
             if ctx.local_overrides:
@@ -253,10 +323,15 @@ class _VariableControllerMixin:
             sub = EnvironmentService.substitute
             # Resolve inherited auth for sidebar / snippet display
             auth = data.get("auth")
-            if auth is None and ctx.request_id:
+            if auth is None:
                 from services.collection_service import CollectionService
 
-                auth = CollectionService.get_request_inherited_auth(ctx.request_id)
+                if ctx.request_id is not None:
+                    auth = CollectionService.get_request_inherited_auth(ctx.request_id)
+                elif ctx.variable_collection_id is not None:
+                    auth = CollectionService.get_collection_inherited_auth(
+                        ctx.variable_collection_id
+                    )
             auth = self._substitute_auth(auth, flat_vars)
             self._right_sidebar.show_request_panels(
                 variables,
@@ -271,6 +346,9 @@ class _VariableControllerMixin:
             request_name = None
             saved_responses = []
             is_persisted_request = ctx.request_id is not None
+            from_deleted_request_history = (
+                not is_persisted_request and ctx.variable_collection_id is not None
+            )
             if ctx.request_id is not None:
                 from services.collection_service import CollectionService
 
@@ -282,12 +360,23 @@ class _VariableControllerMixin:
                 items=saved_responses,
                 can_save_current=ctx.response_viewer.has_live_response(),
                 is_persisted_request=is_persisted_request,
+                from_deleted_request_history=from_deleted_request_history,
             )
             self._right_sidebar.set_request_history_context(
                 request_id=ctx.request_id,
                 request_name=request_name,
                 is_persisted_request=is_persisted_request,
+                load_detail=history_load_detail,
+                from_deleted_request_history=from_deleted_request_history,
             )
+
+    def _on_editor_request_changed(self, _data: dict[str, Any] | None = None) -> None:
+        """Slot for ``RequestEditorWidget.request_changed`` (debounced)."""
+        self._schedule_sidebar_snippet_refresh()
+
+    def _on_viewer_save_availability_changed(self, _enabled: bool = False) -> None:
+        """Slot for ``ResponseViewerWidget.save_availability_changed``."""
+        self._refresh_sidebar()
 
     def _schedule_sidebar_snippet_refresh(self) -> None:
         """Debounce snippet refresh (300 ms) on request editor changes."""

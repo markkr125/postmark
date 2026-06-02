@@ -32,6 +32,7 @@ from database.models.collections.collection_repository import (
     delete_collection,
     delete_request,
     delete_saved_response,
+    duplicate_request,
     duplicate_saved_response,
     rename_collection,
     rename_request,
@@ -342,6 +343,18 @@ class CollectionService:
         """Delete a single request."""
         delete_request(request_id)
         logger.info("Deleted request id=%s", request_id)
+
+    @staticmethod
+    def duplicate_request(request_id: int) -> RequestModel:
+        """Clone a request (including saved responses and assertions) in the same folder."""
+        result = duplicate_request(request_id)
+        logger.info(
+            "Duplicated request id=%s -> id=%s name=%r",
+            request_id,
+            result.id,
+            result.name,
+        )
+        return result
 
     @staticmethod
     def move_request(request_id: int, new_collection_id: int) -> None:

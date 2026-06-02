@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import warnings
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, cast
 
 from PySide6.QtCore import QTimer
@@ -36,6 +38,14 @@ logger = logging.getLogger(__name__)
 
 # Maximum number of entries in the back/forward navigation history
 _MAX_HISTORY = 50
+
+
+def _safe_signal_disconnect(signal: object, slot: Callable[..., object]) -> None:
+    """Disconnect *slot* from *signal* without Qt ``RuntimeWarning`` noise."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        with contextlib.suppress(TypeError, RuntimeError):
+            signal.disconnect(slot)  # type: ignore[attr-defined]
 
 
 class _TabControllerMixin:
@@ -91,8 +101,17 @@ class _TabControllerMixin:
         editor: RequestEditorWidget,
         request_id: int | None,
         local_overrides: dict | None = ...,
+        *,
+        collection_id: int | None = ...,
     ) -> None: ...
-    def _refresh_sidebar(self, ctx: TabContext | None = None) -> None: ...
+    def _refresh_sidebar(
+        self,
+        ctx: TabContext | None = None,
+        *,
+        history_load_detail: bool = True,
+    ) -> None: ...
+    def _on_editor_request_changed(self, _data: dict[str, Any] | None = None) -> None: ...
+    def _on_viewer_save_availability_changed(self, _enabled: bool = False) -> None: ...
     def _schedule_sidebar_snippet_refresh(self) -> None: ...
     def _on_environments_data_changed(self) -> None: ...
     def _record_tab_activation(self, index: int) -> None: ...
@@ -237,11 +256,11 @@ class _TabControllerMixin:
         editor.save_requested.connect(self._on_save_request)
         editor.dirty_changed.connect(self._sync_save_btn)
         editor.dirty_changed.connect(self._on_editor_dirty_changed)
-        editor.request_changed.connect(lambda _: self._schedule_sidebar_snippet_refresh())
+        editor.request_changed.connect(self._on_editor_request_changed)
         editor.scripts_tab_active_changed.connect(self._on_editor_scripts_tab_changed)
         viewer.save_response_requested.connect(self._on_save_response)
         viewer.replay_history_link_clicked.connect(self._on_replay_history_link_clicked)
-        viewer.save_availability_changed.connect(lambda _enabled: self._refresh_sidebar())
+        viewer.save_availability_changed.connect(self._on_viewer_save_availability_changed)
 
         # Now switch to the tab (triggers _on_tab_changed safely)
         self._tab_bar.setCurrentIndex(idx)
@@ -580,7 +599,14 @@ class _TabControllerMixin:
             else:
                 self._breadcrumb_bar.clear()
             # Refresh variable map for highlighting and tooltips
-            self._refresh_variable_map(ctx.require_editor(), ctx.request_id, ctx.local_overrides)
+            self._refresh_variable_map(
+                ctx.require_editor(),
+                ctx.request_id,
+                ctx.local_overrides,
+                collection_id=self._variable_map_collection_id(  # type: ignore[attr-defined]
+                    ctx.request_id, ctx.variable_collection_id
+                ),
+            )
 
         # Refresh right sidebar for the active tab.
         self._refresh_sidebar(ctx)
@@ -622,6 +648,10 @@ class _TabControllerMixin:
         """Save the current tab list to settings for session restore."""
         if getattr(self, "_restoring_session", False):
             return
+        from shiboken6 import Shiboken
+
+        if not Shiboken.isValid(self._tab_bar):
+            return
         tabs_list: list[dict[str, object]] = []
         all_indices = sorted(set(self._tabs) | set(self._deferred_tabs))
         for idx in all_indices:
@@ -661,12 +691,14 @@ class _TabControllerMixin:
                     )
                 elif ctx.tab_type == "request" and ctx.request_id is None:
                     # Draft (unsaved) tab — snapshot the editor state.
-                    ed = ctx.require_editor()
+                    draft_ed = ctx.editor
+                    if draft_ed is None or not Shiboken.isValid(draft_ed):
+                        continue
                     entry: dict[str, object] = {
                         "type": "draft",
-                        "data": ed.get_request_data(),
+                        "data": draft_ed.get_request_data(),
                     }
-                    draft_debug = ed.collect_draft_debug_blob()
+                    draft_debug = draft_ed.collect_draft_debug_blob()
                     if draft_debug:
                         entry["debug"] = draft_debug
                     if ctx.draft_name:
@@ -838,11 +870,11 @@ class _TabControllerMixin:
         editor.save_requested.connect(self._on_save_request)
         editor.dirty_changed.connect(self._sync_save_btn)
         editor.dirty_changed.connect(self._on_editor_dirty_changed)
-        editor.request_changed.connect(lambda _: self._schedule_sidebar_snippet_refresh())
+        editor.request_changed.connect(self._on_editor_request_changed)
         editor.scripts_tab_active_changed.connect(self._on_editor_scripts_tab_changed)
         viewer.save_response_requested.connect(self._on_save_response)
         viewer.replay_history_link_clicked.connect(self._on_replay_history_link_clicked)
-        viewer.save_availability_changed.connect(lambda _enabled: self._refresh_sidebar())
+        viewer.save_availability_changed.connect(self._on_viewer_save_availability_changed)
 
         # Fetch breadcrumb once — reused by both the tab tooltip and
         # _on_tab_changed (via _cached_crumbs) to avoid a duplicate query.
@@ -1024,43 +1056,28 @@ class _TabControllerMixin:
             del ctx
             self._tab_bar.remove_request_tab(index)
         else:
-            # Request tab cleanup
-            # Grab local references before dispose() nulls the context.
+            # Request tab — detach UI first; heavy teardown runs on the next tick.
             editor = ctx.require_editor()
             viewer = ctx.require_response_viewer()
-
-            flush_debug = getattr(editor, "flush_debug_metadata_persist_sync", None)
-            if callable(flush_debug):
-                flush_debug()
-
-            # Disconnect signals that reference MainWindow slots so the
-            # sender objects can be garbage-collected.
-            editor.send_requested.disconnect(self._on_send_request)
-            editor.save_requested.disconnect(self._on_save_request)
-            editor.dirty_changed.disconnect(self._sync_save_btn)
-            editor.dirty_changed.disconnect(self._on_editor_dirty_changed)
-            editor.request_changed.disconnect()
-            viewer.save_response_requested.disconnect(self._on_save_response)
-            viewer.replay_history_link_clicked.disconnect(self._on_replay_history_link_clicked)
-
-            # Remove from stacked widgets and detach from parent hierarchy.
             self._editor_stack.removeWidget(editor)
             self._response_stack.removeWidget(viewer)
-
-            # Clear heavy data so memory is freed even before the C++
-            # destructor runs.
-            viewer.clear()
-
-            # Detach from any Qt parent so the C++ side is destroyed when
-            # the Python wrapper is garbage-collected.
             editor.setParent(None)
             viewer.setParent(None)
-
-            # Release all Python references held by the TabContext.
-            ctx.dispose()
-            del editor, viewer, ctx
-
             self._tab_bar.remove_request_tab(index)
+            self._reindex_tabs_after_close(index)
+            target_new_index = self._normalize_target_index_after_close(index, target_old_index)
+            if target_new_index is not None and 0 <= target_new_index < self._tab_bar.count():
+                self._tab_bar.setCurrentIndex(target_new_index)
+                self._on_tab_changed(target_new_index)
+            else:
+                self._on_tab_changed(self._tab_bar.currentIndex())
+            self._flush_tab_change()
+            QTimer.singleShot(
+                0,
+                lambda e=editor, v=viewer, c=ctx: self._dispose_request_tab_widgets(e, v, c),
+            )
+            QTimer.singleShot(0, self._persist_open_tabs)
+            return
 
         # Re-index remaining tabs (both materialised and deferred)
         self._reindex_tabs_after_close(index)
@@ -1073,6 +1090,43 @@ class _TabControllerMixin:
             self._on_tab_changed(self._tab_bar.currentIndex())
         self._flush_tab_change()
         self._persist_open_tabs()
+
+    def _dispose_request_tab_widgets(
+        self,
+        editor: RequestEditorWidget,
+        viewer: ResponseViewerWidget,
+        ctx: TabContext,
+    ) -> None:
+        """Disconnect and clear request-tab widgets after the tab UI has closed."""
+        flush_debug = getattr(editor, "flush_debug_metadata_persist_sync", None)
+        if callable(flush_debug):
+            flush_debug()
+        _safe_signal_disconnect(editor.send_requested, self._on_send_request)
+        _safe_signal_disconnect(editor.debug_step_requested, self._on_debug_step)
+        _safe_signal_disconnect(editor.open_collection_requested, self._open_folder)
+        _safe_signal_disconnect(
+            editor.open_scripting_settings_requested,
+            self._on_open_scripting_settings,
+        )
+        _safe_signal_disconnect(editor.save_requested, self._on_save_request)
+        _safe_signal_disconnect(editor.dirty_changed, self._sync_save_btn)
+        _safe_signal_disconnect(editor.dirty_changed, self._on_editor_dirty_changed)
+        _safe_signal_disconnect(editor.request_changed, self._on_editor_request_changed)
+        _safe_signal_disconnect(
+            editor.scripts_tab_active_changed,
+            self._on_editor_scripts_tab_changed,
+        )
+        _safe_signal_disconnect(viewer.save_response_requested, self._on_save_response)
+        _safe_signal_disconnect(
+            viewer.replay_history_link_clicked,
+            self._on_replay_history_link_clicked,
+        )
+        _safe_signal_disconnect(
+            viewer.save_availability_changed,
+            self._on_viewer_save_availability_changed,
+        )
+        viewer.clear()
+        ctx.dispose()
 
     def _reindex_tabs_after_close(self, closed_index: int) -> None:
         """Shift tab indices down after removing a tab at *closed_index*."""

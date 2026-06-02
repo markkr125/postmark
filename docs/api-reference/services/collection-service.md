@@ -188,6 +188,17 @@ def rename_request(request_id: int, new_name: str) -> None
 def delete_request(request_id: int) -> None
 ```
 
+### `duplicate_request`
+
+```python
+@staticmethod
+def duplicate_request(request_id: int) -> RequestModel
+```
+
+Clone a request in the same folder, including saved responses and
+declarative assertions.  The new name is ``{original} Copy`` or
+``{original} Copy N`` when siblings already use that pattern.
+
 ### `move_request`
 
 ```python

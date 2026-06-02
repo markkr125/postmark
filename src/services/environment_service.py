@@ -176,16 +176,21 @@ class EnvironmentService:
     def build_combined_variable_map(
         environment_id: int | None,
         request_id: int | None,
+        *,
+        collection_id: int | None = None,
     ) -> dict[str, str]:
         """Build a merged variable map from collection and environment.
 
         Collection variables are inherited upward from the request's
-        parent chain.  Environment variables take precedence over
-        collection variables when keys overlap.
+        parent chain (or from *collection_id* when *request_id* is absent,
+        e.g. a draft tab opened from deleted-request history).
+        Environment variables take precedence over collection variables
+        when keys overlap.
 
         Returns an empty dict if neither source provides variables.
         """
         from database.models.collections.collection_query_repository import (
+            get_collection_variable_chain,
             get_request_variable_chain,
         )
 
@@ -193,6 +198,8 @@ class EnvironmentService:
         variables: dict[str, str] = {}
         if request_id is not None:
             variables = get_request_variable_chain(request_id)
+        elif collection_id is not None:
+            variables = get_collection_variable_chain(collection_id)
 
         # 2. Environment variables override collection variables
         env_vars = EnvironmentService.build_variable_map(environment_id)
@@ -204,6 +211,8 @@ class EnvironmentService:
     def build_combined_variable_detail_map(
         environment_id: int | None,
         request_id: int | None,
+        *,
+        collection_id: int | None = None,
     ) -> dict[str, VariableDetail]:
         """Build a merged variable map with source metadata.
 
@@ -213,6 +222,7 @@ class EnvironmentService:
         Environment variables take precedence over collection variables.
         """
         from database.models.collections.collection_query_repository import (
+            get_collection_variable_chain_detailed,
             get_request_variable_chain_detailed,
         )
 
@@ -220,12 +230,17 @@ class EnvironmentService:
 
         # 1. Collection-level variables (inherited up the tree)
         if request_id is not None:
-            for key, (value, coll_id) in get_request_variable_chain_detailed(request_id).items():
-                details[key] = {
-                    "value": value,
-                    "source": "collection",
-                    "source_id": coll_id,
-                }
+            chain = get_request_variable_chain_detailed(request_id)
+        elif collection_id is not None:
+            chain = get_collection_variable_chain_detailed(collection_id)
+        else:
+            chain = {}
+        for key, (value, coll_id) in chain.items():
+            details[key] = {
+                "value": value,
+                "source": "collection",
+                "source_id": coll_id,
+            }
 
         # 2. Environment variables override collection variables
         if environment_id is not None:

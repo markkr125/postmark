@@ -38,8 +38,13 @@ from ui.styling.theme import (
 
 _COLLECTIONS_KEY = "collections"
 _LOCAL_SCRIPTS_KEY = "local_scripts"
+_HISTORY_KEY = "history"
 # Stacked flyout page order (left → right in internal stack indices).
-_FLYOUT_PAGE_ORDER: tuple[str, ...] = (_COLLECTIONS_KEY, _LOCAL_SCRIPTS_KEY)
+_FLYOUT_PAGE_ORDER: tuple[str, ...] = (
+    _COLLECTIONS_KEY,
+    _LOCAL_SCRIPTS_KEY,
+    _HISTORY_KEY,
+)
 
 # Local stylesheet when the flyout splitter width is 0. Qt often does not apply
 # ``[collapsed="true"]`` from a Python ``bool`` dynamic property, so borders
@@ -196,11 +201,17 @@ class LeftSidebar(QWidget):
         self._local_scripts_btn = self._make_rail_button("code", "Local scripts & snippets")
         self._local_scripts_btn.setVisible(False)
         rail_layout.addWidget(self._local_scripts_btn)
+
+        self._history_btn = self._make_rail_button("clock-counter-clockwise", "History")
+        self._history_btn.setVisible(False)
+        rail_layout.addWidget(self._history_btn)
+
         rail_layout.addStretch()
 
         self._buttons: dict[str, QToolButton] = {
             _COLLECTIONS_KEY: self._collections_btn,
             _LOCAL_SCRIPTS_KEY: self._local_scripts_btn,
+            _HISTORY_KEY: self._history_btn,
         }
 
         self._active_panel: str | None = None
@@ -216,6 +227,9 @@ class LeftSidebar(QWidget):
         self._local_scripts_btn.clicked.connect(
             lambda: self._toggle_panel(_LOCAL_SCRIPTS_KEY),
         )
+        self._history_btn.clicked.connect(
+            lambda: self._toggle_panel(_HISTORY_KEY),
+        )
 
         self._flyout.set_chrome_sync(self._sync_left_flyout_chrome)
 
@@ -229,6 +243,11 @@ class LeftSidebar(QWidget):
         """Register the **Local scripts** flyout page and show its rail icon."""
         self._flyout.set_panel(_LOCAL_SCRIPTS_KEY, widget)
         self._local_scripts_btn.setVisible(True)
+
+    def set_history_panel(self, widget: QWidget) -> None:
+        """Register the workspace **History** flyout page and show its rail icon."""
+        self._flyout.set_panel(_HISTORY_KEY, widget)
+        self._history_btn.setVisible(True)
 
     def install_in_splitter(self, splitter: QSplitter) -> None:
         """Insert the rail and flyout as the leftmost children of *splitter*.

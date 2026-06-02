@@ -31,6 +31,7 @@ from ui.collections.collection_widget import CollectionWidget
 from ui.environments.environment_sidebar_panel import EnvironmentSidebarPanel
 from ui.loading_screen import LoadingScreen
 from ui.main_window.draft_controller import _DraftControllerMixin
+from ui.main_window.history_navigation import _HistoryNavigationMixin
 from ui.main_window.send_pipeline import _SendPipelineMixin
 from ui.main_window.tab_controller import _TabControllerMixin
 from ui.main_window.tab_nav import _TabNavHistoryMixin
@@ -54,6 +55,7 @@ logger = logging.getLogger(__name__)
 
 class MainWindow(
     _SendPipelineMixin,
+    _HistoryNavigationMixin,
     _VariableControllerMixin,
     _DraftControllerMixin,
     _TabNavHistoryMixin,
@@ -87,6 +89,8 @@ class MainWindow(
         self._pending_request_snapshot = None
         self._pending_history_context = None
         self._suppress_history_record = False
+        self._global_history_open_busy = False
+        self._init_orphan_history_open_loader()
         self.setWindowTitle("Postmark")
 
         # Pre-size to the available screen geometry so the window fills
@@ -130,10 +134,14 @@ class MainWindow(
         from ui.sidebar.history.panel import HistoryPanel
 
         self._request_history_panel = HistoryPanel()
+        self._global_history_panel: HistoryPanel = HistoryPanel()
+        self._global_history_panel.set_global_mode()
         self._right_sidebar = RightSidebar(request_history_panel=self._request_history_panel)
         self._request_history_panel.refresh_requested.connect(self._request_history_panel.refresh)
         self._request_history_panel.replay_requested.connect(self._replay_request_history_entry)
         self._request_history_panel.delete_requested.connect(self._delete_request_history_entry)
+        self._global_history_panel.refresh_requested.connect(self._global_history_panel.refresh)
+        self._global_history_panel.entry_open_requested.connect(self._open_from_global_history)
         if self._theme_manager is not None:
             self._theme_manager.theme_changed.connect(self._left_sidebar.refresh_theme)
             self._theme_manager.theme_changed.connect(self._right_sidebar.refresh_theme)
@@ -574,6 +582,7 @@ class MainWindow(
         self._local_scripts_snippets_splitter.setSizes([360, 200])
 
         self._left_sidebar.set_local_scripts_panel(self._local_scripts_snippets_splitter)
+        self._left_sidebar.set_history_panel(self._global_history_panel)
         self._left_sidebar.install_in_splitter(self._main_splitter)
 
         # --- Centre: vertical splitter (request + response) ---

@@ -128,7 +128,7 @@ Environment variable resolution and sidebar refresh.
 
 | Method | Description |
 |--------|-------------|
-| `_refresh_variable_map(editor, request_id, local_overrides)` | Push combined variables to editor |
+| `_refresh_variable_map(editor, request_id, local_overrides, collection_id=?)` | Push combined variables to editor; pass `collection_id` for orphan/draft tabs (`variable_collection_id`) |
 | `_on_environment_changed(env_id)` | Refresh all open editor variable maps |
 | `_on_environments_data_changed()` | After edits in the **Environments** tab: refresh env selector, variable maps, sidebar |
 | `_on_variable_updated(var_name, new_value, source, source_id)` | Persist global variable change |

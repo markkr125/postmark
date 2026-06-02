@@ -174,3 +174,76 @@ def test_list_for_request_search_by_url_and_status(tmp_path, monkeypatch) -> Non
     by_status = request_history_repository.list_for_request(req.id, search="400")
     assert len(by_status) == 1
     assert by_status[0]["status_code"] == 400
+
+
+def test_list_search_respects_limit(tmp_path, monkeypatch) -> None:
+    """Search queries apply the same row cap as unfiltered lists."""
+    monkeypatch.setattr(
+        "database.data_paths.postmark_user_data_dir",
+        lambda: tmp_path / "postmark",
+    )
+    for index in range(5):
+        _insert(method="GET", url=f"http://limit-{index}.example", request_name=f"N{index}")
+    rows = request_history_repository.list_entries_for_sidebar(
+        search="limit",
+        limit=2,
+    )
+    assert len(rows) == 2
+
+
+def test_list_for_request_search_respects_limit(tmp_path, monkeypatch) -> None:
+    """Per-request search queries apply the row cap."""
+    monkeypatch.setattr(
+        "database.data_paths.postmark_user_data_dir",
+        lambda: tmp_path / "postmark",
+    )
+    coll = create_new_collection("C")
+    req = create_new_request(coll.id, "GET", "http://req-limit.example", "R")
+    for index in range(4):
+        _insert(
+            request_id=req.id,
+            request_name="R",
+            url=f"http://req-limit-{index}.example",
+        )
+    rows = request_history_repository.list_for_request(
+        req.id,
+        search="req-limit",
+        limit=2,
+    )
+    assert len(rows) == 2
+
+
+def test_list_entries_for_sidebar_date_range(tmp_path, monkeypatch) -> None:
+    """Local calendar date bounds filter sidebar rows."""
+    monkeypatch.setattr(
+        "database.data_paths.postmark_user_data_dir",
+        lambda: tmp_path / "postmark",
+    )
+    old = _insert(url="http://old.example", request_name="old")
+    new = _insert(url="http://new.example", request_name="new")
+    from database.database import get_session
+    from database.models.request_history.model.request_history_entry_model import (
+        RequestHistoryEntryModel,
+    )
+
+    today = datetime.now(tz=UTC).date()
+    with get_session() as session:
+        old_row = session.get(RequestHistoryEntryModel, int(old["id"]))
+        assert old_row is not None
+        old_row.executed_at = datetime.combine(
+            today - timedelta(days=10),
+            datetime.min.time(),
+            tzinfo=UTC,
+        )
+        new_row = session.get(RequestHistoryEntryModel, int(new["id"]))
+        assert new_row is not None
+        new_row.executed_at = datetime.now(tz=UTC)
+        session.commit()
+
+    filtered = request_history_repository.list_entries_for_sidebar(
+        executed_from=today - timedelta(days=1),
+        executed_to=today,
+    )
+    ids = {int(row["id"]) for row in filtered}
+    assert int(new["id"]) in ids
+    assert int(old["id"]) not in ids

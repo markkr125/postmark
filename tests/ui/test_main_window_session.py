@@ -152,6 +152,18 @@ class TestPersistOpenTabs:
         assert saved is not None
         assert saved.get("left_sidebar_panel") == "local_scripts"
 
+    def test_persist_records_history_left_sidebar_panel(self, qapp: QApplication, qtbot) -> None:
+        """_persist_open_tabs saves the History left-rail flyout page."""
+        window = MainWindow()
+        qtbot.addWidget(window)
+
+        window._left_sidebar.open_panel("history")
+        window._persist_open_tabs()
+
+        saved = window._tab_settings_manager.load_open_tabs()
+        assert saved is not None
+        assert saved.get("left_sidebar_panel") == "history"
+
     def test_persist_records_local_script_tabs(self, qapp: QApplication, qtbot) -> None:
         """_persist_open_tabs saves local script tab ids and names."""
         from database.models.local_scripts.local_script_repository import (
@@ -275,6 +287,25 @@ class TestRestoreTabs:
         finish_main_window_startup(window)
 
         assert window._left_sidebar.active_panel == "local_scripts"
+        assert window._left_sidebar.is_open
+
+    def test_restore_opens_history_left_sidebar_panel(self, qapp: QApplication, qtbot) -> None:
+        """_restore_tabs reopens the persisted History left-rail flyout."""
+        tab_settings = TabSettingsManager(qapp)
+        tab_settings.save_open_tabs(
+            {
+                "tabs": [],
+                "active": 0,
+                "left_sidebar_panel": "history",
+            }
+        )
+
+        window = MainWindow(tab_settings_manager=tab_settings)
+        qtbot.addWidget(window)
+
+        finish_main_window_startup(window)
+
+        assert window._left_sidebar.active_panel == "history"
         assert window._left_sidebar.is_open
 
     def test_restore_opens_local_script_tabs(self, qapp: QApplication, qtbot) -> None:

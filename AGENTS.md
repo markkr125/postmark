@@ -288,6 +288,7 @@ src/
     ├── main_window/               # Top-level MainWindow sub-package
     │   ├── window.py              # MainWindow widget + signal wiring
     │   ├── send_pipeline.py       # _SendPipelineMixin — HTTP send (re-exports debug-hover helpers)
+    │   ├── history_navigation/    # _HistoryNavigationMixin — open global history into tabs + right History
     │   ├── send_pipeline_debug.py # _merge_debug_hover_values, _debug_hover_root_objects, …
     │   ├── send_pipeline_postresponse.py  # on_send_finished, run_post_response_script_with_live_response
     │   ├── send_pipeline_debug_session.py # on_debug_paused/step/finished, end_debug_ui
@@ -325,8 +326,9 @@ src/
     │   │   ├── search_filter.py       # _PanelSearchFilterMixin — body search/filter
     │   │   ├── helpers.py             # Formatting helpers (body size, language detect, etc.)
     │   │   └── delegate.py            # Custom delegate for saved response list items
-    │   └── history/                 # Per-request History flyout (right rail)
+    │   └── history/                 # Send-history flyouts (right per-request + left global); date_filter/ popup + mixin
     │       ├── panel.py               # HistoryPanel — list/detail + requestHistorySearch
+    │       ├── global_mode/           # Global mode mixin + Enter key filter (left rail)
     │       ├── panel_detail_tabs.py   # Read-only Headers / Request Headers / Request Body tabs
     │       ├── delegate.py            # HistoryEntryDelegate — status badge + date group headers
     │       ├── helpers.py             # Date grouping, list populate, row meta, sent headers
@@ -550,10 +552,14 @@ tests/
     ├── sidebar/                   # Sidebar widget tests
     │   ├── test_sidebar.py
     │   ├── test_left_sidebar.py
+    │   ├── test_left_sidebar_global_history.py
     │   ├── test_variables_panel.py
     │   ├── test_snippet_panel.py
     │   ├── test_debug_panel.py
-    │   └── test_saved_responses_panel.py
+    │   ├── test_saved_responses_panel.py
+    │   ├── test_request_history_panel.py
+    │   ├── test_global_history_panel.py
+    │   └── test_global_history_open_navigation.py
     ├── widgets/                   # Shared component tests
     │   ├── test_code_editor.py
     │   ├── test_code_editor_folding.py

@@ -272,6 +272,9 @@ standard object names:
 | `leftSidebarRailButton` | `QToolButton` | Rail icon (``_LeftRailButton``): width ``round(LEFT_RAIL_WIDTH_EM * em)``, icon ``round(LEFT_RAIL_ICON_EM * em)``, height ``icon_size + LEFT_RAIL_BUTTON_EXTRA_HEIGHT_PX``; checked left accent **painted** full height (``LEFT_RAIL_ACCENT_STRIPE_WIDTH_PX``); QSS margin/padding ``0`` |
 | `sidebarPanelArea` | `QWidget` | Right sidebar collapsible flyout panel (separate splitter child) |
 | `requestHistoryPanel` | `HistoryPanel` | Per-request History flyout (right rail, 4th button) |
+| `globalHistoryPanel` | `HistoryPanel` | Workspace History flyout (left rail, 3rd button; `set_global_mode`) |
+| `globalHistoryHeader` | `QWidget` | Left global History title row (History label + refresh) |
+| `requestHistoryOpenButton` | `QPushButton` | Hidden; global History opens on tree single-click |
 | `requestHistorySearch` | `QLineEdit` | Filter History by URL substring or status code (e.g. `200`) |
 | `requestHistoryList` | `QStackedWidget` | Bordered list area (tree or no-match empty state) |
 | `requestHistoryTree` | `QTreeWidget` | History tree inside `requestHistoryList` (date groups → sends) |

@@ -278,6 +278,9 @@ tests/
    │   ├── test_snippets_sidebar_panel.py
    │   ├── test_saved_responses_panel.py
    │   ├── test_request_history_panel.py
+   │   ├── test_global_history_panel.py
+   │   ├── test_left_sidebar_global_history.py
+   │   ├── test_global_history_open_navigation.py
    │   └── test_right_sidebar_request_history.py
     ├── collections/               # Collection sidebar tests
     │   ├── test_collection_header.py

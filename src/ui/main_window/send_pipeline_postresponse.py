@@ -97,6 +97,9 @@ def _record_request_history(
                 active_id = ctx.request_id
             if panel is not None and recorded_id is not None and active_id == recorded_id:
                 panel.refresh()
+            global_panel = getattr(window, "_global_history_panel", None)
+            if global_panel is not None:
+                global_panel.refresh()
     except Exception:
         import logging
 

@@ -56,6 +56,7 @@
 | [Import Parsers](api-reference/services/import-parsers.md) | Postman, cURL, and URL parser modules |
 | [ScriptEngine](api-reference/services/script-engine.md) | Script execution engine, runtimes, context builders |
 | [ScriptService](api-reference/services/script-service.md) | Script chain resolution from database ancestry |
+| [RequestHistoryService](api-reference/services/request-history-service.md) | Send history persistence, labels, stored response mapping |
 
 ### API Reference — Cross-Cutting
 

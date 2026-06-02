@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 
 from sqlalchemy import or_, select
@@ -22,6 +22,38 @@ def local_date(executed_at: datetime) -> date:
     if executed_at.tzinfo is None:
         executed_at = executed_at.replace(tzinfo=UTC)
     return executed_at.astimezone().date()
+
+
+def _utc_bounds_for_local_dates(
+    executed_from: date | None,
+    executed_to: date | None,
+) -> tuple[datetime | None, datetime | None]:
+    """Return inclusive-start and exclusive-end UTC bounds for local calendar days."""
+    tz = datetime.now().astimezone().tzinfo
+    start_utc: datetime | None = None
+    end_utc: datetime | None = None
+    if executed_from is not None:
+        start_local = datetime.combine(executed_from, time.min, tzinfo=tz)
+        start_utc = start_local.astimezone(UTC)
+    if executed_to is not None:
+        end_local = datetime.combine(executed_to + timedelta(days=1), time.min, tzinfo=tz)
+        end_utc = end_local.astimezone(UTC)
+    return start_utc, end_utc
+
+
+def _apply_executed_range(
+    stmt: Any,
+    *,
+    executed_from: date | None = None,
+    executed_to: date | None = None,
+) -> Any:
+    """Restrict *stmt* to rows whose ``executed_at`` falls in the local date range."""
+    start_utc, end_utc = _utc_bounds_for_local_dates(executed_from, executed_to)
+    if start_utc is not None:
+        stmt = stmt.where(RequestHistoryEntryModel.executed_at >= start_utc)
+    if end_utc is not None:
+        stmt = stmt.where(RequestHistoryEntryModel.executed_at < end_utc)
+    return stmt
 
 
 def _entry_to_dict(row: RequestHistoryEntryModel) -> dict[str, Any]:
@@ -136,28 +168,48 @@ def delete_entry(entry_id: int) -> bool:
     return True
 
 
-def get_entry(entry_id: int) -> dict[str, Any] | None:
-    """Load one entry with body bytes and request snapshot attached."""
+def get_entry_metadata(entry_id: int) -> dict[str, Any] | None:
+    """Load one history row from the database without reading on-disk payloads."""
     with get_session() as session:
         row = session.get(RequestHistoryEntryModel, entry_id)
         if row is None:
             return None
-        data = _entry_to_dict(row)
+        return _entry_to_dict(row)
+
+
+def get_entry(entry_id: int) -> dict[str, Any] | None:
+    """Load one entry with body bytes and request snapshot attached."""
+    data = get_entry_metadata(entry_id)
+    if data is None:
+        return None
     body_bytes = body_store.read_body(data.get("response_body_path"))
     data["body"] = body_bytes
     data["original_request"] = body_store.read_request_snapshot(data.get("request_snapshot_path"))
     return data
 
 
-def list_entries_for_sidebar(*, search: str = "", limit: int = 500) -> list[dict[str, Any]]:
-    """Return metadata rows newest-first; optional SQL search over all retained rows."""
+def list_entries_for_sidebar(
+    *,
+    search: str = "",
+    limit: int = 500,
+    executed_from: date | None = None,
+    executed_to: date | None = None,
+) -> list[dict[str, Any]]:
+    """Return metadata rows newest-first; optional search and local date range."""
     term = search.strip()
     with get_session() as session:
         stmt = select(RequestHistoryEntryModel).order_by(
             RequestHistoryEntryModel.executed_at.desc(),
             RequestHistoryEntryModel.id.desc(),
         )
-        stmt = _apply_history_search(stmt, term) if term else stmt.limit(limit)
+        if term:
+            stmt = _apply_history_search(stmt, term)
+        stmt = _apply_executed_range(
+            stmt,
+            executed_from=executed_from,
+            executed_to=executed_to,
+        )
+        stmt = stmt.limit(limit)
         rows = list(session.execute(stmt).scalars().all())
     return [_entry_to_dict(row) for row in rows]
 
@@ -180,6 +232,8 @@ def list_for_request(
     *,
     search: str = "",
     limit: int = 200,
+    executed_from: date | None = None,
+    executed_to: date | None = None,
 ) -> list[dict[str, Any]]:
     """Return metadata rows for one saved request, newest first."""
     term = search.strip()
@@ -192,7 +246,14 @@ def list_for_request(
                 RequestHistoryEntryModel.id.desc(),
             )
         )
-        stmt = _apply_history_search(stmt, term) if term else stmt.limit(limit)
+        if term:
+            stmt = _apply_history_search(stmt, term)
+        stmt = _apply_executed_range(
+            stmt,
+            executed_from=executed_from,
+            executed_to=executed_to,
+        )
+        stmt = stmt.limit(limit)
         rows = list(session.execute(stmt).scalars().all())
     return [_entry_to_dict(row) for row in rows]
 

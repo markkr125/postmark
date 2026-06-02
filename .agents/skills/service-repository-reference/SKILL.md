@@ -21,6 +21,8 @@ cross-layer data interchange.
 | `create_new_request(collection_id, method, url, name, ...)` | `RequestModel` | Create a request |
 | `rename_request(request_id, new_name)` | `None` | Update name |
 | `delete_request(request_id)` | `None` | Delete a single request |
+| `duplicate_request(request_id)` | `RequestModel` | Clone request + saved responses + assertions; unique `` Copy`` name |
+| `unique_duplicate_request_name(base_name, existing_names)` | `str` | ``{base} Copy`` or ``{base} Copy N`` |
 | `update_request_collection(request_id, new_collection_id)` | `None` | Move request |
 | `update_collection_parent(collection_id, new_parent_id)` | `None` | Move collection |
 | `save_response(request_id, ...)` | `int` | Persist a response snapshot, return its ID |
@@ -88,8 +90,9 @@ Metadata in SQLite; bodies/snapshots via `body_store.py` under
 |----------|---------|---------|
 | `insert_entry(...)` | `dict[str, Any]` | Insert row + write body/snapshot files; truncate body to `max_response_bytes` |
 | `get_entry(entry_id)` | `dict \| None` | Row + loaded body/snapshot bytes |
-| `list_entries_for_sidebar(search?, limit?)` | `list[dict]` | Newest-first global list (future left rail) |
-| `list_for_request(request_id, search?, limit?)` | `list[dict]` | Newest-first rows for one persisted `request_id` |
+| `list_entries_for_sidebar(search?, limit?)` | `list[dict]` | Newest-first global list (left rail); search always capped by `limit` |
+| `list_for_request(request_id, search?, limit?)` | `list[dict]` | Newest-first rows for one persisted `request_id`; search capped |
+| `delete_entry(entry_id)` | `bool` | Delete one row and on-disk payload files |
 | `prune_old_entries(retention_days, max_items_per_day, unlimited_per_day)` | `None` | Drop rows older than retention and over per-day cap |
 | `nullify_request_id(request_id)` | `None` | Set `request_id` NULL when collection request deleted |
 | `local_date(executed_at)` | `date` | Local calendar date for per-day caps |
@@ -137,6 +140,7 @@ directly to the repository with no added logic.
 | `create_request(collection_id, method, url, name, ...)` | `name.strip()`, `method.upper()`, rejects empty |
 | `rename_request(id, new_name)` | `new_name.strip()`, rejects empty |
 | `delete_request(id)` | Logging only |
+| `duplicate_request(id)` | Logging only; returns new `RequestModel` |
 | `move_request(id, new_collection_id)` | Passthrough |
 | `update_collection(id, **fields)` | Passthrough (generic field update) |
 | `update_request(id, **fields)` | Passthrough (generic field update) |
@@ -238,12 +242,16 @@ Module-level functions; class re-exports them as `@staticmethod` aliases.
 |--------|---------|
 | `gather_send_identity(ctx, editor, data)` | Capture method/url/name at send start |
 | `record_send(identity, response, original_request, settings)` | Persist send; prune per settings; return entry id |
-| `list_for_sidebar(search?)` | List all entries (global; future left rail) |
+| `list_for_sidebar(search?)` | List all entries (left-rail global History) |
+| `entry_to_http_response_dict(entry)` | Map stored entry → `ResponseViewer.load_stored_response` dict |
 | `list_for_request(request_id, search?)` | List sends for one saved request (right rail) |
 | `get_entry(entry_id)` | Full row with file payloads |
-| `entry_to_detail_snapshot(entry)` | Shape for future response viewer replay |
+| `entry_to_detail_snapshot(entry)` | Shape for HistoryPanel read-only detail tabs |
+| `build_replay_request_dict(entry)` | Editor load dict from snapshot |
+| `build_send_payload_from_entry(entry)` | HTTP replay worker payload |
+| `delete_entry(entry_id)` | Remove row and payload files |
 
-TypedDicts: `SendIdentityDict`, `RequestHistoryEntryDict`.
+TypedDicts: `SendIdentityDict`, `RequestHistoryEntryDict` (includes `was_persisted_request` for `(deleted)` / `(draft)` labels).
 
 Settings: `HistorySettingsManager` (`history/retention_days`, `max_items_per_day`,
 `unlimited_per_day`, `save_responses`, `max_response_bytes`).

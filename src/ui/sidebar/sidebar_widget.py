@@ -39,6 +39,24 @@ from ui.styling.icons import phi
 if TYPE_CHECKING:
     from services.environment_service import LocalOverride, VariableDetail
 
+_RAIL_TOOLTIP_SAVED_RESPONSES = "Saved responses"
+_RAIL_TOOLTIP_HISTORY = "History"
+_RAIL_TOOLTIP_SAVED_DRAFT = "Save the request to the collection first."
+_RAIL_TOOLTIP_HISTORY_DRAFT = "Save the request to the collection first."
+_RAIL_TOOLTIP_SAVED_ORPHAN = (
+    "Saved responses belong to a request in the collection. "
+    "The original request was deleted — save this tab to the collection to use saved responses."
+)
+_RAIL_TOOLTIP_HISTORY_ORPHAN = (
+    "Per-request history belongs to a saved request. "
+    "The original request was deleted — save this tab or use workspace History on the left."
+)
+
+
+def _rail_tooltip(enabled: bool, enabled_tip: str, disabled_tip: str) -> str:
+    """Return the rail-button tooltip for *enabled* vs disabled state."""
+    return enabled_tip if enabled else disabled_tip
+
 
 # ------------------------------------------------------------------
 # Flyout panel — separate splitter child
@@ -160,8 +178,8 @@ class RightSidebar(QWidget):
             "Variables",
         )
         self._snippet_btn = self._make_rail_button("code", "Code snippet")
-        self._saved_btn = self._make_rail_button("floppy-disk-back", "Saved responses")
-        self._history_btn = self._make_rail_button("clock-counter-clockwise", "History")
+        self._saved_btn = self._make_rail_button("floppy-disk-back", _RAIL_TOOLTIP_SAVED_RESPONSES)
+        self._history_btn = self._make_rail_button("clock-counter-clockwise", _RAIL_TOOLTIP_HISTORY)
         self._snippet_btn.hide()
         self._saved_btn.hide()
         self._history_btn.hide()
@@ -343,18 +361,31 @@ class RightSidebar(QWidget):
         items: list[SavedResponseDict],
         can_save_current: bool,
         is_persisted_request: bool,
+        from_deleted_request_history: bool = False,
     ) -> None:
         """Populate the saved responses panel for the active request context."""
         self._saved_btn.setVisible(True)
         self._saved_btn.setEnabled(is_persisted_request)
+        disabled_tip = (
+            _RAIL_TOOLTIP_SAVED_ORPHAN
+            if from_deleted_request_history
+            else _RAIL_TOOLTIP_SAVED_DRAFT
+        )
+        self._saved_btn.setToolTip(
+            _rail_tooltip(is_persisted_request, _RAIL_TOOLTIP_SAVED_RESPONSES, disabled_tip)
+        )
         self._saved_responses_panel.set_request_context(request_id, request_name)
         self._saved_responses_panel.set_live_response_available(can_save_current)
         if not is_persisted_request:
             if self._active_panel == "saved_responses":
                 self._close_panel()
-            self._saved_responses_panel.show_request_required_state(
-                "Save the request first to store and browse saved responses."
+            empty_msg = (
+                "The original request was deleted from the collection. "
+                "Save this tab to the collection to store and browse saved responses."
+                if from_deleted_request_history
+                else "Save the request first to store and browse saved responses."
             )
+            self._saved_responses_panel.show_request_required_state(empty_msg)
             return
         self._saved_responses_panel.set_saved_responses(items)
 
@@ -364,11 +395,27 @@ class RightSidebar(QWidget):
         request_id: int | None,
         request_name: str | None,
         is_persisted_request: bool,
+        load_detail: bool = True,
+        from_deleted_request_history: bool = False,
     ) -> None:
         """Populate the send-history panel for the active request context."""
         self._history_btn.setVisible(True)
         self._history_btn.setEnabled(is_persisted_request)
-        self._request_history_panel.set_request_context(
+        disabled_tip = (
+            _RAIL_TOOLTIP_HISTORY_ORPHAN
+            if from_deleted_request_history
+            else _RAIL_TOOLTIP_HISTORY_DRAFT
+        )
+        self._history_btn.setToolTip(
+            _rail_tooltip(is_persisted_request, _RAIL_TOOLTIP_HISTORY, disabled_tip)
+        )
+        panel = self._request_history_panel
+        context_unchanged = (
+            panel._request_id == request_id
+            and panel._is_persisted_request == is_persisted_request
+            and is_persisted_request
+        )
+        panel.set_request_context(
             request_id,
             request_name,
             is_persisted_request=is_persisted_request,
@@ -376,11 +423,16 @@ class RightSidebar(QWidget):
         if not is_persisted_request:
             if self._active_panel == "request_history":
                 self._close_panel()
-            self._request_history_panel.show_request_required_state(
-                "Save the request first to browse history for this request."
+            empty_msg = (
+                "The original request was deleted from the collection. "
+                "Use workspace History on the left, or save this tab to browse per-request history."
+                if from_deleted_request_history
+                else "Save the request first to browse history for this request."
             )
+            panel.show_request_required_state(empty_msg)
             return
-        self._request_history_panel.refresh()
+        if not context_unchanged:
+            panel.refresh(load_detail=load_detail)
 
     def clear(self) -> None:
         """Reset the sidebar to an empty state (no tab open)."""

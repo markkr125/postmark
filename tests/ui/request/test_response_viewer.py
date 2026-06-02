@@ -246,8 +246,12 @@ class TestResponseViewerWidget:
         viewer._format_combo.setCurrentText("Pretty")
         viewer.load_response(_make_response(body='{"a":1,"b":2}', elapsed_ms=5.0, size_bytes=13))
 
+        def _pretty_ready() -> bool:
+            text = viewer._body_edit.toPlainText()
+            return "\n" in text and '"a": 1' in text
+
+        qtbot.waitUntil(_pretty_ready, timeout=5000)
         body = viewer._body_edit.toPlainText()
-        # Pretty-printed JSON has newlines
         assert "\n" in body
         assert '"a": 1' in body
 
@@ -278,6 +282,12 @@ class TestResponseViewerBeautify:
         """Beautify formats compact JSON into indented output."""
         viewer = self._make_viewer_with_body(qtbot, '{"a":1,"b":2}')
         viewer._on_beautify()
+
+        def _pretty_ready() -> bool:
+            text = viewer._body_edit.toPlainText()
+            return "\n" in text and '"a": 1' in text
+
+        qtbot.waitUntil(_pretty_ready, timeout=5000)
         body = viewer._body_edit.toPlainText()
         assert "\n" in body
         assert '"a": 1' in body
@@ -287,6 +297,12 @@ class TestResponseViewerBeautify:
         xml_input = "<root><child>val</child></root>"
         viewer = self._make_viewer_with_body(qtbot, xml_input)
         viewer._on_beautify()
+
+        def _pretty_ready() -> bool:
+            text = viewer._body_edit.toPlainText()
+            return "<root>" in text and "  " in text
+
+        qtbot.waitUntil(_pretty_ready, timeout=5000)
         body = viewer._body_edit.toPlainText()
         assert "<root>" in body
         assert "  " in body  # indented
@@ -340,6 +356,41 @@ class TestResponseViewerSaveResponse:
         viewer.save_response_requested.connect(lambda d: emitted.append(d))
         viewer._on_save_response()
         assert emitted == []
+
+
+class TestResponseViewerStoredResponse:
+    """Tests for load_stored_response (history / non-live display)."""
+
+    def test_stored_response_not_saveable(self, qapp: QApplication, qtbot) -> None:
+        """Stored history responses do not enable Save Response."""
+        viewer = ResponseViewerWidget()
+        qtbot.addWidget(viewer)
+        viewer.load_response(_make_response(body="live"))
+        assert viewer.has_live_response()
+        viewer.load_stored_response(_make_response(body="stored"))
+        assert not viewer.has_live_response()
+        assert not viewer._save_response_btn.isEnabled()
+        assert "stored" in viewer._body_edit.toPlainText()
+
+    def test_stored_response_hides_test_results_tab(self, qapp: QApplication, qtbot) -> None:
+        """Stored load clears script test output from a prior live response."""
+        viewer = ResponseViewerWidget()
+        qtbot.addWidget(viewer)
+        viewer.load_response(_make_response(body="live"))
+        viewer.load_test_results([{"name": "check", "passed": True, "error": None}])
+        assert viewer._tabs.isTabVisible(viewer._test_tab_index)
+        viewer.load_stored_response(_make_response(body="stored"))
+        assert not viewer._tabs.isTabVisible(viewer._test_tab_index)
+
+    def test_show_loading_clears_stored_body(self, qapp: QApplication, qtbot) -> None:
+        """Starting a send clears stored-history body text before loading UI."""
+        viewer = ResponseViewerWidget()
+        qtbot.addWidget(viewer)
+        viewer.load_stored_response(_make_response(body="from-history"))
+        assert "from-history" in viewer._body_edit.toPlainText()
+        viewer.show_loading()
+        assert viewer._body_edit.toPlainText() == ""
+        assert not viewer.has_live_response()
 
 
 class TestResponseViewerPopups:

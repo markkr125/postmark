@@ -127,6 +127,7 @@ class TabContext:
         self.last_activated_order: int = 0
         self.nav_token: int = nav_token if nav_token is not None else allocate_tab_nav_token()
         self.replay_source_entry_id: int | None = None
+        self.variable_collection_id: int | None = None
 
     def require_editor(self) -> RequestEditorWidget:
         """Return the request editor when this tab mounts one.

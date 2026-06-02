@@ -69,6 +69,7 @@ class _TreeActionsMixin(_TreeOverlayRenameMixin, _TreeActionsBase):
     request_rename_requested: Signal
     script_rename_requested: Signal
     request_delete_requested: Signal
+    request_duplicate_requested: Signal
     new_collection_requested: Signal
     new_request_requested: Signal
     run_collection_requested: Signal
@@ -91,6 +92,7 @@ class _TreeActionsMixin(_TreeOverlayRenameMixin, _TreeActionsBase):
         for label, _icon_name in [
             ("Open", "arrow-square-out"),
             ("Rename", "pencil-simple"),
+            ("Duplicate", "copy"),
             ("Delete", "trash"),
         ]:
             action = self._request_menu.addAction(label)
@@ -191,6 +193,8 @@ class _TreeActionsMixin(_TreeOverlayRenameMixin, _TreeActionsBase):
 
         if action_name == "Rename":
             self._handle_rename(item_id, item_type)
+        elif action_name == "Duplicate" and is_leaf_item_type(item_type) and item_type == "request":
+            self.request_duplicate_requested.emit(item_id)
         elif action_name == "Delete":
             self._handle_delete(item_id, item_type)
         elif action_name == "Run" and item_type == "folder":

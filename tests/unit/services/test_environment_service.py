@@ -177,6 +177,20 @@ class TestCombinedVariableMap:
         result = EnvironmentService.build_combined_variable_map(None, req.id)
         assert result == {"host": "coll-host"}
 
+    def test_collection_id_without_request(self) -> None:
+        """Draft tabs can resolve variables via ``collection_id`` alone."""
+        coll = create_new_collection("Root")
+        update_collection(
+            coll.id,
+            variables=[{"key": "token", "value": "from-coll", "enabled": True}],
+        )
+        result = EnvironmentService.build_combined_variable_map(
+            None,
+            None,
+            collection_id=coll.id,
+        )
+        assert result == {"token": "from-coll"}
+
     def test_only_environment_variables(self) -> None:
         """Environment variables are returned when no request is set."""
         env = EnvironmentService.create_environment(
