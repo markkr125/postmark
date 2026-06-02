@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QObject, QRunnable, Signal
+from shiboken6 import isValid
 
 from ui.sidebar.saved_responses.helpers import format_code_text
 
@@ -36,10 +37,14 @@ class FormatTextRunnable(QRunnable):
 
     def run(self) -> None:
         """Format text and emit the result with the job *generation* id."""
+        if not isValid(self._signals):
+            return
         try:
             formatted = format_code_text(self._text, self._language, pretty=self._pretty)
         except Exception:
             formatted = self._text
+        if not isValid(self._signals):
+            return
         self._signals.finished.emit(self._generation, formatted)
 
 

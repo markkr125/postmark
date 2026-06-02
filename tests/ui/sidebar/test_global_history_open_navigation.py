@@ -58,14 +58,23 @@ class TestGlobalHistoryOpenNavigation:
         qtbot.addWidget(window)
         finish_main_window_startup(window)
         window._run_open_from_global_history(entry_id)
-        qtbot.wait(100)
+        qtbot.waitUntil(
+            lambda: window._tab_context_for_request_id(req.id) is not None,
+            timeout=5000,
+        )
         ctx = window._tab_context_for_request_id(req.id)
         assert ctx is not None
         viewer = ctx.response_viewer
         assert viewer is not None
         assert "teapot" not in viewer._body_edit.toPlainText().lower()
-        assert window._right_sidebar.active_panel == "request_history"
-        assert window._request_history_panel._current_entry_id == entry_id
+        qtbot.waitUntil(
+            lambda: window._right_sidebar.active_panel == "request_history",
+            timeout=5000,
+        )
+        qtbot.waitUntil(
+            lambda: window._request_history_panel._current_entry_id == entry_id,
+            timeout=5000,
+        )
 
     def test_open_deleted_request_creates_draft(
         self,

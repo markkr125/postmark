@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, cast
 
 from PySide6.QtCore import QPoint, Qt, QTimer, Signal
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QCloseEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -417,6 +417,13 @@ class HistoryPanel(  # type: ignore[misc]
         self._select_entry(entry_id, load_detail=False)
         if load_detail and entry_id is not None and not self._is_global_mode():
             self._schedule_detail_load(entry_id)
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        """Cancel in-flight detail/format work before widget teardown."""
+        self._detail_loader.cancel()
+        self._body_format_runner.cancel()
+        self._req_body_format_runner.cancel()
+        super().closeEvent(event)
 
     def clear(self) -> None:
         """Reset the panel to its no-request state."""
