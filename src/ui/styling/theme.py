@@ -597,6 +597,17 @@ LEFT_RAIL_BUTTON_EXTRA_HEIGHT_PX = 28
 LEFT_RAIL_ACCENT_STRIPE_WIDTH_PX = 3
 
 
+def ai_capability_color(kind: str) -> tuple[str, str]:
+    """Return ``(background, foreground)`` hex colours for an AI capability pill."""
+    p = current_palette()
+    mapping: dict[str, tuple[str, str]] = {
+        "suggest": (p["warning"], p["solid_button_fg"]),
+        "tools": (p["accent"], p["solid_button_fg"]),
+        "vision": (p["options"], p["solid_button_fg"]),
+    }
+    return mapping.get(kind, (p["bg_alt"], p["text"]))
+
+
 def method_color(method: str) -> str:
     """Return the theme colour for a given HTTP method."""
     return METHOD_COLORS.get(method.upper(), DEFAULT_METHOD_COLOR)

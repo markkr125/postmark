@@ -132,6 +132,7 @@ def _reset_tab_settings() -> None:
     settings = QSettings("Postmark", "Postmark")
     settings.remove("tabs")
     settings.remove("scripts")
+    settings.remove("ai")
     settings.remove("ui/kv_col_widths")
     settings.sync()
 

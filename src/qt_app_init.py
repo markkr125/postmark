@@ -11,9 +11,12 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QGuiApplication
 
+from services.ai.sdk_env import ensure_openhands_env
+
 
 def configure_before_qapplication() -> None:
-    """Round fractional Hi-DPI scale factors (no-op if a GUI app already exists)."""
+    """Hi-DPI rounding and process-wide defaults before ``QApplication``."""
+    ensure_openhands_env()
     if QGuiApplication.instance() is not None:
         return
     QGuiApplication.setHighDpiScaleFactorRoundingPolicy(

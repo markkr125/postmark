@@ -420,6 +420,20 @@ def build_global_qss(p: ThemePalette) -> str:
         background: {"rgba(255,255,255,0.02)" if p is DARK_PALETTE else "rgba(0,0,0,0.02)"};
         color: {p["text_muted"]};
     }}
+    QPushButton#aiProviderActionsButton {{
+        border: none;
+        padding: 0px;
+        border-radius: 4px;
+        background: transparent;
+        color: {p["text"]};
+    }}
+    QPushButton#aiProviderActionsButton:hover {{
+        background: {"rgba(255,255,255,0.08)" if p is DARK_PALETTE else "rgba(0,0,0,0.06)"};
+    }}
+    QPushButton#aiProviderActionsButton:disabled {{
+        background: {"rgba(255,255,255,0.02)" if p is DARK_PALETTE else "rgba(0,0,0,0.02)"};
+        color: {p["text_muted"]};
+    }}
     QPushButton#debugBreakpointToolbarButton {{
         border: 1px solid {p["border"]};
         padding: 0px;
@@ -683,6 +697,16 @@ def build_global_qss(p: ThemePalette) -> str:
         border: 1px solid {p["border"]};
         background: {p["input_bg"]};
     }}
+    QFrame#aiProviderModelsListPanel {{
+        border: 1px solid {p["border"]};
+        background: {p["input_bg"]};
+        border-radius: 4px;
+    }}
+    QListWidget#aiProviderModelsList {{
+        border: none;
+        background: transparent;
+        outline: none;
+    }}
     QListWidget[objectName="versionList"] {{
         border: none;
         border-top: 1px solid {p["border"]};
@@ -850,6 +874,16 @@ def build_global_qss(p: ThemePalette) -> str:
         background-color: {p["selected_bg"]};
         color: {p["text"]};
     }}
+    QTreeWidget#aiModelsTree::item {{
+        background-color: {p["bg"]};
+    }}
+    QTreeWidget#aiModelsTree::item:hover {{
+        background-color: {p["hover_tree_bg"]};
+    }}
+    QTreeWidget#aiModelsTree::item:selected {{
+        background-color: {p["selected_bg"]};
+        color: {p["text"]};
+    }}
 
     /* ---- Request tab bar ---------------------------------------- */
     RequestTabBar {{
@@ -894,6 +928,18 @@ def build_global_qss(p: ThemePalette) -> str:
     QMenu::item:selected:enabled {{
         background-color: {p["accent"]};
         color: {p["bg"]};
+    }}
+    QMenu#aiProviderActionsMenu::item:selected:enabled {{
+        background-color: {p["accent"]};
+        color: {p["solid_button_fg"]};
+    }}
+
+    QFrame#aiProviderDialogSeparator {{
+        color: {p["border"]};
+        background: {p["border"]};
+        border: none;
+        max-height: 1px;
+        margin: 8px 0px;
     }}
 
     /* ---- Toolbar buttons ---------------------------------------- */

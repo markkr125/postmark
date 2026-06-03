@@ -356,6 +356,14 @@ RequestEditorWidget / FolderEditorWidget open_scripting_settings_requested
   → MainWindow._on_open_scripting_settings
     → _open_settings_dialog(initial_category="Scripting")
       → editor._update_runtime_banners() after dialog closes
+
+Settings → AI → Models (provider/model list)
+  → SettingsDialog._build_ai_pages → build_ai_page(_mark_dirty)
+  → AiPageController (in-memory models until Apply)
+  → Apply → AiPageController.apply() → AiConfig.save_all
+  → Add provider dialog → Test connection → AiProviderSetupWorker → setup_provider
+    (Ollama/OpenAI/etc.: HTTP model list only; Anthropic/Gemini/etc.: chat ping + catalog)
+  → closeEvent → AiPageController.cleanup() (stop test thread)
 ```
 
 ### Collection runner flow

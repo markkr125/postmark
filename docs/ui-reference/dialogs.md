@@ -49,9 +49,14 @@ Save a draft request to an existing or new collection.
 ## SettingsDialog
 
 Application preferences dialog.  Optional constructor keyword
-`initial_category` (``"Appearance"``, ``"Tabs"``, ``"Scripting"``, or
-``"History"``) selects the list row on open; the **Scripting** page holds
+`initial_category` (``"Appearance"``, ``"Tabs"``, ``"Scripting"``,
+``"History"``, ``"AI"``, ``"Models"``, ``"Private packages"``, ``"npm"``, ``"JSR"``, or
+``"PyPI"``) selects the list row on open; the **Scripting** page holds
 the Deno path and managed download.
+
+Footer buttons (left to right): **OK** (apply pending changes if any, then
+close), **Cancel** (close without applying), **Apply** (persist and stay open;
+enabled when a setting changes).
 
 ### Category Pages
 
@@ -61,6 +66,8 @@ the Deno path and managed download.
 | Tabs | Tab limit, close policies, activate-on-close, wrap mode |
 | Scripting | Deno executable path, validation, managed download; Python path; LSP toggle (tooltip notes debounced `didChange` / `pm.require` indexing); **Reset LSP workspace caches** (`pm_require_types.reset_workspace`); auto-save default; **Private package registries** (npm / JSR scope-mapped + default-npm override + PyPI primary/extra index with embedded auth) |
 | History | Send retention (days), max entries per day (or unlimited), save response bodies toggle, max response size (MiB), read-only storage path under user data (`history/`). Applied on next send and by background prune. See [RequestHistoryService](../api-reference/services/request-history-service.md). |
+| AI | Overview landing for AI settings (parent tree row). Select **Models** for configuration. |
+| Models (under AI) | **Add provider** opens the provider dialog (test + import tool-capable models on save). **Edit provider** opens with the saved model list prefilled; skips connection test on Save when only the display name and/or Ollama **Default context** changed (provider type, URL, and API key unchanged). **Refresh model list** or **Test connection** replaces the list after a successful fetch. Tree columns: Name, Model, Context, **Cost** (USD per 1M tokens when known; blank otherwise), **Capabilities** (colored pills painted by `AiModelsTreeDelegate`: `suggest`, `tools`, `vision`; hover each tag for a description). Ollama refresh probes each model with `/api/show` for `insert`/`tools`/`vision`. The provider dialog includes **Default context** (4k–1M; default **32k**) used when context cannot be resolved from the API. Column widths are user-resizable and persisted in QSettings (`ui/ai_models_tree_header`). Model rows load in batches after the page is shown. Provider rows show the connection name in **Name** (bold) and a **gear** button at the far right of **Capabilities** that opens a menu: **Edit provider**, **Refresh models**, **Select all**, **Deselect all**, and **Remove provider**. Bottom bar: **Add provider**, **Expand all**, **Collapse all**. Saves immediately to QSettings. `ai_page.py`, `ai_page_actions.py`, `ai_provider_dialog.py`; `services/ai/ops/model_metadata.py`. |
 
 ### Private package registries (Scripting page)
 

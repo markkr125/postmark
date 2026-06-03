@@ -106,9 +106,9 @@ Fastest paths to understand and navigate the codebase:
 
 - **All services at a glance:** Read `src/services/__init__.py` — re-exports
   `CollectionService`, `EnvironmentService`, `ImportService`,
-  `RunHistoryService`, `RequestHistoryService`, and key TypedDicts
-  (`RequestLoadDict`, `VariableDetail`, `LocalOverride`,
-  `RequestHistoryEntryDict`, `SendIdentityDict`).
+  `RunHistoryService`, `RequestHistoryService`, `AiConfig`, `AiLlmService`,
+  and key TypedDicts (`RequestLoadDict`, `VariableDetail`, `LocalOverride`,
+  `RequestHistoryEntryDict`, `SendIdentityDict`, `AiModelEntry`).
 - **HTTP subsystem:** Read `src/services/http/__init__.py` — re-exports
   `HttpService`, `GraphQLSchemaService`, `SnippetGenerator`,
   `SnippetOptions`, `HttpResponseDict`, `parse_header_dict`.
@@ -196,6 +196,13 @@ src/
 │               └── request_history_entry_model.py  # RequestHistoryEntryModel (metadata in SQLite)
 ├── services/                      # Service layer (UI ↔ DB bridge)
 │   ├── collection_service.py      # CollectionService (static methods)
+│   ├── ai/                        # AI / LLM provider configuration (OpenHands SDK)
+│   │   ├── provider_catalog.py    # Static provider/model catalog (display defaults)
+│   │   ├── ai_config.py           # AiConfig + AiModelEntry — QSettings ai/models, ai/default_model
+│   │   ├── sdk_env.py             # ensure_openhands_env + connection timeouts
+│   │   ├── ai_logging.py          # [postmark.ai] stderr log during provider setup
+│   │   ├── ops/                   # setup_provider, fetch_provider_models, model_metadata
+│   │   └── llm_service.py         # AiLlmService — build/test openhands.sdk.LLM
 │   ├── assertion_service.py       # AssertionService + AssertionDict — declarative tests CRUD + compile
 │   ├── local_script_service.py    # LocalScriptService + LocalScriptLoadDict
 │   ├── snippet_service.py         # SnippetService — user snippet CRUD + loader cache invalidation
@@ -410,7 +417,11 @@ src/
     │       └── collection_tree_delegate.py  # Custom delegate for method badges
     ├── dialogs/                   # Modal dialogs
     │   ├── settings/
-    │   │   └── history_page.py    # Settings → History page (retention, bodies, storage path)
+    │   │   ├── history_page.py    # Settings → History page (retention, bodies, storage path)
+    │   │   ├── ai_provider_dialog.py # Add/edit provider credentials + model (in-dialog Test connection)
+    │   │   ├── ai_provider_workers.py # Setup worker + AiRefreshUiBridge (GUI-thread refresh slot)
+    │   │   ├── ai_page.py         # Settings → AI → Models tree; refresh updates children only
+    │   │   └── ai_page_actions.py # Provider actions + resizable tree header (QSettings)
     │   ├── collection_runner/
     │   │   ├── __init__.py        # Re-exports RunnerConfigView, RunnerResultsView, RunnerWorker
     │   │   ├── config.py          # RunnerConfigView (env selector, request checklist, data file, iterations, delay)
@@ -418,7 +429,7 @@ src/
     │   │   └── worker.py          # RunnerWorker (QThread), env var substitution, scripts_enabled (imports parse_data_file from services)
     │   ├── import_dialog.py
     │   ├── save_request_dialog.py  # Save draft request to collection
-    │   └── settings_dialog.py     # Settings (theme + request-tab + Scripting: LSP toggle, Deno/Python paths)
+    │   └── settings_dialog.py     # Settings (theme, tabs, Scripting, History, AI, private packages)
     ├── environments/              # Environment management widgets
     │   ├── environment_editor.py  # EnvironmentEditorWidget + EnvironmentEditorDialog
     │   ├── environment_selector.py
@@ -529,6 +540,9 @@ tests/
 │       ├── test_deno_manager.py
 │       ├── test_runtime_settings.py
 │       ├── test_request_history_service.py
+│       ├── ai/                    # AI config + LLM service tests
+│       │   ├── test_ai_config.py
+│       │   └── test_llm_service.py
 │       └── http/                  # HTTP service tests
 │           ├── test_http_service.py
 │           ├── test_graphql_schema_service.py
@@ -591,6 +605,7 @@ tests/
     │   └── test_new_local_script_popup.py
     ├── dialogs/                   # Dialog tests
     │   ├── test_collection_runner.py
+    │   ├── test_ai_page.py
     │   ├── test_import_dialog.py
     │   ├── test_save_request_dialog.py
     │   └── test_settings_dialog.py

@@ -56,6 +56,35 @@ Includes `was_persisted_request` for `(deleted)` vs `(draft)` labels when
 `request_id` is null. See also `SendIdentityDict` and `HistorySendPayloadDict`
 in the same module.
 
+### AiModelEntry
+
+**Module:** `services/ai/ai_config.py`
+
+One configured LLM model row in Settings → AI. Persisted in QSettings `ai/models`
+(JSON list). API keys are **not** in this dict — use `auth_ref` (e.g. `ai:<uuid>`)
+with `secret_store`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `str` | Stable row UUID (hex) |
+| `provider` | `str` | Catalog provider key (`openai`, `anthropic`, …) |
+| `label` | `str` | Per-model display name in the tree (from the provider API, not the provider connection name) |
+| `provider_display_name` | `str` | Optional provider connection label in the tree; auto-filled as catalog name or ``Name 2`` when empty on save |
+| `model` | `str` | LiteLLM model string |
+| `base_url` | `str` | Optional endpoint (Azure, Ollama, custom) |
+| `api_version` | `str` | Optional API version (Azure) |
+| `auth_kind` | `"token" \| "none"` | Whether a keychain secret is used |
+| `auth_ref` | `str` | Secret store ref when `auth_kind` is `token` |
+| `context` | `int` | Optional context-window token count |
+| `tools` | `bool` | Optional tool/function calling support flag |
+| `vision` | `bool` | Optional image/vision input support flag |
+| `text` | `bool` | Optional text/completion support flag |
+| `insert` | `bool` | Optional fill-in-the-middle support flag (Ollama `insert`; shown as **suggest** in settings) |
+| `enabled` | `bool` | When true, the model is available for use; defaults to **false** for new and migrated rows |
+| `default_context` | `int` | Optional Ollama provider default context (tokens) when `/api/show` and LiteLLM omit a window; default **32k** |
+| `input_cost_per_token` | `float` | Optional persisted input cost in USD per token |
+| `output_cost_per_token` | `float` | Optional persisted output cost in USD per token |
+
 ### VariableDetail
 
 **Module:** `services/environment_service.py`

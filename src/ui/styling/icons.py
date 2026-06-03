@@ -128,6 +128,19 @@ def phi(name: str, *, color: str = "", size: int = _DEFAULT_SIZE) -> QIcon:
     return icon
 
 
+def phi_menu(name: str, *, size: int = _DEFAULT_SIZE) -> QIcon:
+    """Return a menu action icon that turns white when the row is highlighted."""
+    from ui.styling.theme import COLOR_SOLID_BUTTON_FG, COLOR_TEXT
+
+    icon = QIcon()
+    normal = phi(name, color=COLOR_TEXT, size=size).pixmap(size, size)
+    highlighted = phi(name, color=COLOR_SOLID_BUTTON_FG, size=size).pixmap(size, size)
+    icon.addPixmap(normal, QIcon.Mode.Normal, QIcon.State.Off)
+    for mode in (QIcon.Mode.Active, QIcon.Mode.Selected):
+        icon.addPixmap(highlighted, mode, QIcon.State.Off)
+    return icon
+
+
 def clear_cache() -> None:
     """Drop all cached icons.
 

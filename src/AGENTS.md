@@ -84,6 +84,25 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   Do not add instance state without updating every call site.
 - `EnvironmentService`, `HttpService`, `GraphQLSchemaService`, and
   `SnippetGenerator` follow the same `@staticmethod` pattern.
+- **`services/ai`** — `AiConfig` persists configured LLM models in QSettings
+  (`ai/models` JSON list; legacy `ai/default_model` cleared on save). `AiModelEntry` TypedDict
+  holds per-row metadata (`label` = model name, `provider_display_name` =
+  provider group header, `enabled` default false, `context`, `text`, `insert`,
+  `tools`, `vision`, optional costs); settings Models tree has an **Enabled**
+  checkbox column and capability pills `suggest` / `tools` / `vision`.
+  Empty provider display names auto-allocate unique catalog names on save.
+  Ollama refresh derives `insert`/`tools`/`vision` from `/api/show`; optional
+  `default_context` (provider dialog, 4k–1M, default 32k) fills context when the
+  API omits it. API keys
+  use `auth_ref`
+  pointing at
+  `ai:<uuid>` in `secret_store` (never in QSettings). `sdk_env.ensure_openhands_env`
+  runs at startup (`qt_app_init`) and before SDK import — suppresses OpenHands
+  banner/Rich logging and SQLAlchemy INFO noise. `AiLlmService` builds
+  and tests `openhands.sdk.LLM` instances (lazy SDK import).   Settings UI: tree branch **AI** (overview) → **Models** child;
+  `ui/dialogs/settings/ai_page.py` + `AiProviderDialog` (per-provider credentials,
+  in-dialog Test connection, live model list); Apply calls
+  `AiPageController.apply()`.
 - `RunHistoryService` follows the same `@staticmethod` pattern.  It wraps
   `run_history_repository` for run history CRUD (create, finish, add result,
   query runs/results, delete).

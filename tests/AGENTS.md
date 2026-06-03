@@ -191,6 +191,19 @@ tests/
 │       ├── test_script_error_format.py
 │       ├── test_runtime_settings.py
 │       ├── test_request_history_service.py
+│       ├── ai/
+│       │   ├── test_ai_config.py
+│       │   ├── test_provider_display_name.py
+│       │   ├── test_llm_service.py
+│       │   ├── test_provider_ops.py
+│       │   ├── test_model_filters.py
+│       │   ├── test_model_metadata.py
+│       │   ├── test_ai_logging.py
+│       │   ├── test_capability_display.py
+│       │   ├── test_cost_display.py
+│       │   ├── test_ai_page_splice.py
+│       │   ├── test_ai_models_tree_header.py
+│       │   └── test_sdk_env.py
 │       ├── test_request_history_replay.py
 │       ├── test_request_history_snapshot_headers.py
 │       ├── test_secret_store.py     # SecretStore backends: keyring / encrypted-file / noop; default-store self-test fallback
@@ -295,6 +308,8 @@ tests/
     │   ├── test_new_item_popup.py
     │   └── test_new_local_script_popup.py
     ├── dialogs/                   # Dialog tests
+    │   ├── test_ai_page.py
+    │   ├── test_ai_provider_dialog.py
     │   ├── test_collection_runner.py
     │   ├── test_import_dialog.py
     │   ├── test_save_request_dialog.py

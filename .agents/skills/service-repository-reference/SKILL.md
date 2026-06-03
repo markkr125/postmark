@@ -256,6 +256,29 @@ TypedDicts: `SendIdentityDict`, `RequestHistoryEntryDict` (includes `was_persist
 Settings: `HistorySettingsManager` (`history/retention_days`, `max_items_per_day`,
 `unlimited_per_day`, `save_responses`, `max_response_bytes`).
 
+### AiConfig / AiLlmService (`services/ai/`)
+
+All methods are `@staticmethod`.  No database layer.
+
+| Class / method | Purpose |
+|--------------|---------|
+| `AiConfig.get_models()` | Load configured models from QSettings `ai/models` (JSON); migrate missing `id` |
+| `AiConfig.set_models(entries)` | Persist model list |
+| `AiConfig.get_default_model_id()` | Legacy default row id or `""` |
+| `AiConfig.set_default_model_id(model_id)` | Persist/clear legacy default id |
+| `AiConfig.save_all(entries)` | Persist models; clears legacy default id |
+| `AiLlmService.build_llm(entry, …)` | Build `openhands.sdk.LLM` (resolves key via `secret_store`) |
+| `AiLlmService.test(entry)` | Ping completion; returns `(ok, detail)`; never raises |
+
+TypedDict: `AiModelEntry` (`id`, `provider`, `label`, optional
+`provider_display_name`, `model`, `base_url`, `api_version`, `auth_kind`,
+`auth_ref`, optional `context`, `text`, `insert`, `tools`, `vision`,
+`input_cost_per_token`, `output_cost_per_token`). `label` is the per-model name;
+`provider_display_name` is the provider group header (auto-allocated via
+`allocate_provider_display_name` when empty). Secrets: `auth_ref` → keychain
+`ai:<uuid>`. Settings tree pills: `suggest`, `tools`, `vision`. Ollama refresh
+reads `insert`/`tools`/`vision` from `/api/show`.
+
 ### LocalScriptService (`services/local_script_service.py`)
 
 All methods are `@staticmethod`.  UI must use this module, not `database/`.

@@ -46,6 +46,7 @@ from services.scripting.runtime_settings import (
 )
 from services.scripting.secret_store import backend_status
 from ui.styling.icons import phi
+from ui.dialogs.settings.ai_page import AiPageController, build_ai_page
 from ui.dialogs.settings.history_page import (
     HistoryPageWidgets,
     apply_history_page,
@@ -90,9 +91,10 @@ class SettingsDialog(QDialog):
     ) -> None:
         """Initialise the settings dialog.
 
-        *initial_category* is one of ``"Appearance"``, ``"Tabs"``, or
-        ``"Scripting"`` (case-insensitive) and selects the list row and
-        detail page on open.
+        *initial_category* is one of ``"Appearance"``, ``"Tabs"``,
+        ``"Scripting"``, ``"History"``, ``"AI"``, ``"Models"``, ``"Private packages"``,
+        ``"npm"``, ``"JSR"``, or ``"PyPI"`` (case-insensitive) and selects
+        the list row and detail page on open.
         """
         super().__init__(parent)
         self.setWindowTitle("Settings")
@@ -117,6 +119,9 @@ class SettingsDialog(QDialog):
         self._tab_settings = tab_settings_manager or TabSettingsManager(self)
         self._history_settings = history_settings_manager or HistorySettingsManager(self)
         self._history_widgets: HistoryPageWidgets | None = None
+        self._ai_controller: AiPageController | None = None
+        self._ai_models_built = False
+        self._ai_models_placeholder: QWidget | None = None
         self._deno_download_thread: QThread | None = None
         self._deno_download_worker: DenoDownloadWorker | None = None
 
@@ -155,6 +160,7 @@ class SettingsDialog(QDialog):
         self._build_tabs_page()
         self._build_scripting_page()
         self._build_history_page()
+        self._build_ai_pages()
         self._build_private_packages_pages()
         self._populate_category_tree()
 
@@ -162,23 +168,26 @@ class SettingsDialog(QDialog):
         btn_row = QHBoxLayout()
         btn_row.addStretch()
 
-        # Apply uses an explicit light icon colour; the default
-        # ``phi("check")`` renders in ``COLOR_TEXT_MUTED`` which disappears on
-        # the accent-coloured ``primaryButton`` background.
+        self._ok_btn = QPushButton("OK")
+        self._ok_btn.setObjectName("primaryButton")
+        self._ok_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._ok_btn.clicked.connect(self._on_ok)
+        btn_row.addWidget(self._ok_btn)
+
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setIcon(phi("x"))
+        cancel_btn.setObjectName("outlineButton")
+        cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        cancel_btn.clicked.connect(self.reject)
+        btn_row.addWidget(cancel_btn)
+
         self._apply_btn = QPushButton("Apply")
         self._apply_btn.setIcon(phi("check", color="#ffffff"))
-        self._apply_btn.setObjectName("primaryButton")
+        self._apply_btn.setObjectName("smallPrimaryButton")
         self._apply_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._apply_btn.clicked.connect(self._on_apply)
         self._apply_btn.setEnabled(False)
         btn_row.addWidget(self._apply_btn)
-
-        close_btn = QPushButton("Close")
-        close_btn.setIcon(phi("x"))
-        close_btn.setObjectName("outlineButton")
-        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        close_btn.clicked.connect(self.accept)
-        btn_row.addWidget(close_btn)
 
         root.addLayout(btn_row)
 
@@ -194,6 +203,8 @@ class SettingsDialog(QDialog):
             Appearance
             Tabs
             Scripting
+            AI                        ← overview landing
+            └─ Models
             Private packages          ← landing page (overview + secret backend)
             ├─ npm
             ├─ JSR
@@ -218,6 +229,15 @@ class SettingsDialog(QDialog):
         _leaf(self._cat_tree, "Scripting", self._page_indices["scripting"])
         _leaf(self._cat_tree, "History", self._page_indices["history"])
 
+        ai_parent = QTreeWidgetItem(["AI"])
+        ai_parent.setData(0, Qt.ItemDataRole.UserRole, self._page_indices["ai_overview"])
+        ai_font = ai_parent.font(0)
+        ai_font.setBold(True)
+        ai_parent.setFont(0, ai_font)
+        self._cat_tree.addTopLevelItem(ai_parent)
+        _leaf(ai_parent, "Models", self._page_indices["ai_models"])
+        self._cat_tree.expandItem(ai_parent)
+
         private_parent = QTreeWidgetItem(["Private packages"])
         private_parent.setData(0, Qt.ItemDataRole.UserRole, self._page_indices["private_overview"])
         font = private_parent.font(0)
@@ -240,6 +260,8 @@ class SettingsDialog(QDialog):
             "tabs": "Tabs",
             "scripting": "Scripting",
             "history": "History",
+            "ai": "AI",
+            "models": "Models",
             "private packages": "Private packages",
             "private": "Private packages",
             "npm": "npm",
@@ -589,6 +611,54 @@ class SettingsDialog(QDialog):
         widgets.save_responses_check.toggled.connect(self._mark_dirty)
         widgets.max_mib_spin.valueChanged.connect(self._mark_dirty)
         self._page_indices["history"] = self._stack.addWidget(page)
+
+    def _build_ai_pages(self) -> None:
+        """Build the AI branch: overview landing + lazy Models page."""
+        self._build_ai_overview_page()
+        self._ai_models_placeholder = QWidget()
+        self._page_indices["ai_models"] = self._stack.addWidget(self._ai_models_placeholder)
+
+    def _ensure_ai_models_page(self) -> None:
+        """Build the Models page on first visit (avoids LiteLLM work at dialog open)."""
+        if self._ai_models_built:
+            return
+        self._ai_models_built = True
+        page, ctrl = build_ai_page(self._mark_dirty)
+        self._ai_controller = ctrl
+        placeholder = self._ai_models_placeholder
+        if placeholder is None:
+            self._page_indices["ai_models"] = self._stack.addWidget(page)
+            return
+        idx = self._stack.indexOf(placeholder)
+        self._stack.removeWidget(placeholder)
+        placeholder.deleteLater()
+        self._ai_models_placeholder = None
+        self._stack.insertWidget(idx, page)
+        self._page_indices["ai_models"] = idx
+
+    def _build_ai_overview_page(self) -> None:
+        """Build the AI section overview (parent tree row)."""
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(12)
+
+        heading = QLabel("AI")
+        heading.setObjectName("titleLabel")
+        layout.addWidget(heading)
+
+        intro = QLabel(
+            "Configure LLM providers and models for Postmark's AI features. "
+            "Select <b>Models</b> in the tree to add providers, store API keys "
+            "in your system keychain, set a default model, and test connections."
+        )
+        intro.setObjectName("mutedLabel")
+        intro.setTextFormat(Qt.TextFormat.RichText)
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+
+        layout.addStretch()
+        self._page_indices["ai_overview"] = self._stack.addWidget(page)
 
     def _on_history_unlimited_toggled(self, checked: bool) -> None:
         """Enable or disable the per-day cap spinbox."""
@@ -1481,6 +1551,9 @@ class SettingsDialog(QDialog):
             return
         idx = current.data(0, Qt.ItemDataRole.UserRole)
         if isinstance(idx, int) and 0 <= idx < self._stack.count():
+            if idx == self._page_indices.get("ai_models"):
+                self._ensure_ai_models_page()
+                idx = self._page_indices["ai_models"]
             self._stack.setCurrentIndex(idx)
 
     def _wire_dirty_tracking(self) -> None:
@@ -1537,6 +1610,18 @@ class SettingsDialog(QDialog):
         """Enable Apply on the first user-driven change."""
         if not self._apply_btn.isEnabled():
             self._apply_btn.setEnabled(True)
+
+    def closeEvent(self, event: Any) -> None:
+        """Stop background workers before the dialog closes."""
+        if self._ai_controller is not None:
+            self._ai_controller.cleanup()
+        super().closeEvent(event)
+
+    def _on_ok(self) -> None:
+        """Apply pending changes when dirty, then close the dialog."""
+        if self._apply_btn.isEnabled():
+            self._on_apply()
+        self.accept()
 
     def _on_apply(self) -> None:
         """Persist settings and apply the theme.
@@ -1641,6 +1726,9 @@ class SettingsDialog(QDialog):
 
         if self._history_widgets is not None:
             apply_history_page(self._history_settings, self._history_widgets)
+
+        if self._ai_controller is not None:
+            self._ai_controller.apply()
 
         # Private packages: persist registry list, default-npm, PyPI.
         # B6 fix: drop invalid rows (empty scope/URL or non-https URL)

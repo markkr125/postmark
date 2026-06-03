@@ -184,6 +184,13 @@ standard object names:
 | `mutedLabel` | `QLabel` | Small muted text |
 | `emptyStateLabel` | `QLabel` | Italic muted empty-state message |
 | `methodBadge` | `QLabel` | HTTP method badge (request tree + request tabs) |
+| `aiModelsTree` | `QTreeWidget` | Settings → AI → Models tree; provider header rows use `bg_alt` background |
+| `aiProviderActionsButton` | `QPushButton` | Borderless gear at the far right of the models tree **Capabilities** column on provider rows (opens `aiProviderActionsMenu`) |
+| `aiProviderActionsMenu` | `QMenu` | Gear menu on provider rows; selected items use accent + white text/icons (`phi_menu`) |
+| `aiProviderDialogSeparator` | `QFrame` | Horizontal rule between Connection and Models found in add/edit provider dialog |
+| `aiProviderModelsListPanel` | `QFrame` | Bordered container for the models preview list in add/edit provider dialog |
+| `aiProviderModelsList` | `QListWidget` | Model preview list inside `aiProviderModelsListPanel` (frameless; border on panel) |
+| *(none)* | — | Settings → AI → Models capability pills are painted by `AiModelsTreeDelegate` (`ui/widgets/ai_models_tree_delegate.py`), not QLabel widgets |
 | `monoEdit` | `QTextEdit` | Monospace text editor |
 | `consoleOutput` | `QTextEdit` | Dark console output area |
 | `importTabs` | `QTabWidget` | Box-style tabs in import dialog |

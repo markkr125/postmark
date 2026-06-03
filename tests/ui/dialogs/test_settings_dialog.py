@@ -7,7 +7,7 @@ from collections.abc import Generator
 
 import pytest
 from PySide6.QtCore import QSettings
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QTreeWidgetItem
 
 from ui.dialogs.settings_dialog import SettingsDialog
 from ui.styling.history_settings_manager import HistorySettingsManager
@@ -99,7 +99,30 @@ class TestSettingsDialogConstruction:
             dialog._cat_tree.topLevelItem(i).text(0)
             for i in range(dialog._cat_tree.topLevelItemCount())
         ]
-        assert labels == ["Appearance", "Tabs", "Scripting", "History", "Private packages"]
+        assert labels == [
+            "Appearance",
+            "Tabs",
+            "Scripting",
+            "History",
+            "AI",
+            "Private packages",
+        ]
+
+    def test_ai_has_models_child(self, qapp: QApplication, qtbot) -> None:
+        """AI branch has a Models child."""
+        tm = ThemeManager(qapp)
+        dialog = SettingsDialog(tm)
+        qtbot.addWidget(dialog)
+        ai_item: QTreeWidgetItem | None = None
+        for i in range(dialog._cat_tree.topLevelItemCount()):
+            item = dialog._cat_tree.topLevelItem(i)
+            if item is not None and item.text(0) == "AI":
+                ai_item = item
+                break
+        assert ai_item is not None
+        assert ai_item.childCount() == 1
+        child = ai_item.child(0)
+        assert child is not None and child.text(0) == "Models"
 
     def test_private_packages_has_provider_children(self, qapp: QApplication, qtbot) -> None:
         """Private packages has npm / JSR / PyPI children."""
