@@ -273,12 +273,30 @@ standard object names:
 | `newItemDescription` | `QLabel` | Description text below tiles |
 | `collectionTree` | `QTreeWidget` | Collection tree in SaveRequestDialog |
 | `mainWindowHorizontalSplitter` | `QSplitter` | Main horizontal splitter (left rail + flyouts + centre); thin hairline handles via global QSS |
-| `sidebarRail` | `QWidget` | Always-visible icon rail (RightSidebar widget) |
+| `sidebarRail` | `QWidget` | Always-visible icon rail (RightSidebar widget); no ``border-left`` (flyout ``sidebarPanelArea`` ``border-right`` is the only seam) |
 | `sidebarRailButton` | `QToolButton` | Checkable icon button in the right rail |
 | `leftSidebarRail` | `QWidget` | Left activity rail: background uses palette ``status_bar_bg`` (same as ``QStatusBar#appStatusBar``); no outer layout padding |
 | `leftSidebarRailButton` | `QToolButton` | Rail icon (``_LeftRailButton``): width ``round(LEFT_RAIL_WIDTH_EM * em)``, icon ``round(LEFT_RAIL_ICON_EM * em)``, height ``icon_size + LEFT_RAIL_BUTTON_EXTRA_HEIGHT_PX``; checked left accent **painted** full height (``LEFT_RAIL_ACCENT_STRIPE_WIDTH_PX``); QSS margin/padding ``0`` |
 | `sidebarPanelArea` | `QWidget` | Right sidebar collapsible flyout panel (separate splitter child); ``border-right`` vs icon rail only — left edge is ``mainWindowHorizontalSplitter`` handle (no ``border-left``) |
-| `requestHistoryPanel` | `HistoryPanel` | Per-request History flyout (right rail, 4th button) |
+| `aiChatPanel` | `QWidget` | Right-sidebar AI assistant chat (transcript + composer) |
+| `aiChatScroll` | `QScrollArea` | AI chat message transcript scroll area |
+| `aiChatMessageUser` | `QFrame` | User message bubble in AI chat |
+| `aiChatMessageAssistant` | `QFrame` | Assistant message bubble in AI chat |
+| `aiChatMessageText` | `QLabel` | Word-wrapped text inside a chat bubble |
+| `aiChatComposer` | `QWidget` | AI chat bottom composer (attachments + input + controls) |
+| `aiChatInput` | `QPlainTextEdit` | AI chat multi-line prompt (Ctrl+Enter send) |
+| `aiChatModeCombo` | `QComboBox` | Agent mode select (Agent / Ask / Plan) |
+| `aiChatModelButton` | `QPushButton` | Opens the Cursor-style model picker; shows the current model label |
+| `aiModelPickerPopup` | `QFrame` | Frameless model picker popover (search + list + Manage link) |
+| `aiModelPickerSearch` | `QLineEdit` | Model picker filter field |
+| `aiModelPickerList` | `QListWidget` | Model picker model rows |
+| `aiModelPickerName` | `QLabel` | Model label inside a picker row |
+| `aiModelPickerProvider` | `QLabel` | *(unused)* — provider shown as bold ``QListWidget`` group headers instead |
+| `aiModelPickerManageLink` | `QPushButton` | Manage models link → Settings → AI → Models |
+| `aiChatContextLabel` | `QLabel` | Context usage indicator (placeholder until LLM wiring) |
+| `aiChatAttachments` | `QWidget` | Attachment chips row (hidden when empty) |
+| `aiChatAttachmentChip` | `QPushButton` | Removable file attachment chip |
+| `requestHistoryPanel` | `HistoryPanel` | Per-request History flyout (right rail) |
 | `globalHistoryPanel` | `HistoryPanel` | Workspace History flyout (left rail, 3rd button; `set_global_mode`) |
 | `globalHistoryHeader` | `QWidget` | Left global History title row (History label + refresh) |
 | `requestHistoryOpenButton` | `QPushButton` | Hidden; global History opens on tree single-click |

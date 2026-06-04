@@ -344,6 +344,36 @@ MainWindow snippet_act.triggered
         → registry dispatch to language-specific generator (23 languages)
 ```
 
+### AI assistant chat flow (skeleton)
+
+```
+MainWindow.__init__
+  → ai_chat_panel.set_models(AiConfig.get_models())
+  → ai_chat_panel.message_submitted → _on_ai_message_submitted (logger.debug placeholder)
+
+AiChatPanel._on_send (or Ctrl+Enter via _ComposerInput.submit_requested)
+  → add_message("user", text)
+  → message_submitted.emit(text)   # LLM wiring TODO
+
+AiChatPanel.mode_changed(str)      # not connected yet
+AiChatPanel.attachments_changed(list)  # not connected yet
+
+AiChatPanel._open_model_picker
+  → AiModelPickerPopup.instance().show_for(model_btn, models, current_id, on_pick, on_manage)
+    → model_picked(id) → AiChatPanel._on_model_picked (updates button + current_model_id)
+    → manage_requested → AiChatPanel._on_manage_models → manage_models_requested
+
+AiChatPanel.manage_models_requested()
+  → MainWindow._on_open_ai_models_settings
+    → SettingsDialog(initial_category="Models")
+    → ai_chat_panel.set_models(AiConfig.get_models()) after dialog closes
+
+RightSidebar.ai_settings_requested()
+  → MainWindow._on_open_ai_settings
+    → SettingsDialog(initial_category="AI")
+    → ai_chat_panel.set_models(AiConfig.get_models()) after dialog closes
+```
+
 ### Settings flow
 
 ```
@@ -621,6 +651,13 @@ All other signals in the flow diagrams above are fully wired.
 | `CodeEditorWidget` | `validation_changed` | `Signal(list)` |
 | `CodeEditorWidget` | `run_single_test_requested` | `Signal(str)` — per-`pm.test` gutter Run |
 | `CodeEditorWidget` | `debug_single_test_requested` | `Signal(str)` — per-`pm.test` gutter Debug |
+| `AiChatPanel` | `message_submitted` | `Signal(str)` |
+| `AiChatPanel` | `mode_changed` | `Signal(str)` |
+| `AiChatPanel` | `attachments_changed` | `Signal(list)` |
+| `AiChatPanel` | `manage_models_requested` | `Signal()` |
+| `AiModelPickerPopup` | `model_picked` | `Signal(str)` |
+| `AiModelPickerPopup` | `manage_requested` | `Signal()` |
+| `RightSidebar` | `ai_settings_requested` | `Signal()` |
 
 ## MainWindow signal wiring summary
 
@@ -646,6 +683,11 @@ All connections made in `MainWindow.__init__` (and `_create_menus`):
 **From environment sidebar (`_env_selector` is ``EnvironmentSidebarPanel``):**
 - `_env_selector.environment_changed` → `_on_environment_changed`
 - `_env_selector.manage_requested` → `_on_manage_environments`
+
+**From right sidebar AI chat:**
+- `ai_chat_panel.message_submitted` → `_on_ai_message_submitted`
+- `ai_chat_panel.manage_models_requested` → `_on_open_ai_models_settings`
+- `ai_settings_requested` → `_on_open_ai_settings`
 
 **From window shortcuts (no toolbar strip):**
 - `back_action.triggered` → `_navigate_back` (request open history)

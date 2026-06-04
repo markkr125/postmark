@@ -265,9 +265,11 @@ def test_edit_ollama_context_after_test_skips_retest_on_save(
     dlg._on_refresh_models()
     qtbot.waitUntil(lambda: dlg._setup_thread is None, timeout=15_000)
     assert calls == [1]
-    idx = dlg._ollama_context_combo.findData(131_072)
+    combo = dlg._ollama_context_combo
+    assert combo is not None
+    idx = combo.findData(131_072)
     assert idx >= 0
-    dlg._ollama_context_combo.setCurrentIndex(idx)
+    combo.setCurrentIndex(idx)
     dlg._on_accept()
     assert dlg.result() == QDialog.DialogCode.Accepted
     assert calls == [1]

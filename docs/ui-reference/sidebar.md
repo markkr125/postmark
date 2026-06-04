@@ -4,7 +4,7 @@ Icon rails with collapsible flyout panels: **LeftSidebar** hosts the
 collections and environment picker on one stacked page, **Local scripts &
 snippets** on another (Phosphor **code** icon), and workspace **History** on a
 third (Phosphor **clock-counter-clockwise**); **RightSidebar** hosts variables,
-snippets, saved responses, and per-request History.
+snippets, saved responses, per-request History, and the AI assistant chat.
 
 Source: `src/ui/sidebar/`
 
@@ -112,10 +112,27 @@ Always-visible fixed-width icon rail.
 
 | Button | Icon | Panel |
 |--------|------|-------|
+| AI assistant | sparkle | `AiChatPanel` — chat skeleton (transcript + composer; no LLM yet) |
 | Variables | `{}` | Read-only variable list |
 | Code Snippet | `<>` | Code snippet generator |
 | Saved Responses | `[]` | Saved response browser |
 | History | clock (counter-clockwise) | Per-request send log (read-only) |
+
+Panel key for session restore / `open_panel`: `"ai"`. The AI rail button is always
+enabled; `_toggle_panel("ai")` opens without checking `_available_panels`, while
+`open_panel("ai")` requires `"ai"` in `_available_panels` (always true after
+`clear()`, and included in request/folder contexts). The flyout title bar shows a
+**gear** button (left of close) that emits ``RightSidebar.ai_settings_requested``;
+``MainWindow`` opens Settings on the **AI** category and refreshes the model picker
+when the dialog closes.
+
+The composer's model control is a Cursor-style picker: the ``aiChatModelButton``
+shows the current model and opens ``AiModelPickerPopup`` (``model_picker_popup.py``)
+— a frameless popover with a search field, an enabled-model list grouped by
+provider (bold provider heading, indented model rows), and a **Manage models** link. Picking a row updates
+the button and ``current_model_id()``; **Manage models** emits
+``AiChatPanel.manage_models_requested`` → ``MainWindow`` opens Settings → AI →
+**Models** and refreshes the picker.
 
 ### Key Attributes
 
@@ -139,13 +156,14 @@ Always-visible fixed-width icon rail.
 
 Collapsible content area as a splitter child (`objectName` ``sidebarPanelArea``).
 
-Contains four stacked panels with a title bar and close button.
+Contains five stacked panels with a title bar and close button.
 The flyout can snap closed via its splitter handle.  The **left** edge against
 the editor is the ``mainWindowHorizontalSplitter`` handle only (no flyout
 ``border-left`` — a full-height left border was hidden under ``QScrollArea``
 children and looked like a stray line beside the title row).  The **right**
 edge uses a flyout ``border-right`` (and the same on inner ``QScrollArea``
-widgets so the viewport does not paint over it) before the icon rail.
+widgets so the viewport does not paint over it, except ``aiChatScroll``) before
+the icon rail. The rail has no ``border-left`` so the seam is a single line.
 
 ## VariablesPanel
 

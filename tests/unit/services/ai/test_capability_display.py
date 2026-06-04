@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 from services.ai.ai_config import AiModelEntry
-from services.ai.provider_catalog import (
-    capability_flags_for_entry,
-    capability_tags_for_entry,
-    context_display_for_entry,
-    context_tokens_for_model,
-    format_context_tokens,
-)
+from services.ai.provider_catalog import (capability_flags_for_entry,
+                                          capability_tags_for_entry,
+                                          context_display_for_entry,
+                                          context_tokens_for_model,
+                                          format_context_tokens)
 
 
 def test_format_context_tokens() -> None:

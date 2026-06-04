@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from services.ai.ai_config import AiConfig
 from services.collection_service import CollectionService
 from ui.collections.collection_widget import CollectionWidget
 from ui.environments.environment_sidebar_panel import EnvironmentSidebarPanel
@@ -44,8 +45,8 @@ from ui.request.request_editor import RequestEditorWidget
 from ui.request.response_viewer import ResponseViewerWidget
 from ui.sidebar import LeftSidebar, RightSidebar
 from ui.sidebar.snippets_sidebar_panel import SnippetsSidebarPanel
-from ui.styling.icons import phi
 from ui.styling.history_settings_manager import HistorySettingsManager
+from ui.styling.icons import phi
 from ui.styling.tab_settings_manager import TabSettingsManager
 from ui.styling.theme import COLOR_ACCENT, COLOR_TEXT_MUTED
 from ui.styling.theme_manager import ThemeManager
@@ -145,6 +146,12 @@ class MainWindow(
         if self._theme_manager is not None:
             self._theme_manager.theme_changed.connect(self._left_sidebar.refresh_theme)
             self._theme_manager.theme_changed.connect(self._right_sidebar.refresh_theme)
+        self._right_sidebar.ai_chat_panel.set_models(AiConfig.get_models())
+        self._right_sidebar.ai_chat_panel.message_submitted.connect(self._on_ai_message_submitted)
+        self._right_sidebar.ai_chat_panel.manage_models_requested.connect(
+            self._on_open_ai_models_settings
+        )
+        self._right_sidebar.ai_settings_requested.connect(self._on_open_ai_settings)
 
         # Debounce timer for live snippet updates in the sidebar
         self._sidebar_debounce = QTimer(self)
@@ -732,6 +739,10 @@ class MainWindow(
     # ------------------------------------------------------------------
     # Dialogs
     # ------------------------------------------------------------------
+    def _on_ai_message_submitted(self, text: str) -> None:
+        """Placeholder for the AI assistant send action (LLM wiring TODO)."""
+        logger.debug("AI chat message submitted: %s", text)
+
     def _on_settings(self) -> None:
         """Open the settings dialog (Appearance first)."""
         self._open_settings_dialog(initial_category="Appearance")
@@ -739,6 +750,16 @@ class MainWindow(
     def _on_open_scripting_settings(self) -> None:
         """Open Settings on the Scripting page (Deno path, download)."""
         self._open_settings_dialog(initial_category="Scripting")
+
+    def _on_open_ai_settings(self) -> None:
+        """Open Settings on the AI page and refresh the chat model picker."""
+        self._open_settings_dialog(initial_category="AI")
+        self._right_sidebar.ai_chat_panel.set_models(AiConfig.get_models())
+
+    def _on_open_ai_models_settings(self) -> None:
+        """Open Settings on the AI Models page and refresh the chat model picker."""
+        self._open_settings_dialog(initial_category="Models")
+        self._right_sidebar.ai_chat_panel.set_models(AiConfig.get_models())
 
     def _open_settings_dialog(self, *, initial_category: str) -> None:
         """Show the modal settings dialog and refresh script Deno banners when it closes."""

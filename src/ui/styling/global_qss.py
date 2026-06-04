@@ -1478,6 +1478,10 @@ def build_global_qss(p: ThemePalette) -> str:
         border: none;
         border-right: 1px solid {p["border"]};
     }}
+    /* AI chat scroll fills the flyout; outer sidebarPanelArea owns the seam. */
+    QWidget[objectName="sidebarPanelArea"] QScrollArea[objectName="aiChatScroll"] {{
+        border-right: none;
+    }}
     QWidget[objectName="leftSidebarFlyout"] {{
         background: {p["bg"]};
         border-left: 1px solid {p["border"]};
@@ -1487,7 +1491,8 @@ def build_global_qss(p: ThemePalette) -> str:
     }}
     QWidget[objectName="sidebarRail"] {{
         background: {p["bg"]};
-        border-left: 1px solid {p["border"]};
+        /* No border-left — flyout sidebarPanelArea border-right is the single seam. */
+        border: none;
     }}
     QWidget[objectName="leftSidebarRail"] {{
         background: {p["status_bar_bg"]};
@@ -1516,6 +1521,121 @@ def build_global_qss(p: ThemePalette) -> str:
     QToolButton[objectName="sidebarRailButton"]:disabled {{
         color: {p["text_muted"]};
         opacity: 0.4;
+    }}
+    /* ---- AI assistant chat panel -------------------------------- */
+    QWidget[objectName="aiChatPanel"] {{
+        background: {p["bg"]};
+    }}
+    QScrollArea[objectName="aiChatScroll"] {{
+        border: none;
+        background: transparent;
+    }}
+    QFrame[objectName="aiChatMessageUser"] {{
+        background: {"rgba(79,193,255,0.14)" if p is DARK_PALETTE else "rgba(52,152,219,0.12)"};
+        border: 1px solid {p["border"]};
+        border-radius: 10px;
+    }}
+    QFrame[objectName="aiChatMessageAssistant"] {{
+        background: {p["bg_alt"]};
+        border: 1px solid {p["border"]};
+        border-radius: 10px;
+    }}
+    QLabel[objectName="aiChatMessageText"] {{
+        background: transparent;
+        border: none;
+        color: {p["text"]};
+    }}
+    QWidget[objectName="aiChatComposer"] {{
+        background: {p["bg"]};
+        border-top: 1px solid {p["border"]};
+    }}
+    QPlainTextEdit[objectName="aiChatInput"] {{
+        background: {p["input_bg"]};
+        border: 1px solid {p["border"]};
+        border-radius: 6px;
+        color: {p["text"]};
+        padding: 6px;
+    }}
+    QLabel[objectName="aiChatContextLabel"] {{
+        color: {p["text_muted"]};
+        font-size: 11px;
+    }}
+    QWidget[objectName="aiChatAttachments"] {{
+        background: transparent;
+    }}
+    QPushButton[objectName="aiChatAttachmentChip"] {{
+        background: {p["bg_alt"]};
+        border: 1px solid {p["border"]};
+        border-radius: 10px;
+        padding: 2px 8px;
+        font-size: 11px;
+        color: {p["text"]};
+    }}
+    QPushButton[objectName="aiChatAttachmentChip"]:hover {{
+        border-color: {p["accent"]};
+        color: {p["accent"]};
+    }}
+    QPushButton[objectName="aiChatModelButton"] {{
+        background: {p["input_bg"]};
+        border: 1px solid {p["border"]};
+        border-radius: 4px;
+        padding: 4px 8px;
+        font-size: 11px;
+        color: {p["text"]};
+        text-align: left;
+    }}
+    QPushButton[objectName="aiChatModelButton"]:hover {{
+        border-color: {p["accent"]};
+    }}
+    QPushButton[objectName="aiChatModelButton"]:disabled {{
+        color: {p["text_muted"]};
+    }}
+    /* ---- AI model picker popover -------------------------------- */
+    QFrame[objectName="aiModelPickerPopup"] {{
+        background: {p["bg"]};
+        border: 1px solid {p["border"]};
+        border-radius: 6px;
+    }}
+    QLineEdit[objectName="aiModelPickerSearch"] {{
+        background: {p["input_bg"]};
+        border: 1px solid {p["border"]};
+        border-radius: 4px;
+        padding: 4px 8px;
+        font-size: 12px;
+    }}
+    QListWidget[objectName="aiModelPickerList"] {{
+        background: transparent;
+        border: none;
+        outline: none;
+    }}
+    QListWidget[objectName="aiModelPickerList"]::item:selected {{
+        background: {p["selected_bg"]};
+        border-radius: 4px;
+    }}
+    QListWidget[objectName="aiModelPickerList"]::item:hover {{
+        background: {p["hover_bg"]};
+        border-radius: 4px;
+    }}
+    QLabel[objectName="aiModelPickerName"] {{
+        color: {p["text"]};
+        font-size: 12px;
+        background: transparent;
+    }}
+    QLabel[objectName="aiModelPickerProvider"] {{
+        color: {p["text_muted"]};
+        font-size: 10px;
+        background: transparent;
+    }}
+    QPushButton[objectName="aiModelPickerManageLink"] {{
+        color: {p["accent"]};
+        border: none;
+        background: transparent;
+        font-size: 11px;
+        padding: 4px 2px;
+        text-align: left;
+    }}
+    QPushButton[objectName="aiModelPickerManageLink"]:hover {{
+        text-decoration: underline;
     }}
     QToolButton[objectName="leftSidebarRailButton"] {{
         background: transparent;

@@ -3,8 +3,9 @@
 The sidebar consists of two widgets placed as **separate children** in
 the parent ``QSplitter``:
 
-- :class:`_FlyoutPanel` — collapsible content area (variables /
-  code-snippet).  The QSplitter enforces its ``minimumSizeHint`` so
+- :class:`_FlyoutPanel` — collapsible content area (AI assistant,
+  variables, code-snippet, saved responses, history).  The QSplitter
+  enforces its ``minimumSizeHint`` so
   content is never crushed: dragging past the minimum snaps it to 0.
 - :class:`RightSidebar` — the always-visible icon rail.
 
@@ -17,7 +18,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QLabel,
@@ -30,6 +31,7 @@ from PySide6.QtWidgets import (
 )
 
 from services.collection_service import SavedResponseDict
+from ui.sidebar.ai import AiChatPanel
 from ui.sidebar.history.panel import HistoryPanel
 from ui.sidebar.saved_responses.panel import SavedResponsesPanel
 from ui.sidebar.snippet_panel import SnippetPanel
@@ -85,6 +87,7 @@ class _FlyoutPanel(QWidget):
         self.snippet_panel = SnippetPanel()
         self.saved_responses_panel = SavedResponsesPanel()
         self.request_history_panel = request_history_panel or HistoryPanel()
+        self.ai_chat_panel = AiChatPanel()
         self.snippet_panel.setSizePolicy(
             QSizePolicy.Policy.Preferred,
             QSizePolicy.Policy.Expanding,
@@ -106,6 +109,15 @@ class _FlyoutPanel(QWidget):
         self._history_refresh_btn.hide()
         title_bar.addWidget(self._history_refresh_btn)
 
+        self._ai_settings_btn = QPushButton()
+        self._ai_settings_btn.setObjectName("iconButton")
+        self._ai_settings_btn.setFixedSize(28, 28)
+        self._ai_settings_btn.setIcon(phi("gear", size=16))
+        self._ai_settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._ai_settings_btn.setToolTip("AI settings")
+        self._ai_settings_btn.hide()
+        title_bar.addWidget(self._ai_settings_btn)
+
         self.close_btn = QPushButton()
         self.close_btn.setObjectName("iconButton")
         self.close_btn.setFixedSize(28, 28)
@@ -115,14 +127,20 @@ class _FlyoutPanel(QWidget):
         title_bar.addWidget(self.close_btn)
 
         layout.addLayout(title_bar)
+        title_sep = QLabel()
+        title_sep.setObjectName("sidebarSeparator")
+        title_sep.setFixedHeight(1)
+        layout.addWidget(title_sep)
         layout.addWidget(self.variables_panel, 1)
         layout.addWidget(self.snippet_panel, 1)
         layout.addWidget(self.saved_responses_panel, 1)
         layout.addWidget(self.request_history_panel, 1)
+        layout.addWidget(self.ai_chat_panel, 1)
         self.variables_panel.hide()
         self.snippet_panel.hide()
         self.saved_responses_panel.hide()
         self.request_history_panel.hide()
+        self.ai_chat_panel.hide()
 
     def minimumSizeHint(self) -> QSize:
         """Enforce a readable minimum width for the flyout."""
@@ -138,6 +156,8 @@ class RightSidebar(QWidget):
     After construction, call :pymethod:`install_in_splitter` to place
     both the flyout and the rail into the parent splitter.
     """
+
+    ai_settings_requested = Signal()
 
     def __init__(
         self,
@@ -166,13 +186,17 @@ class RightSidebar(QWidget):
         self._snippet_panel = self._flyout.snippet_panel
         self._saved_responses_panel = self._flyout.saved_responses_panel
         self._request_history_panel = self._flyout.request_history_panel
+        self._ai_chat_panel = self._flyout.ai_chat_panel
         self._close_btn.clicked.connect(self._close_panel)
+        self._flyout._ai_settings_btn.clicked.connect(self.ai_settings_requested.emit)
 
         # --- Rail layout ----------------------------------------------
         rail_layout = QVBoxLayout(self)
         rail_layout.setContentsMargins(0, 6, 0, 6)
         rail_layout.setSpacing(12)
 
+        self._ai_btn = self._make_rail_button("sparkle", "AI assistant")
+        self._ai_btn.setEnabled(True)
         self._var_btn = self._make_rail_button(
             "brackets-curly",
             "Variables",
@@ -183,6 +207,7 @@ class RightSidebar(QWidget):
         self._snippet_btn.hide()
         self._saved_btn.hide()
         self._history_btn.hide()
+        rail_layout.addWidget(self._ai_btn)
         rail_layout.addWidget(self._var_btn)
         rail_layout.addWidget(self._snippet_btn)
         rail_layout.addWidget(self._saved_btn)
@@ -198,6 +223,7 @@ class RightSidebar(QWidget):
         self._flyout_idx: int = -1
 
         # Wire rail buttons
+        self._ai_btn.clicked.connect(lambda: self._toggle_panel("ai"))
         self._var_btn.clicked.connect(lambda: self._toggle_panel("variables"))
         self._snippet_btn.clicked.connect(
             lambda: self._toggle_panel("snippet"),
@@ -214,6 +240,11 @@ class RightSidebar(QWidget):
     def _rail(self) -> QWidget:
         """Return self — the rail *is* this widget."""
         return self
+
+    @property
+    def ai_chat_panel(self) -> AiChatPanel:
+        """Expose the AI chat panel for MainWindow wiring."""
+        return self._ai_chat_panel
 
     # ------------------------------------------------------------------
     # Splitter integration
@@ -306,7 +337,13 @@ class RightSidebar(QWidget):
         auth: dict | None = None,
     ) -> None:
         """Configure the sidebar for a request tab."""
-        self._available_panels = {"variables", "snippet", "saved_responses", "request_history"}
+        self._available_panels = {
+            "ai",
+            "variables",
+            "snippet",
+            "saved_responses",
+            "request_history",
+        }
         self._default_panel = "snippet"
         self._var_btn.setEnabled(True)
         self._snippet_btn.show()
@@ -338,7 +375,7 @@ class RightSidebar(QWidget):
         has_environment: bool = True,
     ) -> None:
         """Configure the sidebar for a folder tab."""
-        self._available_panels = {"variables"}
+        self._available_panels = {"ai", "variables"}
         self._default_panel = "variables"
         self._var_btn.setEnabled(True)
         self._snippet_btn.hide()
@@ -436,7 +473,7 @@ class RightSidebar(QWidget):
 
     def clear(self) -> None:
         """Reset the sidebar to an empty state (no tab open)."""
-        self._available_panels = set()
+        self._available_panels = {"ai"}
         self._var_btn.setEnabled(False)
         self._snippet_btn.hide()
         self._saved_btn.hide()
@@ -498,7 +535,13 @@ class RightSidebar(QWidget):
 
     def refresh_theme(self) -> None:
         """Re-render rail-button icons against the current palette."""
-        for btn in (self._var_btn, self._snippet_btn, self._saved_btn, self._history_btn):
+        for btn in (
+            self._ai_btn,
+            self._var_btn,
+            self._snippet_btn,
+            self._saved_btn,
+            self._history_btn,
+        ):
             name = btn.property("rail_icon_name")
             if isinstance(name, str) and name:
                 self._apply_rail_icon(btn, name)
@@ -518,18 +561,22 @@ class RightSidebar(QWidget):
         self._snippet_panel.setVisible(panel == "snippet")
         self._saved_responses_panel.setVisible(panel == "saved_responses")
         self._request_history_panel.setVisible(panel == "request_history")
+        self._ai_chat_panel.setVisible(panel == "ai")
         self._var_btn.setChecked(panel == "variables")
         self._snippet_btn.setChecked(panel == "snippet")
         self._saved_btn.setChecked(panel == "saved_responses")
         self._history_btn.setChecked(panel == "request_history")
+        self._ai_btn.setChecked(panel == "ai")
         titles = {
             "variables": "Variables",
             "snippet": "Code snippet",
             "saved_responses": "Saved Responses",
             "request_history": "History",
+            "ai": "AI assistant",
         }
         self._title_label.setText(titles.get(panel, panel))
         self._flyout._history_refresh_btn.setVisible(panel == "request_history")
+        self._flyout._ai_settings_btn.setVisible(panel == "ai")
         self._flyout.show()
         if expand_flyout:
             self._expand_flyout()
@@ -541,11 +588,14 @@ class RightSidebar(QWidget):
         self._snippet_panel.hide()
         self._saved_responses_panel.hide()
         self._request_history_panel.hide()
+        self._ai_chat_panel.hide()
         self._var_btn.setChecked(False)
         self._snippet_btn.setChecked(False)
         self._saved_btn.setChecked(False)
         self._history_btn.setChecked(False)
+        self._ai_btn.setChecked(False)
         self._flyout._history_refresh_btn.hide()
+        self._flyout._ai_settings_btn.hide()
         self._collapse_flyout()
 
     def _expand_flyout(self, target_width: int | None = None) -> None:

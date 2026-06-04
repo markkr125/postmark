@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QModelIndex, QRect, QSize, Qt
+from PySide6.QtCore import QModelIndex, QPersistentModelIndex, QRect, QSize, Qt
 from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import QStyle, QStyleOptionButton, QStyledItemDelegate, QStyleOptionViewItem
 
@@ -39,20 +39,20 @@ class AiModelsEnableDelegate(QStyledItemDelegate):
         self._tree = tree
         self._enabled_column = enabled_column
 
-    def _is_model_row(self, index: QModelIndex) -> bool:
+    def _is_model_row(self, index: QModelIndex | QPersistentModelIndex) -> bool:
         if not index.isValid():
             return False
         item = self._tree.itemFromIndex(index)
         if item is None:
             return False
         row_id = item.data(NAME_COLUMN, Qt.ItemDataRole.UserRole)
-        return isinstance(row_id, str) and row_id and not row_id.startswith(_GROUP_PREFIX)
+        return isinstance(row_id, str) and bool(row_id) and not row_id.startswith(_GROUP_PREFIX)
 
     def _paint_cell_background(
         self,
         painter: QPainter,
         option: QStyleOptionViewItem,
-        index: QModelIndex,
+        index: QModelIndex | QPersistentModelIndex,
     ) -> None:
         """Draw selection/hover/provider-alt background before custom foreground."""
         self.initStyleOption(option, index)
@@ -83,7 +83,7 @@ class AiModelsEnableDelegate(QStyledItemDelegate):
         self,
         painter: QPainter,
         option: QStyleOptionViewItem,
-        index: QModelIndex,
+        index: QModelIndex | QPersistentModelIndex,
     ) -> None:
         """Draw row background; model rows also paint the enable checkbox."""
         if not self._is_model_row(index):
@@ -105,7 +105,11 @@ class AiModelsEnableDelegate(QStyledItemDelegate):
             opt.state |= QStyle.StateFlag.State_MouseOver
         self._tree.style().drawControl(QStyle.ControlElement.CE_CheckBox, opt, painter, self._tree)
 
-    def sizeHint(self, option: QStyleOptionViewItem, index: QModelIndex) -> QSize:
+    def sizeHint(
+        self,
+        option: QStyleOptionViewItem,
+        index: QModelIndex | QPersistentModelIndex,
+    ) -> QSize:
         """Return checkbox size for model rows."""
         if not self._is_model_row(index):
             return super().sizeHint(option, index)

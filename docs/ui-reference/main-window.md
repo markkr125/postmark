@@ -59,7 +59,7 @@ strip.
 | `_response_stack` | `QStackedWidget` | Per-tab response viewer stack |
 | `_breadcrumb_bar` | `BreadcrumbBar` | Path navigation bar |
 | `_left_sidebar` | `LeftSidebar` | Left activity rail + stacked flyout (collections / environments, local scripts & snippets, global history) |
-| `_right_sidebar` | `RightSidebar` | Right icon rail and flyout panel (variables, snippets, saved responses, per-request history) |
+| `_right_sidebar` | `RightSidebar` | Right icon rail and flyout panel (AI assistant, variables, snippets, saved responses, per-request history) |
 | `_global_history_panel` | `HistoryPanel` | Left-rail workspace send history (`globalHistoryPanel`) |
 | `_request_history_panel` | `HistoryPanel` | Right-rail per-request send history (`requestHistoryPanel`) |
 | `collection_widget` | `CollectionWidget` | Collection tree + header (top of left column) |

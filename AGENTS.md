@@ -313,6 +313,10 @@ src/
     ├── loading_screen.py          # Loading screen overlay widget
     ├── sidebar/                   # Sidebar rails + flyout panels
     │   ├── sidebar_widget.py      # RightSidebar (icon rail) + _FlyoutPanel
+    │   ├── ai/                    # AI assistant chat panel (skeleton)
+    │   │   ├── chat_panel.py      # AiChatPanel — transcript + composer
+    │   │   ├── message_bubble.py  # ChatMessageBubble — user/assistant bubbles
+    │   │   └── model_picker_popup.py  # AiModelPickerPopup — Cursor-style model list + Manage link
     │   ├── left_sidebar.py        # LeftSidebar — activity rail + stacked nav flyout pages
     │   ├── local_scripts_sidebar_panel.py  # Legacy empty shell (unused; MainWindow uses CollectionWidget)
     │   ├── snippets_sidebar_panel.py  # User snippets tree (language → category → leaf); search + section (i)

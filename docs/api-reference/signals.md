@@ -1,7 +1,7 @@
 # Signals Reference
 
 Complete catalogue of all PySide6 `Signal` declarations grouped by
-subsystem.  ~80 custom signals across the codebase.
+subsystem.  ~83 custom signals across the codebase.
 
 ## Collection Tree
 
@@ -212,6 +212,42 @@ Modal wrapper around `EnvironmentEditorWidget` (tests and legacy callers).
 | Signal | Parameters | Description |
 |--------|------------|-------------|
 | `environments_changed` | *(none)* | Forwarded from the embedded widget |
+
+## Right Sidebar
+
+### RightSidebar
+
+Source: `ui/sidebar/sidebar_widget.py`
+
+| Signal | Parameters | Description |
+|--------|------------|-------------|
+| `ai_settings_requested` | *(none)* | Flyout title-bar gear clicked while the AI panel is open |
+
+Wired in `MainWindow.__init__`: `ai_settings_requested` → `_on_open_ai_settings` (Settings **AI** category, then refresh chat model picker).
+
+### AiModelPickerPopup
+
+Source: `ui/sidebar/ai/model_picker_popup.py`
+
+| Signal | Parameters | Description |
+|--------|------------|-------------|
+| `model_picked` | `str` | Model id selected from the picker list |
+| `manage_requested` | *(none)* | "Manage models" link clicked |
+
+## AI Chat Panel
+
+### AiChatPanel
+
+Source: `ui/sidebar/ai/chat_panel.py`
+
+| Signal | Parameters | Description |
+|--------|------------|-------------|
+| `message_submitted` | `str` | User sent a message (prompt text only; model/mode/attachments read from panel API) |
+| `mode_changed` | `str` | Agent mode changed (`agent`, `ask`, or `plan`) — not consumed yet |
+| `attachments_changed` | `list` | Attached file paths changed — not consumed yet |
+| `manage_models_requested` | *(none)* | "Manage models" picked in the model picker → opens Settings → AI → Models |
+
+Wired in `MainWindow.__init__`: `message_submitted` → `_on_ai_message_submitted` (debug log placeholder); `manage_models_requested` → `_on_open_ai_models_settings`.
 
 ## Saved Responses Panel
 

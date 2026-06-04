@@ -10,12 +10,10 @@ from urllib.parse import urljoin
 import httpx
 
 from services.ai.ai_logging import log as ai_log
-from services.ai.ops.model_filters import (
-    _id_looks_non_chat,
-    _litellm_agent_caps,
-    _openrouter_caps,
-    litellm_supports_vision,
-)
+from services.ai.ops.model_filters import (_id_looks_non_chat,
+                                           _litellm_agent_caps,
+                                           _openrouter_caps,
+                                           litellm_supports_vision)
 from services.ai.provider_catalog import ModelSpec
 
 logger = logging.getLogger(__name__)
