@@ -184,6 +184,7 @@ standard object names:
 | `mutedLabel` | `QLabel` | Small muted text |
 | `emptyStateLabel` | `QLabel` | Italic muted empty-state message |
 | `methodBadge` | `QLabel` | HTTP method badge (request tree + request tabs) |
+| `aiModelsSearch` | `QLineEdit` | Settings → AI → Models page search filter |
 | `aiModelsTree` | `QTreeWidget` | Settings → AI → Models tree; provider header rows use `bg_alt` background |
 | `aiProviderActionsButton` | `QPushButton` | Borderless gear at the far right of the models tree **Capabilities** column on provider rows (opens `aiProviderActionsMenu`) |
 | `aiProviderActionsMenu` | `QMenu` | Gear menu on provider rows; selected items use accent + white text/icons (`phi_menu`) |
@@ -284,16 +285,29 @@ standard object names:
 | `aiChatMessageAssistant` | `QFrame` | Assistant message bubble in AI chat |
 | `aiChatMessageText` | `QLabel` | Word-wrapped text inside a chat bubble |
 | `aiChatComposer` | `QWidget` | AI chat bottom composer (attachments + input + controls) |
-| `aiChatInput` | `QPlainTextEdit` | AI chat multi-line prompt (Ctrl+Enter send) |
-| `aiChatModeCombo` | `QComboBox` | Agent mode select (Agent / Ask / Plan) |
-| `aiChatModelButton` | `QPushButton` | Opens the Cursor-style model picker; shows the current model label |
-| `aiModelPickerPopup` | `QFrame` | Frameless model picker popover (search + list + Manage link) |
+| `aiChatInput` | `QPlainTextEdit` | AI chat prompt (`_ComposerInput`); auto-grows 3..15 lines then scrolls; Ctrl+Enter send |
+| `aiChatModeButton` | `QFrame` | Agent / Ask / Plan pill; `WA_StyledBackground` + `composer_pill_dark_bg`; opens `aiAgentModePopup` |
+| `aiChatModeButtonLabel` | `QLabel` | Mode label inside the mode pill |
+| `aiAgentModePopup` | `QFrame` | Agent mode flyout (above mode pill; click-away + Escape) |
+| `aiAgentModeOption` | `QWidget` | Selectable row in the mode flyout |
+| `aiChatModelButton` | `QWidget` | `ModelPickerButton` — compact pill (`bg_alt`); opens model picker |
+| `aiChatModelButtonPart` | `QLabel` | Model name and ``·`` separators inside `aiChatModelButton` |
+| `aiModelPickerContext` | `QLabel` | Context tag inside model button and picker rows (muted 10px) |
+| `aiModelPickerEffort` | `QLabel` | Reasoning tag inside model button and picker rows (muted 10px) |
+| `aiModelPickerPopup` | `QFrame` | Frameless model picker popover (search row + list) |
 | `aiModelPickerSearch` | `QLineEdit` | Model picker filter field |
 | `aiModelPickerList` | `QListWidget` | Model picker model rows |
 | `aiModelPickerName` | `QLabel` | Model label inside a picker row |
+| `aiModelPickerEdit` | `QPushButton` | Hover Edit button opening the settings flyout |
+| `aiModelPickerEditPanel` | `QFrame` | Cursor-style categorized flyout (context / thinking / reasoning) |
+| `aiModelPickerEditSection` | `QLabel` | Section heading inside the edit flyout |
+| `aiModelPickerEditOption` | `QWidget` | Selectable row in the edit flyout |
+| `aiModelPickerEditOptionLabel` | `QLabel` | Option label inside an edit row |
+| `aiModelPickerEditCheck` | `QLabel` | Trailing checkmark on the selected option |
+| `aiModelPickerRow` | `QWidget` | Model row; `editing=true` while its edit flyout is open |
+| `aiModelPickerPillSwitch` | `QWidget` | Painted pill toggle for thinking on/off |
+| `aiModelPickerEditThinkingRow` | `QWidget` | Thinking section row container |
 | `aiModelPickerProvider` | `QLabel` | *(unused)* — provider shown as bold ``QListWidget`` group headers instead |
-| `aiModelPickerManageLink` | `QPushButton` | Manage models link → Settings → AI → Models |
-| `aiChatContextLabel` | `QLabel` | Context usage indicator (placeholder until LLM wiring) |
 | `aiChatAttachments` | `QWidget` | Attachment chips row (hidden when empty) |
 | `aiChatAttachmentChip` | `QPushButton` | Removable file attachment chip |
 | `requestHistoryPanel` | `HistoryPanel` | Per-request History flyout (right rail) |

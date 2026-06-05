@@ -169,6 +169,7 @@ class LeftSidebar(QWidget):
     """
 
     panel_state_changed = Signal(bool)
+    panel_activated = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Build the rail layout, flyout shell, and default collections rail button."""
@@ -372,6 +373,7 @@ class LeftSidebar(QWidget):
             return
         self._active_panel = panel
         self._last_panel = panel
+        self.panel_activated.emit(panel)
         for key, btn in self._buttons.items():
             btn.setChecked(key == panel)
         self._flyout.show()

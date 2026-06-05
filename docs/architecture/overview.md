@@ -111,13 +111,16 @@ MainWindow._on_send()
 ```text
 main.py
   1. QApplication()
-  2. ThemeManager / TabSettingsManager / load_font()
-  3. init_db()          -- on the main thread before any window
-  4. MainWindow()       -- loading screen; local mirror sync starts on a worker thread
-  5. window.showMaximized()
-  6. Collection fetch worker runs init_db() (no-op) then fetch_all()
-  7. load_finished      -- switches stack to main UI; session tabs restore in batches
-  8. app.exec()
+  2. LoadingScreen splash is shown and painted
+  3. Heavy imports + ThemeManager / TabSettingsManager / load_font()
+  4. init_db()
+  5. MainWindow()
+  6. window.showMaximized(), close splash
+  7. Collection fetch worker runs init_db() (no-op) then fetch_all()
+  8. load_finished      -- switches stack to main UI; session restore is delayed/batched
+  9. Local mirror sync + AI model tier backfill start on delayed worker threads
+ 10. Local Scripts tree fetch starts lazily when that left-rail page opens
+ 11. app.exec()
 ```
 
 ## Further Reading

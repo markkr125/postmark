@@ -2,13 +2,24 @@
 
 from __future__ import annotations
 
+import logging
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypedDict
 
+from services.ai.reasoning_effort import (
+    clamp_effort,
+    default_effort_for,
+    format_reasoning_effort,
+    normalize_efforts,
+    ollama_reasoning_from_show,
+)
+
 CapabilityKind = Literal["suggest", "tools", "vision"]
 
 OLLAMA_DEFAULT_CONTEXT_TOKENS = 32_768
+MIN_RUN_CONTEXT_TOKENS = 22_000
 
 OLLAMA_CONTEXT_OPTIONS: tuple[tuple[str, int], ...] = (
     ("4k", 4_096),
@@ -50,6 +61,12 @@ class ModelSpec:
     vision: bool
     text: bool = True
     insert: bool = False
+    reasoning: bool = False
+    reasoning_efforts: tuple[str, ...] = ()
+    reasoning_default: str = ""
+    thinking: bool = False
+    thinking_default: str = ""
+    context_tiers: tuple[int, ...] = ()
     input_cost_per_token: float = 0.0
     output_cost_per_token: float = 0.0
 
@@ -341,12 +358,149 @@ def ollama_default_context_tokens(entry: Mapping[str, Any] | None) -> int:
     return OLLAMA_DEFAULT_CONTEXT_TOKENS
 
 
-def context_tokens_for_entry(entry: object) -> int:
-    """Context window for a saved row (persisted value, else catalog)."""
-    if not isinstance(entry, dict):
+def model_max_context_tokens(entry: Mapping[str, Any] | None) -> int:
+    """Maximum context window for a saved model row (from fetch metadata)."""
+    if entry is None:
         return 0
     ctx = entry.get("context")
-    if isinstance(ctx, int) and ctx > 0:
+    return ctx if isinstance(ctx, int) and ctx > 0 else 0
+
+
+_logger = logging.getLogger(__name__)
+_INPUT_TIER_ABOVE_RE = re.compile(r"^input_cost_per_token_above_(?P<num>\d+)(?P<unit>k)?_tokens$")
+
+
+def _tier_tokens_from_cost_key(key: str) -> int | None:
+    """Parse ``input_cost_per_token_above_{N}k_tokens`` into a token count."""
+    match = _INPUT_TIER_ABOVE_RE.match(key)
+    if match is None:
+        return None
+    num = int(match.group("num"))
+    return num * 1000 if match.group("unit") == "k" else num
+
+
+def litellm_context_tier_thresholds(model_id: str) -> tuple[int, ...]:
+    """Return pricing-tier breakpoints from LiteLLM ``model_cost`` (zero network calls)."""
+    thresholds: set[int] = set()
+    try:
+        import litellm
+
+        bare = model_id.split("/", 1)[-1]
+        candidates: tuple[str, ...] = (model_id, bare)
+        if "/" in model_id:
+            candidates = (model_id, bare, f"{model_id.split('/', 1)[0]}/{bare}")
+        for key in candidates:
+            row = litellm.model_cost.get(key)
+            if not isinstance(row, dict):
+                continue
+            for field_name in row:
+                tokens = _tier_tokens_from_cost_key(str(field_name))
+                if tokens is not None and tokens > 0:
+                    thresholds.add(tokens)
+            if thresholds:
+                break
+    except Exception as exc:
+        _logger.debug("context tiers(%s): %s", model_id, exc)
+    return tuple(sorted(thresholds))
+
+
+def context_tiers_for_entry(entry: Mapping[str, Any] | None) -> tuple[int, ...]:
+    """LiteLLM pricing tier breakpoints (e.g. 272k before higher input cost)."""
+    if entry is None:
+        return ()
+    raw = entry.get("context_tiers")
+    if not isinstance(raw, list):
+        return ()
+    values = sorted({int(v) for v in raw if isinstance(v, int) and v > 0})
+    return tuple(values)
+
+
+def default_run_context_tokens(entry: Mapping[str, Any] | None) -> int:
+    """Provider/model default run context before a per-model override."""
+    if entry is None:
+        return 0
+    max_ctx = model_max_context_tokens(entry)
+    if max_ctx <= 0:
+        return 0
+    if str(entry.get("provider") or "") == "ollama":
+        return min(ollama_default_context_tokens(entry), max_ctx)
+    tiers = context_tiers_for_entry(entry)
+    if tiers:
+        return min(tiers[0], max_ctx)
+    return max_ctx
+
+
+def effective_run_context_tokens(entry: Mapping[str, Any] | None) -> int:
+    """Context size used for runs and picker display (override or default)."""
+    if entry is None:
+        return 0
+    override = entry.get("context_limit")
+    if isinstance(override, int) and override > 0:
+        return clamp_run_context_tokens(override, entry)
+    return default_run_context_tokens(entry)
+
+
+def clamp_run_context_tokens(tokens: int, entry: Mapping[str, Any] | None) -> int:
+    """Clamp *tokens* to ``MIN_RUN_CONTEXT_TOKENS`` .. model max."""
+    max_ctx = model_max_context_tokens(entry)
+    if max_ctx <= 0:
+        return 0
+    low = min(MIN_RUN_CONTEXT_TOKENS, max_ctx)
+    return max(low, min(tokens, max_ctx))
+
+
+def run_context_choices(entry: Mapping[str, Any] | None) -> tuple[tuple[str, int], ...]:
+    """Preset context sizes for the picker edit flyout."""
+    max_ctx = model_max_context_tokens(entry)
+    if max_ctx < MIN_RUN_CONTEXT_TOKENS:
+        return ()
+    if entry is not None and str(entry.get("provider") or "") == "ollama":
+        return _ollama_run_context_choices(max_ctx, entry)
+    return _tiered_run_context_choices(max_ctx, entry)
+
+
+def _ollama_run_context_choices(
+    max_ctx: int, entry: Mapping[str, Any] | None
+) -> tuple[tuple[str, int], ...]:
+    """Ollama: stepped presets from 22k up to the model max."""
+    out: list[tuple[str, int]] = []
+    for label, value in OLLAMA_CONTEXT_OPTIONS:
+        if MIN_RUN_CONTEXT_TOKENS <= value <= max_ctx:
+            out.append((label, value))
+    if max_ctx not in {v for _, v in out}:
+        out.append((format_context_tokens(max_ctx), max_ctx))
+    default = default_run_context_tokens(entry)
+    if default >= MIN_RUN_CONTEXT_TOKENS and default not in {v for _, v in out}:
+        out.append((format_context_tokens(default), default))
+    out.sort(key=lambda pair: pair[1])
+    return tuple(out)
+
+
+def _tiered_run_context_choices(
+    max_ctx: int, entry: Mapping[str, Any] | None
+) -> tuple[tuple[str, int], ...]:
+    """Cloud models: only tier breakpoints where pricing changes (not every step)."""
+    tiers = context_tiers_for_entry(entry)
+    if not tiers:
+        return ()
+    candidates: set[int] = set()
+    for threshold in tiers:
+        if MIN_RUN_CONTEXT_TOKENS <= threshold <= max_ctx:
+            candidates.add(threshold)
+    largest_tier = max(tiers)
+    if max_ctx > largest_tier:
+        candidates.add(max_ctx)
+    if len(candidates) < 2:
+        return ()
+    return tuple((format_context_tokens(value), value) for value in sorted(candidates))
+
+
+def context_tokens_for_entry(entry: object) -> int:
+    """Context window for settings tree (model max, else catalog default)."""
+    if not isinstance(entry, dict):
+        return 0
+    ctx = model_max_context_tokens(entry)
+    if ctx > 0:
         return ctx
     if str(entry.get("provider") or "") == "ollama":
         return ollama_default_context_tokens(entry)
@@ -549,6 +703,7 @@ def persisted_cost_fields(spec: ModelSpec) -> dict[str, float]:
 
 __all__ = [
     "LIVE_MODEL_LIST_KINDS",
+    "MIN_RUN_CONTEXT_TOKENS",
     "OLLAMA_CONTEXT_OPTIONS",
     "OLLAMA_DEFAULT_CONTEXT_TOKENS",
     "PROVIDERS",
@@ -567,21 +722,33 @@ __all__ = [
     "capability_text",
     "capability_text_for_entry",
     "catalog_provider_label",
+    "clamp_effort",
+    "clamp_run_context_tokens",
     "context_display_for_entry",
+    "context_tiers_for_entry",
     "context_tokens_for_entry",
     "context_tokens_for_model",
     "cost_display_for_entry",
     "cost_display_for_spec",
     "cost_per_token_for_entry",
+    "default_effort_for",
+    "default_run_context_tokens",
+    "effective_run_context_tokens",
     "format_context_tokens",
     "format_model_cost_display",
+    "format_reasoning_effort",
+    "litellm_context_tier_thresholds",
     "migrate_provider_display_names",
+    "model_max_context_tokens",
     "model_row_label",
+    "normalize_efforts",
     "ollama_default_context_tokens",
+    "ollama_reasoning_from_show",
     "persisted_cost_fields",
     "probe_model_for_provider",
     "provider_by_key",
     "provider_connection_key",
     "provider_group_label",
     "provider_lists_models_live",
+    "run_context_choices",
 ]

@@ -232,7 +232,8 @@ Source: `ui/sidebar/ai/model_picker_popup.py`
 | Signal | Parameters | Description |
 |--------|------------|-------------|
 | `model_picked` | `str` | Model id selected from the picker list |
-| `manage_requested` | *(none)* | "Manage models" link clicked |
+| `manage_requested` | *(none)* | Manage-models gear clicked in the picker search row |
+| `effort_changed` | `str`, `str` | Model id and reasoning effort after Edit menu pick |
 
 ## AI Chat Panel
 
@@ -245,7 +246,10 @@ Source: `ui/sidebar/ai/chat_panel.py`
 | `message_submitted` | `str` | User sent a message (prompt text only; model/mode/attachments read from panel API) |
 | `mode_changed` | `str` | Agent mode changed (`agent`, `ask`, or `plan`) — not consumed yet |
 | `attachments_changed` | `list` | Attached file paths changed — not consumed yet |
-| `manage_models_requested` | *(none)* | "Manage models" picked in the model picker → opens Settings → AI → Models |
+| `manage_models_requested` | *(none)* | Manage-models gear in the model picker → opens Settings → AI → Models |
+| `context_requested` | *(none)* | Context-window icon in the composer — not consumed yet |
+
+Public getters (not signals): `current_model_id()`, `current_mode()`, `current_reasoning_effort()` (for phase-2 LLM wiring).
 
 Wired in `MainWindow.__init__`: `message_submitted` → `_on_ai_message_submitted` (debug log placeholder); `manage_models_requested` → `_on_open_ai_models_settings`.
 

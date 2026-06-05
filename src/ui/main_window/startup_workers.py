@@ -18,4 +18,22 @@ class LocalProjectConfigWorker(QObject):
         self.finished.emit()
 
 
-__all__ = ["LocalProjectConfigWorker"]
+class AiModelBackfillWorker(QObject):
+    """Runs the one-time LiteLLM tier backfill off the GUI thread.
+
+    Imports ``litellm`` (slow on first call) away from the startup path, then
+    emits the refreshed model list so the GUI thread can persist and apply it.
+    Uses ``persist=False`` so QSettings is never written from this thread.
+    """
+
+    finished = Signal(object)
+
+    def run(self) -> None:
+        """Load models with tier backfill enabled (no QSettings write) and emit."""
+        from services.ai.ai_config import AiConfig
+
+        models = AiConfig.get_models(backfill_tiers=True, persist=False)
+        self.finished.emit(models)
+
+
+__all__ = ["AiModelBackfillWorker", "LocalProjectConfigWorker"]

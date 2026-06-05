@@ -874,6 +874,13 @@ def build_global_qss(p: ThemePalette) -> str:
         background-color: {p["selected_bg"]};
         color: {p["text"]};
     }}
+    QLineEdit[objectName="aiModelsSearch"] {{
+        background: {p["input_bg"]};
+        border: 1px solid {p["border"]};
+        border-radius: 4px;
+        padding: 4px 8px;
+        font-size: 12px;
+    }}
     QTreeWidget#aiModelsTree::item {{
         background-color: {p["bg"]};
     }}
@@ -1556,10 +1563,6 @@ def build_global_qss(p: ThemePalette) -> str:
         color: {p["text"]};
         padding: 6px;
     }}
-    QLabel[objectName="aiChatContextLabel"] {{
-        color: {p["text_muted"]};
-        font-size: 11px;
-    }}
     QWidget[objectName="aiChatAttachments"] {{
         background: transparent;
     }}
@@ -1575,19 +1578,47 @@ def build_global_qss(p: ThemePalette) -> str:
         border-color: {p["accent"]};
         color: {p["accent"]};
     }}
-    QPushButton[objectName="aiChatModelButton"] {{
-        background: {p["input_bg"]};
+    QWidget[objectName="aiChatModelButton"] {{
+        background: {p["bg_alt"]};
         border: 1px solid {p["border"]};
-        border-radius: 4px;
-        padding: 4px 8px;
-        font-size: 11px;
+        border-radius: 12px;
+    }}
+    QFrame[objectName="aiChatModeButton"] {{
+        background-color: {p["composer_pill_dark_bg"]};
+        border: 1px solid {p["border"]};
+        border-radius: 12px;
+    }}
+    QFrame[objectName="aiChatModeButton"]:hover,
+    QWidget[objectName="aiChatModelButton"]:hover {{
+        background: {p["hover_bg"]};
+        border-color: {p["border"]};
+    }}
+    QLabel[objectName="aiChatModeButtonLabel"],
+    QLabel[objectName="aiChatModelButtonPart"] {{
         color: {p["text"]};
-        text-align: left;
+        font-size: 12px;
+        background: transparent;
     }}
-    QPushButton[objectName="aiChatModelButton"]:hover {{
-        border-color: {p["accent"]};
+    QFrame[objectName="aiAgentModePopup"] {{
+        background: {p["bg"]};
+        border: 1px solid {p["border"]};
+        border-radius: 8px;
     }}
-    QPushButton[objectName="aiChatModelButton"]:disabled {{
+    QWidget[objectName="aiAgentModeOption"] {{
+        background: transparent;
+    }}
+    QLabel[objectName="aiAgentModeOptionLabel"] {{
+        color: {p["text"]};
+        font-size: 12px;
+        background: transparent;
+    }}
+    QLabel[objectName="aiAgentModeCheck"] {{
+        color: {p["text"]};
+        font-size: 12px;
+        min-width: 12px;
+        background: transparent;
+    }}
+    QWidget[objectName="aiChatModelButton"]:disabled QLabel[objectName="aiChatModelButtonPart"] {{
         color: {p["text_muted"]};
     }}
     /* ---- AI model picker popover -------------------------------- */
@@ -1616,26 +1647,62 @@ def build_global_qss(p: ThemePalette) -> str:
         background: {p["hover_bg"]};
         border-radius: 4px;
     }}
+    QWidget[objectName="aiModelPickerRow"][editing="true"] {{
+        background: {p["selected_bg"]};
+        border-radius: 4px;
+    }}
     QLabel[objectName="aiModelPickerName"] {{
         color: {p["text"]};
         font-size: 12px;
+        background: transparent;
+    }}
+    QLabel[objectName="aiModelPickerContext"] {{
+        color: {p["text_muted"]};
+        font-size: 10px;
+        background: transparent;
+    }}
+    QLabel[objectName="aiModelPickerEffort"] {{
+        color: {p["text_muted"]};
+        font-size: 10px;
+        background: transparent;
+    }}
+    QPushButton[objectName="aiModelPickerEdit"] {{
+        color: {p["accent"]};
+        background: transparent;
+        border: none;
+        font-size: 11px;
+        padding: 2px 4px;
+    }}
+    QPushButton[objectName="aiModelPickerEdit"]:hover {{
+        text-decoration: underline;
+    }}
+    QFrame[objectName="aiModelPickerEditPanel"] {{
+        background: {p["bg"]};
+        border: 1px solid {p["border"]};
+        border-radius: 8px;
+    }}
+    QLabel[objectName="aiModelPickerEditSection"] {{
+        color: {p["text_muted"]};
+        font-size: 10px;
+        font-weight: 600;
+        padding: 4px 6px 2px 6px;
+        background: transparent;
+    }}
+    QLabel[objectName="aiModelPickerEditOptionLabel"] {{
+        color: {p["text"]};
+        font-size: 12px;
+        background: transparent;
+    }}
+    QLabel[objectName="aiModelPickerEditCheck"] {{
+        color: {p["text"]};
+        font-size: 12px;
+        min-width: 14px;
         background: transparent;
     }}
     QLabel[objectName="aiModelPickerProvider"] {{
         color: {p["text_muted"]};
         font-size: 10px;
         background: transparent;
-    }}
-    QPushButton[objectName="aiModelPickerManageLink"] {{
-        color: {p["accent"]};
-        border: none;
-        background: transparent;
-        font-size: 11px;
-        padding: 4px 2px;
-        text-align: left;
-    }}
-    QPushButton[objectName="aiModelPickerManageLink"]:hover {{
-        text-decoration: underline;
     }}
     QToolButton[objectName="leftSidebarRailButton"] {{
         background: transparent;

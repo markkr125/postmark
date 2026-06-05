@@ -743,6 +743,9 @@ class _TabControllerMixin:
         from ui.main_window.session_restore import begin_session_restore
         from ui.main_window.window import MainWindow
 
+        if getattr(self, "_session_restore_started", False):
+            return
+        self._session_restore_started = True
         begin_session_restore(cast(MainWindow, self))
 
     def _restore_request_deferred(self, entry: dict, request_id: int) -> None:

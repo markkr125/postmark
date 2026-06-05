@@ -29,6 +29,7 @@ class ThemePalette(TypedDict):
     hover_tree_bg: str
     selected_bg: str
     input_bg: str
+    composer_pill_dark_bg: str
 
     # Semantic
     accent: str
@@ -123,6 +124,7 @@ class ThemePalette(TypedDict):
 LIGHT_PALETTE: ThemePalette = {
     "bg": "#ffffff",
     "bg_alt": "#fafafa",
+    "composer_pill_dark_bg": "#d4d4d4",
     "text": "#444444",
     "text_muted": "#888888",
     "border": "#cccccc",
@@ -208,6 +210,7 @@ LIGHT_PALETTE: ThemePalette = {
 DARK_PALETTE: ThemePalette = {
     "bg": "#1e1e1e",
     "bg_alt": "#252526",
+    "composer_pill_dark_bg": "#1a1a1a",
     "text": "#d4d4d4",
     "text_muted": "#808080",
     "border": "#3c3c3c",

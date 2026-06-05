@@ -303,11 +303,21 @@ HistoryPanel.delete_requested(int entry_id)
 
 CollectionWidget.load_finished
   → MainWindow._on_load_finished (main stack + menu/status)
-  → session_restore.begin_session_restore (batched tab restore)
+  → QTimer.singleShot(150, MainWindow._restore_tabs)
+    → session_restore.begin_session_restore (batched tab restore, 1 tab per tick)
   → MainWindow.session_restore_finished
+  → QTimer.singleShot(750, MainWindow._start_ai_model_backfill)
+    (skipped when all models tiers_checked)
+    → AiModelBackfillWorker (QThread): AiConfig.get_models(backfill_tiers=True, persist=False)
+    → MainWindow._on_ai_models_backfilled (GUI): merge by id, AiConfig.set_models, ai_chat_panel.set_models
 
 MainWindow (startup)
-  → LocalProjectConfigWorker (QThread): ensure_local_project_config / sync_all
+  → QTimer.singleShot(500, MainWindow._start_local_project_config_sync)
+    → LocalProjectConfigWorker (QThread): ensure_local_project_config / sync_all
+
+LeftSidebar.panel_activated("local_scripts")
+  → MainWindow._on_left_sidebar_panel_activated
+    → local_scripts_widget._start_fetch()   # lazy; not run during initial startup
 ```
 
 ### Folder editor flow
@@ -348,7 +358,7 @@ MainWindow snippet_act.triggered
 
 ```
 MainWindow.__init__
-  → ai_chat_panel.set_models(AiConfig.get_models())
+  → ai_chat_panel.set_models(AiConfig.get_models())   # fast QSettings read; no litellm import
   → ai_chat_panel.message_submitted → _on_ai_message_submitted (logger.debug placeholder)
 
 AiChatPanel._on_send (or Ctrl+Enter via _ComposerInput.submit_requested)
@@ -357,6 +367,7 @@ AiChatPanel._on_send (or Ctrl+Enter via _ComposerInput.submit_requested)
 
 AiChatPanel.mode_changed(str)      # not connected yet
 AiChatPanel.attachments_changed(list)  # not connected yet
+AiChatPanel.context_requested()        # not connected yet
 
 AiChatPanel._open_model_picker
   → AiModelPickerPopup.instance().show_for(model_btn, models, current_id, on_pick, on_manage)
@@ -655,8 +666,10 @@ All other signals in the flow diagrams above are fully wired.
 | `AiChatPanel` | `mode_changed` | `Signal(str)` |
 | `AiChatPanel` | `attachments_changed` | `Signal(list)` |
 | `AiChatPanel` | `manage_models_requested` | `Signal()` |
+| `AiChatPanel` | `context_requested` | `Signal()` |
 | `AiModelPickerPopup` | `model_picked` | `Signal(str)` |
 | `AiModelPickerPopup` | `manage_requested` | `Signal()` |
+| `AiModelPickerPopup` | `effort_changed` | `Signal(str, str)` — model id, effort |
 | `RightSidebar` | `ai_settings_requested` | `Signal()` |
 
 ## MainWindow signal wiring summary

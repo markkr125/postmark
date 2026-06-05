@@ -88,7 +88,12 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   (`ai/models` JSON list; legacy `ai/default_model` cleared on save). `AiModelEntry` TypedDict
   holds per-row metadata (`label` = model name, `provider_display_name` =
   provider group header, `enabled` default false, `context`, `text`, `insert`,
-  `tools`, `vision`, optional costs); settings Models tree has an **Enabled**
+  `tools`, `vision`, optional costs, `context_tiers`, `tiers_checked`). Default
+  `get_models()` is a pure QSettings read (no `litellm` import). One-time tier
+  backfill runs in delayed `AiModelBackfillWorker` after `load_finished`;
+  results are merged and persisted on the GUI thread in
+  `MainWindow._on_ai_models_backfilled`.
+  Settings Models tree has an **Enabled**
   checkbox column and capability pills `suggest` / `tools` / `vision`.
   Empty provider display names auto-allocate unique catalog names on save.
   Ollama refresh derives `insert`/`tools`/`vision` from `/api/show`; optional
@@ -651,8 +656,11 @@ into `%Y-%m-%d %H:%M` strings for the UI.
   **Environments** tabs are saved as ``{"type": "environments"}`` (no id)
   and recreated on restore in their saved order.
   **Deferred tab materialisation:** `session_restore.begin_session_restore`
-  (via `_restore_tabs()`) restores tabs in batches after
-  `CollectionWidget.load_finished` so the GUI thread stays responsive.
+  (via delayed `_restore_tabs()`) restores tabs in one-tab delayed batches
+  after `CollectionWidget.load_finished` so the GUI thread stays responsive.
+  The local-scripts tree is also lazy: `MainWindow` starts
+  `local_scripts_widget._start_fetch()` only when
+  `LeftSidebar.panel_activated("local_scripts")` fires.
   Request tabs
   with `method` and `name` in the session data are created as
   lightweight tab-bar chips stored in `_deferred_tabs`; the editor and

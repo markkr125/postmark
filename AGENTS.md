@@ -198,6 +198,7 @@ src/
 │   ├── collection_service.py      # CollectionService (static methods)
 │   ├── ai/                        # AI / LLM provider configuration (OpenHands SDK)
 │   │   ├── provider_catalog.py    # Static provider/model catalog (display defaults)
+│   │   ├── reasoning_effort.py    # Reasoning-effort vocabulary + Ollama/LiteLLM helpers
 │   │   ├── ai_config.py           # AiConfig + AiModelEntry — QSettings ai/models, ai/default_model
 │   │   ├── sdk_env.py             # ensure_openhands_env + connection timeouts
 │   │   ├── ai_logging.py          # [postmark.ai] stderr log during provider setup
@@ -301,8 +302,8 @@ src/
     │   ├── send_pipeline_debug_session.py # on_debug_paused/step/finished, end_debug_ui
     │   ├── draft_controller.py    # _DraftControllerMixin — draft tab open/save
     │   ├── tab_controller.py      # _TabControllerMixin — tab open/close/switch
-    │   ├── session_restore.py   # Batched session tab restore after load_finished
-    │   ├── startup_workers.py   # LocalProjectConfigWorker — mirror sync off GUI thread
+    │   ├── session_restore.py   # Delayed, batched session tab restore after load_finished
+    │   ├── startup_workers.py   # LocalProjectConfigWorker + AiModelBackfillWorker — delayed startup workers off GUI thread
     │   ├── tab_nav/               # Tab activation back/forward stacks
     │   │   ├── history.py         # _TabNavHistoryMixin — Go menu Ctrl+Alt+arrows
     │   │   └── __init__.py
@@ -314,8 +315,10 @@ src/
     ├── sidebar/                   # Sidebar rails + flyout panels
     │   ├── sidebar_widget.py      # RightSidebar (icon rail) + _FlyoutPanel
     │   ├── ai/                    # AI assistant chat panel (skeleton)
+    │   │   ├── agent_mode_popup.py  # AgentModeButton + AiAgentModePopup (Agent / Ask / Plan)
     │   │   ├── chat_panel.py      # AiChatPanel — transcript + composer
     │   │   ├── message_bubble.py  # ChatMessageBubble — user/assistant bubbles
+    │   │   ├── model_picker_edit.py  # AiModelPickerEditPanel flyout (context / thinking / reasoning)
     │   │   └── model_picker_popup.py  # AiModelPickerPopup — Cursor-style model list + Manage link
     │   ├── left_sidebar.py        # LeftSidebar — activity rail + stacked nav flyout pages
     │   ├── local_scripts_sidebar_panel.py  # Legacy empty shell (unused; MainWindow uses CollectionWidget)
@@ -546,6 +549,7 @@ tests/
 │       ├── test_request_history_service.py
 │       ├── ai/                    # AI config + LLM service tests
 │       │   ├── test_ai_config.py
+│       │   ├── test_model_metadata.py
 │       │   └── test_llm_service.py
 │       └── http/                  # HTTP service tests
 │           ├── test_http_service.py

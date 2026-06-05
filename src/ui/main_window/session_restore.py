@@ -6,8 +6,6 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import QTimer
-
 from services.local_script_service import LocalScriptService
 
 if TYPE_CHECKING:
@@ -15,8 +13,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Tabs restored per event-loop tick (request chips are cheap; folder/draft cost more).
-_RESTORE_BATCH_SIZE = 2
+# Tabs restored per event-loop tick. Keep small so startup remains clickable.
+_RESTORE_BATCH_SIZE = 1
+_RESTORE_STEP_DELAY_MS = 25
+_RESTORE_FINALIZE_DELAY_MS = 50
 
 
 @dataclass
@@ -35,13 +35,19 @@ def begin_session_restore(window: MainWindow) -> None:
         return
     window._session_restore_state = state
     window._restoring_session = True
-    QTimer.singleShot(0, lambda: _restore_step(window))
+    window._schedule_startup_task(_RESTORE_STEP_DELAY_MS, lambda: _restore_step(window))
 
 
 def flush_session_restore(window: MainWindow) -> None:
     """Run all pending restore steps synchronously (tests)."""
-    while getattr(window, "_session_restore_state", None) is not None:
-        _restore_step(window)
+    state = getattr(window, "_session_restore_state", None)
+    if state is None:
+        return
+    while state.queue:
+        entry = state.queue.pop(0)
+        _apply_restore_entry(window, entry)
+    window._session_restore_state = None
+    _finish_session_restore(window, state)
 
 
 def restore_tabs_synchronous(window: MainWindow) -> None:
@@ -96,14 +102,14 @@ def _restore_step(window: MainWindow) -> None:
         batch += 1
 
     if state.queue:
-        QTimer.singleShot(0, lambda: _restore_step(window))
+        window._schedule_startup_task(_RESTORE_STEP_DELAY_MS, lambda: _restore_step(window))
         return
 
     window._session_restore_state = None
-    window._restoring_session = False
-    _finalize_session_restore(window, state)
-    if hasattr(window, "session_restore_finished"):
-        window.session_restore_finished.emit()
+    window._schedule_startup_task(
+        _RESTORE_FINALIZE_DELAY_MS,
+        lambda: _finish_session_restore(window, state),
+    )
 
 
 def _apply_restore_entry(window: MainWindow, entry: dict[str, Any]) -> None:
@@ -160,6 +166,14 @@ def _finalize_session_restore(window: MainWindow, state: _SessionRestoreState) -
         sidebar_width = data.get("sidebar_width")
         if isinstance(sidebar_width, int) and sidebar_width > 0:
             window._right_sidebar._expand_flyout(sidebar_width)
+
+
+def _finish_session_restore(window: MainWindow, state: _SessionRestoreState) -> None:
+    """Finish restore after yielding to the event loop for a visible frame."""
+    window._restoring_session = False
+    _finalize_session_restore(window, state)
+    if hasattr(window, "session_restore_finished"):
+        window.session_restore_finished.emit()
 
 
 __all__ = [

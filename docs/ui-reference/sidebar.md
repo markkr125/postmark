@@ -126,13 +126,95 @@ enabled; `_toggle_panel("ai")` opens without checking `_available_panels`, while
 ``MainWindow`` opens Settings on the **AI** category and refreshes the model picker
 when the dialog closes.
 
-The composer's model control is a Cursor-style picker: the ``aiChatModelButton``
-shows the current model and opens ``AiModelPickerPopup`` (``model_picker_popup.py``)
+#### AI composer input (auto-grow)
+
+Source: ``ui/sidebar/ai/chat_panel.py`` — class ``_ComposerInput`` (``QPlainTextEdit``),
+``objectName="aiChatInput"``, styled in ``global_qss.py``.
+
+**Problem solved.** The prompt used to call ``setFixedHeight(72)`` (~3 visible lines).
+Long messages scrolled inside a tiny box. The fixed height was removed; height is
+recomputed from content instead.
+
+**User-visible behavior (matches the auto-grow plan).**
+
+| State | Behavior |
+|-------|----------|
+| Empty / short text | Minimum **3 lines** tall (comfortable default, same ballpark as the old 72px box). |
+| Typing or wrapping | Grows line-by-line with content (word wrap at widget width). |
+| More than 15 visual lines | Height stops at **15 lines**; vertical scrollbar appears; content still scrolls inside. |
+| Delete text / send | Shrinks back down (``clear()`` after send triggers the same resize path). |
+| Submit | **Ctrl+Enter** emits ``submit_requested`` → ``AiChatPanel._on_send`` (plain Enter inserts a newline). |
+
+**Implementation (Qt-specific).** Web chat UIs often use ``textarea`` + ``scrollHeight``;
+here the equivalent is:
+
+1. Listen to ``document().documentLayout().documentSizeChanged`` (and ``resizeEvent``,
+   because changing width changes wrap and thus line count).
+2. Read **visual line count** from ``documentLayout().documentSize().height()``.
+   For ``QPlainTextEdit`` this value is **not pixels** — it is the number of
+   wrap-aware visual lines (Qt ``QPlainTextDocumentLayout`` reports line count in the
+   height component of ``documentSize()``).
+3. Convert to pixels: ``visual_lines * fontMetrics().lineSpacing() + vertical_chrome``.
+4. Clamp between ``_COMPOSER_MIN_LINES`` (3) and ``_COMPOSER_MAX_LINES`` (15), then
+   ``setFixedHeight(target)``.
+5. If content exceeds the cap, set vertical scrollbar policy to ``ScrollBarAsNeeded``;
+   otherwise ``ScrollBarAlwaysOff``.
+
+**Vertical chrome** (must stay in sync with QSS) is computed in ``_vertical_chrome()``:
+
+- ``_COMPOSER_QSS_VERTICAL_PADDING = 12`` — mirrors ``padding: 6px`` top+bottom on
+  ``aiChatInput`` in ``global_qss.py``.
+- Plus frame width and ``2 * document().documentMargin()``.
+
+**Constants** (change these to tune the composer, then adjust tests if needed):
+
+```python
+_COMPOSER_MIN_LINES = 3
+_COMPOSER_MAX_LINES = 15
+_COMPOSER_QSS_VERTICAL_PADDING = 12
+```
+
+**Tests:** ``tests/ui/sidebar/test_sidebar.py`` — ``test_ai_composer_grows_with_lines``,
+``test_ai_composer_caps_at_max_lines``, ``test_ai_composer_shrinks_back``.
+
+**Plan checklist (all implemented).**
+
+- [x] ``_ComposerInput.__init__`` — wrap, scrollbar defaults, ``documentSizeChanged`` hook.
+- [x] ``_adjust_height`` / ``_vertical_chrome`` / ``resizeEvent``.
+- [x] Removed ``setFixedHeight(72)`` from ``AiChatPanel.__init__``.
+- [x] Unit/UI tests for grow, cap, shrink.
+- [x] ``src/ui/AGENTS.md`` ``aiChatInput`` row; this section in ``sidebar.md``.
+
+The composer **mode** control is a compact pill (``aiChatModeButton``): mode icon,
+label, and caret on a **darker** background (``composer_pill_dark_bg`` in
+``theme.py``; ``QFrame`` + ``WA_StyledBackground`` so Qt paints rounded fill). Clicking opens ``AiAgentModePopup`` (``agent_mode_popup.py``) **above**
+the pill with **Agent**, **Ask**, and **Plan** rows (icon + checkmark + soft hover).
+Click outside, press Escape, or click the pill again to dismiss.
+
+The composer's **model** control is a compact pill (``ModelPickerButton`` /
+``aiChatModelButton``) with the lighter ``bg_alt`` fill (rounded border, 12px label,
+caret on the right). It shows the current model and opens
+``AiModelPickerPopup`` (``model_picker_popup.py``)
 — a frameless popover with a search field, an enabled-model list grouped by
-provider (bold provider heading, indented model rows), and a **Manage models** link. Picking a row updates
-the button and ``current_model_id()``; **Manage models** emits
+provider (bold provider heading, indented model rows with **context** and
+**reasoning effort** tags), hover **Edit** on configurable rows (opens
+``AiModelPickerEditPanel`` — opens **to the left** of the picker (side-by-side,
+Cursor composer style) with **Context**, **Options** (thinking toggle), **Reasoning**,
+and checkmarks on list options). Click **Edit** again or
+outside the flyout to dismiss.
+Context presets for cloud models follow LiteLLM pricing tiers (e.g. 272k vs 1M for
+GPT-5.5); Ollama keeps stepped presets. A **gear** icon beside the search field opens
+Settings → AI → Models. The model button label shows ``<name> · <ctx> · <Effort>`` when
+applicable. Picking a row updates the button and ``current_model_id()``; per-model
+settings persist via ``AiConfig`` (``context_limit``, ``thinking_enabled``,
+``reasoning_effort``) and survive provider refresh (matched by ``model`` string).
+The manage control emits
 ``AiChatPanel.manage_models_requested`` → ``MainWindow`` opens Settings → AI →
 **Models** and refreshes the picker.
+
+A **chart-pie-slice** icon button (shared ``iconButton`` styling) shows context
+usage in its tooltip via ``set_context_usage()``; clicking emits
+``context_requested`` (not wired yet).
 
 ### Key Attributes
 

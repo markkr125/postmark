@@ -7,7 +7,10 @@ from typing import Any
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
+from services.ai.ai_config import AiConfig
 from ui.sidebar.ai import AiChatPanel
+from ui.sidebar.ai.model_picker_edit import reasoning_levels_for_entry
+from ui.sidebar.ai.model_picker_popup import AiModelPickerPopup
 from ui.sidebar.saved_responses.panel import SavedResponsesPanel
 from ui.sidebar.sidebar_widget import RightSidebar
 from ui.sidebar.snippet_panel import SnippetPanel
@@ -305,7 +308,171 @@ class TestRightSidebar:
         assert not panel._send_btn.isEnabled()
         assert not panel._model_btn.isEnabled()
         assert panel.current_model_id() is None
-        assert panel._model_btn.text() == "No models configured"
+        assert "No models configured" in panel._model_button_label()
+
+    def test_ai_composer_grows_with_lines(self, qapp: QApplication, qtbot) -> None:
+        """Composer input height increases as more lines are added."""
+        from ui.sidebar.ai.chat_panel import AiChatPanel
+
+        panel = AiChatPanel()
+        qtbot.addWidget(panel)
+        panel.resize(320, 600)
+        panel.show()
+        qapp.processEvents()
+        initial_h = panel._input.height()
+        panel._input.setPlainText("\n".join("line" for _ in range(8)))
+        qapp.processEvents()
+        assert panel._input.height() > initial_h
+
+    def test_ai_composer_caps_at_max_lines(self, qapp: QApplication, qtbot) -> None:
+        """Composer stops growing at 15 lines and enables vertical scrolling."""
+        from ui.sidebar.ai.chat_panel import (
+            _COMPOSER_MAX_LINES,
+            AiChatPanel,
+        )
+
+        panel = AiChatPanel()
+        qtbot.addWidget(panel)
+        panel.resize(320, 600)
+        panel.show()
+        qapp.processEvents()
+        panel._input.setPlainText("\n".join("line" for _ in range(40)))
+        qapp.processEvents()
+        line_height = panel._input.fontMetrics().lineSpacing()
+        chrome = panel._input._vertical_chrome()
+        expected_max = _COMPOSER_MAX_LINES * line_height + chrome
+        assert abs(panel._input.height() - expected_max) <= 2
+        assert panel._input.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAsNeeded
+
+    def test_ai_composer_shrinks_back(self, qapp: QApplication, qtbot) -> None:
+        """Clearing text collapses the composer back to the minimum height."""
+        from ui.sidebar.ai.chat_panel import (
+            _COMPOSER_MIN_LINES,
+            AiChatPanel,
+        )
+
+        panel = AiChatPanel()
+        qtbot.addWidget(panel)
+        panel.resize(320, 600)
+        panel.show()
+        qapp.processEvents()
+        panel._input.setPlainText("\n".join("line" for _ in range(20)))
+        qapp.processEvents()
+        panel._input.setPlainText("")
+        qapp.processEvents()
+        line_height = panel._input.fontMetrics().lineSpacing()
+        chrome = panel._input._vertical_chrome()
+        expected_min = _COMPOSER_MIN_LINES * line_height + chrome
+        assert abs(panel._input.height() - expected_min) <= 2
+        assert panel._input.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+
+    def test_reasoning_levels_excludes_boolean_thinking(self) -> None:
+        """Boolean thinking (off/on) is not shown as reasoning on the row."""
+        assert reasoning_levels_for_entry(
+            {"reasoning_efforts": ["low", "medium", "high"]}  # type: ignore[typeddict-item]
+        ) == ("low", "medium", "high")
+        assert (
+            reasoning_levels_for_entry(
+                {"reasoning_efforts": ["off", "on"]}  # type: ignore[typeddict-item]
+            )
+            == ()
+        )
+
+    def test_ollama_thinking_row_hides_effort_tag(self, qapp: QApplication, qtbot) -> None:
+        """Ollama thinking models (not gpt-oss) do not show On/Off on the row."""
+        panel = AiChatPanel()
+        qtbot.addWidget(panel)
+        entry: dict[str, object] = {
+            "id": "m1",
+            "provider": "ollama",
+            "label": "qwen3",
+            "model": "ollama/qwen3",
+            "base_url": "",
+            "api_version": "",
+            "auth_kind": "none",
+            "auth_ref": "",
+            "context": 262144,
+            "default_context": 32768,
+            "thinking": True,
+            "thinking_enabled": "on",
+            "enabled": True,
+        }
+        panel.set_models([entry])  # type: ignore[list-item]
+        panel._open_model_picker()
+        popup = AiModelPickerPopup.instance()
+        qtbot.addWidget(popup)
+        row = popup._row_widgets["m1"]
+        assert not row._effort_lbl.isVisible()
+        assert row._edit_btn.isVisible()
+
+    def test_ai_model_picker_shows_context_and_effort_tags(self, qapp: QApplication, qtbot) -> None:
+        """Reasoning rows show context and effort tags in the picker."""
+        panel = AiChatPanel()
+        qtbot.addWidget(panel)
+        entries: list[dict[str, object]] = [
+            {
+                "id": "m1",
+                "provider": "openai",
+                "label": "gpt-4o",
+                "model": "openai/gpt-4o",
+                "base_url": "",
+                "api_version": "",
+                "auth_kind": "none",
+                "auth_ref": "",
+                "context": 128000,
+                "reasoning": True,
+                "reasoning_efforts": ["low", "medium", "high"],
+                "reasoning_default": "medium",
+                "reasoning_effort": "high",
+                "enabled": True,
+            },
+        ]
+        panel.set_models(entries)  # type: ignore[arg-type]
+        panel._open_model_picker()
+        popup = AiModelPickerPopup.instance()
+        qtbot.addWidget(popup)
+        assert popup._list.count() == 2  # provider header + model row
+        row = popup._row_widgets["m1"]
+        assert row._effort_lbl.isVisible()
+        assert row._effort_lbl.text() == "High"
+        assert row._edit_btn.isVisible()
+
+    def test_ai_model_picker_effort_edit_persists(self, qapp: QApplication, qtbot) -> None:
+        """Choosing an effort persists via AiConfig and updates the button label."""
+        from unittest.mock import patch
+
+        panel = AiChatPanel()
+        qtbot.addWidget(panel)
+        entry: dict[str, object] = {
+            "id": "m1",
+            "provider": "openai",
+            "label": "gpt-4o",
+            "model": "openai/gpt-4o",
+            "base_url": "",
+            "api_version": "",
+            "auth_kind": "none",
+            "auth_ref": "",
+            "context": 128000,
+            "reasoning": True,
+            "reasoning_efforts": ["low", "medium", "high"],
+            "reasoning_default": "medium",
+            "reasoning_effort": "medium",
+            "enabled": True,
+        }
+        panel.set_models([entry])  # type: ignore[list-item]
+        with patch.object(AiConfig, "set_model_reasoning_effort") as mock_set:
+            with patch(
+                "ui.sidebar.ai.model_picker_edit.AiModelPickerEditPanel.show_for",
+                side_effect=lambda *_a, **k: k["on_reasoning"]("m1", "high"),
+            ):
+                panel._open_model_picker()
+                popup = AiModelPickerPopup.instance()
+                qtbot.addWidget(popup)
+                popup._open_edit_menu("m1")
+            mock_set.assert_called_once_with("m1", "high")
+        assert panel.current_reasoning_effort() == "high"
+        assert "High" in panel._model_button_label()
+        assert popup._row_widgets["m1"]._effort_lbl.text() == "High"
 
     def test_ai_set_models_selects_first_and_labels_button(self, qapp: QApplication, qtbot) -> None:
         """set_models selects the first enabled model and labels the button."""
@@ -337,7 +504,7 @@ class TestRightSidebar:
         ]
         panel.set_models(entries)  # type: ignore[arg-type]
         assert panel.current_model_id() == "m1"
-        assert panel._model_btn.text() == "llama3"
+        assert "llama3" in panel._model_button_label()
 
     def test_ai_model_picker_groups_by_provider(self, qapp: QApplication, qtbot) -> None:
         """Models under the same provider share one bold header row."""
@@ -423,11 +590,34 @@ class TestRightSidebar:
         with qtbot.waitSignal(popup.model_picked, timeout=1000):
             popup._pick("m2")
         assert panel.current_model_id() == "m2"
-        assert panel._model_btn.text() == "gpt-4o"
+        assert "gpt-4o" in panel._model_button_label()
         assert not popup.isVisible()
 
-    def test_ai_model_picker_manage_link_emits(self, qapp: QApplication, qtbot) -> None:
-        """The Manage models link bubbles up manage_models_requested."""
+    def test_ai_model_picker_toggles_on_model_button(self, qapp: QApplication, qtbot) -> None:
+        """Clicking the model button again while open closes the picker."""
+        panel = AiChatPanel()
+        qtbot.addWidget(panel)
+        entry: dict[str, Any] = {
+            "id": "m1",
+            "provider": "ollama",
+            "label": "llama3",
+            "model": "ollama/llama3:latest",
+            "base_url": "",
+            "api_version": "",
+            "auth_kind": "none",
+            "auth_ref": "",
+            "enabled": True,
+        }
+        panel.set_models([entry])  # type: ignore[list-item]
+        panel._open_model_picker()
+        popup = AiModelPickerPopup.instance()
+        qtbot.addWidget(popup)
+        assert popup.isVisible()
+        panel._open_model_picker()
+        assert not popup.isVisible()
+
+    def test_ai_model_picker_manage_gear_emits(self, qapp: QApplication, qtbot) -> None:
+        """The manage-models gear bubbles up manage_models_requested."""
         from ui.sidebar.ai.model_picker_popup import AiModelPickerPopup
 
         panel = AiChatPanel()
@@ -461,19 +651,25 @@ class TestRightSidebar:
         """Changing the mode select emits mode_changed with the new value."""
         panel = AiChatPanel()
         qtbot.addWidget(panel)
-        idx = panel._mode_combo.findData("plan")
         with qtbot.waitSignal(panel.mode_changed, timeout=1000):
-            panel._mode_combo.setCurrentIndex(idx)
+            panel.set_mode("plan")
         assert panel.current_mode() == "plan"
 
-    def test_ai_context_usage_label(self, qapp: QApplication, qtbot) -> None:
-        """Context indicator shows a dash for unknown total, percent otherwise."""
+    def test_ai_context_usage_tooltip(self, qapp: QApplication, qtbot) -> None:
+        """Context button tooltip shows a dash for unknown total, percent otherwise."""
         panel = AiChatPanel()
         qtbot.addWidget(panel)
         panel.set_context_usage(0, 0)
-        assert "—" in panel._context_label.text()
+        assert "—" in panel._context_btn.toolTip()
         panel.set_context_usage(64000, 128000)
-        assert "50%" in panel._context_label.text()
+        assert "50%" in panel._context_btn.toolTip()
+
+    def test_ai_context_button_emits(self, qapp: QApplication, qtbot) -> None:
+        """Context icon button emits context_requested for future wiring."""
+        panel = AiChatPanel()
+        qtbot.addWidget(panel)
+        with qtbot.waitSignal(panel.context_requested, timeout=1000):
+            panel._context_btn.click()
 
     def test_ai_attachments_add_and_remove(self, qapp: QApplication, qtbot) -> None:
         """Adding a chip tracks the path and shows the row; removing clears it."""

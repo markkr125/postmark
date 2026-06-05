@@ -72,7 +72,7 @@ def test_litellm_cost_for_gpt4o() -> None:
             True,
             True,
             False,
-            inp,
-            out,
+            input_cost_per_token=inp,
+            output_cost_per_token=out,
         )
     )

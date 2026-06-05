@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QThread, QTimer, Signal
@@ -111,6 +112,7 @@ class MainWindow(
         self._tab_open_counter: int = 0
         self._tab_activation_counter: int = 0
         self._restoring_session: bool = False
+        self._session_restore_started: bool = False
         self._session_restore_state = None
 
         # Per-tab state: tab-bar index -> TabContext
@@ -124,6 +126,9 @@ class MainWindow(
         self._send_worker: HttpSendWorker | None = None
         self._local_project_thread: QThread | None = None
         self._local_project_worker: QObject | None = None
+        self._ai_backfill_thread: QThread | None = None
+        self._ai_backfill_worker: QObject | None = None
+        self._startup_timers: list[QTimer] = []
         self._debug_protocol: DebugProtocol | None = None
         self._debug_script_host: Any | None = None
 
@@ -222,6 +227,7 @@ class MainWindow(
         # Wire loading screen
         self.collection_widget.load_finished.connect(self._on_load_finished)
         self._left_sidebar.panel_state_changed.connect(self._sync_sidebar_toggle_btn)
+        self._left_sidebar.panel_activated.connect(self._on_left_sidebar_panel_activated)
 
         # Wire breadcrumb navigation & rename
         self._breadcrumb_bar.item_clicked.connect(self._on_breadcrumb_clicked)
@@ -235,12 +241,30 @@ class MainWindow(
         # Start the collection fetch *after* all signals are connected so
         # a fast-completing fetch cannot emit load_finished before we listen.
         self.collection_widget._start_fetch()
-        self.local_scripts_widget._start_fetch()
 
         # ---- Move to the screen that contains the mouse --------------
         self._move_to_mouse_screen()
 
-        self._start_local_project_config_sync()
+        self._schedule_startup_task(500, self._start_local_project_config_sync)
+
+    def _schedule_startup_task(self, delay_ms: int, callback: Callable[[], None]) -> None:
+        """Run *callback* after *delay_ms*, cancelling automatically with the window."""
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+
+        def _run() -> None:
+            if timer in self._startup_timers:
+                self._startup_timers.remove(timer)
+            callback()
+
+        timer.timeout.connect(_run)
+        self._startup_timers.append(timer)
+        timer.start(delay_ms)
+
+    def _on_left_sidebar_panel_activated(self, panel: str) -> None:
+        """Lazy-load expensive left-sidebar pages when first opened."""
+        if panel == "local_scripts":
+            self.local_scripts_widget._start_fetch()
 
     def _start_local_project_config_sync(self) -> None:
         """Sync the Deno local-script mirror on a background thread (non-blocking startup)."""
@@ -262,6 +286,75 @@ class MainWindow(
         """Drop thread/worker refs after background mirror sync completes."""
         self._local_project_thread = None
         self._local_project_worker = None
+
+    def _start_ai_model_backfill(self) -> None:
+        """Backfill LiteLLM tiers off the GUI thread, then refresh the chat panel."""
+        from services.ai.ai_config import AiConfig
+        from ui.main_window.startup_workers import AiModelBackfillWorker
+
+        # Nothing to do once every non-ollama model has been checked.
+        needs_backfill = any(
+            not entry.get("tiers_checked")
+            and not entry.get("context_tiers")
+            and str(entry.get("provider") or "") != "ollama"
+            for entry in AiConfig.get_models()
+        )
+        if not needs_backfill:
+            return
+
+        thread = QThread(self)
+        worker = AiModelBackfillWorker()
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.finished.connect(self._on_ai_models_backfilled, Qt.ConnectionType.QueuedConnection)
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(self._clear_ai_backfill_refs)
+        self._ai_backfill_thread = thread
+        self._ai_backfill_worker = worker
+        thread.start()
+
+    def _on_ai_models_backfilled(self, models: object) -> None:
+        """Persist and apply backfilled models on the GUI thread.
+
+        Merges backfilled ``context_tiers`` / ``tiers_checked`` into the
+        current persisted models by ``id`` so a user edit made while the
+        worker ran is not clobbered, then persists once (GUI thread) and
+        refreshes the chat panel.
+        """
+        from typing import cast
+
+        from services.ai.ai_config import AiConfig, AiModelEntry, merge_tier_backfill_results
+
+        if not isinstance(models, list):
+            return
+        entries = cast("list[AiModelEntry]", models)
+        current = merge_tier_backfill_results(AiConfig.get_models(), entries)
+        AiConfig.set_models(current)
+        self._right_sidebar.ai_chat_panel.set_models(current)
+
+    def _clear_ai_backfill_refs(self) -> None:
+        """Drop thread/worker refs after the AI model backfill completes."""
+        self._ai_backfill_thread = None
+        self._ai_backfill_worker = None
+
+    def _cleanup_startup_threads(self) -> None:
+        """Stop delayed startup timers and worker threads before teardown."""
+        for timer in list(self._startup_timers):
+            timer.stop()
+            timer.deleteLater()
+        self._startup_timers.clear()
+        for attr in ("_local_project_thread", "_ai_backfill_thread"):
+            thread = getattr(self, attr)
+            if thread is None:
+                continue
+            if thread.isRunning():
+                thread.quit()
+                thread.wait(5000)
+            setattr(self, attr, None)
+        self._local_project_worker = None
+        self._ai_backfill_worker = None
 
     def _move_to_mouse_screen(self) -> None:
         """Center the window on the monitor that the cursor is on."""
@@ -671,8 +764,9 @@ class MainWindow(
         self.menuBar().show()
         self.statusBar().show()
 
-        # Restore tabs incrementally so the event loop stays responsive.
-        self._restore_tabs()
+        # Let the main UI paint and accept input before restore/background startup work.
+        self._schedule_startup_task(150, self._restore_tabs)
+        self._schedule_startup_task(750, self._start_ai_model_backfill)
 
     def refresh_snippets_sidebar(self) -> None:
         """Refresh the left-flyout snippets list and the open snippet picker."""
@@ -887,6 +981,9 @@ class MainWindow(
                 panel = getattr(editor, attr, None)
                 if panel is not None:
                     panel.cleanup()
+        self.collection_widget.shutdown_fetch()
+        self.local_scripts_widget.shutdown_fetch()
+        self._cleanup_startup_threads()
         self._cleanup_send_thread()
         self._console_panel.cleanup()
 

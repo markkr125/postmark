@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QTreeWidget,
     QTreeWidgetItem,
@@ -23,6 +24,8 @@ from PySide6.QtWidgets import (
 from services.ai.ai_config import AiConfig, AiModelEntry, model_entry_enabled
 from services.ai.provider_catalog import (
     ModelSpec,
+    clamp_effort,
+    clamp_run_context_tokens,
     capability_tags_for_entry,
     context_display_for_entry,
     cost_display_for_entry,
@@ -94,6 +97,7 @@ class AiPageController:
         self,
         page: QWidget,
         tree: QTreeWidget,
+        search: QLineEdit,
         status: QLabel,
         buttons: dict[str, QPushButton],
         on_changed: Callable[[], None],
@@ -101,11 +105,13 @@ class AiPageController:
         """Wire the AI settings page widgets and load persisted config."""
         self._page = page
         self._tree = tree
+        self._search = search
         self._status = status
         self._buttons = buttons
         self._on_changed = on_changed
         self._refresh_bridge = AiRefreshUiBridge(self, page)
         self.models: list[AiModelEntry] = AiConfig.get_models()
+        self._search_filter = ""
         self._refresh_thread: QThread | None = None
         self._refresh_worker: AiProviderSetupWorker | None = None
         self._refresh_group_key = ""
@@ -117,7 +123,37 @@ class AiPageController:
         buttons["expand_all"].clicked.connect(self._expand_all_provider_groups)
         buttons["collapse_all"].clicked.connect(self._collapse_all_provider_groups)
         self._tree.itemClicked.connect(self._on_model_row_clicked)
+        search.textChanged.connect(self._on_search_changed)
         self._schedule_reload_tree()
+
+    def _on_search_changed(self, text: str) -> None:
+        """Filter the models tree by display name or model id."""
+        self._search_filter = text
+        self._schedule_reload_tree()
+
+    def _models_matching_filter(self) -> list[AiModelEntry]:
+        """Return model rows visible for the current search text."""
+        needle = self._search_filter.strip().lower()
+        if not needle:
+            return list(self.models)
+        group_labels: dict[str, str] = {}
+        by_group: dict[str, list[AiModelEntry]] = {}
+        for entry in self.models:
+            group_key = _provider_group_key(entry)
+            if group_key not in group_labels:
+                group_labels[group_key] = provider_group_label(entry).casefold()
+            by_group.setdefault(group_key, []).append(entry)
+        out: list[AiModelEntry] = []
+        for group_key, entries in by_group.items():
+            if needle in group_labels.get(group_key, ""):
+                out.extend(entries)
+                continue
+            for entry in entries:
+                label = str(entry.get("label") or "").casefold()
+                model = str(entry.get("model") or "").casefold()
+                if needle in label or needle in model:
+                    out.append(entry)
+        return out
 
     def _persist(self) -> None:
         """Write models to QSettings immediately (survives restart without Apply)."""
@@ -262,9 +298,10 @@ class AiPageController:
         try:
             self._tree.clear()
             self._tree_load_groups = {}
-            self._tree_load_queue = list(self.models)
+            visible = self._models_matching_filter()
+            self._tree_load_queue = list(visible)
             seen_groups: set[str] = set()
-            for entry in self.models:
+            for entry in visible:
                 group_key = _provider_group_key(entry)
                 if group_key in seen_groups:
                     continue
@@ -299,7 +336,13 @@ class AiPageController:
             return
         if not self._tree_load_queue:
             self._expand_all_provider_groups()
-            self._status.setText("")
+            needle = self._search_filter.strip()
+            if needle and not self.models:
+                self._status.setText("No models configured.")
+            elif needle and not self._models_matching_filter():
+                self._status.setText(f'No models match "{needle}".')
+            else:
+                self._status.setText("")
             self._refresh_buttons()
             return
         batch = self._tree_load_queue[:_TREE_BATCH_SIZE]
@@ -493,8 +536,36 @@ class AiPageController:
             for e in self.models
             if _model_belongs_to_provider(e, group_key=group_key, auth_ref=auth_ref)
         }
+        prev_effort: dict[str, str] = {}
+        prev_thinking: dict[str, str] = {}
+        prev_context: dict[str, int] = {}
+        for e in self.models:
+            if not _model_belongs_to_provider(e, group_key=group_key, auth_ref=auth_ref):
+                continue
+            prev = e.get("reasoning_effort")
+            if isinstance(prev, str) and prev.strip():
+                prev_effort[e["model"]] = prev.strip().lower()
+            think = e.get("thinking_enabled")
+            if isinstance(think, str) and think.strip():
+                prev_thinking[e["model"]] = think.strip().lower()
+            ctx_lim = e.get("context_limit")
+            if isinstance(ctx_lim, int) and ctx_lim > 0:
+                prev_context[e["model"]] = ctx_lim
         for row in new_rows:
             row["enabled"] = prev_enabled.get(row["model"], False)
+            prev = prev_effort.get(row["model"])
+            if prev is not None:
+                row["reasoning_effort"] = clamp_effort(
+                    prev,
+                    tuple(row.get("reasoning_efforts", ())),
+                    str(row.get("reasoning_default", "")),
+                )
+            prev_think = prev_thinking.get(row["model"])
+            if prev_think is not None and row.get("thinking"):
+                row["thinking_enabled"] = prev_think
+            prev_ctx = prev_context.get(row["model"])
+            if prev_ctx is not None:
+                row["context_limit"] = clamp_run_context_tokens(prev_ctx, row)
         self.models = splice_provider_models(
             self.models,
             group_key=group_key,
@@ -566,6 +637,12 @@ def build_ai_page(on_changed: Callable[[], None]) -> tuple[QWidget, AiPageContro
     blurb.setWordWrap(True)
     layout.addWidget(blurb)
 
+    search = QLineEdit()
+    search.setObjectName("aiModelsSearch")
+    search.setPlaceholderText("Search models by name…")
+    search.setClearButtonEnabled(True)
+    layout.addWidget(search)
+
     tree = QTreeWidget()
     tree.setObjectName("aiModelsTree")
     tree.setColumnCount(_TREE_COLUMN_COUNT)
@@ -604,7 +681,7 @@ def build_ai_page(on_changed: Callable[[], None]) -> tuple[QWidget, AiPageContro
     status.setWordWrap(True)
     layout.addWidget(status)
 
-    controller = AiPageController(page, tree, status, buttons, on_changed)
+    controller = AiPageController(page, tree, search, status, buttons, on_changed)
     return page, controller
 
 

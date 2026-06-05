@@ -10,11 +10,19 @@ from urllib.parse import urljoin
 import httpx
 
 from services.ai.ai_logging import log as ai_log
-from services.ai.ops.model_filters import (_id_looks_non_chat,
-                                           _litellm_agent_caps,
-                                           _openrouter_caps,
-                                           litellm_supports_vision)
-from services.ai.provider_catalog import ModelSpec
+from services.ai.ops.model_filters import (
+    _id_looks_non_chat,
+    _litellm_agent_caps,
+    _openrouter_caps,
+    litellm_supports_vision,
+)
+from services.ai.provider_catalog import ModelSpec, litellm_context_tier_thresholds
+from services.ai.reasoning_effort import (
+    default_effort_for,
+    normalize_efforts,
+    ollama_reasoning_from_show,
+    ollama_thinking_from_show,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +134,81 @@ def litellm_context_tokens(model_id: str) -> int:
     return 0
 
 
+def litellm_reasoning(model_id: str) -> tuple[bool, tuple[str, ...], str]:
+    """Return ``(supports, efforts, default)`` via LiteLLM metadata."""
+    try:
+        import litellm
+    except ImportError:
+        return False, (), ""
+    try:
+        supports = bool(litellm.supports_reasoning(model=model_id))
+    except Exception as exc:
+        logger.debug("supports_reasoning(%s): %s", model_id, exc)
+        return False, (), ""
+    if not supports:
+        return False, (), ""
+    efforts: list[str] = []
+    try:
+        from litellm import get_model_info
+
+        info_raw: object = get_model_info(model=model_id)
+        if isinstance(info_raw, dict):
+            for level in ("none", "minimal", "low", "high", "xhigh", "max"):
+                key = f"supports_{level}_reasoning_effort"
+                if info_raw.get(key) is True:
+                    efforts.append(level)
+    except Exception as exc:
+        logger.debug("get_model_info reasoning(%s): %s", model_id, exc)
+    if supports and "medium" not in efforts:
+        efforts.append("medium")
+    normalized = normalize_efforts(tuple(efforts))
+    default = default_effort_for(normalized) if normalized else "medium"
+    return True, normalized, default
+
+
+def _spec_with_reasoning(
+    spec: ModelSpec,
+    *,
+    context: int | None = None,
+    tools: bool | None = None,
+    vision: bool | None = None,
+    text: bool | None = None,
+    insert: bool | None = None,
+    reasoning: bool,
+    reasoning_efforts: tuple[str, ...],
+    reasoning_default: str,
+    thinking: bool = False,
+    thinking_default: str = "",
+    context_tiers: tuple[int, ...] | None = None,
+    input_cost_per_token: float | None = None,
+    output_cost_per_token: float | None = None,
+) -> ModelSpec:
+    """Rebuild *spec* with optional field overrides and agent metadata."""
+    return ModelSpec(
+        spec.model,
+        spec.label,
+        context if context is not None else spec.context,
+        tools if tools is not None else spec.tools,
+        vision if vision is not None else spec.vision,
+        text if text is not None else spec.text,
+        insert if insert is not None else spec.insert,
+        reasoning=reasoning,
+        reasoning_efforts=reasoning_efforts,
+        reasoning_default=reasoning_default,
+        thinking=thinking,
+        thinking_default=thinking_default,
+        context_tiers=context_tiers if context_tiers is not None else spec.context_tiers,
+        input_cost_per_token=(
+            input_cost_per_token if input_cost_per_token is not None else spec.input_cost_per_token
+        ),
+        output_cost_per_token=(
+            output_cost_per_token
+            if output_cost_per_token is not None
+            else spec.output_cost_per_token
+        ),
+    )
+
+
 def _ollama_show_json(
     base_url: str, ollama_name: str, api_key: str, *, timeout: float
 ) -> dict[str, Any] | None:
@@ -230,6 +313,7 @@ def enrich_ollama_spec(
     tools_ok = spec.tools
     vision_ok = spec.vision
     insert_ok = spec.insert
+    data: dict[str, Any] | None = None
     try:
         data = _ollama_show_json(base_url, raw_name, api_key, timeout=timeout)
         if data is not None:
@@ -250,16 +334,28 @@ def enrich_ollama_spec(
     if not text_ok or not tools_ok:
         return None
     in_cost, out_cost = _resolve_spec_costs(spec, 0.0, 0.0)
-    return ModelSpec(
-        spec.model,
-        spec.label,
-        ctx,
-        tools_ok,
-        vision_ok,
-        text_ok,
-        insert_ok,
-        in_cost,
-        out_cost,
+    thinking = False
+    thinking_default = ""
+    reasoning = False
+    efforts: tuple[str, ...] = ()
+    default = ""
+    if data is not None:
+        thinking, thinking_default = ollama_thinking_from_show(data)
+        reasoning, efforts, default = ollama_reasoning_from_show(data, raw_name)
+    return _spec_with_reasoning(
+        spec,
+        context=ctx,
+        tools=tools_ok,
+        vision=vision_ok,
+        text=text_ok,
+        insert=insert_ok,
+        reasoning=reasoning,
+        reasoning_efforts=efforts,
+        reasoning_default=default,
+        thinking=thinking,
+        thinking_default=thinking_default,
+        input_cost_per_token=in_cost,
+        output_cost_per_token=out_cost,
     )
 
 
@@ -280,16 +376,20 @@ def enrich_litellm_spec(spec: ModelSpec) -> ModelSpec | None:
     ctx = spec.context if spec.context > 0 else litellm_context_tokens(spec.model)
     vision_ok = spec.vision or litellm_supports_vision(spec.model)
     in_cost, out_cost = _resolve_spec_costs(spec, 0.0, 0.0)
-    return ModelSpec(
-        spec.model,
-        spec.label,
-        ctx,
-        tools_ok,
-        vision_ok,
-        text_ok,
-        spec.insert,
-        in_cost,
-        out_cost,
+    reasoning, efforts, default = litellm_reasoning(spec.model)
+    tiers = litellm_context_tier_thresholds(spec.model)
+    return _spec_with_reasoning(
+        spec,
+        context=ctx,
+        tools=tools_ok,
+        vision=vision_ok,
+        text=text_ok,
+        reasoning=reasoning,
+        reasoning_efforts=efforts,
+        reasoning_default=default,
+        context_tiers=tiers,
+        input_cost_per_token=in_cost,
+        output_cost_per_token=out_cost,
     )
 
 
@@ -307,16 +407,20 @@ def enrich_openrouter_spec(spec: ModelSpec, row: dict[str, object]) -> ModelSpec
     ctx = spec.context if spec.context > 0 else litellm_context_tokens(spec.model)
     or_in, or_out = _openrouter_costs(row)
     in_cost, out_cost = _resolve_spec_costs(spec, or_in, or_out)
-    return ModelSpec(
-        spec.model,
-        spec.label,
-        ctx,
-        tools_ok,
-        vision_ok,
-        text_ok,
-        spec.insert,
-        in_cost,
-        out_cost,
+    reasoning, efforts, default = litellm_reasoning(spec.model)
+    tiers = litellm_context_tier_thresholds(spec.model)
+    return _spec_with_reasoning(
+        spec,
+        context=ctx,
+        tools=tools_ok,
+        vision=vision_ok,
+        text=text_ok,
+        reasoning=reasoning,
+        reasoning_efforts=efforts,
+        reasoning_default=default,
+        context_tiers=tiers,
+        input_cost_per_token=in_cost,
+        output_cost_per_token=out_cost,
     )
 
 
@@ -372,7 +476,9 @@ __all__ = [
     "enrich_ollama_specs_parallel",
     "enrich_openai_specs",
     "enrich_openrouter_spec",
+    "litellm_context_tier_thresholds",
     "litellm_context_tokens",
     "litellm_cost_per_token",
+    "litellm_reasoning",
     "ollama_context_from_show",
 ]

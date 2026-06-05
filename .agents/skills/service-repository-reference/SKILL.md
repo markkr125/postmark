@@ -262,11 +262,13 @@ All methods are `@staticmethod`.  No database layer.
 
 | Class / method | Purpose |
 |--------------|---------|
-| `AiConfig.get_models()` | Load configured models from QSettings `ai/models` (JSON); migrate missing `id` |
+| `AiConfig.get_models(*, backfill_tiers=False, persist=True)` | Load models from QSettings `ai/models` (JSON); migrate missing `id`. Default path is a pure read (no `litellm`). `backfill_tiers=True` looks up LiteLLM pricing tiers; `persist=False` skips QSettings write (background worker) |
+| `merge_tier_backfill_results(current, backfilled)` | Merge worker backfill into persisted rows by `id` (GUI thread); preserves unrelated fields on `current` |
 | `AiConfig.set_models(entries)` | Persist model list |
 | `AiConfig.get_default_model_id()` | Legacy default row id or `""` |
 | `AiConfig.set_default_model_id(model_id)` | Persist/clear legacy default id |
 | `AiConfig.save_all(entries)` | Persist models; clears legacy default id |
+| `AiConfig.set_model_reasoning_effort(model_id, effort)` | Persist per-model reasoning effort (clamped to `reasoning_efforts`) |
 | `AiLlmService.build_llm(entry, …)` | Build `openhands.sdk.LLM` (resolves key via `secret_store`) |
 | `AiLlmService.test(entry)` | Ping completion; returns `(ok, detail)`; never raises |
 

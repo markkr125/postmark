@@ -287,9 +287,27 @@ def test_refresh_updates_children_without_clearing_tree(
     monkeypatch.setattr(ctrl._tree, "clear", _spy_clear)
     group_key = page_mod._provider_group_key(ctrl.models[0])
     ctrl._refresh_group_key = group_key
-    specs = (ModelSpec("openai/gpt-4o", "GPT-4o", 128000, True, True),)
+    ctrl.models[0]["reasoning"] = True
+    ctrl.models[0]["reasoning_efforts"] = ["low", "medium", "high"]
+    ctrl.models[0]["reasoning_default"] = "medium"
+    ctrl.models[0]["reasoning_effort"] = "high"
+    specs = (
+        ModelSpec(
+            "openai/gpt-4o",
+            "GPT-4o",
+            128000,
+            True,
+            True,
+            reasoning=True,
+            reasoning_efforts=("low", "medium", "high"),
+            reasoning_default="medium",
+        ),
+    )
     ctrl._apply_refresh_result(True, "ok", specs)
     assert cleared == []
+    refreshed = [e for e in ctrl.models if e["model"] == "openai/gpt-4o"]
+    assert refreshed
+    assert refreshed[0].get("reasoning_effort") == "high"
     parent = ctrl._find_provider_item(group_key)
     assert parent is not None
     assert parent.childCount() == 1
@@ -397,3 +415,31 @@ def test_expand_and_collapse_all_providers(qapp: QApplication, qtbot) -> None:
         item = ctrl._tree.topLevelItem(i)
         assert item is not None
         assert item.isExpanded()
+
+
+def test_models_search_filters_by_name(qapp: QApplication, qtbot) -> None:
+    """Search box filters model rows by display name or model id."""
+    dialog = SettingsDialog(ThemeManager(qapp))
+    qtbot.addWidget(dialog)
+    dialog._ensure_ai_models_page()
+    ctrl = dialog._ai_controller
+    assert ctrl is not None
+    ctrl.models = [
+        {**_entry("m1"), "label": "GPT-4o", "model": "openai/gpt-4o"},
+        {**_entry("m2"), "label": "Llama 3", "model": "ollama/llama3", "provider": "ollama"},
+    ]
+    ctrl._reload_tree()
+    _wait_for_ai_tree(ctrl, qtbot)
+    assert ctrl._tree.topLevelItemCount() == 2
+
+    qtbot.keyClicks(ctrl._search, "gpt-4o")
+    _wait_for_ai_tree(ctrl, qtbot)
+    assert ctrl._tree.topLevelItemCount() == 1
+    parent = ctrl._tree.topLevelItem(0)
+    assert parent is not None
+    assert parent.childCount() == 1
+    assert parent.child(0).text(1) == "GPT-4o"
+
+    ctrl._search.clear()
+    _wait_for_ai_tree(ctrl, qtbot)
+    assert ctrl._tree.topLevelItemCount() == 2

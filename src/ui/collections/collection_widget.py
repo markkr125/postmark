@@ -104,6 +104,9 @@ class CollectionWidget(QWidget):
         self._tree_kind = "local_scripts" if variant == "local_scripts" else "collections"
         self._pending_select_id: int | None = None
         self._pending_select_request_id: int | None = None
+        self._fetch_started = False
+        self._thread: QThread | None = None
+        self._worker: _CollectionFetcher | None = None
 
         self._svc: type[CollectionService] | type[LocalScriptService] = (
             LocalScriptService if self._tree_kind == "local_scripts" else CollectionService
@@ -177,6 +180,9 @@ class CollectionWidget(QWidget):
     # ------------------------------------------------------------------
     def _start_fetch(self) -> None:
         """Launch the worker thread and show the loading bar."""
+        if self._fetch_started:
+            return
+        self._fetch_started = True
         self._loading_bar.show()
         self._tree_widget.show_loading()
         self._thread = QThread(self)
@@ -187,7 +193,22 @@ class CollectionWidget(QWidget):
         self._worker.finished.connect(self._thread.quit)
         self._worker.finished.connect(self._worker.deleteLater)
         self._thread.finished.connect(self._thread.deleteLater)
+        self._thread.finished.connect(self._clear_fetch_refs)
         self._thread.start()
+
+    def _clear_fetch_refs(self) -> None:
+        """Drop fetch worker/thread references after completion."""
+        self._thread = None
+        self._worker = None
+
+    def shutdown_fetch(self) -> None:
+        """Stop an in-flight initial fetch worker before widget teardown."""
+        if self._thread is None:
+            return
+        if self._thread.isRunning():
+            self._thread.quit()
+            self._thread.wait(5000)
+        self._clear_fetch_refs()
 
     @Slot(dict)
     def _on_collections_ready(self, collection_dict: dict[str, Any]) -> None:

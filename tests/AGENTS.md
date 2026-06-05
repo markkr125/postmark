@@ -193,6 +193,8 @@ tests/
 │       ├── test_request_history_service.py
 │       ├── ai/
 │       │   ├── test_ai_config.py
+│       │   ├── test_model_metadata.py
+│       │   ├── test_run_context_choices.py
 │       │   ├── test_provider_display_name.py
 │       │   ├── test_llm_service.py
 │       │   ├── test_provider_ops.py

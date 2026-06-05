@@ -97,6 +97,8 @@ def finish_main_window_startup(window: object) -> None:
 
     if window._main_stack.currentIndex() == 0:  # type: ignore[attr-defined]
         window.collection_widget.load_finished.emit()  # type: ignore[attr-defined]
+    if getattr(window, "_session_restore_state", None) is None:  # type: ignore[attr-defined]
+        window._restore_tabs()  # type: ignore[attr-defined]
     flush_session_restore(window)  # type: ignore[arg-type]
 
 

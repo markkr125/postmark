@@ -273,8 +273,18 @@ def entries_from_model_specs(
             "vision": m.vision,
             "text": m.text,
             "insert": m.insert,
+            "reasoning": m.reasoning,
+            "reasoning_efforts": list(m.reasoning_efforts),
+            "reasoning_default": m.reasoning_default,
+            "reasoning_effort": m.reasoning_default if m.reasoning else "",
+            "thinking": m.thinking,
+            "thinking_default": m.thinking_default,
+            "thinking_enabled": m.thinking_default if m.thinking else "",
             "enabled": False,
         }
+        if m.context_tiers:
+            row["context_tiers"] = list(m.context_tiers)
+        row["tiers_checked"] = True
         for key, val in persisted_cost_fields(m).items():
             if key == "input_cost_per_token":
                 row["input_cost_per_token"] = val

@@ -5,25 +5,37 @@ from __future__ import annotations
 
 import sys
 
-from PySide6.QtWidgets import QApplication
-
-from database.database import init_db
-from qt_app_init import configure_before_qapplication
-from services.lsp.server_registry import LspRegistry
-from ui.main_window import MainWindow
-from ui.styling.icons import load_font
-from ui.styling.history_settings_manager import HistorySettingsManager
-from ui.styling.tab_settings_manager import TabSettingsManager
-from ui.styling.theme_manager import ThemeManager
-
 # --------------------------------------------------------------------------
 # Main entry point
 # --------------------------------------------------------------------------
 if __name__ == "__main__":
+    from qt_app_init import configure_before_qapplication
+
     configure_before_qapplication()
+
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QApplication
+
     app = QApplication(sys.argv)
     app.setApplicationName("Postmark")
     app.setApplicationDisplayName("Postmark")
+
+    from ui.loading_screen import LoadingScreen
+
+    splash = LoadingScreen()
+    splash.setWindowTitle("Loading Postmark…")
+    splash.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+    splash.showMaximized()
+    splash.start_animation()
+    app.processEvents()
+
+    from database.database import init_db
+    from services.lsp.server_registry import LspRegistry
+    from ui.main_window import MainWindow
+    from ui.styling.history_settings_manager import HistorySettingsManager
+    from ui.styling.icons import load_font
+    from ui.styling.tab_settings_manager import TabSettingsManager
+    from ui.styling.theme_manager import ThemeManager
 
     # Apply theme (reads QSettings, sets style + palette + global QSS)
     theme_manager = ThemeManager(app)
@@ -44,6 +56,9 @@ if __name__ == "__main__":
         history_settings_manager=history_settings_manager,
     )
     window.showMaximized()
+    splash.stop_animation()
+    splash.close()
+    app.processEvents()
     ret = app.exec()
 
     from services.scripting.engine import ScriptLinter

@@ -84,6 +84,16 @@ with `secret_store`.
 | `default_context` | `int` | Optional Ollama provider default context (tokens) when `/api/show` and LiteLLM omit a window; default **32k** |
 | `input_cost_per_token` | `float` | Optional persisted input cost in USD per token |
 | `output_cost_per_token` | `float` | Optional persisted output cost in USD per token |
+| `reasoning` | `bool` | When true, the model supports configurable reasoning effort |
+| `reasoning_efforts` | `list[str]` | Allowed effort tokens (e.g. `low`, `medium`, `high`, or Ollama `off`/`on`) |
+| `reasoning_default` | `str` | Default effort when the user has not chosen one |
+| `reasoning_effort` | `str` | User's per-model leveled reasoning choice (clamped on load) |
+| `thinking` | `bool` | Model supports Ollama-style thinking (boolean on/off) |
+| `thinking_default` | `str` | Default thinking state (`on` / `off`) |
+| `thinking_enabled` | `str` | User's thinking on/off choice |
+| `context_limit` | `int` | Per-model run context override (22k .. model max; default from provider) |
+| `context_tiers` | `list[int]` | LiteLLM pricing breakpoints (e.g. `272000`); picker offers only tier caps vs model max |
+| `tiers_checked` | `bool` | When true, LiteLLM tier backfill has run for this row; avoids re-importing `litellm` on startup |
 
 ### VariableDetail
 
