@@ -1537,20 +1537,71 @@ def build_global_qss(p: ThemePalette) -> str:
         border: none;
         background: transparent;
     }}
-    QFrame[objectName="aiChatMessageUser"] {{
-        background: {"rgba(79,193,255,0.14)" if p is DARK_PALETTE else "rgba(52,152,219,0.12)"};
-        border: 1px solid {p["border"]};
-        border-radius: 10px;
-    }}
-    QFrame[objectName="aiChatMessageAssistant"] {{
+    QPushButton[objectName="aiChatScrollDown"] {{
         background: {p["bg_alt"]};
         border: 1px solid {p["border"]};
-        border-radius: 10px;
+        border-radius: 14px;
+        min-width: 28px;
+        max-width: 28px;
+        min-height: 28px;
+        max-height: 28px;
+        padding: 0;
+        color: {p["text"]};
     }}
-    QLabel[objectName="aiChatMessageText"] {{
+    QPushButton[objectName="aiChatScrollDown"]:hover {{
+        background: {"rgba(255,255,255,0.08)" if p is DARK_PALETTE else "rgba(0,0,0,0.06)"};
+        border-color: {p["accent"]};
+    }}
+    QFrame[objectName="aiChatMessageUser"] {{
+        background: {p["bg_alt"]};
+        border: 1px solid {p["border"]};
+        border-radius: 8px;
+    }}
+    QLabel[objectName="aiChatUserMessageText"] {{
         background: transparent;
         border: none;
         color: {p["text"]};
+    }}
+    QWidget[objectName="aiChatAssistantRow"] {{
+        background: transparent;
+    }}
+    QWidget[objectName="aiChatActivityRow"] {{
+        background: transparent;
+    }}
+    QLabel[objectName="aiChatActivitySpinner"] {{
+        color: {p["text_muted"]};
+        font-family: monospace;
+        font-size: 12px;
+        padding: 0;
+    }}
+    QLabel[objectName="aiChatActivityLabel"] {{
+        background: transparent;
+        border: none;
+        color: {p["text_muted"]};
+    }}
+    QTextBrowser[objectName="aiChatAssistantText"] {{
+        background: transparent;
+        border: none;
+        color: {p["text"]};
+        /* Fenced code blocks use inline HTML styles from render_chat_markdown_html */
+    }}
+    QFrame[objectName="aiChatThoughtBlock"] {{
+        background: transparent;
+        border: none;
+    }}
+    QPushButton[objectName="aiChatThoughtToggle"] {{
+        background: transparent;
+        border: none;
+        color: {p["text_muted"]};
+        text-align: left;
+        padding: 0;
+        font-weight: 600;
+    }}
+    QLabel[objectName="aiChatThoughtText"] {{
+        background: transparent;
+        border: none;
+        color: {p["text_muted"]};
+        padding-left: 14px;
     }}
     QWidget[objectName="aiChatComposer"] {{
         background: {p["bg"]};
@@ -1700,6 +1751,36 @@ def build_global_qss(p: ThemePalette) -> str:
         background: transparent;
     }}
     QLabel[objectName="aiModelPickerProvider"] {{
+        color: {p["text_muted"]};
+        font-size: 10px;
+        background: transparent;
+    }}
+    QFrame[objectName="aiSessionHistoryPopup"] {{
+        background: {p["bg"]};
+        border: 1px solid {p["border"]};
+        border-radius: 6px;
+    }}
+    QLineEdit[objectName="aiSessionSearch"] {{
+        background: {p["input_bg"]};
+        border: 1px solid {p["border"]};
+        border-radius: 4px;
+        padding: 4px 8px;
+        font-size: 12px;
+    }}
+    QListWidget[objectName="aiSessionHistoryList"] {{
+        background: transparent;
+        border: none;
+        outline: none;
+    }}
+    QListWidget[objectName="aiSessionHistoryList"]::item:selected {{
+        background: {p["selected_bg"]};
+        border-radius: 4px;
+    }}
+    QListWidget[objectName="aiSessionHistoryList"]::item:hover {{
+        background: {p["hover_bg"]};
+        border-radius: 4px;
+    }}
+    QLabel[objectName="aiSessionHistoryTime"] {{
         color: {p["text_muted"]};
         font-size: 10px;
         background: transparent;

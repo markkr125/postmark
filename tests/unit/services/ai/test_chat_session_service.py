@@ -1,0 +1,300 @@
+"""Tests for AiChatSessionService."""
+
+from __future__ import annotations
+
+import sys
+import types
+import uuid
+from typing import Any
+
+import pytest
+
+from database.models.ai_chat.ai_chat_repository import create_session, delete_session
+
+from services.ai.ai_config import AiConfig, AiModelEntry
+from services.ai.chat.agent_registry import DEFAULT_AGENT_ID
+from services.ai.chat.session_service import AiChatSessionService
+
+
+def _entry(**kw: object) -> AiModelEntry:
+    base: AiModelEntry = {
+        "id": "id1",
+        "provider": "openai",
+        "label": "L",
+        "model": "openai/gpt-4o",
+        "base_url": "https://x",
+        "api_version": "v1",
+        "auth_kind": "none",
+        "auth_ref": "",
+        "context": 128_000,
+    }
+    base.update(kw)  # type: ignore[typeddict-item]
+    return base
+
+
+def _install_fake_sdk(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """Install a minimal fake openhands.sdk for conversation building."""
+    captured: dict[str, Any] = {}
+
+    mod = types.ModuleType("openhands.sdk")
+
+    class _TextContent:
+        def __init__(self, text: str = "") -> None:
+            self.text = text
+
+    class _Message:
+        def __init__(self, role: str = "assistant", content: object = None) -> None:
+            self.role = role
+            self.content = content or []
+
+    class _MessageEvent:
+        def __init__(self, source: str, text: str) -> None:
+            self.source = source
+            self.llm_message = _Message(content=[_TextContent(text)])
+
+    class _State:
+        def __init__(self, events: list[object]) -> None:
+            self.events = events
+
+    class _LLM:
+        def __init__(self, **kw: object) -> None:
+            self.kw = kw
+            self.stream = kw.get("stream", False)
+            self.model = kw.get("model", "")
+            self.reasoning_effort = kw.get("reasoning_effort")
+            self.litellm_extra_body = kw.get("litellm_extra_body", {})
+            self.num_retries = kw.get("num_retries", 5)
+
+        def model_copy(self, *, update: dict[str, object], deep: bool = False) -> _LLM:
+            _ = deep
+            merged = {**self.kw, **update}
+            return _LLM(**merged)
+
+    class _Agent:
+        def __init__(self, **kw: object) -> None:
+            captured["agent_kw"] = kw
+
+    class _Conversation:
+        def __init__(self, **kw: object) -> None:
+            captured["conversation_kw"] = kw
+            self.state = _State([])
+
+    class _LocalWorkspace:
+        def __init__(self, *, working_dir: str) -> None:
+            captured["workspace_dir"] = working_dir
+
+    class _Tool:
+        def __init__(self, *, name: str, params: dict[str, object] | None = None) -> None:
+            self.name = name
+            self.params = params or {}
+
+    mod.LLM = _LLM  # type: ignore[attr-defined]
+    mod.Agent = _Agent  # type: ignore[attr-defined]
+    mod.Conversation = _Conversation  # type: ignore[attr-defined]
+    mod.TextContent = _TextContent  # type: ignore[attr-defined]
+    mod.Tool = _Tool  # type: ignore[attr-defined]
+
+    workspace_mod = types.ModuleType("openhands.sdk.workspace")
+    workspace_mod.LocalWorkspace = _LocalWorkspace  # type: ignore[attr-defined]
+
+    class _ActionEvent:
+        """Stub action event for ``_fold_agent_event`` isinstance checks."""
+
+        def __init__(self, source: str = "agent") -> None:
+            self.source = source
+
+    event_pkg = types.ModuleType("openhands.sdk.event")
+    llm_conv_pkg = types.ModuleType("openhands.sdk.event.llm_convertible")
+    message_mod = types.ModuleType("openhands.sdk.event.llm_convertible.message")
+    message_mod.MessageEvent = _MessageEvent  # type: ignore[attr-defined]
+    action_mod = types.ModuleType("openhands.sdk.event.llm_convertible.action")
+    action_mod.ActionEvent = _ActionEvent  # type: ignore[attr-defined]
+
+    monkeypatch.setitem(sys.modules, "openhands", types.ModuleType("openhands"))
+    monkeypatch.setitem(sys.modules, "openhands.sdk", mod)
+    monkeypatch.setitem(sys.modules, "openhands.sdk.workspace", workspace_mod)
+    monkeypatch.setitem(sys.modules, "openhands.sdk.event", event_pkg)
+    monkeypatch.setitem(sys.modules, "openhands.sdk.event.llm_convertible", llm_conv_pkg)
+    monkeypatch.setitem(sys.modules, "openhands.sdk.event.llm_convertible.message", message_mod)
+    monkeypatch.setitem(sys.modules, "openhands.sdk.event.llm_convertible.action", action_mod)
+    return captured
+
+
+class _FakeConversation:
+    """Minimal conversation for extract_final_text."""
+
+    def __init__(self, events: list[object]) -> None:
+        self.state = types.SimpleNamespace(events=events)
+
+
+def test_new_session_and_messages() -> None:
+    """Session CRUD and message recording round-trip."""
+    session = AiChatSessionService.new_session(_entry(), "agent", first_message="Hello world")
+    sid = session["id"]
+    assert session["model_id"] == "id1"
+    assert session["agent_id"] == DEFAULT_AGENT_ID
+
+    user = AiChatSessionService.record_user_message(sid, "Hello")
+    assert user["role"] == "user"
+    assistant = AiChatSessionService.record_assistant_message(
+        sid,
+        "Hi there",
+        thinking="trace",
+        thinking_duration_seconds=4,
+    )
+    assert assistant["role"] == "assistant"
+    assert assistant["thinking_duration_seconds"] == 4
+
+    messages = AiChatSessionService.get_messages(sid)
+    assert len(messages) == 2
+    listed = AiChatSessionService.list_sessions()
+    assert any(s["id"] == sid for s in listed)
+
+
+def test_extract_final_text_returns_latest_agent_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``extract_final_text`` scans events for the latest agent message."""
+    _install_fake_sdk(monkeypatch)
+    from openhands.sdk.event.llm_convertible.message import MessageEvent
+
+    conv = _FakeConversation(
+        [
+            MessageEvent(source="user", text="ignored"),  # type: ignore[call-arg]
+            MessageEvent(source="agent", text="first"),  # type: ignore[call-arg]
+            MessageEvent(source="agent", text="final answer"),  # type: ignore[call-arg]
+        ]
+    )
+    assert AiChatSessionService.extract_final_text(conv) == "final answer"  # type: ignore[arg-type]
+
+
+def test_build_conversation_passes_composer_to_llm(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    """``build_conversation`` forwards composer context settings to ``build_llm``."""
+    captured = _install_fake_sdk(monkeypatch)
+    monkeypatch.setattr(
+        "database.data_paths.postmark_user_data_dir",
+        lambda: tmp_path / "postmark",
+    )
+
+    import services.ai.llm_service as llm_svc
+
+    class _Store:
+        backend_id = "noop"
+
+        def put(self, r: str, s: str) -> None: ...
+
+        def get(self, r: str) -> str | None:
+            return None
+
+        def delete(self, r: str) -> None: ...
+
+    monkeypatch.setattr(llm_svc, "get_default_store", lambda: _Store())
+
+    session_id = str(uuid.uuid4())
+    conv = AiChatSessionService.build_conversation(
+        session_id,
+        _entry(
+            provider="ollama",
+            model="ollama/qwen3:8b",
+            base_url="",
+            auth_kind="none",
+            auth_ref="",
+            thinking=True,
+        ),
+        DEFAULT_AGENT_ID,
+        composer={
+            "run_context_tokens": 8192,
+            "thinking_enabled": "off",
+            "reasoning_effort": "medium",
+        },
+    )
+    llm = captured["agent_kw"]["llm"]
+    assert llm.litellm_extra_body == {"num_ctx": 8192, "think": False}
+    assert llm.num_retries == 0
+    assert conv is not None
+
+
+def test_build_conversation_passes_sdk_contract(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    """``build_conversation`` uses BASE persistence_dir, UUID id, stream=True."""
+    captured = _install_fake_sdk(monkeypatch)
+    monkeypatch.setattr(
+        "database.data_paths.postmark_user_data_dir",
+        lambda: tmp_path / "postmark",
+    )
+
+    import services.ai.llm_service as llm_svc
+
+    class _Store:
+        backend_id = "noop"
+
+        def put(self, r: str, s: str) -> None: ...
+
+        def get(self, r: str) -> str | None:
+            return None
+
+        def delete(self, r: str) -> None: ...
+
+    monkeypatch.setattr(llm_svc, "get_default_store", lambda: _Store())
+
+    session_id = str(uuid.uuid4())
+    token_calls: list[str] = []
+    event_calls: list[str] = []
+
+    def token_cb(_chunk: object) -> None:
+        token_calls.append("t")
+
+    def event_cb(_event: object) -> None:
+        event_calls.append("e")
+
+    conv = AiChatSessionService.build_conversation(
+        session_id,
+        _entry(),
+        DEFAULT_AGENT_ID,
+        callbacks=[event_cb],
+        token_callbacks=[token_cb],
+    )
+
+    kw = captured["conversation_kw"]
+    assert kw["delete_on_close"] is False
+    assert kw["conversation_id"] == uuid.UUID(session_id)
+    assert str(kw["persistence_dir"]).endswith("ai_conversations")
+    assert kw["token_callbacks"] == [token_cb]
+    assert kw["callbacks"] == [event_cb]
+
+    agent_kw = captured["agent_kw"]
+    assert agent_kw["tools"] == []
+    assert agent_kw["system_prompt"]
+    assert agent_kw["include_default_tools"] == []
+    assert agent_kw["llm"].stream is True
+    assert conv is not None
+
+
+def test_resolve_restore_session_id_returns_none_when_unset() -> None:
+    """An empty stored id means the composer should start blank."""
+    AiConfig.set_chat_session_id("")
+    assert AiChatSessionService.resolve_restore_session_id() is None
+
+
+def test_resolve_restore_session_id_returns_stored() -> None:
+    """A valid stored id is restored on startup."""
+    session_id = str(uuid.uuid4())
+    create_session(session_id=session_id, title="Saved", model_id="m1", mode="agent")
+    AiConfig.set_chat_session_id(session_id)
+    assert AiChatSessionService.resolve_restore_session_id() == session_id
+
+
+def test_resolve_restore_session_id_falls_back_when_deleted() -> None:
+    """A deleted stored id falls back to the most recent remaining session."""
+    kept_id = str(uuid.uuid4())
+    deleted_id = str(uuid.uuid4())
+    create_session(session_id=deleted_id, title="Gone", model_id=None, mode="agent")
+    create_session(session_id=kept_id, title="Kept", model_id=None, mode="ask")
+    delete_session(deleted_id)
+    AiConfig.set_chat_session_id(deleted_id)
+    assert AiChatSessionService.resolve_restore_session_id() == kept_id

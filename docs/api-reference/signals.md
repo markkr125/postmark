@@ -222,8 +222,10 @@ Source: `ui/sidebar/sidebar_widget.py`
 | Signal | Parameters | Description |
 |--------|------------|-------------|
 | `ai_settings_requested` | *(none)* | Flyout title-bar gear clicked while the AI panel is open |
+| `ai_new_chat_requested` | *(none)* | Flyout title-bar "New chat" clicked while the AI panel is open |
+| `ai_session_history_requested` | *(none)* | Flyout title-bar session-history clock clicked while the AI panel is open |
 
-Wired in `MainWindow.__init__`: `ai_settings_requested` → `_on_open_ai_settings` (Settings **AI** category, then refresh chat model picker).
+Wired in `MainWindow.__init__`: `ai_settings_requested` → `_on_open_ai_settings` (Settings **AI** category, then refresh chat model picker). `ai_new_chat_requested` / `ai_session_history_requested` → `_AiChatControllerMixin` (`ai_chat_controller.py`).
 
 ### AiModelPickerPopup
 
@@ -239,19 +241,20 @@ Source: `ui/sidebar/ai/model_picker_popup.py`
 
 ### AiChatPanel
 
-Source: `ui/sidebar/ai/chat_panel.py`
+Source: `ui/sidebar/ai/chat_panel/panel.py`
 
 | Signal | Parameters | Description |
 |--------|------------|-------------|
 | `message_submitted` | `str` | User sent a message (prompt text only; model/mode/attachments read from panel API) |
+| `stop_requested` | *(none)* | User clicked Stop while a chat run is in flight |
 | `mode_changed` | `str` | Agent mode changed (`agent`, `ask`, or `plan`) — not consumed yet |
 | `attachments_changed` | `list` | Attached file paths changed — not consumed yet |
 | `manage_models_requested` | *(none)* | Manage-models gear in the model picker → opens Settings → AI → Models |
 | `context_requested` | *(none)* | Context-window icon in the composer — not consumed yet |
 
-Public getters (not signals): `current_model_id()`, `current_mode()`, `current_reasoning_effort()` (for phase-2 LLM wiring).
+Public getters (not signals): `current_model_id()`, `current_model_entry()`, `current_mode()`, `current_reasoning_effort()`, `current_run_context_tokens()`, `current_thinking_enabled()`, `streaming_assistant_thinking()`, `streaming_assistant_text()`. Streaming API: `load_transcript`, `begin_assistant_stream` (shows ``aiChatActivityRow`` with spinner + ``Thinking…``), `append_assistant_chunk(thinking_delta, content_delta)` (hides activity on first token), `set_activity_status(raw)` (SDK status while activity visible), `end_assistant_stream(content, thinking=…)` (always clears activity), `apply_assistant_final(content, thinking=…)`, `set_run_busy`, `set_send_enabled` (idle only). Worker signals: `chunk_received`, `status_changed`, `assistant_finished`, `failed` — connect to ``AiChatPanel.deliver_assistant_chunk`` / ``deliver_activity_status`` and ``MainWindow`` ``_deliver_*`` handlers with **QueuedConnection**. Off-thread callbacks re-emit through internal queued signals (``_assistant_chunk_delivery_requested``, ``_ai_assistant_finish_requested``, etc.); do not use ``QMetaObject.invokeMethod`` with ``Q_ARG``. User messages use a full-width ``aiChatMessageUser`` bubble; assistant replies render markdown in ``aiChatAssistantText`` with optional ``aiChatThoughtBlock`` (`Thought for Ns`).
 
-Wired in `MainWindow.__init__`: `message_submitted` → `_on_ai_message_submitted` (debug log placeholder); `manage_models_requested` → `_on_open_ai_models_settings`.
+Wired via `_AiChatControllerMixin._init_ai_chat_controller`: `message_submitted` → `_on_ai_message_submitted` (starts `AiChatWorker`, streams reply); `stop_requested` → `_on_ai_chat_stop` (`AiChatWorker.cancel` → `Conversation.interrupt`); `manage_models_requested` → `_on_open_ai_models_settings`. `AiChatWorker.failed(str, str)` carries `(error, partial_assistant_text)`; the controller persists the full streamed text plus a `---` footer on failure.
 
 ## Saved Responses Panel
 

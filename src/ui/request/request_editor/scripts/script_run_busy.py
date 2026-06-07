@@ -2,38 +2,10 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QWidget
 
-# Braille spinner frames — same pattern CLIs use; renders crisply at any font size.
-_SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-_FRAME_INTERVAL_MS = 90
-
-
-class _BrailleSpinner(QLabel):
-    """Tiny rotating spinner that animates while visible."""
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setObjectName("busyChipSpinner")
-        self._frame = 0
-        self.setText(_SPINNER_FRAMES[0])
-        self._timer = QTimer(self)
-        self._timer.setInterval(_FRAME_INTERVAL_MS)
-        self._timer.timeout.connect(self._tick)
-
-    def _tick(self) -> None:
-        self._frame = (self._frame + 1) % len(_SPINNER_FRAMES)
-        self.setText(_SPINNER_FRAMES[self._frame])
-
-    def start(self) -> None:
-        self._frame = 0
-        self.setText(_SPINNER_FRAMES[0])
-        if not self._timer.isActive():
-            self._timer.start()
-
-    def stop(self) -> None:
-        self._timer.stop()
+from ui.widgets.busy_spinner import BrailleSpinner
 
 
 class ScriptRunBusyOverlay(QWidget):
@@ -51,7 +23,7 @@ class ScriptRunBusyOverlay(QWidget):
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(6)
-        self._spinner = _BrailleSpinner(self)
+        self._spinner = BrailleSpinner(self)
         row.addWidget(self._spinner)
         self._label = QLabel("Running script…")
         self._label.setObjectName("mutedLabel")

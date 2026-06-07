@@ -6,13 +6,13 @@ import uuid
 from collections.abc import Callable
 from typing import Literal
 
-from PySide6.QtCore import QByteArray, QPoint, Qt, QSettings, QTimer
-from PySide6.QtWidgets import QListWidget
+from PySide6.QtCore import QByteArray, QPoint, QSettings, Qt, QTimer
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QListWidget,
     QMenu,
     QPushButton,
     QSizePolicy,

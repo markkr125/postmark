@@ -109,6 +109,24 @@ class _FlyoutPanel(QWidget):
         self._history_refresh_btn.hide()
         title_bar.addWidget(self._history_refresh_btn)
 
+        self._ai_history_btn = QPushButton()
+        self._ai_history_btn.setObjectName("iconButton")
+        self._ai_history_btn.setFixedSize(28, 28)
+        self._ai_history_btn.setIcon(phi("clock-counter-clockwise", size=16))
+        self._ai_history_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._ai_history_btn.setToolTip("Session history")
+        self._ai_history_btn.hide()
+        title_bar.addWidget(self._ai_history_btn)
+
+        self._ai_new_chat_btn = QPushButton()
+        self._ai_new_chat_btn.setObjectName("iconButton")
+        self._ai_new_chat_btn.setFixedSize(28, 28)
+        self._ai_new_chat_btn.setIcon(phi("note-pencil", size=16))
+        self._ai_new_chat_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._ai_new_chat_btn.setToolTip("New chat")
+        self._ai_new_chat_btn.hide()
+        title_bar.addWidget(self._ai_new_chat_btn)
+
         self._ai_settings_btn = QPushButton()
         self._ai_settings_btn.setObjectName("iconButton")
         self._ai_settings_btn.setFixedSize(28, 28)
@@ -158,6 +176,8 @@ class RightSidebar(QWidget):
     """
 
     ai_settings_requested = Signal()
+    ai_new_chat_requested = Signal()
+    ai_session_history_requested = Signal()
 
     def __init__(
         self,
@@ -188,6 +208,8 @@ class RightSidebar(QWidget):
         self._request_history_panel = self._flyout.request_history_panel
         self._ai_chat_panel = self._flyout.ai_chat_panel
         self._close_btn.clicked.connect(self._close_panel)
+        self._flyout._ai_new_chat_btn.clicked.connect(self.ai_new_chat_requested.emit)
+        self._flyout._ai_history_btn.clicked.connect(self.ai_session_history_requested.emit)
         self._flyout._ai_settings_btn.clicked.connect(self.ai_settings_requested.emit)
 
         # --- Rail layout ----------------------------------------------
@@ -245,6 +267,11 @@ class RightSidebar(QWidget):
     def ai_chat_panel(self) -> AiChatPanel:
         """Expose the AI chat panel for MainWindow wiring."""
         return self._ai_chat_panel
+
+    @property
+    def ai_history_button(self) -> QWidget:
+        """Header button the session-history popover anchors to."""
+        return self._flyout._ai_history_btn
 
     # ------------------------------------------------------------------
     # Splitter integration
@@ -576,6 +603,8 @@ class RightSidebar(QWidget):
         }
         self._title_label.setText(titles.get(panel, panel))
         self._flyout._history_refresh_btn.setVisible(panel == "request_history")
+        self._flyout._ai_history_btn.setVisible(panel == "ai")
+        self._flyout._ai_new_chat_btn.setVisible(panel == "ai")
         self._flyout._ai_settings_btn.setVisible(panel == "ai")
         self._flyout.show()
         if expand_flyout:
@@ -595,6 +624,8 @@ class RightSidebar(QWidget):
         self._history_btn.setChecked(False)
         self._ai_btn.setChecked(False)
         self._flyout._history_refresh_btn.hide()
+        self._flyout._ai_history_btn.hide()
+        self._flyout._ai_new_chat_btn.hide()
         self._flyout._ai_settings_btn.hide()
         self._collapse_flyout()
 

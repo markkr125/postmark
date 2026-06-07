@@ -18,10 +18,14 @@ from .runs.model.run_history_model import RunHistoryModel
 from .runs.model.run_result_model import RunResultModel
 from .request_assertions.model.request_assertion_model import RequestAssertionModel
 from .script_versions.model.script_version_model import ScriptVersionModel
+from .ai_chat.model.ai_chat_message_model import AiChatMessageModel
+from .ai_chat.model.ai_chat_session_model import AiChatSessionModel
 from .request_history.model.request_history_entry_model import RequestHistoryEntryModel
 from .snippets.model.snippet_model import SnippetModel
 
 __all__ = [
+    "AiChatMessageModel",
+    "AiChatSessionModel",
     "CollectionModel",
     "EnvironmentModel",
     "LocalScriptFolderModel",

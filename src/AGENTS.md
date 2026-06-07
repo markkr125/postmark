@@ -85,7 +85,9 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
 - `EnvironmentService`, `HttpService`, `GraphQLSchemaService`, and
   `SnippetGenerator` follow the same `@staticmethod` pattern.
 - **`services/ai`** — `AiConfig` persists configured LLM models in QSettings
-  (`ai/models` JSON list; legacy `ai/default_model` cleared on save). `AiModelEntry` TypedDict
+  (`ai/models` JSON list; `ai/chat_model_id` for composer selection;
+  `ai/chat_session_id` for last active chat session; legacy
+  `ai/default_model` cleared on save). `AiModelEntry` TypedDict
   holds per-row metadata (`label` = model name, `provider_display_name` =
   provider group header, `enabled` default false, `context`, `text`, `insert`,
   `tools`, `vision`, optional costs, `context_tiers`, `tiers_checked`). Default
@@ -104,7 +106,15 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   `ai:<uuid>` in `secret_store` (never in QSettings). `sdk_env.ensure_openhands_env`
   runs at startup (`qt_app_init`) and before SDK import — suppresses OpenHands
   banner/Rich logging and SQLAlchemy INFO noise. `AiLlmService` builds
-  and tests `openhands.sdk.LLM` instances (lazy SDK import).   Settings UI: tree branch **AI** (overview) → **Models** child;
+  and tests `openhands.sdk.LLM` instances (lazy SDK import).
+  **Multi-session AI chat:** `AiChatSessionService` (`services/ai/chat/`)
+  indexes sessions/messages in SQLite and builds OpenHands `Conversation`
+  on worker threads (`AiChatWorker`). SDK state persists under
+  `session_disk_dir(id)`; searchable metadata in `ai_chat_sessions` /
+  `ai_chat_messages`. Postmark agent/tool registries (`agent_registry.py`,
+  `tool_registry.py`) ship `DEFAULT_AGENT_ID` with no custom tools in v1.
+  MainWindow wiring: `_AiChatControllerMixin` (`ai_chat_controller.py`).
+  Settings UI: tree branch **AI** (overview) → **Models** child;
   `ui/dialogs/settings/ai_page.py` + `AiProviderDialog` (per-provider credentials,
   in-dialog Test connection, live model list); Apply calls
   `AiPageController.apply()`.

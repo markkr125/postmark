@@ -6,6 +6,8 @@ highlights.
 
 Also exposes helper utilities used when building token formats:
 
+* ``get_lexer_for_language`` / ``token_color_for_type`` — public helpers for
+  HTML syntax highlighting outside the editor.
 * ``_get_cached_lexer`` — module-level lexer cache.
 * ``_build_format`` / ``_build_token_formats`` — build ``QTextCharFormat``
   objects from the current theme palette.
@@ -52,6 +54,23 @@ _BLOCK_COMMENT_LANGS = frozenset(
 # Module-level lexer cache — avoids creating a new Pygments lexer (and
 # triggering module imports) on every language switch.
 _lexer_cache: dict[str, Lexer] = {}
+
+
+def get_lexer_for_language(language: str) -> Lexer:
+    """Return a cached Pygments lexer for *language* (public API)."""
+    return _get_cached_lexer(language.lower())
+
+
+def token_color_for_type(token_type: T._TokenType, palette: ThemePalette) -> str:
+    """Return a hex colour for *token_type* using *palette* editor slots."""
+    formats = _build_token_formats_for_palette(palette)
+    tt: T._TokenType | None = token_type
+    while tt:
+        if tt in formats:
+            color = formats[tt].foreground().color()
+            return color.name()
+        tt = tt.parent  # type: ignore[assignment]
+    return palette["text"]
 
 
 def _get_cached_lexer(language: str) -> Lexer:

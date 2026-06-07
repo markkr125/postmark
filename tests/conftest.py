@@ -146,15 +146,19 @@ def _disable_script_lsp_in_tests() -> Generator[None, None, None]:
 
 
 @pytest.fixture(autouse=True)
-def _shutdown_lsp_clients() -> Generator[None, None, None]:
+def _shutdown_lsp_clients(qapp: QApplication) -> Generator[None, None, None]:
     """Stop LSP subprocess threads after each test so Qt teardown stays clean."""
     yield
+    from PySide6.QtCore import QThreadPool
+
     from services.lsp.server_registry import LspRegistry, reset_registry_for_tests
 
     inst = LspRegistry._instance
     if inst is not None:
         inst.shutdown()
     reset_registry_for_tests()
+    QThreadPool.globalInstance().waitForDone(5000)
+    qapp.processEvents()
 
 
 @pytest.fixture(autouse=True)

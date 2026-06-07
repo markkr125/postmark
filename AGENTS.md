@@ -107,8 +107,9 @@ Fastest paths to understand and navigate the codebase:
 - **All services at a glance:** Read `src/services/__init__.py` — re-exports
   `CollectionService`, `EnvironmentService`, `ImportService`,
   `RunHistoryService`, `RequestHistoryService`, `AiConfig`, `AiLlmService`,
-  and key TypedDicts (`RequestLoadDict`, `VariableDetail`, `LocalOverride`,
-  `RequestHistoryEntryDict`, `SendIdentityDict`, `AiModelEntry`).
+  `AiChatSessionService`, and key TypedDicts (`RequestLoadDict`, `VariableDetail`,
+  `LocalOverride`, `RequestHistoryEntryDict`, `SendIdentityDict`, `AiModelEntry`,
+  `AiChatSessionDict`, `AiChatMessageDict`).
 - **HTTP subsystem:** Read `src/services/http/__init__.py` — re-exports
   `HttpService`, `GraphQLSchemaService`, `SnippetGenerator`,
   `SnippetOptions`, `HttpResponseDict`, `parse_header_dict`.
@@ -117,8 +118,8 @@ Fastest paths to understand and navigate the codebase:
 - **All DB models:** Read `src/database/database.py` — re-exports collection,
   environment, run-history, and local-script ORM models (`CollectionModel`,
   `RequestModel`, `SavedResponseModel`, `EnvironmentModel`, `RunHistoryModel`,
-  `RunResultModel`, `RequestHistoryEntryModel`, `LocalScriptFolderModel`,
-  `LocalScriptModel`, `SnippetModel`).
+  `RunResultModel`, `RequestHistoryEntryModel`, `AiChatSessionModel`,
+  `AiChatMessageModel`, `LocalScriptFolderModel`, `LocalScriptModel`, `SnippetModel`).
 - **Collection CRUD vs queries:** Mutations live in
   `collection_repository.py`; read-only tree/breadcrumb/ancestor queries
   live in `collection_query_repository.py`.
@@ -194,16 +195,27 @@ src/
 │           ├── request_history_repository.py      # insert, get, list, prune, nullify_request_id
 │           └── model/
 │               └── request_history_entry_model.py  # RequestHistoryEntryModel (metadata in SQLite)
+│       └── ai_chat/
+│           ├── ai_chat_repository.py            # Session/message CRUD + disk delete (uuid.hex dir)
+│           ├── ai_chat_query_repository.py      # list_sessions, search_messages (read-only)
+│           └── model/
+│               ├── ai_chat_session_model.py     # AiChatSessionModel (searchable index)
+│               └── ai_chat_message_model.py     # AiChatMessageModel (transcript index)
 ├── services/                      # Service layer (UI ↔ DB bridge)
 │   ├── collection_service.py      # CollectionService (static methods)
 │   ├── ai/                        # AI / LLM provider configuration (OpenHands SDK)
 │   │   ├── provider_catalog.py    # Static provider/model catalog (display defaults)
 │   │   ├── reasoning_effort.py    # Reasoning-effort vocabulary + Ollama/LiteLLM helpers
-│   │   ├── ai_config.py           # AiConfig + AiModelEntry — QSettings ai/models, ai/default_model
+│   │   ├── ai_config.py           # AiConfig + AiModelEntry — QSettings ai/models, ai/chat_model_id, ai/chat_session_id
 │   │   ├── sdk_env.py             # ensure_openhands_env + connection timeouts
 │   │   ├── ai_logging.py          # [postmark.ai] stderr log during provider setup
 │   │   ├── ops/                   # setup_provider, fetch_provider_models, model_metadata
-│   │   └── llm_service.py         # AiLlmService — build/test openhands.sdk.LLM
+│   │   ├── llm_service.py         # AiLlmService — build/test openhands.sdk.LLM
+│   │   └── chat/                  # Multi-session AI chat (OpenHands Conversation)
+│   │       ├── agent_registry.py  # PostmarkAgentDef + DEFAULT_AGENT_ID
+│   │       ├── tool_registry.py   # register_postmark_tool / resolve_tools
+│   │       ├── response_text.py   # Turn-scoped thinking/answer extraction from SDK messages + stream chunks
+│   │       └── session_service.py # AiChatSessionService — SQLite index + SDK bridge
 │   ├── assertion_service.py       # AssertionService + AssertionDict — declarative tests CRUD + compile
 │   ├── local_script_service.py    # LocalScriptService + LocalScriptLoadDict
 │   ├── snippet_service.py         # SnippetService — user snippet CRUD + loader cache invalidation
@@ -302,6 +314,7 @@ src/
     │   ├── send_pipeline_debug_session.py # on_debug_paused/step/finished, end_debug_ui
     │   ├── draft_controller.py    # _DraftControllerMixin — draft tab open/save
     │   ├── tab_controller.py      # _TabControllerMixin — tab open/close/switch
+    │   ├── ai_chat_controller.py  # _AiChatControllerMixin — AI chat sessions + worker wiring
     │   ├── session_restore.py   # Delayed, batched session tab restore after load_finished
     │   ├── startup_workers.py   # LocalProjectConfigWorker + AiModelBackfillWorker — delayed startup workers off GUI thread
     │   ├── tab_nav/               # Tab activation back/forward stacks
@@ -314,12 +327,31 @@ src/
     ├── loading_screen.py          # Loading screen overlay widget
     ├── sidebar/                   # Sidebar rails + flyout panels
     │   ├── sidebar_widget.py      # RightSidebar (icon rail) + _FlyoutPanel
-    │   ├── ai/                    # AI assistant chat panel (skeleton)
+    │   ├── ai/                    # AI assistant chat panel
     │   │   ├── agent_mode_popup.py  # AgentModeButton + AiAgentModePopup (Agent / Ask / Plan)
-    │   │   ├── chat_panel.py      # AiChatPanel — transcript + composer
-    │   │   ├── message_bubble.py  # ChatMessageBubble — user/assistant bubbles
+    │   │   ├── chat_panel/        # AiChatPanel sub-package (panel, composer, scroll)
+    │   │   │   ├── panel.py       # AiChatPanel — transcript + composer
+    │   │   │   ├── composer.py    # _ComposerInput + ModelPickerButton
+    │   │   │   └── scroll.py      # _ChatPanelScrollMixin — direction-based scroll-lock, turn-start anchor, viewport spacer, queued follow passes
+    │   │   ├── chat_panel_streaming.py  # _ChatPanelStreamingMixin — stream orchestration + activity timer
+    │   │   ├── chat_sessions/     # Session history popover + time formatting
+    │   │   │   ├── history_popup.py  # AiSessionHistoryPopup
+    │   │   │   └── time_format.py
+    │   │   ├── workers/           # AiChatWorker + AiChatTitleWorker (QThread)
+    │   │   │   ├── chat_worker.py
+    │   │   │   └── title_worker.py
+    │   │   ├── markdown/          # Custom assistant markdown HTML (fence split + Pygments code blocks)
+    │   │   │   ├── fence_split.py
+    │   │   │   ├── highlight_code.py
+    │   │   │   ├── render.py
+    │   │   │   └── streaming_render.py  # StreamingMarkdownCache — incremental segment reuse
+    │   │   ├── message_bubble/    # ChatMessageBubble sub-package (bubble, markdown body, thought, activity)
+    │   │   │   ├── bubble.py      # ChatMessageBubble — user bubble + assistant row
+    │   │   │   ├── markdown_content.py  # MarkdownContent + theme re-render registry
+    │   │   │   ├── thought_section.py   # ThoughtSection collapsible block
+    │   │   │   └── activity_row.py      # AssistantActivityRow spinner row
     │   │   ├── model_picker_edit.py  # AiModelPickerEditPanel flyout (context / thinking / reasoning)
-    │   │   └── model_picker_popup.py  # AiModelPickerPopup — Cursor-style model list + Manage link
+    │   │   └── model_picker_popup.py  # AiModelPickerPopup — Cursor-style model list + gear
     │   ├── left_sidebar.py        # LeftSidebar — activity rail + stacked nav flyout pages
     │   ├── local_scripts_sidebar_panel.py  # Legacy empty shell (unused; MainWindow uses CollectionWidget)
     │   ├── snippets_sidebar_panel.py  # User snippets tree (language → category → leaf); search + section (i)
@@ -390,6 +422,7 @@ src/
     │   │       ├── parameter_hint.py # ParameterHintPopup — floating call-signature hint
     │   │       ├── popup.py       # CompletionPopup — floating autocomplete widget
     │   │       └── symbol_doc_popup.py # SymbolDocPopup — Ctrl+hover / Ctrl+Q quick-doc tooltip
+    │   ├── busy_spinner.py        # BrailleSpinner — shared inline busy animation
     │   ├── info_popup.py          # InfoPopup (QFrame) base + ClickableLabel
     │   ├── sidebar_section_info.py # SidebarSectionInfoPopup — (i) help for sidebar sections
     │   ├── sidebar_tree_row_info.py # Trailing row (i) paint/hit-test for local-script tree leaves
@@ -522,9 +555,21 @@ tests/
 │   │   ├── test_script_version_local_script.py
 │   │   ├── test_environment_repository.py
 │   │   ├── test_run_history_repository.py
+│   │   ├── test_ai_chat_migration.py
+│   │   ├── test_ai_chat_repository.py
 │   │   ├── test_data_paths.py
 │   │   ├── test_request_history_body_store.py
 │   │   └── test_request_history_repository.py
+│   ├── ui/                        # UI helper unit tests (may need qapp)
+│   │   └── sidebar/ai/            # Chat markdown renderer tests
+│   │       ├── test_chat_markdown_fence_split.py
+│   │       ├── test_chat_markdown_highlight.py
+│   │       ├── test_chat_markdown_highlight_cache.py
+│   │       ├── test_chat_markdown_render.py
+│   │       ├── test_chat_markdown_streaming.py
+│   │       ├── test_chat_markdown_streaming_render.py
+│   │       ├── test_markdown_content_height.py
+│   │       └── test_bubble_stream_row_height.py
 │   └── services/                  # Service layer tests
 │       ├── test_service.py
 │       ├── test_environment_service.py
@@ -549,6 +594,8 @@ tests/
 │       ├── test_request_history_service.py
 │       ├── ai/                    # AI config + LLM service tests
 │       │   ├── test_ai_config.py
+│       │   ├── test_chat_session_service.py
+│       │   ├── test_postmark_agent_registry.py
 │       │   ├── test_model_metadata.py
 │       │   └── test_llm_service.py
 │       └── http/                  # HTTP service tests
@@ -562,6 +609,8 @@ tests/
 │           └── test_oauth2_service.py
 └── ui/                            # End-to-end PySide6 widget tests
     ├── conftest.py                # _no_fetch (autouse) + helpers
+    ├── main_window/
+    │   └── test_ai_chat_controller.py  # AI chat controller stop/fail finalize paths
     ├── test_main_window.py
     ├── test_main_window_tabs_navigation.py # Wrapped tab deck shortcuts + search tests
     ├── test_main_window_tab_nav_history.py # Go menu tab activation back/forward
@@ -572,6 +621,9 @@ tests/
     │   ├── test_theme_manager.py
     │   └── test_icons.py
     ├── sidebar/                   # Sidebar widget tests
+    │   ├── test_ai_chat_panel.py
+    │   ├── test_ai_chat_worker.py
+    │   ├── test_ai_session_history_popup.py
     │   ├── test_sidebar.py
     │   ├── test_left_sidebar.py
     │   ├── test_left_sidebar_global_history.py

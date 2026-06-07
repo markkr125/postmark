@@ -32,6 +32,8 @@ from services.ai.provider_catalog import (
     provider_by_key,
     provider_group_label,
 )
+from services.scripting.secret_store import get_default_store
+from ui.dialogs.secret_entry_dialog import SecretEntryDialog
 from ui.dialogs.settings.ai_page_actions import (
     ModelsListPreviewLoader,
     ai_provider_field_button_strip,
@@ -46,8 +48,6 @@ from ui.dialogs.settings.ai_page_actions import (
     provider_template_entry,
     validate_provider_credentials,
 )
-from services.scripting.secret_store import get_default_store
-from ui.dialogs.secret_entry_dialog import SecretEntryDialog
 from ui.dialogs.settings.ai_provider_workers import (
     AiProviderSetupWorker,
     cancel_provider_setup_thread,

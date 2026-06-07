@@ -181,12 +181,26 @@ class LspRegistry(QObject):
         with contextlib.suppress(Exception):
             client.did_open(stub.as_uri(), language_id, 1, text)
 
+    def _join_spawn_workers(self, timeout_ms: int = 5000) -> None:
+        """Wait for in-flight spawn workers so ``QThread`` is not destroyed mid-run."""
+        for worker in list(self._spawn_workers):
+            is_running = getattr(worker, "isRunning", None)
+            if not callable(is_running) or not is_running():
+                continue
+            wait = getattr(worker, "wait", None)
+            if not callable(wait):
+                continue
+            if not wait(timeout_ms):
+                terminate = getattr(worker, "terminate", None)
+                if callable(terminate):
+                    with contextlib.suppress(Exception):
+                        terminate()
+                        wait(1000)
+        self._spawn_workers.clear()
+
     def shutdown(self) -> None:
         """Stop all clients (``aboutToQuit``), including spawned-but-unused servers."""
-        for worker in list(self._spawn_workers):
-            with contextlib.suppress(Exception):
-                worker.wait(500)
-        self._spawn_workers.clear()
+        self._join_spawn_workers()
         with self._warm_lock:
             self._warming.clear()
         for c in list(self._clients.values()):

@@ -112,7 +112,7 @@ Always-visible fixed-width icon rail.
 
 | Button | Icon | Panel |
 |--------|------|-------|
-| AI assistant | sparkle | `AiChatPanel` — chat skeleton (transcript + composer; no LLM yet) |
+| AI assistant | sparkle | `AiChatPanel` — multi-session chat (transcript + composer + streaming) |
 | Variables | `{}` | Read-only variable list |
 | Code Snippet | `<>` | Code snippet generator |
 | Saved Responses | `[]` | Saved response browser |
@@ -121,14 +121,19 @@ Always-visible fixed-width icon rail.
 Panel key for session restore / `open_panel`: `"ai"`. The AI rail button is always
 enabled; `_toggle_panel("ai")` opens without checking `_available_panels`, while
 `open_panel("ai")` requires `"ai"` in `_available_panels` (always true after
-`clear()`, and included in request/folder contexts). The flyout title bar shows a
-**gear** button (left of close) that emits ``RightSidebar.ai_settings_requested``;
-``MainWindow`` opens Settings on the **AI** category and refreshes the model picker
-when the dialog closes.
+`clear()`, and included in request/folder contexts). The flyout title bar shows
+**session history** (clock), **new chat** (note-pencil), and **gear** buttons
+(left of close) when the AI panel is open. History opens ``AiSessionHistoryPopup``
+(search + relative-time list); new chat clears the transcript and persisted
+``ai/chat_session_id`` (SQLite row created on first send). On startup,
+``MainWindow`` reloads the last active session from ``ai/chat_session_id`` when
+set. The gear emits ``RightSidebar.ai_settings_requested``; ``MainWindow``
+opens Settings on the **AI** category and refreshes the model picker when the
+dialog closes.
 
 #### AI composer input (auto-grow)
 
-Source: ``ui/sidebar/ai/chat_panel.py`` — class ``_ComposerInput`` (``QPlainTextEdit``),
+Source: ``ui/sidebar/ai/chat_panel/composer.py`` — class ``_ComposerInput`` (``QPlainTextEdit``),
 ``objectName="aiChatInput"``, styled in ``global_qss.py``.
 
 **Problem solved.** The prompt used to call ``setFixedHeight(72)`` (~3 visible lines).
@@ -143,7 +148,76 @@ recomputed from content instead.
 | Typing or wrapping | Grows line-by-line with content (word wrap at widget width). |
 | More than 15 visual lines | Height stops at **15 lines**; vertical scrollbar appears; content still scrolls inside. |
 | Delete text / send | Shrinks back down (``clear()`` after send triggers the same resize path). |
-| Submit | **Ctrl+Enter** emits ``submit_requested`` → ``AiChatPanel._on_send`` (plain Enter inserts a newline). |
+| Submit | **Enter** emits ``submit_requested`` → ``AiChatPanel._on_send`` (Shift+Enter inserts a newline). |
+
+#### Assistant answer markdown
+
+Source: ``ui/sidebar/ai/message_bubble/markdown_content.py`` (``MarkdownContent``,
+``objectName="aiChatAssistantText"``) and ``ui/sidebar/ai/markdown/``.
+
+Prose (bold, lists, links) is converted with Qt ``QTextDocument.setMarkdown``.
+Fenced code blocks are split out and rendered as themed HTML: Pygments syntax
+highlighting (palette editor token colours), line numbers, language label, and
+``pre-wrap`` wrapping for long one-liners. Inline `` `code` `` spans get a muted
+pill style. Inner block chrome uses inline styles from ``ThemePalette`` (QSS does
+not apply inside rich-text HTML). ``ThemeManager.theme_changed`` re-renders stored
+markdown on live assistant rows.
+
+**Streaming performance.** Worker ``chunk_received`` deltas are coalesced on the
+GUI thread (~50ms) before updating the active bubble. Rich markdown stays live
+during streaming via an incremental segment renderer: stable prose and closed code
+blocks are reused; only the changed tail is re-rendered. Open (unclosed) fenced
+code uses a cheap provisional monospace block; full Pygments highlighting applies
+when the fence closes or the stream finalizes. The transcript scroll area
+(``aiChatScroll``) uses a two-phase scroll model:
+
+1. **Turn boundary (Send)** — ``begin_assistant_stream`` calls
+   ``_request_turn_bottom_scroll()`` once: re-arms scroll-lock, then a coalesced
+   ``singleShot(0)`` scroll to the **last user bubble** (turn-start anchor via
+   ``mapTo``), not ``setValue(maximum)``.
+2. **Streaming growth** — ``rangeChanged``, chunk flush, and deferred
+   markdown/bubble height changes call ``_queue_stream_follow_passes()`` while
+   scroll-lock is on: at most one coalesced ``_flush_stream_follow_frame`` (0ms)
+   per burst applies ``_apply_stream_follow()``; a ``_flush_stream_follow_retry``
+   (16ms) is scheduled only when the frame pass is still off-target or scrollbar
+   range grew (no synchronous follow on queue; no ``processEvents`` in the follow
+   path). Chunk flush defers ``MarkdownContent.height_changed`` and
+   ``ChatMessageBubble.layout_height_changed`` until one batched
+   ``flush_stream_layout()`` at the end of the flush; in-flush layout hook is
+   suppressed. Follow target is
+   ``_stream_follow_target()``: ``bar.maximum()`` once the turn exceeds one
+   viewport; while the turn still fits in one viewport, ``min(maximum,
+   turn_start)`` so the user bubble keeps its 8px top margin.
+
+Scroll-lock (2px threshold): while streaming, any **upward** user scrollbar
+movement (even 1px from the bottom) detaches follow immediately; reaching the
+real bottom re-arms it. Outside streaming, lock tracks ``value >= maximum - 2``.
+The initial value is **off** so opening a session at the top of history does not
+yank the viewport. ``aiChatScrollDown`` / ``_scroll_to_bottom`` re-arms follow.
+A new user turn (``begin_assistant_stream``) re-arms lock via
+``_request_turn_bottom_scroll``. Programmatic scrolls (``_set_bar_value``) do not
+update lock. Coalesced follow scheduler callbacks no-op once detached. The floating
+``aiChatScrollDown`` button appears when detached
+and jumps to the bottom on click. Monotonic height floors on the assistant body
+and row prevent mid-stream layout shrink (reset when thinking collapses at
+answer start). While a stream is open, a sibling spacer widget
+(``aiChatStreamingViewportSpacer``) below the assistant row is sized dynamically
+as ``max(0, viewport_h - turn_extent)`` via ``_apply_streaming_viewport_spacer``
+so ``turn_extent + spacer == viewport_h`` while the turn is shorter than one
+viewport; panel ``resizeEvent`` and chunk flush refresh spacer height when the
+flyout is resized or content grows.
+
+#### Streaming activity indicator
+
+While waiting for the first assistant token, the transcript shows
+``aiChatActivityRow`` — a braille spinner (``aiChatActivitySpinner``, shared with
+script run busy chips) and a muted caption (``aiChatActivityLabel``; default
+``Thinking…``). ``begin_assistant_stream`` shows the row and schedules
+``_request_turn_bottom_scroll`` (turn-start anchor scroll); the first
+thinking or answer chunk hides it. SDK ``status_changed`` events
+update the caption only while the row is visible (sanitized via
+``format_activity_status`` in ``chat_panel_streaming.py``). After 15 seconds
+without a token, the caption escalates to ``Taking longer than expected…``.
 
 **Implementation (Qt-specific).** Web chat UIs often use ``textarea`` + ``scrollHeight``;
 here the equivalent is:

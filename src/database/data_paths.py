@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import platform
+import uuid
 from pathlib import Path
 
 
@@ -40,3 +41,15 @@ def user_history_root() -> Path:
     root = postmark_user_data_dir() / "history"
     root.mkdir(parents=True, exist_ok=True)
     return root
+
+
+def user_ai_conversations_root() -> Path:
+    """Return ``postmark_user_data_dir() / "ai_conversations"`` (created if missing)."""
+    root = postmark_user_data_dir() / "ai_conversations"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def session_disk_dir(session_id: str) -> Path:
+    """Per-session SDK persistence dir: ``<base>/<uuid.hex>/`` (matches SDK layout)."""
+    return user_ai_conversations_root() / uuid.UUID(session_id).hex

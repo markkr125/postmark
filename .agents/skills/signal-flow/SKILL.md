@@ -354,35 +354,31 @@ MainWindow snippet_act.triggered
         → registry dispatch to language-specific generator (23 languages)
 ```
 
-### AI assistant chat flow (skeleton)
+### AI assistant chat flow
 
 ```
 MainWindow.__init__
-  → ai_chat_panel.set_models(AiConfig.get_models())   # fast QSettings read; no litellm import
-  → ai_chat_panel.message_submitted → _on_ai_message_submitted (logger.debug placeholder)
+  → ai_chat_panel.set_models(AiConfig.get_models())
+  → _AiChatControllerMixin._init_ai_chat_controller()
+      message_submitted → _on_ai_message_submitted
+      stop_requested → _on_ai_chat_stop (worker.cancel → Conversation.interrupt)
+      ai_new_chat_requested → _on_ai_new_chat (clear transcript; lazy session)
+      ai_session_history_requested → _on_ai_session_history (AiSessionHistoryPopup)
 
-AiChatPanel._on_send (or Ctrl+Enter via _ComposerInput.submit_requested)
-  → add_message("user", text)
-  → message_submitted.emit(text)   # LLM wiring TODO
+AiChatPanel._on_send (or Enter)
+  → if run busy: stop_requested.emit()
+  → else: add_message("user", text); message_submitted.emit(text)
+  → _on_ai_message_submitted: new_session on first message; record_user_message; set_run_busy(True)
+  → AiChatWorker on QThread (``asyncio.run(conv.arun())``, stream=True LLM, token_callbacks)
+  → begin_assistant_stream → activity row (`Thinking…` + braille spinner) + ``_apply_streaming_viewport_spacer`` (dynamic sibling spacer: ``max(0, viewport_h - turn_extent)``) + ``_request_turn_bottom_scroll`` (turn-start anchor to last user bubble, scroll-lock re-arm; spacer recomputed after layout in ``_flush_turn_bottom_scroll``); chunk_received(thinking, content) → ``deliver_assistant_chunk`` → coalesced ``append_assistant_chunk`` (~50ms GUI batch; incremental rich markdown via ``StreamingMarkdownCache``; spacer recompute + ``rangeChanged`` / chunk flush / post-flush ``layout_height_changed`` → ``_queue_stream_follow_passes`` (one coalesced 0ms frame pass; 16ms retry only when still off-target or range grew after frame; in-flush layout hook suppressed; chunk flush batches deferred markdown/bubble height) + streaming scroll-lock (upward user movement detaches; range-shrink clamp ignored; real bottom re-arms) — ``_stream_follow_target()`` / ``min(maximum, turn_start)`` while turn fits in one viewport else ``maximum``; **QueuedConnection**); status_changed → ``deliver_activity_status`` (QueuedConnection, only while activity visible); assistant_finished / failed → ``MainWindow`` ``@Slot`` handlers (QueuedConnection, not lambdas) → end_assistant_stream (flush pending chunks, rich HTML finalize, clears activity); record_assistant_message; set_run_busy(False)
+  → chat QThread finished → optional AiChatTitleWorker (deferred; avoids SDK session races)
 
-AiChatPanel.mode_changed(str)      # not connected yet
-AiChatPanel.attachments_changed(list)  # not connected yet
-AiChatPanel.context_requested()        # not connected yet
+RightSidebar.ai_new_chat_requested → _on_ai_new_chat
+RightSidebar.ai_session_history_requested → AiSessionHistoryPopup.show_for(ai_history_button, …)
+  → on_select → load_transcript(get_messages)
 
-AiChatPanel._open_model_picker
-  → AiModelPickerPopup.instance().show_for(model_btn, models, current_id, on_pick, on_manage)
-    → model_picked(id) → AiChatPanel._on_model_picked (updates button + current_model_id)
-    → manage_requested → AiChatPanel._on_manage_models → manage_models_requested
-
-AiChatPanel.manage_models_requested()
-  → MainWindow._on_open_ai_models_settings
-    → SettingsDialog(initial_category="Models")
-    → ai_chat_panel.set_models(AiConfig.get_models()) after dialog closes
-
-RightSidebar.ai_settings_requested()
-  → MainWindow._on_open_ai_settings
-    → SettingsDialog(initial_category="AI")
-    → ai_chat_panel.set_models(AiConfig.get_models()) after dialog closes
+AiChatPanel.manage_models_requested → _on_open_ai_models_settings
+RightSidebar.ai_settings_requested → _on_open_ai_settings
 ```
 
 ### Settings flow
@@ -663,6 +659,7 @@ All other signals in the flow diagrams above are fully wired.
 | `CodeEditorWidget` | `run_single_test_requested` | `Signal(str)` — per-`pm.test` gutter Run |
 | `CodeEditorWidget` | `debug_single_test_requested` | `Signal(str)` — per-`pm.test` gutter Debug |
 | `AiChatPanel` | `message_submitted` | `Signal(str)` |
+| `AiChatPanel` | `stop_requested` | `Signal()` |
 | `AiChatPanel` | `mode_changed` | `Signal(str)` |
 | `AiChatPanel` | `attachments_changed` | `Signal(list)` |
 | `AiChatPanel` | `manage_models_requested` | `Signal()` |

@@ -152,11 +152,26 @@ tests/
 │   │   ├── test_script_version_local_script.py
 │   │   ├── test_environment_repository.py
 │   │   ├── test_run_history_repository.py
+│   │   ├── test_ai_chat_migration.py
+│   │   ├── test_ai_chat_repository.py
 │   │   ├── test_data_paths.py
 │   │   ├── test_request_history_body_store.py
 │   │   └── test_request_history_repository.py
 │   ├── local_scripts/             # Script filename display helpers
 │   │   └── test_script_filename.py
+│   ├── ui/                        # UI helpers (may need qapp for Qt types)
+│   │   ├── sidebar/ai/            # Chat markdown renderer unit tests
+│   │   │   ├── test_chat_markdown_fence_split.py
+│   │   │   ├── test_chat_markdown_highlight.py
+│   │   │   ├── test_chat_markdown_highlight_cache.py
+│   │   │   ├── test_chat_markdown_render.py
+│   │   │   ├── test_chat_markdown_streaming.py
+│   │   │   ├── test_chat_markdown_streaming_render.py
+│   │   │   ├── test_markdown_content_height.py
+│   │   │   └── test_bubble_stream_row_height.py
+│   │   └── widgets/
+│   │       ├── test_text_format_helpers.py
+│   │       └── test_text_format_async.py
 │   └── services/                  # Service layer tests
 │       ├── test_service.py
 │       ├── test_environment_service.py
@@ -196,7 +211,10 @@ tests/
 │       │   ├── test_model_metadata.py
 │       │   ├── test_run_context_choices.py
 │       │   ├── test_provider_display_name.py
+│       │   ├── test_chat_response_text.py
+│       │   ├── test_chat_session_service.py
 │       │   ├── test_llm_service.py
+│       │   ├── test_postmark_agent_registry.py
 │       │   ├── test_provider_ops.py
 │       │   ├── test_model_filters.py
 │       │   ├── test_model_metadata.py
@@ -240,6 +258,8 @@ tests/
 │           └── test_oauth2_service.py
 └── ui/                            # PySide6 widget tests (need qapp + qtbot)
     ├── conftest.py                # _no_fetch (autouse) + helper functions
+   ├── main_window/
+   │   └── test_ai_chat_controller.py  # AI chat controller stop/fail finalize paths
    ├── test_main_window.py        # Top-level MainWindow smoke tests
    ├── test_main_window_tabs_navigation.py # Wrapped tab deck shortcuts + search tests
    ├── test_main_window_tab_nav_history.py # Go menu tab activation back/forward
@@ -279,8 +299,13 @@ tests/
     │   ├── test_search_replace_bar.py
     │   ├── test_snippets_popup.py   # Snippet JSON + SnippetsPopup (no delete on user rows)
     │   ├── test_snippet_capture_dialog.py  # Create / edit dialog
+    │   ├── test_busy_spinner.py
     │   └── test_runtime_banner.py
    ├── sidebar/                   # Sidebar widget tests
+   │   ├── test_ai_chat_panel.py
+   │   ├── test_chat_panel_streaming.py
+   │   ├── test_ai_chat_worker.py
+   │   ├── test_ai_session_history_popup.py
    │   ├── test_sidebar.py
    │   ├── test_left_sidebar.py
    │   ├── test_variables_panel.py

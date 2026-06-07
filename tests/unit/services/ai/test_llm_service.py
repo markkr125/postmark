@@ -8,7 +8,8 @@ import types
 import pytest
 
 from services.ai.ai_config import AiModelEntry
-from services.ai.llm_service import AiLlmService
+from services.ai.llm_service import AiLlmService, resolve_litellm_model
+from services.ai.reasoning_effort import chat_reasoning_effort_for_litellm
 
 
 def _entry(**kw: object) -> AiModelEntry:
@@ -86,6 +87,26 @@ def test_build_llm_composes_fields(monkeypatch: pytest.MonkeyPatch) -> None:
     assert kw["base_url"] == "https://x"
     assert kw["api_version"] == "v1"
     assert kw["max_output_tokens"] == 16
+    assert kw.get("extra_headers") is None
+
+
+def test_build_llm_ollama_extra_headers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ollama entries set Content-Type for strict reverse-proxies."""
+    import os
+
+    import services.ai.llm_service as svc
+
+    monkeypatch.setattr(svc, "get_default_store", lambda: _Store())
+    os.environ["ALLOW_SHORT_CONTEXT_WINDOWS"] = "true"
+    entry = _entry(
+        provider="ollama",
+        model="ollama/llama3",
+        base_url="",
+        auth_kind="none",
+        auth_ref="",
+    )
+    llm = AiLlmService.build_llm(entry, usage_id="postmark-chat-test")
+    assert llm.extra_headers == {"Content-Type": "application/json"}
 
 
 def test_test_success(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -108,3 +129,164 @@ def test_test_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     ok, detail = AiLlmService.test(_entry())
     assert ok is False
     assert "boom" in detail
+
+
+def test_build_llm_clears_reasoning_for_ollama_streaming(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Streaming Ollama chat must override OpenHands default reasoning_effort."""
+    import os
+
+    import services.ai.llm_service as svc
+
+    monkeypatch.setattr(svc, "get_default_store", lambda: _Store())
+    os.environ["ALLOW_SHORT_CONTEXT_WINDOWS"] = "true"
+    entry = _entry(
+        provider="ollama",
+        model="ollama/gpt-oss:20b",
+        base_url="",
+        auth_kind="none",
+        auth_ref="",
+    )
+    llm = AiLlmService.build_llm(
+        entry,
+        stream=True,
+        usage_id="postmark-chat-test",
+        reasoning_effort="xhigh",
+    )
+    assert llm.stream is True
+    assert llm.reasoning_effort is None
+    assert llm.model == "ollama_chat/gpt-oss:20b"
+    assert llm.base_url == "http://127.0.0.1:11434"
+
+
+def test_resolve_litellm_model_uses_ollama_chat_for_postmark_chat() -> None:
+    """Ollama chat runs route through LiteLLM's ollama_chat provider."""
+    entry: AiModelEntry = {
+        "id": "o1",
+        "provider": "ollama",
+        "label": "gpt-oss",
+        "model": "ollama/gpt-oss:20b",
+        "base_url": "",
+        "api_version": "",
+        "auth_kind": "none",
+        "auth_ref": "",
+    }
+    assert resolve_litellm_model(entry, usage_id="postmark-chat-abc") == "ollama_chat/gpt-oss:20b"
+    assert resolve_litellm_model(entry, usage_id="postmark-config-test") == "ollama/gpt-oss:20b"
+
+
+def test_build_llm_ollama_chat_does_not_pass_reasoning_effort_to_litellm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ollama chat must not leak OpenHands' default reasoning_effort into LiteLLM."""
+    import os
+
+    from openhands.sdk.llm.options.chat_options import select_chat_options
+
+    import services.ai.llm_service as svc
+
+    monkeypatch.setattr(svc, "get_default_store", lambda: _Store())
+    os.environ["ALLOW_SHORT_CONTEXT_WINDOWS"] = "true"
+    entry = _entry(
+        provider="ollama",
+        model="ollama/gpt-oss:20b",
+        base_url="",
+        auth_kind="none",
+        auth_ref="",
+    )
+    llm = AiLlmService.build_llm(
+        entry,
+        stream=True,
+        usage_id="postmark-chat-test",
+        reasoning_effort="high",
+    )
+    opts = select_chat_options(llm, {}, has_tools=False)
+    assert "reasoning_effort" not in opts
+
+
+def test_resolve_llm_base_url_uses_provider_default() -> None:
+    """Empty model base_url falls back to the Ollama provider default."""
+    entry: AiModelEntry = {
+        "id": "o1",
+        "provider": "ollama",
+        "label": "gpt-oss",
+        "model": "ollama/gpt-oss:20b",
+        "base_url": "",
+        "api_version": "",
+        "auth_kind": "none",
+        "auth_ref": "",
+    }
+    from services.ai.llm_service import resolve_llm_base_url
+
+    assert resolve_llm_base_url(entry) == "http://127.0.0.1:11434"
+
+
+def test_build_llm_ollama_chat_passes_context_and_thinking(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ollama chat runs pass num_ctx and think via litellm_extra_body."""
+    import os
+
+    import services.ai.llm_service as svc
+
+    monkeypatch.setattr(svc, "get_default_store", lambda: _Store())
+    os.environ["ALLOW_SHORT_CONTEXT_WINDOWS"] = "true"
+    entry = _entry(
+        provider="ollama",
+        model="ollama/qwen3:8b",
+        base_url="",
+        auth_kind="none",
+        auth_ref="",
+        thinking=True,
+    )
+    llm = AiLlmService.build_llm(
+        entry,
+        stream=True,
+        usage_id="postmark-chat-test",
+        run_context_tokens=8192,
+        thinking_enabled="off",
+    )
+    assert llm.litellm_extra_body == {"num_ctx": 8192, "think": False}
+    assert llm.num_retries == 0
+
+
+def test_build_llm_ollama_chat_harmony_passes_think_level(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Harmony models pass think level via extra_body when streaming."""
+    import os
+
+    import services.ai.llm_service as svc
+
+    monkeypatch.setattr(svc, "get_default_store", lambda: _Store())
+    os.environ["ALLOW_SHORT_CONTEXT_WINDOWS"] = "true"
+    entry = _entry(
+        provider="ollama",
+        model="ollama/gpt-oss:20b",
+        base_url="",
+        auth_kind="none",
+        auth_ref="",
+    )
+    llm = AiLlmService.build_llm(
+        entry,
+        stream=True,
+        usage_id="postmark-chat-test",
+        run_context_tokens=4096,
+        reasoning_effort="medium",
+    )
+    assert llm.litellm_extra_body == {"num_ctx": 4096, "think": "medium"}
+    assert llm.num_retries == 0
+
+
+def test_chat_reasoning_effort_maps_xhigh_to_high_for_harmony_offline() -> None:
+    """Harmony models map xhigh to high when streaming is disabled."""
+    entry: AiModelEntry = {
+        "id": "o1",
+        "provider": "ollama",
+        "label": "gpt-oss",
+        "model": "ollama/gpt-oss:20b",
+        "base_url": "",
+        "api_version": "",
+        "auth_kind": "none",
+        "auth_ref": "",
+    }
+    assert chat_reasoning_effort_for_litellm(entry, "xhigh", streaming=False) == "high"

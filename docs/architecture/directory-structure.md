@@ -56,8 +56,8 @@ src/
     +-- sidebar/                     Sidebar rails + flyout panels
     |   +-- sidebar_widget.py        RightSidebar (icon rail) + _FlyoutPanel
     |   +-- ai/                      AI assistant chat panel (skeleton)
-    |   |   +-- chat_panel.py        AiChatPanel — transcript + composer
-    |   |   +-- message_bubble.py    ChatMessageBubble — user/assistant bubbles
+    |   |   +-- chat_panel/          AiChatPanel sub-package (panel, composer, scroll)
+    |   |   +-- message_bubble/      ChatMessageBubble sub-package
     |   |   +-- model_picker_popup.py  AiModelPickerPopup — Cursor-style model list + Manage link
     |   +-- left_sidebar.py          LeftSidebar — activity rail + stacked flyout (collections | local scripts)
     |   +-- local_scripts_sidebar_panel.py  LocalScriptsSidebarPanel — local scripts list placeholder

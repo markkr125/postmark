@@ -6,6 +6,7 @@ import logging
 import os
 
 CONNECTION_TEST_TIMEOUT_SEC: int = 10
+CHAT_RUN_TIMEOUT_SEC: int = 300
 HTTP_TIMEOUT_SEC: float = 10.0
 MODEL_LIST_TIMEOUT_SEC: float = 120.0
 
@@ -25,6 +26,7 @@ def ensure_openhands_env() -> None:
 
 
 __all__ = [
+    "CHAT_RUN_TIMEOUT_SEC",
     "CONNECTION_TEST_TIMEOUT_SEC",
     "HTTP_TIMEOUT_SEC",
     "MODEL_LIST_TIMEOUT_SEC",

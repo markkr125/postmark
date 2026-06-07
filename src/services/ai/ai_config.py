@@ -30,6 +30,8 @@ _ORG = "Postmark"
 _APP = "Postmark"
 _KEY_MODELS = "ai/models"
 _KEY_DEFAULT = "ai/default_model"
+_KEY_CHAT_MODEL = "ai/chat_model_id"
+_KEY_CHAT_SESSION = "ai/chat_session_id"
 _AUTH_KINDS = ("token", "none")
 
 
@@ -327,6 +329,32 @@ class AiConfig:
         """Persist the default model id (``""`` to clear)."""
         s = _get_settings()
         s.setValue(_KEY_DEFAULT, model_id or "")
+        s.sync()
+
+    @staticmethod
+    def get_chat_model_id() -> str:
+        """Return the last model picked in the AI chat composer, or ``""``."""
+        s = _get_settings()
+        return str(s.value(_KEY_CHAT_MODEL, "") or "").strip()
+
+    @staticmethod
+    def set_chat_model_id(model_id: str) -> None:
+        """Persist the AI chat composer model selection (``""`` to clear)."""
+        s = _get_settings()
+        s.setValue(_KEY_CHAT_MODEL, model_id or "")
+        s.sync()
+
+    @staticmethod
+    def get_chat_session_id() -> str:
+        """Return the last active AI chat session id, or ``""`` when unset."""
+        s = _get_settings()
+        return str(s.value(_KEY_CHAT_SESSION, "") or "").strip()
+
+    @staticmethod
+    def set_chat_session_id(session_id: str) -> None:
+        """Persist the active AI chat session id (``""`` to clear)."""
+        s = _get_settings()
+        s.setValue(_KEY_CHAT_SESSION, session_id or "")
         s.sync()
 
     @staticmethod

@@ -326,10 +326,7 @@ class TestRightSidebar:
 
     def test_ai_composer_caps_at_max_lines(self, qapp: QApplication, qtbot) -> None:
         """Composer stops growing at 15 lines and enables vertical scrolling."""
-        from ui.sidebar.ai.chat_panel import (
-            _COMPOSER_MAX_LINES,
-            AiChatPanel,
-        )
+        from ui.sidebar.ai.chat_panel import _COMPOSER_MAX_LINES, AiChatPanel
 
         panel = AiChatPanel()
         qtbot.addWidget(panel)
@@ -346,10 +343,7 @@ class TestRightSidebar:
 
     def test_ai_composer_shrinks_back(self, qapp: QApplication, qtbot) -> None:
         """Clearing text collapses the composer back to the minimum height."""
-        from ui.sidebar.ai.chat_panel import (
-            _COMPOSER_MIN_LINES,
-            AiChatPanel,
-        )
+        from ui.sidebar.ai.chat_panel import _COMPOSER_MIN_LINES, AiChatPanel
 
         panel = AiChatPanel()
         qtbot.addWidget(panel)
@@ -686,8 +680,8 @@ class TestRightSidebar:
             panel._remove_attachment("/tmp/a.txt", chip)
         assert panel.attachments() == []
 
-    def test_ai_ctrl_enter_submits(self, qapp: QApplication, qtbot) -> None:
-        """Ctrl+Enter on the composer emits message_submitted when Send is enabled."""
+    def test_ai_enter_submits(self, qapp: QApplication, qtbot) -> None:
+        """Enter on the composer emits message_submitted when Send is enabled."""
         from PySide6.QtCore import Qt
         from PySide6.QtGui import QKeyEvent
         from PySide6.QtWidgets import QApplication
@@ -708,10 +702,38 @@ class TestRightSidebar:
         panel.set_models([entry])  # type: ignore[list-item]
         panel._input.setPlainText("hi")
         event = QKeyEvent(
-            QKeyEvent.Type.KeyPress,
-            Qt.Key.Key_Return,
-            Qt.KeyboardModifier.ControlModifier,
+            QKeyEvent.Type.KeyPress, Qt.Key.Key_Return, Qt.KeyboardModifier.NoModifier
         )
         with qtbot.waitSignal(panel.message_submitted, timeout=1000):
             QApplication.sendEvent(panel._input, event)
         assert panel._input.toPlainText() == ""
+
+    def test_ai_shift_enter_inserts_newline(self, qapp: QApplication, qtbot) -> None:
+        """Shift+Enter inserts a newline instead of submitting."""
+        from PySide6.QtCore import Qt
+        from PySide6.QtGui import QKeyEvent
+        from PySide6.QtWidgets import QApplication
+
+        panel = AiChatPanel()
+        qtbot.addWidget(panel)
+        panel._input.setPlainText("line one")
+        cursor = panel._input.textCursor()
+        cursor.movePosition(cursor.MoveOperation.End)
+        panel._input.setTextCursor(cursor)
+        event = QKeyEvent(
+            QKeyEvent.Type.KeyPress,
+            Qt.Key.Key_Return,
+            Qt.KeyboardModifier.ShiftModifier,
+        )
+        QApplication.sendEvent(panel._input, event)
+        assert panel._input.toPlainText() == "line one\n"
+
+
+def test_ai_header_buttons_emit(qapp: QApplication, qtbot) -> None:
+    """AI flyout header buttons emit new-chat and session-history signals."""
+    sidebar = RightSidebar()
+    qtbot.addWidget(sidebar)
+    with qtbot.waitSignal(sidebar.ai_new_chat_requested, timeout=1000):
+        sidebar._flyout._ai_new_chat_btn.click()
+    with qtbot.waitSignal(sidebar.ai_session_history_requested, timeout=1000):
+        sidebar._flyout._ai_history_btn.click()

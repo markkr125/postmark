@@ -100,6 +100,23 @@ def test_reasoning_fields_round_trip_and_clamp() -> None:
     assert got2[0]["reasoning_effort"] == "high"
 
 
+def test_chat_model_id_round_trip() -> None:
+    """Chat composer model selection round-trips through QSettings."""
+    AiConfig.set_chat_model_id("ollama-1")
+    assert AiConfig.get_chat_model_id() == "ollama-1"
+    AiConfig.set_chat_model_id("")
+    assert AiConfig.get_chat_model_id() == ""
+
+
+def test_chat_session_id_round_trip() -> None:
+    """Active chat session id round-trips through QSettings."""
+    session_id = "49889e20-780e-441b-915d-845d0f72bfb9"
+    AiConfig.set_chat_session_id(session_id)
+    assert AiConfig.get_chat_session_id() == session_id
+    AiConfig.set_chat_session_id("")
+    assert AiConfig.get_chat_session_id() == ""
+
+
 def test_save_all_clears_legacy_default() -> None:
     """save_all persists models and clears any stored default model id."""
     AiConfig.set_default_model_id("id1")

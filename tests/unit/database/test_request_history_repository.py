@@ -235,10 +235,12 @@ def test_list_entries_for_sidebar_date_range(tmp_path, monkeypatch) -> None:
             today - timedelta(days=10),
             datetime.min.time(),
             tzinfo=local_tz,
-        )
+        ).astimezone(UTC)
         new_row = session.get(RequestHistoryEntryModel, int(new["id"]))
         assert new_row is not None
-        new_row.executed_at = datetime.now(tz=local_tz)
+        new_row.executed_at = datetime.combine(
+            today, datetime.min.time(), tzinfo=local_tz
+        ).astimezone(UTC) + timedelta(hours=12)
         session.commit()
 
     filtered = request_history_repository.list_entries_for_sidebar(

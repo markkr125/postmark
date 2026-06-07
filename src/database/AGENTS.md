@@ -222,6 +222,8 @@ Core ORM models, all inheriting from `Base`:
 | `SnippetModel` | `snippets` | `database/models/snippets/model/snippet_model.py` |
 | `RequestAssertionModel` | `request_assertions` | `database/models/request_assertions/model/request_assertion_model.py` |
 | `RequestHistoryEntryModel` | `request_history_entries` | `database/models/request_history/model/request_history_entry_model.py` — includes `was_persisted_request` (required on disk in some DBs) |
+| `AiChatSessionModel` | `ai_chat_sessions` | `database/models/ai_chat/model/ai_chat_session_model.py` — searchable session index (`agent_id` defaults to `postmark-assistant`) |
+| `AiChatMessageModel` | `ai_chat_messages` | `database/models/ai_chat/model/ai_chat_message_model.py` — transcript rows (`content` answer, `thinking` internal trace, `thinking_duration_seconds` for restored “Thought for Ns” header) for search/repaint |
 
 ### Path helpers (`data_paths.py`)
 
@@ -230,6 +232,16 @@ Core ORM models, all inheriting from `Base`:
 | `project_root()` | Repository root (parent of `src/`). Default SQLite: `project_root()/data/database/main.db` |
 | `postmark_user_data_dir()` | OS user-data folder only — **not** the project DB |
 | `user_history_root()` | `{postmark_user_data_dir}/history` — response bodies + request snapshots |
+| `user_ai_conversations_root()` | `{postmark_user_data_dir}/ai_conversations` — OpenHands SDK persistence base dir |
+| `session_disk_dir(session_id)` | `{user_ai_conversations_root}/{uuid.hex}/` — per-session SDK state (`base_state.json` + `events/`) |
+
+### AI chat — metadata vs SDK disk (hybrid)
+
+AI chat stores **searchable metadata** in the project SQLite (`ai_chat_sessions`,
+`ai_chat_messages`) and **canonical conversation state** on disk via the OpenHands SDK
+under `session_disk_dir(id)`. Repositories: `ai_chat_repository.py` (mutations,
+including explicit message-row delete + `shutil.rmtree` of the hex dir);
+`ai_chat_query_repository.py` (read-only `list_sessions`, `search_messages`).
 
 ### Request send history — metadata vs files
 

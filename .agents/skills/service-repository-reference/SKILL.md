@@ -267,9 +267,15 @@ All methods are `@staticmethod`.  No database layer.
 | `AiConfig.set_models(entries)` | Persist model list |
 | `AiConfig.get_default_model_id()` | Legacy default row id or `""` |
 | `AiConfig.set_default_model_id(model_id)` | Persist/clear legacy default id |
+| `AiConfig.get_chat_model_id()` / `set_chat_model_id(model_id)` | Last AI chat composer model (`ai/chat_model_id`) |
+| `AiConfig.get_chat_session_id()` / `set_chat_session_id(session_id)` | Last active AI chat session (`ai/chat_session_id`; cleared on **New chat**) |
 | `AiConfig.save_all(entries)` | Persist models; clears legacy default id |
 | `AiConfig.set_model_reasoning_effort(model_id, effort)` | Persist per-model reasoning effort (clamped to `reasoning_efforts`) |
-| `AiLlmService.build_llm(entry, …)` | Build `openhands.sdk.LLM` (resolves key via `secret_store`) |
+| `AiLlmService.build_llm(entry, *, stream=False, reasoning_effort=None, run_context_tokens=None, thinking_enabled=None, …)` | Build `openhands.sdk.LLM`; `postmark-chat-*` usage rewrites Ollama models to `ollama_chat/…` (`/api/chat`); passes `reasoning_effort=None` for Ollama chat (overrides OpenHands default `high`); Ollama chat sets `litellm_extra_body` via `ollama_chat_litellm_extra_body` (`num_ctx`, `think`) and `num_retries=0`; Ollama entries set `extra_headers={"Content-Type": "application/json"}` for strict reverse-proxies; resolves Ollama `base_url` |
+| `ollama_chat_litellm_extra_body(entry, *, run_context_tokens, thinking_enabled, reasoning_effort)` | Build LiteLLM `extra_body` for Ollama chat (`num_ctx`, boolean or Harmony `think`) |
+| `resolve_litellm_model(entry, *, usage_id)` | Return LiteLLM model id; `postmark-chat-*` + Ollama → `ollama_chat/{name}` instead of `ollama/{name}` |
+| `resolve_llm_base_url(entry)` | Provider default base URL when the model row's `base_url` is empty |
+| `chat_reasoning_effort_for_litellm(entry, effort, *, streaming=True)` | Map UI effort to LiteLLM; returns `None` for Ollama + streaming (avoids broken `think` param) |
 | `AiLlmService.test(entry)` | Ping completion; returns `(ok, detail)`; never raises |
 
 TypedDict: `AiModelEntry` (`id`, `provider`, `label`, optional
@@ -280,6 +286,29 @@ TypedDict: `AiModelEntry` (`id`, `provider`, `label`, optional
 `allocate_provider_display_name` when empty). Secrets: `auth_ref` → keychain
 `ai:<uuid>`. Settings tree pills: `suggest`, `tools`, `vision`. Ollama refresh
 reads `insert`/`tools`/`vision` from `/api/show`.
+
+### AiChatSessionService (`services/ai/chat/session_service.py`)
+
+Hybrid storage: SQLite index (`ai_chat_sessions`, `ai_chat_messages`) +
+OpenHands SDK disk state under `session_disk_dir(id)`. Worker thread builds
+`Conversation` via `build_conversation` (`delete_on_close=False`, `stream=True`).
+
+| Method | Purpose |
+|--------|---------|
+| `new_session(entry, mode, *, first_message=None)` | Create UUID session row (lazy SDK conversation) |
+| `list_sessions(search=None)` | List non-archived sessions by `updated_at` desc |
+| `resolve_restore_session_id()` | Startup restore: persisted id when valid, else most recent if stored id was deleted; `None` when unset (**New chat**) |
+| `get_messages(session_id)` | Transcript for repaint |
+| `record_user_message` / `record_assistant_message` | Append SQLite rows + touch preview |
+| `build_conversation(session_id, entry, agent_id, *, callbacks, token_callbacks, composer=None, stream=True)` | OpenHands `Conversation` (worker only); title worker passes `stream=False` |
+| `extract_final_parts(conversation)` / `extract_final_text(conversation)` | Current turn's agent message split into thinking + answer (text = answer only) |
+| `extract_latest_turn_parts(conversation)` / `extract_richest_parts(conversation)` | Richest thinking + answer from the **current turn** only (reverse-scan to last user ``MessageEvent``; fallback = last agent message) |
+| `resolve_assistant_parts(conversation, thinking_buffer, content_buffer)` | Merge current-turn event extraction with per-run stream buffers |
+| `message_display_parts(message)` / `chunk_parts_from_stream(chunk)` | Split SDK message or stream chunk into thinking + answer |
+| `record_assistant_message(session_id, content, *, thinking="", thinking_duration_seconds=None)` | Persist answer + optional thinking and frozen duration (`ai_chat_messages.thinking`, `thinking_duration_seconds`) |
+
+TypedDicts: `AiChatSessionDict`, `AiChatMessageDict`. Agent/tool registries:
+`PostmarkAgentDef`, `DEFAULT_AGENT_ID` (`postmark-assistant`, no tools in v1).
 
 ### LocalScriptService (`services/local_script_service.py`)
 

@@ -8,11 +8,13 @@ from pathlib import Path
 from typing import cast
 
 from sqlalchemy import Table, create_engine, inspect, text
-from sqlalchemy.schema import CreateTable
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.schema import CreateTable
 
 # Import all models so Base.metadata.create_all() discovers every table.
+from .models import AiChatMessageModel as AiChatMessageModel
+from .models import AiChatSessionModel as AiChatSessionModel
 from .models import CollectionModel as CollectionModel
 from .models import EnvironmentModel as EnvironmentModel
 from .models import LocalScriptFolderModel as LocalScriptFolderModel
@@ -24,10 +26,10 @@ from .models import RunResultModel as RunResultModel
 from .models import SavedResponseModel as SavedResponseModel
 from .models import ScriptVersionModel as ScriptVersionModel
 from .models import SnippetModel as SnippetModel
+from .models.base import Base
 from .models.request_history.model.request_history_entry_model import (
     RequestHistoryEntryModel as RequestHistoryEntryModel,
 )
-from .models.base import Base
 
 logger = logging.getLogger(__name__)
 

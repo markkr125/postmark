@@ -280,12 +280,21 @@ standard object names:
 | `leftSidebarRailButton` | `QToolButton` | Rail icon (``_LeftRailButton``): width ``round(LEFT_RAIL_WIDTH_EM * em)``, icon ``round(LEFT_RAIL_ICON_EM * em)``, height ``icon_size + LEFT_RAIL_BUTTON_EXTRA_HEIGHT_PX``; checked left accent **painted** full height (``LEFT_RAIL_ACCENT_STRIPE_WIDTH_PX``); QSS margin/padding ``0`` |
 | `sidebarPanelArea` | `QWidget` | Right sidebar collapsible flyout panel (separate splitter child); ``border-right`` vs icon rail only — left edge is ``mainWindowHorizontalSplitter`` handle (no ``border-left``) |
 | `aiChatPanel` | `QWidget` | Right-sidebar AI assistant chat (transcript + composer) |
-| `aiChatScroll` | `QScrollArea` | AI chat message transcript scroll area |
-| `aiChatMessageUser` | `QFrame` | User message bubble in AI chat |
-| `aiChatMessageAssistant` | `QFrame` | Assistant message bubble in AI chat |
-| `aiChatMessageText` | `QLabel` | Word-wrapped text inside a chat bubble |
+| `aiChatScroll` | `QScrollArea` | Transcript scroll; `_scroll_lock_enabled` defaults **False**; streaming lock: upward user movement detaches (even 1px), range-shrink clamp ignored, real bottom re-arms; turn-boundary `_request_turn_bottom_scroll` anchors to last user bubble; `rangeChanged`, chunk flush, and post-flush `layout_height_changed` call `_queue_stream_follow_passes` (one coalesced 0ms frame pass; 16ms retry only when still off-target or range grew after frame; in-flush layout hook suppressed; chunk flush batches deferred markdown/bubble height); follow target `_stream_follow_target()` |
+| `aiChatStreamingViewportSpacer` | `QWidget` | Dynamic-height transparent spacer below the streaming assistant row (`max(0, viewport_h - turn_extent)`; recomputed on flush, resize, and turn scroll) |
+| `aiChatScrollDown` | `QPushButton` | Floating scroll-to-bottom affordance on transcript viewport when user scrolls away |
+| `aiChatMessageUser` | `QFrame` | Full-width user message bubble (child of `ChatMessageBubble`) |
+| `aiChatUserMessageText` | `QLabel` | Word-wrapped user prompt inside the user bubble |
+| `aiChatAssistantRow` | `QWidget` | Assistant transcript row (no bubble; plain wrapped text) |
+| `aiChatAssistantText` | `QTextBrowser` | Assistant answer: incremental `StreamingMarkdownCache` while streaming (reuse stable segments; provisional open fences); full `render_chat_markdown_html` on finalize; re-renders on `ThemeManager.theme_changed` |
+| `aiChatThoughtBlock` | `QFrame` | Collapsible thinking section above assistant answer (collapsed by default after answer) |
+| `aiChatThoughtToggle` | `QPushButton` | Thought header (`Thought for Ns`; click to expand/collapse) |
+| `aiChatThoughtText` | `QLabel` | Muted thinking trace inside the thought block |
+| `aiChatActivityRow` | `QWidget` | Spinner + status caption while waiting for the first stream token |
+| `aiChatActivitySpinner` | `QLabel` | Braille spinner in the activity row (reuses `busyChipSpinner` QSS) |
+| `aiChatActivityLabel` | `QLabel` | Muted activity caption (`Thinking…`, SDK status, long-wait escalation) |
 | `aiChatComposer` | `QWidget` | AI chat bottom composer (attachments + input + controls) |
-| `aiChatInput` | `QPlainTextEdit` | AI chat prompt (`_ComposerInput`); auto-grows 3..15 lines then scrolls; Ctrl+Enter send |
+| `aiChatInput` | `QPlainTextEdit` | AI chat prompt (`_ComposerInput`); auto-grows 3..15 lines then scrolls; Enter send, Shift+Enter newline |
 | `aiChatModeButton` | `QFrame` | Agent / Ask / Plan pill; `WA_StyledBackground` + `composer_pill_dark_bg`; opens `aiAgentModePopup` |
 | `aiChatModeButtonLabel` | `QLabel` | Mode label inside the mode pill |
 | `aiAgentModePopup` | `QFrame` | Agent mode flyout (above mode pill; click-away + Escape) |
@@ -310,6 +319,11 @@ standard object names:
 | `aiModelPickerProvider` | `QLabel` | *(unused)* — provider shown as bold ``QListWidget`` group headers instead |
 | `aiChatAttachments` | `QWidget` | Attachment chips row (hidden when empty) |
 | `aiChatAttachmentChip` | `QPushButton` | Removable file attachment chip |
+| `aiSessionHistoryPopup` | `QFrame` | Session history popover (flyout header clock button) |
+| `aiSessionSearch` | `QLineEdit` | Session history search field |
+| `aiSessionHistoryList` | `QListWidget` | Scrollable session list |
+| `aiSessionHistoryRow` | `QWidget` | One session row (title + relative time) |
+| `aiSessionHistoryTime` | `QLabel` | Muted relative-time label on session rows |
 | `requestHistoryPanel` | `HistoryPanel` | Per-request History flyout (right rail) |
 | `globalHistoryPanel` | `HistoryPanel` | Workspace History flyout (left rail, 3rd button; `set_global_mode`) |
 | `globalHistoryHeader` | `QWidget` | Left global History title row (History label + refresh) |

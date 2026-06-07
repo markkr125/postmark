@@ -32,6 +32,7 @@ from services.collection_service import CollectionService
 from ui.collections.collection_widget import CollectionWidget
 from ui.environments.environment_sidebar_panel import EnvironmentSidebarPanel
 from ui.loading_screen import LoadingScreen
+from ui.main_window.ai_chat_controller import _AiChatControllerMixin
 from ui.main_window.draft_controller import _DraftControllerMixin
 from ui.main_window.history_navigation import _HistoryNavigationMixin
 from ui.main_window.send_pipeline import _SendPipelineMixin
@@ -57,6 +58,7 @@ logger = logging.getLogger(__name__)
 
 class MainWindow(
     _SendPipelineMixin,
+    _AiChatControllerMixin,
     _HistoryNavigationMixin,
     _VariableControllerMixin,
     _DraftControllerMixin,
@@ -75,6 +77,9 @@ class MainWindow(
     """
 
     session_restore_finished = Signal()
+    _ai_assistant_finish_requested = Signal(str, str)
+    _ai_chat_fail_requested = Signal(str, str, str)
+    _ai_title_ready_requested = Signal(str)
 
     def __init__(
         self,
@@ -152,7 +157,7 @@ class MainWindow(
             self._theme_manager.theme_changed.connect(self._left_sidebar.refresh_theme)
             self._theme_manager.theme_changed.connect(self._right_sidebar.refresh_theme)
         self._right_sidebar.ai_chat_panel.set_models(AiConfig.get_models())
-        self._right_sidebar.ai_chat_panel.message_submitted.connect(self._on_ai_message_submitted)
+        self._init_ai_chat_controller()
         self._right_sidebar.ai_chat_panel.manage_models_requested.connect(
             self._on_open_ai_models_settings
         )
@@ -355,6 +360,7 @@ class MainWindow(
             setattr(self, attr, None)
         self._local_project_worker = None
         self._ai_backfill_worker = None
+        self._cleanup_ai_chat_threads()
 
     def _move_to_mouse_screen(self) -> None:
         """Center the window on the monitor that the cursor is on."""
@@ -833,10 +839,6 @@ class MainWindow(
     # ------------------------------------------------------------------
     # Dialogs
     # ------------------------------------------------------------------
-    def _on_ai_message_submitted(self, text: str) -> None:
-        """Placeholder for the AI assistant send action (LLM wiring TODO)."""
-        logger.debug("AI chat message submitted: %s", text)
-
     def _on_settings(self) -> None:
         """Open the settings dialog (Appearance first)."""
         self._open_settings_dialog(initial_category="Appearance")
