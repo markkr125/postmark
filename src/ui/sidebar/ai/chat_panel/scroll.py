@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import Any
 
 from PySide6.QtCore import QEventLoop, QPoint, QSignalBlocker, QTimer
@@ -15,13 +16,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ui.sidebar.ai.chat_panel.sticky_prompt import _ChatPanelStickyPromptMixin
 from ui.sidebar.ai.message_bubble import ChatMessageBubble
 
 _FOLLOW_THRESHOLD_PX = 2
 _TURN_SCROLL_MARGIN_PX = 8
 
 
-class _ChatPanelScrollMixin:  # type: ignore[misc]
+class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
     """Scroll-lock follow during assistant streaming and turn-boundary scroll."""
 
     _scroll: QScrollArea
@@ -117,6 +119,49 @@ class _ChatPanelScrollMixin:  # type: ignore[misc]
             target = self._scroll_value_for_turn_start()
             self._set_bar_value(bar, target)
         self._turn_scroll_pending = False
+        self._invalidate_sticky_extents()
+        self._sync_sticky_turn_prompt()
+
+    def _widget_top_in_viewport(self, widget: QWidget) -> int:
+        """Return *widget* top edge Y in viewport coordinates (scroll-offset aware)."""
+        y_messages = widget.mapTo(self._messages, QPoint(0, 0)).y()
+        return y_messages - self._scroll.verticalScrollBar().value()
+
+    def _widget_bottom_in_viewport(self, widget: QWidget) -> int:
+        """Return *widget* bottom edge Y in viewport coordinates."""
+        top = self._widget_top_in_viewport(widget)
+        return top + widget.height()
+
+    def _assistant_bubble_for_turn(self, anchor: ChatMessageBubble) -> ChatMessageBubble | None:
+        """Return the assistant row for the turn anchored by *anchor*."""
+        found_anchor = False
+        for index in range(self._messages_layout.count()):
+            item = self._messages_layout.itemAt(index)
+            widget = item.widget() if item is not None else None
+            if widget is anchor:
+                found_anchor = True
+                continue
+            if (
+                found_anchor
+                and isinstance(widget, ChatMessageBubble)
+                and widget.role == "assistant"
+            ):
+                return widget
+        return None
+
+    def _iter_chat_turns(self) -> Iterator[tuple[ChatMessageBubble, ChatMessageBubble]]:
+        """Yield ``(user, assistant)`` pairs in transcript layout order."""
+        pending_user: ChatMessageBubble | None = None
+        for index in range(self._messages_layout.count()):
+            item = self._messages_layout.itemAt(index)
+            widget = item.widget() if item is not None else None
+            if not isinstance(widget, ChatMessageBubble):
+                continue
+            if widget.role == "user":
+                pending_user = widget
+            elif widget.role == "assistant" and pending_user is not None:
+                yield pending_user, widget
+                pending_user = None
 
     def _on_scrollbar_value_changed(self, value: int) -> None:
         """Update scroll-lock from user-driven scrollbar movement."""
@@ -138,6 +183,7 @@ class _ChatPanelScrollMixin:  # type: ignore[misc]
         else:
             self._scroll_lock_enabled = at_bottom
         self._update_scroll_down_button_visibility()
+        self._schedule_sticky_sync()
 
     def _stream_follow_target(self) -> int:
         """Return the scroll offset to follow while streaming with lock on."""
@@ -156,9 +202,9 @@ class _ChatPanelScrollMixin:  # type: ignore[misc]
         self._last_scroll_maximum = _max_val
         if self._turn_scroll_pending:
             return
-        if self._open_stream_generation == 0 or not self._scroll_lock_enabled:
-            return
-        self._queue_stream_follow_passes()
+        if self._open_stream_generation > 0 and self._scroll_lock_enabled:
+            self._queue_stream_follow_passes()
+        self._schedule_sticky_sync()
 
     def _queue_stream_follow_passes(self) -> None:
         """Schedule one coalesced frame follow pass (no synchronous scroll)."""
@@ -172,6 +218,9 @@ class _ChatPanelScrollMixin:  # type: ignore[misc]
     def _flush_stream_follow_frame(self) -> None:
         """Apply one frame-deferred follow pass after layout settles."""
         self._stream_follow_frame_pending = False
+        if not isValid(self._scroll):
+            self._stream_follow_dirty = False
+            return
         if self._open_stream_generation == 0 or not self._scroll_lock_enabled:
             self._stream_follow_dirty = False
             return
@@ -191,6 +240,8 @@ class _ChatPanelScrollMixin:  # type: ignore[misc]
     def _flush_stream_follow_retry(self) -> None:
         """Apply one late follow pass when range or height grew after the frame pass."""
         self._stream_follow_retry_pending = False
+        if not isValid(self._scroll):
+            return
         if self._open_stream_generation == 0 or not self._scroll_lock_enabled:
             return
         self._apply_stream_follow()
@@ -206,6 +257,7 @@ class _ChatPanelScrollMixin:  # type: ignore[misc]
         if abs(bar.value() - target) <= _FOLLOW_THRESHOLD_PX:
             return
         self._set_bar_value(bar, target)
+        self._sync_sticky_turn_prompt()
 
     def _scroll_to_bottom(self, *, force: bool = False) -> None:
         """Scroll the transcript to the bottom (forced paths only)."""
@@ -214,6 +266,7 @@ class _ChatPanelScrollMixin:  # type: ignore[misc]
         bar = self._scroll.verticalScrollBar()
         self._set_bar_value(bar, bar.maximum())
         self._arm_scroll_lock()
+        self._sync_sticky_turn_prompt()
 
     def _scroll_to_turn_start(self, *, force: bool = False) -> None:
         """Scroll the transcript to the active turn anchor (forced paths only)."""
@@ -222,6 +275,7 @@ class _ChatPanelScrollMixin:  # type: ignore[misc]
         bar = self._scroll.verticalScrollBar()
         self._set_bar_value(bar, self._scroll_value_for_turn_start())
         self._arm_scroll_lock()
+        self._sync_sticky_turn_prompt()
 
     def _apply_streaming_viewport_spacer(self) -> None:
         """Reserve space so the turn anchor can sit at the viewport top while streaming."""
@@ -265,4 +319,5 @@ class _ChatPanelScrollMixin:  # type: ignore[misc]
         x = max(margin, viewport.width() - btn.width() - margin)
         y = max(margin, viewport.height() - btn.height() - margin)
         btn.move(x, y)
-        btn.raise_()
+        if btn.isVisible():
+            btn.raise_()

@@ -1485,10 +1485,6 @@ def build_global_qss(p: ThemePalette) -> str:
         border: none;
         border-right: 1px solid {p["border"]};
     }}
-    /* AI chat scroll fills the flyout; outer sidebarPanelArea owns the seam. */
-    QWidget[objectName="sidebarPanelArea"] QScrollArea[objectName="aiChatScroll"] {{
-        border-right: none;
-    }}
     QWidget[objectName="leftSidebarFlyout"] {{
         background: {p["bg"]};
         border-left: 1px solid {p["border"]};
@@ -1534,7 +1530,10 @@ def build_global_qss(p: ThemePalette) -> str:
         background: {p["bg"]};
     }}
     QScrollArea[objectName="aiChatScroll"] {{
-        border: none;
+        border-top: none;
+        border-left: none;
+        border-bottom: none;
+        border-right: 1px solid {p["border"]};
         background: transparent;
     }}
     QPushButton[objectName="aiChatScrollDown"] {{
@@ -1557,10 +1556,21 @@ def build_global_qss(p: ThemePalette) -> str:
         border: 1px solid {p["border"]};
         border-radius: 8px;
     }}
+    QWidget[objectName="aiChatStickyTurnPrompt"] {{
+        background: transparent;
+        border: none;
+    }}
     QLabel[objectName="aiChatUserMessageText"] {{
         background: transparent;
         border: none;
         color: {p["text"]};
+    }}
+    QLabel[objectName="aiChatUserMessageTime"] {{
+        background: transparent;
+        border: none;
+        color: {p["text_muted"]};
+        font-size: 11px;
+        padding-top: 4px;
     }}
     QWidget[objectName="aiChatAssistantRow"] {{
         background: transparent;
@@ -1579,7 +1589,7 @@ def build_global_qss(p: ThemePalette) -> str:
         border: none;
         color: {p["text_muted"]};
     }}
-    QTextBrowser[objectName="aiChatAssistantText"] {{
+    QWidget[objectName="aiChatAssistantText"] {{
         background: transparent;
         border: none;
         color: {p["text"]};
@@ -1606,6 +1616,7 @@ def build_global_qss(p: ThemePalette) -> str:
     QWidget[objectName="aiChatComposer"] {{
         background: {p["bg"]};
         border-top: 1px solid {p["border"]};
+        border-right: 1px solid {p["border"]};
     }}
     QPlainTextEdit[objectName="aiChatInput"] {{
         background: {p["input_bg"]};

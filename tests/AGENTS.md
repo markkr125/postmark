@@ -168,6 +168,9 @@ tests/
 │   │   │   ├── test_chat_markdown_streaming.py
 │   │   │   ├── test_chat_markdown_streaming_render.py
 │   │   │   ├── test_markdown_content_height.py
+│   │   │   ├── test_markdown_content_static.py
+│   │   │   ├── test_chat_time_format.py
+│   │   │   ├── test_thought_collapse_height.py
 │   │   │   └── test_bubble_stream_row_height.py
 │   │   └── widgets/
 │   │       ├── test_text_format_helpers.py

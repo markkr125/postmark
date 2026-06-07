@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QApplication
+from datetime import UTC, datetime
+
+from PySide6.QtWidgets import QApplication, QFrame, QLabel
 
 from services.ai.ai_config import AiConfig, AiModelEntry
 from services.ai.chat.session_service import AiChatMessageDict
@@ -13,6 +15,45 @@ from ui.sidebar.ai.message_bubble import ChatMessageBubble
 def _flush_stream_chunks(qtbot) -> None:
     """Wait for the coalesced chunk delivery timer (~50ms)."""
     qtbot.wait(60)
+
+
+def test_user_message_shows_sent_timestamp(qapp: QApplication, qtbot) -> None:
+    """User rows show a muted send-time label inside the bubble."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.add_message("user", "hello", sent_at=datetime(2026, 1, 15, 9, 30, tzinfo=UTC))
+    bubble = panel.findChildren(ChatMessageBubble)[0]
+    frame = bubble.findChild(QFrame, "aiChatMessageUser")
+    assert frame is not None
+    label = frame.findChild(QLabel, "aiChatUserMessageTime")
+    assert label is not None
+    assert not label.isHidden()
+    assert "Jan" in label.text()
+    assert "30" in label.text()
+
+
+def test_load_transcript_restores_user_timestamp(qapp: QApplication, qtbot) -> None:
+    """``load_transcript`` shows persisted user ``created_at`` inside the bubble."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    messages: list[AiChatMessageDict] = [
+        {
+            "id": 1,
+            "session_id": "s1",
+            "role": "user",
+            "content": "Hi",
+            "created_at": "2026-01-15T09:30:00+00:00",
+        },
+    ]
+    panel.load_transcript(messages)
+    bubble = panel.findChildren(ChatMessageBubble)[0]
+    frame = bubble.findChild(QFrame, "aiChatMessageUser")
+    assert frame is not None
+    label = frame.findChild(QLabel, "aiChatUserMessageTime")
+    assert label is not None
+    assert not label.isHidden()
+    assert "Jan" in label.text()
+    assert "30" in label.text()
 
 
 def test_load_transcript_repaints(qapp: QApplication, qtbot) -> None:
@@ -284,14 +325,14 @@ def test_assistant_message_has_no_bubble_frame(qapp: QApplication, qtbot) -> Non
 
 def test_assistant_message_renders_markdown(qapp: QApplication, qtbot) -> None:
     """Assistant answers render markdown instead of showing raw syntax."""
-    from PySide6.QtWidgets import QTextBrowser
+    from ui.sidebar.ai.message_bubble.markdown_content import MarkdownContent
 
     panel = AiChatPanel()
     qtbot.addWidget(panel)
     panel.resize(360, 480)
     panel.add_message("assistant", "**UDP vs TCP**\n\n- stateful\n- reliable")
     bubble = panel.findChildren(ChatMessageBubble)[0]
-    browser = bubble.findChild(QTextBrowser, "aiChatAssistantText")
+    browser = bubble.findChild(MarkdownContent, "aiChatAssistantText")
     assert browser is not None
     assert bubble.text() == "**UDP vs TCP**\n\n- stateful\n- reliable"
     html = browser.toHtml().lower()
@@ -302,7 +343,7 @@ def test_assistant_message_renders_markdown(qapp: QApplication, qtbot) -> None:
 
 def test_assistant_message_renders_fenced_python(qapp: QApplication, qtbot) -> None:
     """Fenced Python blocks use syntax highlighting and line numbers."""
-    from PySide6.QtWidgets import QTextBrowser
+    from ui.sidebar.ai.message_bubble.markdown_content import MarkdownContent
 
     panel = AiChatPanel()
     qtbot.addWidget(panel)
@@ -310,7 +351,7 @@ def test_assistant_message_renders_fenced_python(qapp: QApplication, qtbot) -> N
     sample = '```python\nimport os\nprint("hi")\n```'
     panel.add_message("assistant", sample)
     bubble = panel.findChildren(ChatMessageBubble)[0]
-    browser = bubble.findChild(QTextBrowser, "aiChatAssistantText")
+    browser = bubble.findChild(MarkdownContent, "aiChatAssistantText")
     assert browser is not None
     assert bubble.text() == sample
     html = browser.toHtml().lower()
@@ -322,7 +363,7 @@ def test_assistant_message_renders_fenced_python(qapp: QApplication, qtbot) -> N
 
 def test_assistant_streaming_renders_markdown(qapp: QApplication, qtbot) -> None:
     """Coalesced stream updates render rich markdown while the reply is in flight."""
-    from PySide6.QtWidgets import QTextBrowser
+    from ui.sidebar.ai.message_bubble.markdown_content import MarkdownContent
 
     panel = AiChatPanel()
     qtbot.addWidget(panel)
@@ -332,7 +373,7 @@ def test_assistant_streaming_renders_markdown(qapp: QApplication, qtbot) -> None
     panel.append_assistant_chunk("", "** world")
     qtbot.wait(60)
     bubble = panel.findChildren(ChatMessageBubble)[0]
-    browser = bubble.findChild(QTextBrowser, "aiChatAssistantText")
+    browser = bubble.findChild(MarkdownContent, "aiChatAssistantText")
     assert browser is not None
     assert bubble.text() == "**Hello** world"
     assert bubble.is_content_streaming()

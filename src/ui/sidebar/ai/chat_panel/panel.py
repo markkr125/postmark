@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 from PySide6.QtCore import QThread, Qt, Signal, Slot
@@ -30,6 +31,9 @@ from ui.styling.icons import phi
 
 _EMPTY_STATE_TEXT = "Ask anything about your API requests."
 _NO_MODELS_TEXT = "No models configured"
+_CHAT_SCROLL_PADDING_LEFT = 8
+_CHAT_SCROLL_PADDING_RIGHT = 8
+_CHAT_COMPOSER_MARGIN_H = 8
 
 
 class AiChatPanel(_ChatPanelStreamingMixin, QWidget):  # type: ignore[misc]
@@ -62,7 +66,7 @@ class AiChatPanel(_ChatPanelStreamingMixin, QWidget):  # type: ignore[misc]
         self._mode_popup = AiAgentModePopup.instance()
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(8, 4, 8, 8)
+        root.setContentsMargins(0, 4, 0, 8)
         root.setSpacing(8)
 
         # --- Transcript ------------------------------------------------
@@ -73,7 +77,12 @@ class AiChatPanel(_ChatPanelStreamingMixin, QWidget):  # type: ignore[misc]
 
         self._messages = QWidget()
         self._messages_layout = QVBoxLayout(self._messages)
-        self._messages_layout.setContentsMargins(0, 0, 0, 0)
+        self._messages_layout.setContentsMargins(
+            _CHAT_SCROLL_PADDING_LEFT,
+            0,
+            _CHAT_SCROLL_PADDING_RIGHT,
+            0,
+        )
         self._messages_layout.setSpacing(8)
         self._messages_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinAndMaxSize)
         self._messages_layout.addStretch(1)  # pushes bubbles to the bottom
@@ -90,7 +99,21 @@ class AiChatPanel(_ChatPanelStreamingMixin, QWidget):  # type: ignore[misc]
         self._turn_scroll_pending = False
         self._streaming_viewport_spacer = None
         self._turn_scroll_anchor = None
+        self._sticky_turn_anchor = None
         self._stream_content_started = False
+        self._sticky_turn_prompt = None
+        self._sticky_turn_pairs = []
+        self._sticky_turn_pairs_dirty = True
+        self._sticky_turn_extents = []
+        self._sticky_extent_by_pair = {}
+        self._sticky_extents_dirty = True
+        self._sticky_applied_anchor = None
+        self._sticky_applied_visible = False
+        self._sticky_applied_geom = (0, 0, 0, 0)
+        self._sticky_applied_height_cap = 0
+        self._sticky_sync_pending = False
+        self._sticky_sync_frame_pending = False
+        self._transcript_layout_hooks = []
         self._init_scroll_controller()
 
         self._scroll_down_btn = QPushButton(self._scroll.viewport())
@@ -107,7 +130,7 @@ class AiChatPanel(_ChatPanelStreamingMixin, QWidget):  # type: ignore[misc]
         composer = QWidget()
         composer.setObjectName("aiChatComposer")
         composer_layout = QVBoxLayout(composer)
-        composer_layout.setContentsMargins(0, 8, 0, 0)
+        composer_layout.setContentsMargins(_CHAT_COMPOSER_MARGIN_H, 8, _CHAT_COMPOSER_MARGIN_H, 0)
         composer_layout.setSpacing(6)
 
         # Attachment chips (row hidden until a file is added)
@@ -473,6 +496,8 @@ class AiChatPanel(_ChatPanelStreamingMixin, QWidget):  # type: ignore[misc]
         super().resizeEvent(event)
         if self._open_stream_generation > 0 and self._streaming_bubble is not None:
             self._apply_streaming_viewport_spacer()
+        self._invalidate_sticky_extents()
+        self._schedule_sticky_sync()
         self._reposition_scroll_down_button()
 
     def _on_send(self) -> None:
@@ -485,7 +510,7 @@ class AiChatPanel(_ChatPanelStreamingMixin, QWidget):  # type: ignore[misc]
         text = self._input.toPlainText().strip()
         if not text:
             return
-        self.add_message("user", text)
+        self.add_message("user", text, sent_at=datetime.now(tz=UTC))
         self._input.clear()
         # TODO: build LLM via AiLlmService.build_llm(entry) using current_model_id(),
         # current_mode(), current_run_context_tokens(), current_thinking_enabled(),

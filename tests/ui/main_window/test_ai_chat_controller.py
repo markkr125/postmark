@@ -5,12 +5,13 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import cast
 
-from PySide6.QtWidgets import QApplication, QTextBrowser
+from PySide6.QtWidgets import QApplication
 
 from ui.main_window.ai_chat_controller import _AiChatControllerMixin
 from ui.sidebar import RightSidebar
 from ui.sidebar.ai import AiChatPanel
 from ui.sidebar.ai.message_bubble import ChatMessageBubble
+from ui.sidebar.ai.message_bubble.markdown_content import MarkdownContent
 
 
 def _flush_stream_chunks(qtbot) -> None:
@@ -42,9 +43,9 @@ def test_controller_stop_finalizes_streaming_rich_html(qapp: QApplication, qtbot
     assert bubble.is_content_streaming()
     host._on_ai_chat_failed("sess-1", "stopped", "", "")
     assert not bubble.is_content_streaming()
-    browser = bubble.findChild(QTextBrowser, "aiChatAssistantText")
-    assert browser is not None
-    html = browser.toHtml().lower()
+    body = bubble.findChild(MarkdownContent, "aiChatAssistantText")
+    assert body is not None
+    html = body.toHtml().lower()
     assert "font-weight:600" in html or "font-weight:700" in html
     assert "stopped" in bubble.text().lower()
 
@@ -63,8 +64,8 @@ def test_controller_failure_finalizes_streaming_rich_html(qapp: QApplication, qt
     host._on_ai_chat_failed("sess-1", "boom", "", "")
     assert not bubble.is_content_streaming()
     assert bubble.thinking_text() == "trace"
-    browser = bubble.findChild(QTextBrowser, "aiChatAssistantText")
-    assert browser is not None
-    html = browser.toHtml().lower()
+    body = bubble.findChild(MarkdownContent, "aiChatAssistantText")
+    assert body is not None
+    html = body.toHtml().lower()
     assert "font-weight:600" in html or "font-weight:700" in html
     assert "boom" in bubble.text().lower()

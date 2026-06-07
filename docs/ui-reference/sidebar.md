@@ -150,10 +150,23 @@ recomputed from content instead.
 | Delete text / send | Shrinks back down (``clear()`` after send triggers the same resize path). |
 | Submit | **Enter** emits ``submit_requested`` → ``AiChatPanel._on_send`` (Shift+Enter inserts a newline). |
 
+#### User messages
+
+User prompts render in ``aiChatMessageUser`` (``ChatMessageBubble`` user row) with
+wrapped text in ``aiChatUserMessageText``. A muted ``aiChatUserMessageTime`` label
+inside the bubble below the prompt shows when the message was sent (local date and
+clock, e.g. ``Jun 7, 2:39 PM``). New sends pass ``sent_at=datetime.now(UTC)``;
+``load_transcript`` restores user rows from persisted ``created_at``.
+
 #### Assistant answer markdown
 
 Source: ``ui/sidebar/ai/message_bubble/markdown_content.py`` (``MarkdownContent``,
 ``objectName="aiChatAssistantText"``) and ``ui/sidebar/ai/markdown/``.
+
+Finalized assistant rows are lightweight ``QWidget`` instances that paint an owned
+``QTextDocument`` (not per-row ``QTextBrowser`` widgets), so long transcripts scroll
+without repainting heavyweight browser chrome on every tick. The active streaming
+bubble uses the same widget and document with the incremental cache below.
 
 Prose (bold, lists, links) is converted with Qt ``QTextDocument.setMarkdown``.
 Fenced code blocks are split out and rendered as themed HTML: Pygments syntax
@@ -206,6 +219,43 @@ as ``max(0, viewport_h - turn_extent)`` via ``_apply_streaming_viewport_spacer``
 so ``turn_extent + spacer == viewport_h`` while the turn is shorter than one
 viewport; panel ``resizeEvent`` and chunk flush refresh spacer height when the
 flyout is resized or content grows.
+
+**Sticky turn prompt.** While scrolling through any turn in the transcript,
+``_sync_sticky_turn_prompt()`` picks the closest eligible user/assistant pair for
+the current viewport (not just the latest turn) and shows a read-only clone
+(``aiChatStickyTurnPrompt``) pinned to the top of ``aiChatScroll``'s viewport.
+The clone copies the anchor user prompt, ``sent_at`` timestamp, and matches the
+anchor bubble width/height (same ``aiChatMessageUser`` frame styling).
+Sticky overlay logic lives in ``chat_panel/sticky_prompt.py``
+(``_ChatPanelStickyPromptMixin``). Turn pairs are cached in ``_sticky_turn_pairs`` with
+a dirty flag; scroll-independent Y extents per pair live in ``_sticky_turn_extents``
+(indexed by turn identity) and are rebuilt lazily when layout, resize, or transcript
+mutations mark them dirty. Viewport selection uses arithmetic
+(``messages_y - scroll_value``) instead of per-tick ``mapTo``. Event-driven updates
+call ``_schedule_sticky_sync()`` (one coalesced ``singleShot(0)`` pass per frame);
+explicit paths (turn scroll, load finalize, stream end) call
+``_sync_sticky_turn_prompt()`` synchronously. When anchor, geometry, and height cap are
+unchanged, sticky sync skips all overlay widget mutation. The overlay uses
+``WA_TransparentForMouseEvents``, does not change scroll range,
+and is clamped to 35% of viewport height for tall prompts (``aiChatUserMessageFade``
+gradient at the clipped bottom). It hides when the real user bubble is visible near
+the top, when the turn answer has scrolled fully above the viewport, or when the
+assistant bottom no longer extends below the sticky overlay height. ``_turn_scroll_anchor``
+remains the streaming turn-start anchor; ``_sticky_turn_anchor`` is the visual
+overlay source selected from viewport position. ``load_transcript`` +
+``_finish_load_transcript_layout`` re-lays out markdown at the real viewport width
+and hooks all assistant rows for sticky resync. ``aiChatScrollDown`` stays above
+the sticky overlay.
+
+**Interaction.** External links open via document ``anchorAt`` hit-testing on mouse
+release. Right-click **Copy message** copies the markdown source (not rendered plain
+text). Finalized assistant rows do not support in-row drag-select; use the context
+menu for copy.
+
+**Wheel routing.** ``MarkdownContent`` (``aiChatAssistantText``) and
+``_WrappingLabel`` (``aiChatUserMessageText``, ``aiChatThoughtText``) forward
+wheel events to the ancestor transcript ``QScrollArea`` viewport so scrolling over
+assistant/thinking/user text does not trap input in inner widgets.
 
 #### Streaming activity indicator
 
@@ -318,7 +368,8 @@ the editor is the ``mainWindowHorizontalSplitter`` handle only (no flyout
 ``border-left`` — a full-height left border was hidden under ``QScrollArea``
 children and looked like a stray line beside the title row).  The **right**
 edge uses a flyout ``border-right`` (and the same on inner ``QScrollArea``
-widgets so the viewport does not paint over it, except ``aiChatScroll``) before
+widgets, including ``aiChatScroll``, plus ``aiChatComposer`` below the transcript,
+so opaque children do not paint over the seam) before
 the icon rail. The rail has no ``border-left`` so the seam is a single line.
 
 ## VariablesPanel

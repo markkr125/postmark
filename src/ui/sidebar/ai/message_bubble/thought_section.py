@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QElapsedTimer, Qt
+from PySide6.QtCore import QElapsedTimer, Qt, Signal
 from PySide6.QtWidgets import QFrame, QPushButton, QSizePolicy, QVBoxLayout, QWidget
 
 from ui.sidebar.ai.message_bubble.wrapping_label import _WrappingLabel
@@ -11,6 +11,8 @@ from ui.styling.icons import phi
 
 class ThoughtSection(QFrame):
     """Collapsible internal-reasoning block above the assistant answer."""
+
+    layout_height_changed = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Build a toggle header and wrapped thinking body."""
@@ -103,6 +105,7 @@ class ThoughtSection(QFrame):
         self._label.setVisible(has_text and self._expanded)
         self._refresh_header()
         self.updateGeometry()
+        self._emit_layout_height_changed()
 
     def is_expanded(self) -> bool:
         """Return whether the thinking body is expanded."""
@@ -117,6 +120,11 @@ class ThoughtSection(QFrame):
         self._label.setVisible(self._expanded and self.has_text())
         self._refresh_header()
         self.updateGeometry()
+        self._emit_layout_height_changed()
+
+    def _emit_layout_height_changed(self) -> None:
+        """Notify the parent row that thought visibility changed the layout."""
+        self.layout_height_changed.emit()
 
     def _refresh_header(self) -> None:
         icon_name = "caret-down" if self._expanded else "caret-right"

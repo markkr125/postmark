@@ -2,17 +2,45 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Literal
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QFrame, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtGui import QColor, QLinearGradient, QPainter, QResizeEvent
+from PySide6.QtWidgets import QFrame, QLabel, QSizePolicy, QVBoxLayout, QWidget
+
+from ui.sidebar.ai.chat_sessions.time_format import format_message_sent_at
 
 from ui.sidebar.ai.message_bubble.activity_row import AssistantActivityRow
 from ui.sidebar.ai.message_bubble.markdown_content import MarkdownContent
 from ui.sidebar.ai.message_bubble.thought_section import ThoughtSection
 from ui.sidebar.ai.message_bubble.wrapping_label import _WrappingLabel
+from ui.styling.theme import current_palette
 
 ChatRole = Literal["user", "assistant"]
+
+_USER_MESSAGE_FADE_HEIGHT_PX = 28
+
+
+class _UserMessageBottomFade(QWidget):
+    """Gradient fade at the bottom of a height-clamped user message bubble."""
+
+    def __init__(self, parent: QWidget) -> None:
+        """Build a mouse-transparent fade strip over the user bubble frame."""
+        super().__init__(parent)
+        self.setObjectName("aiChatUserMessageFade")
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.setFixedHeight(_USER_MESSAGE_FADE_HEIGHT_PX)
+
+    def paintEvent(self, _event: object) -> None:
+        """Paint a vertical fade from transparent to the user bubble background."""
+        palette = current_palette()
+        base = QColor(palette["bg_alt"])
+        gradient = QLinearGradient(0.0, 0.0, 0.0, float(self.height()))
+        gradient.setColorAt(0.0, QColor(base.red(), base.green(), base.blue(), 0))
+        gradient.setColorAt(1.0, base)
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), gradient)
 
 
 class ChatMessageBubble(QWidget):
@@ -32,6 +60,7 @@ class ChatMessageBubble(QWidget):
         *,
         thinking: str = "",
         thinking_duration_seconds: int | None = None,
+        sent_at: datetime | None = None,
         parent: QWidget | None = None,
     ) -> None:
         """Build a row for *role* showing *text* and optional *thinking*."""
@@ -45,7 +74,11 @@ class ChatMessageBubble(QWidget):
 
         self._thought_section: ThoughtSection | None = None
         self._activity_row: AssistantActivityRow | None = None
+        self._user_frame: QFrame | None = None
+        self._user_message_fade: _UserMessageBottomFade | None = None
         self._user_label: _WrappingLabel | None = None
+        self._user_timestamp: QLabel | None = None
+        self._sent_at: datetime | None = sent_at if role == "user" else None
         self._markdown_body: MarkdownContent | None = None
         self._answer_visible = bool(text.strip())
         self._answer_started = bool(text.strip())
@@ -67,6 +100,19 @@ class ChatMessageBubble(QWidget):
             self._user_label = _WrappingLabel(text)
             self._user_label.setObjectName("aiChatUserMessageText")
             frame_layout.addWidget(self._user_label)
+            self._user_timestamp = QLabel()
+            self._user_timestamp.setObjectName("aiChatUserMessageTime")
+            self._user_timestamp.setAlignment(
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+            )
+            if sent_at is not None:
+                self._user_timestamp.setText(format_message_sent_at(sent_at))
+                frame_layout.addWidget(self._user_timestamp)
+            else:
+                self._user_timestamp.hide()
+            self._user_frame = frame
+            self._user_message_fade = _UserMessageBottomFade(frame)
+            self._user_message_fade.hide()
             outer.addWidget(frame)
         else:
             self.setObjectName("aiChatAssistantRow")
@@ -74,6 +120,7 @@ class ChatMessageBubble(QWidget):
             outer.addWidget(self._activity_row)
 
             self._thought_section = ThoughtSection(self)
+            self._thought_section.layout_height_changed.connect(self._on_thought_layout_changed)
             self._thought_section.set_text(thinking)
             if thinking_duration_seconds is not None:
                 self._thought_section.set_duration_seconds(thinking_duration_seconds)
@@ -117,6 +164,10 @@ class ChatMessageBubble(QWidget):
         if self._user_label is not None:
             return self._user_label.text()
         return ""
+
+    def sent_at(self) -> datetime | None:
+        """Return the user-message send time, if any."""
+        return self._sent_at
 
     def thinking_text(self) -> str:
         """Return the thinking text, if any."""
@@ -246,6 +297,18 @@ class ChatMessageBubble(QWidget):
         if layout_pending or height_pending:
             self.layout_height_changed.emit()
 
+    def _on_thought_layout_changed(self) -> None:
+        """Propagate thought expand/collapse to the transcript scroll layer."""
+        if self._defer_layout_height_changed:
+            self._layout_height_pending = True
+            return
+        if not self.is_content_streaming():
+            self.clear_stream_layout_floor()
+        else:
+            self._commit_stream_row_layout()
+        self.updateGeometry()
+        self.layout_height_changed.emit()
+
     def _on_markdown_height_changed(self) -> None:
         """Propagate markdown body height changes to the transcript scroll layer."""
         if self._defer_layout_height_changed:
@@ -259,6 +322,34 @@ class ChatMessageBubble(QWidget):
         """Release monotonic row height constraints after streaming ends."""
         self._stream_row_floor_px = 0
         self.setMinimumHeight(0)
+
+    def _position_user_message_fade(self) -> None:
+        """Place the bottom fade strip over the user bubble frame."""
+        fade = self._user_message_fade
+        frame = self._user_frame
+        if fade is None or frame is None or not fade.isVisible():
+            return
+        fade.setFixedWidth(frame.width())
+        fade.move(0, max(0, frame.height() - fade.height()))
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        """Reposition the user-message fade when the row is resized."""
+        super().resizeEvent(event)
+        self._position_user_message_fade()
+
+    def set_user_message_max_height(self, max_height: int | None) -> None:
+        """Clamp user-message row height (sticky prompt overlay)."""
+        if self._role != "user":
+            return
+        if max_height is None or max_height <= 0:
+            self.setMaximumHeight(16777215)
+            if self._user_message_fade is not None:
+                self._user_message_fade.hide()
+            return
+        self.setMaximumHeight(max_height)
+        if self._user_message_fade is not None:
+            self._user_message_fade.show()
+            self._position_user_message_fade()
 
     def append_text(self, text: str) -> None:
         """Append answer text (legacy alias for content-only streaming)."""
