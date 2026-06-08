@@ -1554,7 +1554,7 @@ def build_global_qss(p: ThemePalette) -> str:
     QFrame[objectName="aiChatMessageUser"] {{
         background: {p["bg_alt"]};
         border: 1px solid {p["border"]};
-        border-radius: 8px;
+        border-radius: 5px;
     }}
     QWidget[objectName="aiChatStickyTurnPrompt"] {{
         background: transparent;

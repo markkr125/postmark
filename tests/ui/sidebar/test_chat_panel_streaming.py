@@ -16,6 +16,10 @@ from ui.sidebar.ai.message_bubble.markdown_content import MarkdownContent
 from services.ai.chat.session_service import AiChatMessageDict
 from ui.sidebar.ai import AiChatPanel
 from ui.sidebar.ai.chat_panel.scroll import _FOLLOW_THRESHOLD_PX
+from ui.sidebar.ai.chat_panel.sticky_prompt import (
+    _STICKY_PROMPT_LEFT_SHIFT_PX,
+    _STICKY_PROMPT_VIEWPORT_INSET_PX,
+)
 from ui.sidebar.ai.chat_panel_streaming import format_activity_status
 from ui.sidebar.ai.message_bubble import ChatMessageBubble
 
@@ -1268,8 +1272,8 @@ def test_sticky_clone_copies_user_timestamp(qapp: QApplication, qtbot) -> None:
     assert "7" in label.text()
 
 
-def test_sticky_clone_matches_anchor_bubble_geometry(qapp: QApplication, qtbot) -> None:
-    """Sticky overlay uses the same width and height as the real user bubble."""
+def test_sticky_clone_respects_viewport_insets(qapp: QApplication, qtbot) -> None:
+    """Sticky overlay compacts top margins and keeps viewport side insets."""
     from datetime import UTC, datetime
 
     panel = AiChatPanel()
@@ -1285,13 +1289,19 @@ def test_sticky_clone_matches_anchor_bubble_geometry(qapp: QApplication, qtbot) 
     )
     panel.add_message("assistant", "answer line\n" * 40)
     qapp.processEvents()
-    anchor_w = anchor.width()
-    anchor_h = anchor.height()
+    anchor_frame_h = anchor.user_message_frame_height()
+    inset = _STICKY_PROMPT_VIEWPORT_INSET_PX
     _scroll_until_sticky_shows_text(panel, qapp, anchor.text())
     sticky = _sticky_turn_prompt(panel)
     assert sticky is not None
-    assert sticky.width() == anchor_w
-    assert sticky.height() == anchor_h
+    viewport = panel._scroll.viewport()
+    anchor_x = anchor.mapTo(viewport, QPoint(0, 0)).x()
+    assert sticky.x() == max(inset, anchor_x - _STICKY_PROMPT_LEFT_SHIFT_PX)
+    assert sticky.width() == viewport.width() - sticky.x() - inset
+    assert sticky.height() == anchor_frame_h
+    sticky_right = sticky.x() + sticky.width()
+    assert sticky.x() >= inset
+    assert sticky_right <= viewport.width() - inset
 
 
 def test_sticky_user_prompt_hides_when_real_anchor_visible(qapp: QApplication, qtbot) -> None:

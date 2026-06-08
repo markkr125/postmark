@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from ui.sidebar.ai.markdown.highlight_code import (
-    clear_highlight_cache,
-    highlight_code_to_html,
-)
+from ui.sidebar.ai.markdown.highlight_code import (clear_highlight_cache,
+                                                   highlight_code_to_html)
 from ui.styling.theme import DARK_PALETTE
 
 
@@ -35,7 +33,8 @@ class TestHighlightCache:
         assert dark != light
 
     def test_cache_evicts_oldest_entry(self) -> None:
-        from ui.sidebar.ai.markdown.highlight_code import _HIGHLIGHT_CACHE_MAX_ENTRIES
+        from ui.sidebar.ai.markdown.highlight_code import \
+            _HIGHLIGHT_CACHE_MAX_ENTRIES
 
         clear_highlight_cache()
         first_key = highlight_code_to_html("first = 1", "python", palette=DARK_PALETTE)

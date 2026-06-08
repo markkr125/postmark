@@ -104,17 +104,27 @@ def _code_block_chrome(
     display_lang: str,
     inner_html: str,
 ) -> str:
-    """Wrap *inner_html* in the shared fenced-code block chrome."""
+    """Wrap *inner_html* in the shared fenced-code block chrome.
+
+    Uses a table frame because ``QTextDocument`` paints table borders reliably;
+    ``div`` borders are often invisible in the chat markdown renderer.
+    """
     bg = palette["bg_alt"]
     border = palette["border"]
     muted = palette["text_muted"]
     return (
-        f'<div style="margin:8px 0;border:1px solid {html_escape(border)};'
-        f'border-radius:6px;overflow:hidden;background:{html_escape(bg)};">'
-        f'<div style="padding:4px 10px;font-size:11px;color:{html_escape(muted)};'
+        f'<table cellspacing="0" cellpadding="0" style="width:100%;margin:8px 0;'
+        f"border:1px solid {html_escape(border)};"
+        f'background:{html_escape(bg)};">'
+        f"<tr>"
+        f'<td style="padding:4px 10px;font-size:11px;color:{html_escape(muted)};'
         f"border-bottom:1px solid {html_escape(border)};"
-        f'font-family:sans-serif;">{html_escape(display_lang)}</div>'
-        f"{inner_html}</div>"
+        f'font-family:sans-serif;">{html_escape(display_lang)}</td>'
+        f"</tr>"
+        f"<tr>"
+        f'<td style="padding:0;">{inner_html}</td>'
+        f"</tr>"
+        f"</table>"
     )
 
 

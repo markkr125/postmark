@@ -21,7 +21,7 @@ from shiboken6 import Shiboken
 from services.ai.ai_config import AiModelEntry
 from services.ai.provider_catalog import (
     effective_run_context_tokens,
-    format_context_tokens,
+    format_run_context_tokens,
     run_context_choices,
 )
 from services.ai.reasoning_effort import (
@@ -70,7 +70,7 @@ def entry_has_edit_options(entry: AiModelEntry) -> bool:
 
 def context_label_for_row(entry: AiModelEntry) -> str:
     """Context tag text for a picker row."""
-    return format_context_tokens(effective_run_context_tokens(entry))
+    return format_run_context_tokens(effective_run_context_tokens(entry))
 
 
 class _EditMenuRow(QWidget):
@@ -383,9 +383,7 @@ class AiModelPickerEditPanel(QFrame):
         ctx_choices = run_context_choices(entry)
         if ctx_choices:
             current_ctx = effective_run_context_tokens(entry)
-            ctx_options = tuple(
-                (str(tokens), format_context_tokens(tokens)) for _lbl, tokens in ctx_choices
-            )
+            ctx_options = tuple((str(tokens), label) for label, tokens in ctx_choices)
 
             def on_ctx(key: str) -> None:
                 if self._on_context is not None:

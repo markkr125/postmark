@@ -7,12 +7,9 @@ from html import escape as html_escape
 
 from PySide6.QtGui import QTextDocument
 
-from ui.sidebar.ai.markdown.fence_split import (
-    CodeSegment,
-    MarkdownSegment,
-    ProseSegment,
-    split_fenced_blocks,
-)
+from ui.sidebar.ai.markdown.fence_split import (CodeSegment, MarkdownSegment,
+                                                ProseSegment,
+                                                split_fenced_blocks)
 from ui.sidebar.ai.markdown.highlight_code import highlight_code_to_html
 from ui.styling.theme import ThemePalette, current_palette
 
@@ -99,7 +96,8 @@ def _render_segment(segment: MarkdownSegment, *, palette: ThemePalette) -> str:
         return _prose_chunk_to_html(segment.text, palette=palette)
     if isinstance(segment, CodeSegment):
         if segment.provisional:
-            from ui.sidebar.ai.markdown.highlight_code import provisional_code_to_html
+            from ui.sidebar.ai.markdown.highlight_code import \
+                provisional_code_to_html
 
             return provisional_code_to_html(segment.code, segment.lang, palette=palette)
         return highlight_code_to_html(

@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from services.ai.ai_config import AiConfig, AiModelEntry, model_entry_enabled
-from services.ai.provider_catalog import effective_run_context_tokens, format_context_tokens
+from services.ai.provider_catalog import effective_run_context_tokens, format_run_context_tokens
 from services.ai.reasoning_effort import clamp_effort, default_effort_for, format_reasoning_effort
 from ui.sidebar.ai.agent_mode_popup import AgentModeButton, AiAgentModePopup
 from ui.sidebar.ai.chat_panel.composer import ModelPickerButton, _ComposerInput
@@ -90,6 +90,7 @@ class AiChatPanel(_ChatPanelStreamingMixin, QWidget):  # type: ignore[misc]
         self._empty_label = QLabel(_EMPTY_STATE_TEXT)
         self._empty_label.setObjectName("emptyStateLabel")
         self._empty_label.setWordWrap(True)
+        self._empty_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._messages_layout.addWidget(self._empty_label)
 
@@ -351,8 +352,8 @@ class AiChatPanel(_ChatPanelStreamingMixin, QWidget):  # type: ignore[misc]
             self._context_btn.setToolTip("Context: —")
             return
         pct = min(100, round(100 * used_tokens / total_tokens))
-        used = format_context_tokens(used_tokens)
-        total = format_context_tokens(total_tokens)
+        used = format_run_context_tokens(used_tokens)
+        total = format_run_context_tokens(total_tokens)
         self._context_btn.setToolTip(f"Context: {pct}% ({used}/{total})")
 
     def clear(self) -> None:
@@ -373,7 +374,7 @@ class AiChatPanel(_ChatPanelStreamingMixin, QWidget):  # type: ignore[misc]
         ctx_val: str | None = None
         ctx_tokens = effective_run_context_tokens(entry)
         if ctx_tokens > 0:
-            ctx_val = format_context_tokens(ctx_tokens)
+            ctx_val = format_run_context_tokens(ctx_tokens)
         effort_val: str | None = None
         effort = self._reasoning_effort or self._effective_effort(entry)
         if effort:

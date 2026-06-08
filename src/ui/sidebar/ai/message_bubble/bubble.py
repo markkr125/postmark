@@ -102,6 +102,9 @@ class ChatMessageBubble(QWidget):
             frame_layout.addWidget(self._user_label)
             self._user_timestamp = QLabel()
             self._user_timestamp.setObjectName("aiChatUserMessageTime")
+            self._user_timestamp.setTextInteractionFlags(
+                Qt.TextInteractionFlag.TextSelectableByMouse
+            )
             self._user_timestamp.setAlignment(
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
             )
@@ -336,6 +339,23 @@ class ChatMessageBubble(QWidget):
         """Reposition the user-message fade when the row is resized."""
         super().resizeEvent(event)
         self._position_user_message_fade()
+
+    def user_message_frame_height(self) -> int:
+        """Return the painted user-bubble frame height (excludes row outer margins)."""
+        if self._user_frame is None:
+            return max(1, self.height())
+        return max(1, self._user_frame.height())
+
+    def prepare_sticky_overlay(self) -> None:
+        """Compact row chrome so a viewport sticky clone can pin flush to the top."""
+        if self._role != "user":
+            return
+        outer = self.layout()
+        if outer is not None:
+            outer.setContentsMargins(0, 0, 0, 0)
+        frame = self._user_frame
+        if frame is not None:
+            frame.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
     def set_user_message_max_height(self, max_height: int | None) -> None:
         """Clamp user-message row height (sticky prompt overlay)."""

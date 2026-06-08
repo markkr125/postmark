@@ -9,6 +9,7 @@ from services.ai.provider_catalog import (
     context_display_for_entry,
     context_tokens_for_model,
     format_context_tokens,
+    format_run_context_tokens,
 )
 
 
@@ -16,7 +17,37 @@ def test_format_context_tokens() -> None:
     """Context sizes use compact k/M labels."""
     assert format_context_tokens(0) == "—"
     assert format_context_tokens(128000) == "128k"
+    assert format_context_tokens(131072) == "131.1k"
     assert format_context_tokens(2000000) == "2M"
+
+
+def test_format_run_context_tokens_uses_preset_labels() -> None:
+    """Composer UI shows stepped preset labels instead of decimal k/M."""
+    assert format_run_context_tokens(131_072) == "128k"
+    assert format_run_context_tokens(65_536) == "64k"
+    assert format_run_context_tokens(128_000) == "128k"
+    assert format_run_context_tokens(272_000) == "272k"
+
+
+def test_context_display_uses_preset_labels_for_binary_k() -> None:
+    """Settings tree shows 128k for 131072-token Ollama windows."""
+    entry: AiModelEntry = {
+        "id": "4",
+        "provider": "ollama",
+        "label": "gpt-oss",
+        "model": "ollama/gpt-oss:latest",
+        "base_url": "http://127.0.0.1:11434",
+        "api_version": "",
+        "auth_kind": "none",
+        "auth_ref": "",
+        "context": 131_072,
+        "tools": True,
+        "vision": False,
+        "text": True,
+    }
+    assert context_display_for_entry(entry) == "128k"
+    assert context_display_for_entry({"context": 262_144, "model": "ollama/x"}) == "256k"
+    assert context_display_for_entry({"context": 32_768, "model": "ollama/x"}) == "32k"
 
 
 def test_context_from_catalog_when_not_persisted() -> None:

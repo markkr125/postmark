@@ -83,6 +83,29 @@ def test_context_menu_copy_message_puts_markdown_on_clipboard(qapp: QApplication
     assert QApplication.clipboard().text() == source
 
 
+def test_text_selection_and_copy_shortcut(qapp: QApplication, qtbot) -> None:
+    """Assistant markdown supports drag selection and Ctrl+C."""
+    body = MarkdownContent("Hello selectable world")
+    qtbot.addWidget(body)
+    body.resize(360, 120)
+    body.show()
+    qtbot.waitExposed(body)
+
+    body._selection_anchor = 0
+    body._selection_cursor = 5
+    assert body._selected_text() == "Hello"
+
+    from PySide6.QtGui import QKeyEvent
+
+    event = QKeyEvent(
+        QKeyEvent.Type.KeyPress,
+        Qt.Key.Key_C,
+        Qt.KeyboardModifier.ControlModifier,
+    )
+    body.keyPressEvent(event)
+    assert QApplication.clipboard().text() == "Hello"
+
+
 def test_wheel_forwards_to_ancestor_scroll_area(
     qapp: QApplication, qtbot, monkeypatch: pytest.MonkeyPatch
 ) -> None:

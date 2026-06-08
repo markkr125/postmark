@@ -15,6 +15,8 @@ _STICKY_PROMPT_TOP_PX = 0
 _STICKY_PROMPT_MAX_VIEWPORT_RATIO = 0.35
 _STICKY_PROMPT_MARGIN_PX = 4
 _STICKY_PROMPT_HYSTERESIS_PX = 4
+_STICKY_PROMPT_VIEWPORT_INSET_PX = 3
+_STICKY_PROMPT_LEFT_SHIFT_PX = 4
 
 
 class StickyTurnExtent(NamedTuple):
@@ -188,11 +190,11 @@ class _ChatPanelStickyPromptMixin:  # type: ignore[misc]
         anchor: ChatMessageBubble,
         viewport: QWidget,
     ) -> tuple[int, int]:
-        """Return ``(x, width)`` aligned with the real user bubble column."""
-        content_w = anchor.width()
-        if content_w <= 0:
-            content_w = max(1, self._messages.width())
-        sticky_x = self._messages.mapTo(viewport, QPoint(0, 0)).x()
+        """Return ``(x, width)`` filling the transcript content column in the viewport."""
+        inset = _STICKY_PROMPT_VIEWPORT_INSET_PX
+        anchor_x = anchor.mapTo(viewport, QPoint(0, 0)).x()
+        sticky_x = max(inset, anchor_x - _STICKY_PROMPT_LEFT_SHIFT_PX)
+        content_w = max(1, viewport.width() - sticky_x - inset)
         return sticky_x, content_w
 
     def _sticky_overlay_height(
@@ -234,6 +236,7 @@ class _ChatPanelStickyPromptMixin:  # type: ignore[misc]
         sticky = ChatMessageBubble("user", text, sent_at=sent_at, parent=viewport)
         sticky.setObjectName("aiChatStickyTurnPrompt")
         sticky.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        sticky.prepare_sticky_overlay()
         self._sticky_turn_prompt = sticky
         return sticky
 
@@ -286,7 +289,7 @@ class _ChatPanelStickyPromptMixin:  # type: ignore[misc]
 
         sticky = self._ensure_sticky_turn_prompt(anchor)
         sticky_x, content_w = self._sticky_content_geometry(anchor, viewport)
-        anchor_h = max(1, anchor.height())
+        anchor_h = max(1, anchor.user_message_frame_height())
         available_h = max(1, assistant_bottom_y - _STICKY_PROMPT_TOP_PX)
         sticky_h = self._sticky_overlay_height(
             sticky,

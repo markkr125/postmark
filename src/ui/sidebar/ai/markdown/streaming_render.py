@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from html import escape as html_escape
 
-from ui.sidebar.ai.markdown.fence_split import MarkdownSegment, split_fenced_blocks
+from ui.sidebar.ai.markdown.fence_split import (MarkdownSegment,
+                                                split_fenced_blocks)
 from ui.sidebar.ai.markdown.render import render_segment_html
 from ui.styling.theme import ThemePalette, current_palette
 

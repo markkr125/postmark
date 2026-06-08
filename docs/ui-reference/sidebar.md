@@ -171,10 +171,12 @@ bubble uses the same widget and document with the incremental cache below.
 Prose (bold, lists, links) is converted with Qt ``QTextDocument.setMarkdown``.
 Fenced code blocks are split out and rendered as themed HTML: Pygments syntax
 highlighting (palette editor token colours), line numbers, language label, and
-``pre-wrap`` wrapping for long one-liners. Inline `` `code` `` spans get a muted
-pill style. Inner block chrome uses inline styles from ``ThemePalette`` (QSS does
-not apply inside rich-text HTML). ``ThemeManager.theme_changed`` re-renders stored
-markdown on live assistant rows.
+``pre-wrap`` wrapping for long one-liners. The block chrome is a sharp-cornered
+``1px`` table frame (``ThemePalette`` ``border`` on all sides, header rule under
+the language label). Inline `` `code` `` spans get a muted pill style. Inner block
+chrome uses inline styles from ``ThemePalette`` (QSS does not apply inside
+rich-text HTML). ``ThemeManager.theme_changed`` re-renders stored markdown on live
+assistant rows.
 
 **Streaming performance.** Worker ``chunk_received`` deltas are coalesced on the
 GUI thread (~50ms) before updating the active bubble. Rich markdown stays live
@@ -224,8 +226,10 @@ flyout is resized or content grows.
 ``_sync_sticky_turn_prompt()`` picks the closest eligible user/assistant pair for
 the current viewport (not just the latest turn) and shows a read-only clone
 (``aiChatStickyTurnPrompt``) pinned to the top of ``aiChatScroll``'s viewport.
-The clone copies the anchor user prompt, ``sent_at`` timestamp, and matches the
-anchor bubble width/height (same ``aiChatMessageUser`` frame styling).
+The clone copies the anchor user prompt and ``sent_at`` timestamp, compacts row
+margins to pin flush to the viewport top, keeps at least 3px inset from the
+viewport right edge, and sits up to 4px further left than the in-transcript
+user bubble.
 Sticky overlay logic lives in ``chat_panel/sticky_prompt.py``
 (``_ChatPanelStickyPromptMixin``). Turn pairs are cached in ``_sticky_turn_pairs`` with
 a dirty flag; scroll-independent Y extents per pair live in ``_sticky_turn_extents``
@@ -247,10 +251,11 @@ overlay source selected from viewport position. ``load_transcript`` +
 and hooks all assistant rows for sticky resync. ``aiChatScrollDown`` stays above
 the sticky overlay.
 
-**Interaction.** External links open via document ``anchorAt`` hit-testing on mouse
-release. Right-click **Copy message** copies the markdown source (not rendered plain
-text). Finalized assistant rows do not support in-row drag-select; use the context
-menu for copy.
+**Interaction.** Assistant markdown supports drag-select, double-click word select,
+Ctrl+C / Ctrl+A, and a context-menu **Copy** for the selection. External links open
+via document ``anchorAt`` when the click does not create a selection. Right-click
+**Copy message** copies the full markdown source. User prompts, timestamps, thought
+text, and activity captions use selectable labels.
 
 **Wheel routing.** ``MarkdownContent`` (``aiChatAssistantText``) and
 ``_WrappingLabel`` (``aiChatUserMessageText``, ``aiChatThoughtText``) forward

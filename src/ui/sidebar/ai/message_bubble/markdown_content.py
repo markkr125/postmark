@@ -6,9 +6,14 @@ import weakref
 
 from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QUrl, Signal
 from PySide6.QtGui import (
+    QAbstractTextDocumentLayout,
     QDesktopServices,
     QGuiApplication,
+    QKeySequence,
+    QMouseEvent,
     QPainter,
+    QPalette,
+    QTextCursor,
     QTextDocument,
     QWheelEvent,
 )
@@ -29,6 +34,7 @@ from ui.styling.theme_manager import ThemeManager
 
 _markdown_bodies: weakref.WeakSet[MarkdownContent] = weakref.WeakSet()
 _theme_hook_installed = False
+_SELECTION_DRAG_THRESHOLD_PX = 4
 
 
 def rerender_all_markdown_browsers() -> None:
@@ -67,6 +73,7 @@ class MarkdownContent(QWidget):
         """Configure markdown rendering, link handling, and height sync."""
         super().__init__(parent)
         self.setObjectName("aiChatAssistantText")
+        self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_context_menu)
@@ -78,6 +85,9 @@ class MarkdownContent(QWidget):
         self._stream_layout_floor_px = 0
         self._defer_height_changed = False
         self._height_changed_pending = False
+        self._selection_anchor: int | None = None
+        self._selection_cursor: int | None = None
+        self._press_position: QPointF | None = None
         _markdown_bodies.add(self)
         _install_markdown_theme_hook()
         self._apply_document_defaults()
@@ -127,6 +137,7 @@ class MarkdownContent(QWidget):
 
     def _set_document_html(self, html: str) -> None:
         """Replace document HTML and schedule a repaint."""
+        self._clear_selection()
         self._document.setHtml(html)
         self.update()
 
@@ -230,30 +241,170 @@ class MarkdownContent(QWidget):
         return int(doc_h) + margins.top() + margins.bottom()
 
     def paintEvent(self, event) -> None:
-        """Paint the owned ``QTextDocument`` at the widget origin."""
+        """Paint the owned ``QTextDocument`` and any active text selection."""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        self._document.drawContents(painter, QRectF(event.rect()))
+        layout = self._document.documentLayout()
+        ctx = QAbstractTextDocumentLayout.PaintContext()
+        ctx.clip = QRectF(event.rect())
+        selection = self._selection_paint_context()
+        if selection is not None:
+            ctx.selections = [selection]
+        layout.draw(painter, ctx)
 
-    def mouseReleaseEvent(self, event) -> None:
-        """Open external links when the user clicks a document anchor."""
+    def _cursor_position_at(self, pos: QPointF) -> int:
+        """Map a widget-local point to a character index in the document."""
+        layout = self._document.documentLayout()
+        hit = layout.hitTest(pos, Qt.HitTestAccuracy.ExactHit)
+        if hit < 0:
+            hit = layout.hitTest(pos, Qt.HitTestAccuracy.FuzzyHit)
+        return max(0, hit)
+
+    def _clear_selection(self) -> None:
+        """Drop the active selection without repainting when already empty."""
+        if self._selection_anchor is None and self._selection_cursor is None:
+            return
+        self._selection_anchor = None
+        self._selection_cursor = None
+        self.update()
+
+    def _has_selection(self) -> bool:
+        """Return whether the document has a non-empty highlighted range."""
+        if self._selection_anchor is None or self._selection_cursor is None:
+            return False
+        return self._selection_anchor != self._selection_cursor
+
+    def _selected_text(self) -> str:
+        """Return the currently selected plain text, if any."""
+        if not self._has_selection():
+            return ""
+        anchor = self._selection_anchor
+        cursor_pos = self._selection_cursor
+        if anchor is None or cursor_pos is None:
+            return ""
+        start = min(anchor, cursor_pos)
+        end = max(anchor, cursor_pos)
+        cursor = QTextCursor(self._document)
+        cursor.setPosition(start)
+        cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+        return cursor.selectedText().replace("\u2029", "\n")
+
+    def _selection_paint_context(self) -> QAbstractTextDocumentLayout.Selection | None:
+        """Build a paint-context selection for the active highlight range."""
+        if not self._has_selection():
+            return None
+        anchor = self._selection_anchor
+        cursor_pos = self._selection_cursor
+        if anchor is None or cursor_pos is None:
+            return None
+        start = min(anchor, cursor_pos)
+        end = max(anchor, cursor_pos)
+        cursor = QTextCursor(self._document)
+        cursor.setPosition(start)
+        cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+        selection = QAbstractTextDocumentLayout.Selection()
+        selection.cursor = cursor
+        selection.format.setBackground(self.palette().color(QPalette.ColorRole.Highlight))
+        selection.format.setForeground(self.palette().color(QPalette.ColorRole.HighlightedText))
+        return selection
+
+    def _copy_selection_to_clipboard(self) -> bool:
+        """Copy the highlighted range to the clipboard."""
+        text = self._selected_text()
+        if not text:
+            return False
+        QGuiApplication.clipboard().setText(text)
+        return True
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        """Begin or extend a text selection."""
         if event.button() == Qt.MouseButton.LeftButton:
-            anchor = self._document.documentLayout().anchorAt(QPointF(event.position()))
-            if anchor:
-                url = QUrl(anchor)
-                if url.isValid() and QDesktopServices.openUrl(url):
-                    event.accept()
-                    return
+            self.setFocus(Qt.FocusReason.MouseFocusReason)
+            pos = QPointF(event.position())
+            self._press_position = pos
+            index = self._cursor_position_at(pos)
+            if (
+                event.modifiers() & Qt.KeyboardModifier.ShiftModifier
+                and self._selection_anchor is not None
+            ):
+                self._selection_cursor = index
+            else:
+                self._selection_anchor = index
+                self._selection_cursor = index
+            self.update()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        """Extend the selection while the left button is held."""
+        if event.buttons() & Qt.MouseButton.LeftButton and self._press_position is not None:
+            self._selection_cursor = self._cursor_position_at(QPointF(event.position()))
+            self.update()
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        """Open external links when the user clicks without selecting text."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            dragged = False
+            if self._press_position is not None:
+                dragged = (
+                    QPointF(event.position()) - self._press_position
+                ).manhattanLength() > _SELECTION_DRAG_THRESHOLD_PX
+            self._press_position = None
+            if not dragged and not self._has_selection():
+                anchor = self._document.documentLayout().anchorAt(QPointF(event.position()))
+                if anchor:
+                    url = QUrl(anchor)
+                    if url.isValid() and QDesktopServices.openUrl(url):
+                        event.accept()
+                        return
         super().mouseReleaseEvent(event)
 
+    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
+        """Select the word under the cursor."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            cursor = QTextCursor(self._document)
+            cursor.setPosition(self._cursor_position_at(QPointF(event.position())))
+            cursor.select(QTextCursor.SelectionType.WordUnderCursor)
+            self._selection_anchor = cursor.selectionStart()
+            self._selection_cursor = cursor.selectionEnd()
+            self.update()
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
+    def keyPressEvent(self, event) -> None:
+        """Support copy and select-all shortcuts for highlighted text."""
+        if event.matches(QKeySequence.StandardKey.Copy) and self._copy_selection_to_clipboard():
+            event.accept()
+            return
+        if event.matches(QKeySequence.StandardKey.SelectAll):
+            self._selection_anchor = 0
+            end = max(0, self._document.characterCount() - 1)
+            self._selection_cursor = end
+            self.update()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
     def _show_context_menu(self, pos) -> None:
-        """Show a context menu with copy actions for the markdown source."""
-        if not self._markdown:
+        """Show a context menu with copy actions for the selection or markdown source."""
+        if not self._markdown and not self._has_selection():
             return
         menu = QMenu(self)
-        copy_action = menu.addAction("Copy message")
+        copy_selection_action = None
+        if self._has_selection():
+            copy_selection_action = menu.addAction("Copy")
+        copy_message_action = None
+        if self._markdown:
+            copy_message_action = menu.addAction("Copy message")
         chosen = menu.exec(self.mapToGlobal(pos))
-        if chosen is copy_action:
+        if chosen is copy_selection_action:
+            self._copy_selection_to_clipboard()
+        elif chosen is copy_message_action:
             QGuiApplication.clipboard().setText(self._markdown)
 
     def event(self, event: QEvent) -> bool:

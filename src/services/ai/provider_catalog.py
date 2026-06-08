@@ -468,10 +468,10 @@ def _ollama_run_context_choices(
         if MIN_RUN_CONTEXT_TOKENS <= value <= max_ctx:
             out.append((label, value))
     if max_ctx not in {v for _, v in out}:
-        out.append((format_context_tokens(max_ctx), max_ctx))
+        out.append((format_run_context_tokens(max_ctx), max_ctx))
     default = default_run_context_tokens(entry)
     if default >= MIN_RUN_CONTEXT_TOKENS and default not in {v for _, v in out}:
-        out.append((format_context_tokens(default), default))
+        out.append((format_run_context_tokens(default), default))
     out.sort(key=lambda pair: pair[1])
     return tuple(out)
 
@@ -492,7 +492,7 @@ def _tiered_run_context_choices(
         candidates.add(max_ctx)
     if len(candidates) < 2:
         return ()
-    return tuple((format_context_tokens(value), value) for value in sorted(candidates))
+    return tuple((format_run_context_tokens(value), value) for value in sorted(candidates))
 
 
 def context_tokens_for_entry(entry: object) -> int:
@@ -520,9 +520,24 @@ def format_context_tokens(context: int) -> str:
     return str(context)
 
 
+_PRESET_CONTEXT_LABEL_BY_TOKENS: dict[int, str] = {
+    tokens: label for label, tokens in OLLAMA_CONTEXT_OPTIONS
+}
+
+
+def format_run_context_tokens(context: int) -> str:
+    """Human-readable run context for composer and settings UI (preset labels when known)."""
+    if context <= 0:
+        return "—"
+    preset = _PRESET_CONTEXT_LABEL_BY_TOKENS.get(context)
+    if preset is not None:
+        return preset
+    return format_context_tokens(context)
+
+
 def context_display_for_entry(entry: object) -> str:
     """Context column text for the settings models tree."""
-    return format_context_tokens(context_tokens_for_entry(entry))
+    return format_run_context_tokens(context_tokens_for_entry(entry))
 
 
 class CapabilityTag(TypedDict):
@@ -610,7 +625,7 @@ def capability_text(model: str) -> str:
     spec = _catalog_model_spec(model)
     if spec is None:
         return ""
-    ctx = format_context_tokens(spec.context)
+    ctx = format_run_context_tokens(spec.context)
     flags = _format_capability_flags(tools=spec.tools, vision=spec.vision, insert=spec.insert)
     return f"{ctx} · {flags}" if flags else ctx
 
@@ -737,6 +752,7 @@ __all__ = [
     "format_context_tokens",
     "format_model_cost_display",
     "format_reasoning_effort",
+    "format_run_context_tokens",
     "litellm_context_tier_thresholds",
     "migrate_provider_display_names",
     "model_max_context_tokens",

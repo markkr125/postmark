@@ -26,6 +26,7 @@ class AssistantActivityRow(QWidget):
 
         self._label = QLabel()
         self._label.setObjectName("aiChatActivityLabel")
+        self._label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self._label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
         row.addWidget(self._label, 1)
 
