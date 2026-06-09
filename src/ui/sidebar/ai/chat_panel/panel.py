@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
-from PySide6.QtCore import QThread, Qt, Signal, Slot
+from PySide6.QtCore import Qt, QThread, Signal, Slot
 from PySide6.QtGui import QResizeEvent
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -114,6 +114,8 @@ class AiChatPanel(_ChatPanelStreamingMixin, QWidget):  # type: ignore[misc]
         self._sticky_applied_height_cap = 0
         self._sticky_sync_pending = False
         self._sticky_sync_frame_pending = False
+        self._smooth_scroll_active = False
+        self._sticky_sync_deferred_during_smooth = False
         self._transcript_layout_hooks = []
         self._init_scroll_controller()
 

@@ -6,7 +6,6 @@ from collections.abc import Iterator
 from typing import Any
 
 from PySide6.QtCore import QEventLoop, QPoint, QSignalBlocker, QTimer
-from shiboken6 import isValid
 from PySide6.QtWidgets import (
     QApplication,
     QPushButton,
@@ -15,7 +14,9 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QWidget,
 )
+from shiboken6 import isValid
 
+from ui.sidebar.ai.chat_panel.smooth_scroll import SmoothScroller
 from ui.sidebar.ai.chat_panel.sticky_prompt import _ChatPanelStickyPromptMixin
 from ui.sidebar.ai.message_bubble import ChatMessageBubble
 
@@ -44,6 +45,9 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
     _turn_scroll_anchor: ChatMessageBubble | None = None
     _stream_content_started: bool = False
     _streaming_bubble: ChatMessageBubble | None = None
+    _smooth_scroller: SmoothScroller
+    _smooth_scroll_active: bool = False
+    _sticky_sync_deferred_during_smooth: bool = False
 
     def _init_scroll_controller(self) -> None:
         """Connect scrollbar signals for scroll-lock follow (call from panel ``__init__``)."""
@@ -52,9 +56,27 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
         self._last_scroll_maximum = bar.maximum()
         bar.valueChanged.connect(self._on_scrollbar_value_changed)
         bar.rangeChanged.connect(self._on_scrollbar_range_changed)
+        self._smooth_scroller = SmoothScroller(
+            self._scroll,
+            on_animation_started=self._on_smooth_scroll_started,
+            on_animation_finished=self._on_smooth_scroll_finished,
+            parent=self,  # type: ignore[arg-type]
+        )
+
+    def _on_smooth_scroll_started(self) -> None:
+        """Mark smooth scrolling active so sticky sync can defer until settle."""
+        self._smooth_scroll_active = True
+
+    def _on_smooth_scroll_finished(self) -> None:
+        """Flush deferred sticky sync after smooth scrolling settles."""
+        self._smooth_scroll_active = False
+        if self._sticky_sync_deferred_during_smooth:
+            self._sticky_sync_deferred_during_smooth = False
+            self._schedule_sticky_sync()
 
     def _set_bar_value(self, bar: QScrollBar, value: int) -> None:
         """Programmatically set scrollbar value without updating scroll-lock state."""
+        self._smooth_scroller.cancel(sync_value=value)
         self._programmatic_scroll = True
         try:
             with QSignalBlocker(bar):

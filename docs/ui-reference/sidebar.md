@@ -184,7 +184,16 @@ during streaming via an incremental segment renderer: stable prose and closed co
 blocks are reused; only the changed tail is re-rendered. Open (unclosed) fenced
 code uses a cheap provisional monospace block; full Pygments highlighting applies
 when the fence closes or the stream finalizes. The transcript scroll area
-(``aiChatScroll``) uses a two-phase scroll model:
+(``aiChatScroll``) uses **smooth wheel scrolling** via ``SmoothScroller``
+(``chat_panel/smooth_scroll.py``): a viewport event filter intercepts wheel input
+forwarded from message rows, accumulates a target scrollbar offset, and animates
+``verticalScrollBar`` movement at ~60Hz with a time-based OutCubic ease;
+mouse ``angleDelta`` uses browser-like notch distance, while trackpad ``pixelDelta``
+is amplified and animated through the same path. Streaming auto-follow and turn-boundary
+scrolls stay **instant** through ``_set_bar_value`` (signal-blocked), which also
+cancels any in-flight smooth animation. Sticky overlay sync is deferred until the
+animation settles so per-frame work stays light. ``aiChatScroll`` also uses a
+two-phase scroll model:
 
 1. **Turn boundary (Send)** — ``begin_assistant_stream`` calls
    ``_request_turn_bottom_scroll()`` once: re-arms scroll-lock, then a coalesced

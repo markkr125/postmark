@@ -17,19 +17,13 @@ from PySide6.QtGui import (
     QTextDocument,
     QWheelEvent,
 )
+from PySide6.QtWidgets import QApplication, QMenu, QSizePolicy, QWidget
 from shiboken6 import isValid
-from PySide6.QtWidgets import (
-    QApplication,
-    QMenu,
-    QSizePolicy,
-    QWidget,
-)
 
-from ui.sidebar.ai.message_bubble.wrapping_label import forward_wheel_to_ancestor_scroll_area
-
-from ui.sidebar.ai.markdown.render import render_chat_markdown_html
 from ui.sidebar.ai.markdown.highlight_code import clear_highlight_cache
+from ui.sidebar.ai.markdown.render import render_chat_markdown_html
 from ui.sidebar.ai.markdown.streaming_render import StreamingMarkdownCache
+from ui.sidebar.ai.message_bubble.wrapping_label import forward_wheel_to_ancestor_scroll_area
 from ui.styling.theme_manager import ThemeManager
 
 _markdown_bodies: weakref.WeakSet[MarkdownContent] = weakref.WeakSet()
@@ -73,6 +67,7 @@ class MarkdownContent(QWidget):
         """Configure markdown rendering, link handling, and height sync."""
         super().__init__(parent)
         self.setObjectName("aiChatAssistantText")
+        self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
         self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -243,7 +238,6 @@ class MarkdownContent(QWidget):
     def paintEvent(self, event) -> None:
         """Paint the owned ``QTextDocument`` and any active text selection."""
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         layout = self._document.documentLayout()
         ctx = QAbstractTextDocumentLayout.PaintContext()
         ctx.clip = QRectF(event.rect())

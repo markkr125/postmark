@@ -329,7 +329,7 @@ src/
     │   ├── sidebar_widget.py      # RightSidebar (icon rail) + _FlyoutPanel
     │   ├── ai/                    # AI assistant chat panel
     │   │   ├── agent_mode_popup.py  # AgentModeButton + AiAgentModePopup (Agent / Ask / Plan)
-    │   │   ├── chat_panel/        # AiChatPanel sub-package (panel, composer, scroll, sticky_prompt)
+    │   │   ├── chat_panel/        # AiChatPanel sub-package (panel, composer, scroll, smooth_scroll, sticky_prompt)
     │   │   │   ├── panel.py       # AiChatPanel — transcript + composer
     │   │   │   ├── composer.py    # _ComposerInput + ModelPickerButton
     │   │   │   └── scroll.py      # _ChatPanelScrollMixin — direction-based scroll-lock, turn-start anchor, viewport spacer, queued follow passes

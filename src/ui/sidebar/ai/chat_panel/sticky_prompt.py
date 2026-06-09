@@ -5,9 +5,9 @@ from __future__ import annotations
 from collections.abc import Iterator
 from typing import Any, NamedTuple
 
-from PySide6.QtCore import QPoint, QTimer, Qt
-from shiboken6 import isValid
+from PySide6.QtCore import QPoint, Qt, QTimer
 from PySide6.QtWidgets import QPushButton, QScrollArea, QWidget
+from shiboken6 import isValid
 
 from ui.sidebar.ai.message_bubble import ChatMessageBubble
 
@@ -119,6 +119,9 @@ class _ChatPanelStickyPromptMixin:  # type: ignore[misc]
 
     def _schedule_sticky_sync(self) -> None:
         """Coalesce sticky overlay updates to one pass per event-loop frame."""
+        if getattr(self, "_smooth_scroll_active", False):
+            self._sticky_sync_deferred_during_smooth = True
+            return
         self._sticky_sync_pending = True
         if not self._sticky_sync_frame_pending:
             self._sticky_sync_frame_pending = True
