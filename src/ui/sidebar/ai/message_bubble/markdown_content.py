@@ -80,6 +80,11 @@ class MarkdownContent(QWidget):
         self._stream_layout_floor_px = 0
         self._defer_height_changed = False
         self._height_changed_pending = False
+        self._cached_text_width = -1
+        self._cached_measured_height = -1
+        self._reflow_deferred = False
+        self._reflow_flush_pending = False
+        self._last_sync_width = -1
         self._selection_anchor: int | None = None
         self._selection_cursor: int | None = None
         self._press_position: QPointF | None = None
@@ -133,8 +138,65 @@ class MarkdownContent(QWidget):
     def _set_document_html(self, html: str) -> None:
         """Replace document HTML and schedule a repaint."""
         self._clear_selection()
+        self._invalidate_measured_height()
         self._document.setHtml(html)
         self.update()
+
+    def _invalidate_measured_height(self) -> None:
+        """Drop cached wrap height so the next measure recomputes."""
+        self._cached_text_width = -1
+        self._cached_measured_height = -1
+        self._last_sync_width = -1
+
+    def _measure_height_for_text_width(self, text_width: int) -> float:
+        """Measure wrapped document height at *text_width*."""
+        self._document.setTextWidth(text_width)
+        return self._document.documentLayout().documentSize().height()
+
+    def _cached_height_for_text_width(self, text_width: int) -> int:
+        """Return wrap height for *text_width*, reusing the last measure when unchanged."""
+        if self._should_defer_reflow():
+            if self._cached_measured_height >= 0:
+                return self._cached_measured_height
+            return max(1, self.height())
+        if self._cached_text_width == text_width and self._cached_measured_height >= 0:
+            return self._cached_measured_height
+        doc_h = self._measure_height_for_text_width(text_width)
+        height = max(1, int(doc_h))
+        self._cached_text_width = text_width
+        self._cached_measured_height = height
+        return height
+
+    def set_reflow_deferred(self, deferred: bool) -> None:
+        """Skip expensive height sync while the chat pane width is changing."""
+        if self._reflow_deferred == deferred:
+            return
+        self._reflow_deferred = deferred
+        if not deferred and self._reflow_flush_pending:
+            self.flush_deferred_reflow()
+
+    def flush_deferred_reflow(self) -> None:
+        """Re-run layout after a deferred pane resize settles."""
+        if not self._reflow_flush_pending and not self._reflow_deferred:
+            return
+        self._reflow_deferred = False
+        self._reflow_flush_pending = False
+        self._invalidate_measured_height()
+        self._sync_height()
+
+    def _ancestor_resize_coalescing(self) -> bool:
+        """Return whether an ancestor chat panel is coalescing pane resize."""
+        parent = self.parentWidget()
+        while parent is not None:
+            checker = getattr(parent, "is_resize_coalescing", None)
+            if callable(checker):
+                return bool(checker())
+            parent = parent.parentWidget()
+        return False
+
+    def _should_defer_reflow(self) -> bool:
+        """Return whether width-triggered document layout should be skipped."""
+        return self._reflow_deferred or (not self._streaming and self._ancestor_resize_coalescing())
 
     def _render_markdown(self) -> None:
         """Render stored markdown via the full HTML pipeline."""
@@ -189,9 +251,14 @@ class MarkdownContent(QWidget):
 
     def _sync_height(self, *_args: object) -> None:
         """Resize the widget to the wrapped document height."""
+        if self._should_defer_reflow():
+            self._reflow_flush_pending = True
+            return
         width = self._content_width()
-        self._document.setTextWidth(width)
-        doc_h = self._document.documentLayout().documentSize().height()
+        if not self._streaming and width == self._last_sync_width and self.height() > 0:
+            return
+        self._last_sync_width = width
+        doc_h = self._cached_height_for_text_width(width)
         margins = self.contentsMargins()
         chrome = margins.top() + margins.bottom()
         target = max(1, int(doc_h) + chrome)
@@ -212,12 +279,16 @@ class MarkdownContent(QWidget):
     def resizeEvent(self, event) -> None:
         """Recompute height when the available width changes."""
         super().resizeEvent(event)
+        if self._should_defer_reflow():
+            self._reflow_flush_pending = True
+            return
         self._sync_height()
 
     def changeEvent(self, event: QEvent) -> None:
         """Refresh document defaults when palette or font changes."""
         super().changeEvent(event)
         if event.type() == QEvent.Type.PaletteChange or event.type() == QEvent.Type.FontChange:
+            self._invalidate_measured_height()
             self._apply_document_defaults()
             self.update()
 
@@ -229,10 +300,15 @@ class MarkdownContent(QWidget):
         """Return wrapped markdown height for *width*."""
         if width <= 0:
             return self.sizeHint().height()
+        if self._should_defer_reflow() and self._cached_measured_height >= 0:
+            margins = self.contentsMargins()
+            return self._cached_measured_height + margins.top() + margins.bottom()
         margins = self.contentsMargins()
         text_width = max(1, width - margins.left() - margins.right())
-        self._document.setTextWidth(text_width)
-        doc_h = self._document.documentLayout().documentSize().height()
+        if self._should_defer_reflow():
+            self._reflow_flush_pending = True
+            return max(1, self.height())
+        doc_h = self._cached_height_for_text_width(text_width)
         return int(doc_h) + margins.top() + margins.bottom()
 
     def paintEvent(self, event) -> None:

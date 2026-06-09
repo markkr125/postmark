@@ -308,6 +308,7 @@ tests/
    │   ├── test_ai_chat_panel.py
    │   ├── test_chat_panel_streaming.py
    │   ├── test_chat_panel_smooth_scroll.py
+   │   ├── test_chat_panel_resize.py
    │   ├── test_ai_chat_worker.py
    │   ├── test_ai_session_history_popup.py
    │   ├── test_sidebar.py

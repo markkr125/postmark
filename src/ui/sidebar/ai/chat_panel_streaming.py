@@ -168,6 +168,8 @@ class _ChatPanelStreamingMixin(_ChatPanelScrollMixin):  # type: ignore[misc]
         """Refresh sticky overlay after any transcript row layout settles."""
         if self._stream_layout_flush_in_progress:
             return
+        if getattr(self, "_resize_active", False):
+            return
         self._invalidate_sticky_extents()  # type: ignore[attr-defined]
         self._schedule_sticky_sync()  # type: ignore[attr-defined]
 

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QObject, QSize, Qt, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QLabel,
@@ -243,6 +243,7 @@ class RightSidebar(QWidget):
         self._default_panel: str | None = None
         self._splitter: QSplitter | None = None
         self._flyout_idx: int = -1
+        self._flyout_resize_handle: QWidget | None = None
 
         # Wire rail buttons
         self._ai_btn.clicked.connect(lambda: self._toggle_panel("ai"))
@@ -310,6 +311,10 @@ class RightSidebar(QWidget):
 
         # React when user drags the splitter handle.
         splitter.splitterMoved.connect(self._on_splitter_moved)
+        flyout_handle = splitter.handle(self._flyout_idx)
+        if flyout_handle is not None:
+            self._flyout_resize_handle = flyout_handle
+            flyout_handle.installEventFilter(self)
 
     # ------------------------------------------------------------------
     # Public API
@@ -350,6 +355,15 @@ class RightSidebar(QWidget):
         if not self._splitter or self._flyout_idx < 0:
             return 0
         return self._splitter.sizes()[self._flyout_idx]
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        """Track manual flyout resize drags before child layout work starts."""
+        if watched is self._flyout_resize_handle and self._active_panel == "ai":
+            if event.type() == QEvent.Type.MouseButtonPress:
+                self._ai_chat_panel._prepare_panel_resize_coalescing()
+            elif event.type() == QEvent.Type.MouseButtonRelease:
+                self._ai_chat_panel._schedule_resize_settle()
+        return super().eventFilter(watched, event)
 
     def show_request_panels(
         self,

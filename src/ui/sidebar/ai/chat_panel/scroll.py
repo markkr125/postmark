@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from typing import Any
 
-from PySide6.QtCore import QEventLoop, QPoint, QSignalBlocker, QTimer
+from PySide6.QtCore import QEventLoop, QPoint, QSignalBlocker, Qt, QTimer
 from PySide6.QtWidgets import (
     QApplication,
     QPushButton,
@@ -22,6 +22,7 @@ from ui.sidebar.ai.message_bubble import ChatMessageBubble
 
 _FOLLOW_THRESHOLD_PX = 2
 _TURN_SCROLL_MARGIN_PX = 8
+_RESIZE_SETTLE_MS = 75
 
 
 class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
@@ -48,9 +49,23 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
     _smooth_scroller: SmoothScroller
     _smooth_scroll_active: bool = False
     _sticky_sync_deferred_during_smooth: bool = False
+    _resize_active: bool = False
+    _resize_settle_timer: QTimer
+    _resize_settle_generation: int = 0
+    _resize_settle_due_generation: int = 0
+    _sticky_sync_deferred_during_resize: bool = False
 
     def _init_scroll_controller(self) -> None:
         """Connect scrollbar signals for scroll-lock follow (call from panel ``__init__``)."""
+        self._resize_active = False
+        self._resize_settle_generation = 0
+        self._resize_settle_due_generation = 0
+        self._sticky_sync_deferred_during_resize = False
+        self._resize_settle_timer = QTimer(self)  # type: ignore[arg-type]
+        self._resize_settle_timer.setSingleShot(True)
+        self._resize_settle_timer.setTimerType(Qt.TimerType.CoarseTimer)
+        self._resize_settle_timer.setInterval(_RESIZE_SETTLE_MS)
+        self._resize_settle_timer.timeout.connect(self._on_resize_settle_timer_fired)
         bar = self._scroll.verticalScrollBar()
         self._last_scroll_value = bar.value()
         self._last_scroll_maximum = bar.maximum()
@@ -343,3 +358,82 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
         btn.move(x, y)
         if btn.isVisible():
             btn.raise_()
+
+    def is_resize_coalescing(self) -> bool:
+        """Return whether continuous pane resize is deferring heavy transcript reflow."""
+        return self._resize_active
+
+    def _mark_resize_active(self) -> None:
+        """Mark an active resize drag so markdown/sticky work can coalesce."""
+        self._resize_active = True
+
+    def _schedule_resize_settle(self) -> None:
+        """Restart the settle timer after another resize step during a drag."""
+        self._resize_settle_due_generation = self._resize_settle_generation
+        self._resize_settle_timer.start(_RESIZE_SETTLE_MS)
+
+    def _bubble_intersects_viewport(self, bubble: ChatMessageBubble) -> bool:
+        """Return whether *bubble* overlaps the transcript viewport."""
+        bar = self._scroll.verticalScrollBar()
+        vp_top = bar.value()
+        vp_bottom = vp_top + self._scroll.viewport().height()
+        top = bubble.mapTo(self._messages, QPoint(0, 0)).y()
+        bottom = top + bubble.height()
+        return bottom > vp_top and top < vp_bottom
+
+    def _apply_visible_rows_reflow_during_resize(self) -> None:
+        """Enter resize coalescing without walking every transcript row."""
+        self._prepare_panel_resize_coalescing()
+
+    def _prepare_panel_resize_coalescing(self) -> None:
+        """Mark resize active before child resize events reach transcript rows."""
+        self._resize_settle_timer.stop()
+        self._resize_settle_generation += 1
+        self._mark_resize_active()
+
+    def _reconcile_visible_rows_after_resize(self) -> None:
+        """No-op hook kept for tests and future viewport-specific policy."""
+
+    def _finish_panel_resize_coalescing(self) -> None:
+        """Run cheap resize follow-ups and schedule the settle flush."""
+        if self._open_stream_generation > 0 and self._streaming_bubble is not None:
+            self._apply_streaming_viewport_spacer()
+            self._reflow_streaming_bubble_during_resize()
+        self._invalidate_sticky_extents()
+        self._reposition_scroll_down_button()
+        self._schedule_resize_settle()
+
+    def _reflow_streaming_bubble_during_resize(self) -> None:
+        """Keep the active streaming assistant row height accurate during pane resize."""
+        bubble = self._streaming_bubble
+        if bubble is None:
+            return
+        bubble.set_reflow_deferred(False)
+        body = bubble._markdown_body
+        if body is not None:
+            body.flush_deferred_reflow()
+            body._sync_height()
+
+    def _on_resize_settle_timer_fired(self) -> None:
+        """Ignore stale settle timers superseded by a newer resize step."""
+        if self._resize_settle_due_generation != self._resize_settle_generation:
+            return
+        self._on_resize_settled()
+
+    def _on_resize_settled(self) -> None:
+        """Flush deferred row reflow and sticky sync after resize input quiets."""
+        self._resize_active = False
+        self._scroll.setUpdatesEnabled(False)
+        try:
+            for index in range(self._messages_layout.count()):
+                item = self._messages_layout.itemAt(index)
+                widget = item.widget() if item is not None else None
+                if isinstance(widget, ChatMessageBubble):
+                    widget.flush_deferred_reflow()
+            self._messages.updateGeometry()
+            self._scroll.updateGeometry()
+        finally:
+            self._scroll.setUpdatesEnabled(True)
+        if self._sticky_sync_deferred_during_resize:
+            self._sticky_sync_deferred_during_resize = False
+        self._schedule_sticky_sync()

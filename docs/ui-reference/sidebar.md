@@ -231,6 +231,21 @@ so ``turn_extent + spacer == viewport_h`` while the turn is shorter than one
 viewport; panel ``resizeEvent`` and chunk flush refresh spacer height when the
 flyout is resized or content grows.
 
+**Pane resize coalescing.** Continuous flyout/splitter resize used to relayout
+every assistant ``MarkdownContent`` row on each mouse move. The right-sidebar
+splitter handle now marks ``AiChatPanel`` as ``_resize_active`` on mouse press,
+before Qt asks transcript children for height-for-width layout. While active,
+historical ``MarkdownContent`` rows keep their previous ``QTextDocument`` width
+and height; ``heightForWidth()``, ``resizeEvent()``, and ``_sync_height()`` return
+cached/current values without calling ``QTextDocument.setTextWidth()`` or
+``documentSize()``. The active streaming assistant row still reflows so live
+output remains correct. Sticky extent invalidation still runs each resize step;
+``_schedule_sticky_sync()`` is deferred until a 75ms settle timer
+(``_RESIZE_SETTLE_MS``) fires ``_on_resize_settled()``, which batch-flushes
+deferred rows and runs one sticky pass. Hidden panels skip resize work.
+``MarkdownContent`` caches measured height per text width to avoid duplicate
+``QTextDocument`` layout during ``heightForWidth`` and ``_sync_height``.
+
 **Sticky turn prompt.** While scrolling through any turn in the transcript,
 ``_sync_sticky_turn_prompt()`` picks the closest eligible user/assistant pair for
 the current viewport (not just the latest turn) and shows a read-only clone
@@ -245,8 +260,9 @@ a dirty flag; scroll-independent Y extents per pair live in ``_sticky_turn_exten
 (indexed by turn identity) and are rebuilt lazily when layout, resize, or transcript
 mutations mark them dirty. Viewport selection uses arithmetic
 (``messages_y - scroll_value``) instead of per-tick ``mapTo``. Event-driven updates
-call ``_schedule_sticky_sync()`` (one coalesced ``singleShot(0)`` pass per frame);
-explicit paths (turn scroll, load finalize, stream end) call
+call ``_schedule_sticky_sync()`` (one coalesced ``singleShot(0)`` pass per frame;
+deferred while smooth scroll animates or pane resize is coalescing);
+explicit paths (turn scroll, load finalize, stream end, resize settle) call
 ``_sync_sticky_turn_prompt()`` synchronously. When anchor, geometry, and height cap are
 unchanged, sticky sync skips all overlay widget mutation. The overlay uses
 ``WA_TransparentForMouseEvents``, does not change scroll range,

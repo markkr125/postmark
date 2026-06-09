@@ -346,6 +346,21 @@ class ChatMessageBubble(QWidget):
             return max(1, self.height())
         return max(1, self._user_frame.height())
 
+    def set_reflow_deferred(self, deferred: bool) -> None:
+        """Defer or resume width reflow for this row during an active pane resize."""
+        if self._markdown_body is not None:
+            self._markdown_body.set_reflow_deferred(deferred)
+        if self._user_label is not None:
+            self._user_label.set_reflow_deferred(deferred)
+
+    def flush_deferred_reflow(self) -> None:
+        """Flush deferred reflow on child text widgets and refresh row geometry."""
+        if self._markdown_body is not None:
+            self._markdown_body.flush_deferred_reflow()
+        if self._user_label is not None:
+            self._user_label.flush_deferred_reflow()
+        self.updateGeometry()
+
     def prepare_sticky_overlay(self) -> None:
         """Compact row chrome so a viewport sticky clone can pin flush to the top."""
         if self._role != "user":

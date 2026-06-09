@@ -495,13 +495,13 @@ class AiChatPanel(_ChatPanelStreamingMixin, QWidget):  # type: ignore[misc]
         self.attachments_changed.emit(self.attachments())
 
     def resizeEvent(self, event: QResizeEvent) -> None:
-        """Refresh streaming viewport spacer and scroll-down button position."""
+        """Coalesce transcript reflow during continuous pane resize."""
+        if self.isVisible():
+            self._prepare_panel_resize_coalescing()
         super().resizeEvent(event)
-        if self._open_stream_generation > 0 and self._streaming_bubble is not None:
-            self._apply_streaming_viewport_spacer()
-        self._invalidate_sticky_extents()
-        self._schedule_sticky_sync()
-        self._reposition_scroll_down_button()
+        if self.isVisible():
+            self._reconcile_visible_rows_after_resize()
+            self._finish_panel_resize_coalescing()
 
     def _on_send(self) -> None:
         """Send a message, or request stop while a run is in flight."""

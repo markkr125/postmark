@@ -122,6 +122,9 @@ class _ChatPanelStickyPromptMixin:  # type: ignore[misc]
         if getattr(self, "_smooth_scroll_active", False):
             self._sticky_sync_deferred_during_smooth = True
             return
+        if getattr(self, "_resize_active", False):
+            self._sticky_sync_deferred_during_resize = True
+            return
         self._sticky_sync_pending = True
         if not self._sticky_sync_frame_pending:
             self._sticky_sync_frame_pending = True
