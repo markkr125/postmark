@@ -172,11 +172,13 @@ Prose (bold, lists, links) is converted with Qt ``QTextDocument.setMarkdown``.
 Fenced code blocks are split out and rendered as themed HTML: Pygments syntax
 highlighting (palette editor token colours), line numbers, language label, and
 ``pre-wrap`` wrapping for long one-liners. The block chrome is a sharp-cornered
-``1px`` table frame (``ThemePalette`` ``border`` on all sides, header rule under
-the language label). Inline `` `code` `` spans get a muted pill style. Inner block
-chrome uses inline styles from ``ThemePalette`` (QSS does not apply inside
-rich-text HTML). ``ThemeManager.theme_changed`` re-renders stored markdown on live
-assistant rows.
+``1px`` single flat table frame (``ThemePalette`` ``border`` on perimeter cells
+only — no nested tables, so Qt does not paint a second inner box around the code
+area). Header row shows the language label with a bottom rule; code rows use gutter
++ code cells with ``border-collapse:separate``. Inline `` `code` `` spans get a
+muted pill style. Fenced-block chrome uses inline styles from ``ThemePalette``
+(QSS does not apply inside rich-text HTML). ``ThemeManager.theme_changed``
+re-renders stored markdown on live assistant rows.
 
 **Streaming performance.** Worker ``chunk_received`` deltas are coalesced on the
 GUI thread (~50ms) before updating the active bubble. Rich markdown stays live

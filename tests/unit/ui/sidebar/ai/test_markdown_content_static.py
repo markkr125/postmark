@@ -6,10 +6,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from PySide6.QtCore import QPointF, Qt, QUrl
-from PySide6.QtGui import QMouseEvent
+from PySide6.QtGui import QColor, QImage, QMouseEvent
 from PySide6.QtWidgets import QApplication, QTextBrowser
 
 from ui.sidebar.ai.message_bubble.markdown_content import MarkdownContent
+from ui.styling.theme import current_palette
 
 
 def test_finalized_body_is_qwidget_not_qtextbrowser(qapp: QApplication, qtbot) -> None:
@@ -143,3 +144,76 @@ def test_wheel_forwards_to_ancestor_scroll_area(
     )
     assert QApplication.sendEvent(body, wheel)
     assert forwarded == [True]
+
+
+def test_fenced_code_block_paint_strokes_full_border(qapp: QApplication, qtbot) -> None:
+    """Fenced-code tables get a painted 1px frame on all four sides."""
+    body = MarkdownContent("```python\nprint(1)\n```")
+    qtbot.addWidget(body)
+    body.resize(360, 200)
+    body.show()
+    qtbot.waitExposed(body)
+
+    image = QImage(body.size(), QImage.Format.Format_ARGB32)
+    image.fill(Qt.GlobalColor.transparent)
+    body.render(image)
+
+    border = QColor(current_palette()["border"])
+    width = image.width()
+    height = image.height()
+    border_pixels = [
+        (x, y) for y in range(height) for x in range(width) if QColor(image.pixel(x, y)) == border
+    ]
+    assert border_pixels, "expected painted border strokes"
+    xs = [x for x, _ in border_pixels]
+    ys = [y for _, y in border_pixels]
+    left, right = min(xs), max(xs)
+    top, bottom = min(ys), max(ys)
+    assert right - left > 50
+    assert bottom - top > 20
+    assert QColor(image.pixel(left, top)) == border
+    assert QColor(image.pixel(right, top)) == border
+    assert QColor(image.pixel(left, bottom)) == border
+
+
+def _border_x_clusters_on_row(image: QImage, y: int, border: QColor) -> list[list[int]]:
+    """Group contiguous border-coloured x positions on row *y* into clusters."""
+    xs = [x for x in range(image.width()) if QColor(image.pixel(x, y)) == border]
+    if not xs:
+        return []
+    clusters: list[list[int]] = [[xs[0]]]
+    for x in xs[1:]:
+        if x - clusters[-1][-1] > 2:
+            clusters.append([x])
+        else:
+            clusters[-1].append(x)
+    return clusters
+
+
+def test_fenced_code_block_no_inner_border_rectangle(qapp: QApplication, qtbot) -> None:
+    """Code area should not paint a second inset border inside the outer frame."""
+    body = MarkdownContent("```python\n" + "x = 1\n" * 8 + "```")
+    qtbot.addWidget(body)
+    body.resize(360, 280)
+    body.show()
+    qtbot.waitExposed(body)
+
+    image = QImage(body.size(), QImage.Format.Format_ARGB32)
+    image.fill(Qt.GlobalColor.transparent)
+    body.render(image)
+
+    border = QColor(current_palette()["border"])
+    border_pixels = [
+        (x, y)
+        for y in range(image.height())
+        for x in range(image.width())
+        if QColor(image.pixel(x, y)) == border
+    ]
+    assert border_pixels, "expected painted border strokes"
+    ys = [y for _, y in border_pixels]
+    top, bottom = min(ys), max(ys)
+    scan_y = top + (bottom - top) // 2
+    clusters = _border_x_clusters_on_row(image, scan_y, border)
+    assert len(clusters) == 2, (
+        f"expected outer left/right border only on scan line, got {len(clusters)} clusters"
+    )

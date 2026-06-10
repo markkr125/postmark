@@ -718,6 +718,14 @@ poetry run ruff format --check src/ tests/ # formatter clean
 poetry run mypy src/ tests/                # type checker clean
 ```
 
+> **CRITICAL — Do not disable pytest parallelism for full-suite runs.**
+> Use plain `poetry run pytest` so `pyproject.toml` addopts apply (`-n auto`,
+> `--dist loadfile`, `--timeout=120`). That finishes in about **2–3 minutes**.
+> **Never** run the full suite with `-n0` or `--numprocesses=0` for routine
+> validation — single-process runs take **~10+ minutes** and feel hung.
+> Reserve `-n0` only for debugging one file or one failing test (e.g.
+> `poetry run pytest tests/ui/sidebar/test_chat_panel_resize.py -q -n0`).
+
 > **ZERO tolerance for errors — including pre-existing ones.**
 > Every command above must exit with **zero** errors, warnings, or
 > suggestions.  If you find a pre-existing error (lint, type, format,

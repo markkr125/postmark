@@ -3,10 +3,11 @@
 ## Quick rules — read these first
 
 1. **Run `poetry run pytest` after every change** — all tests must pass.
-   Use the default addopts (`-n auto`, ~2–3 minutes). Avoid `-n0` unless
-   debugging a single file; the full suite takes ~11 minutes single-process
-   and can look hung. A **120s per-test timeout** (`pytest-timeout`) aborts
-   stuck tests instead of blocking the run indefinitely.
+   Use default addopts (`-n auto`; ~2–3 minutes). **Do not** use `-n0` for
+   full-suite validation — see the parallel-run warning in
+   [AGENTS.md](../AGENTS.md) (CRITICAL — Verify after every change).
+   Reserve `-n0` for single-file debugging only. A **120s per-test timeout**
+   (`pytest-timeout`) aborts stuck tests instead of blocking the run indefinitely.
 2. **Also run `poetry run ruff check src/ tests/`,
    `poetry run ruff format --check src/ tests/`, and
    `poetry run mypy src/ tests/`** — see [AGENTS.md](../AGENTS.md) for the
@@ -164,6 +165,7 @@ tests/
 │   │   │   ├── test_chat_markdown_fence_split.py
 │   │   │   ├── test_chat_markdown_highlight.py
 │   │   │   ├── test_chat_markdown_highlight_cache.py
+│   │   │   ├── test_markdown_code_block_chrome.py
 │   │   │   ├── test_chat_markdown_render.py
 │   │   │   ├── test_chat_markdown_streaming.py
 │   │   │   ├── test_chat_markdown_streaming_render.py
