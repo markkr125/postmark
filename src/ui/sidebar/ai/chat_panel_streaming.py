@@ -153,6 +153,13 @@ class _ChatPanelStreamingMixin(_ChatPanelScrollMixin):  # type: ignore[misc]
                 hook.layout_height_changed.disconnect(self._on_transcript_bubble_layout_changed)
         self._transcript_layout_hooks = []
 
+    def _ensure_assistant_layout_hook(self, bubble: ChatMessageBubble) -> None:
+        """Connect one assistant row for transcript relayout and scroll compensation."""
+        if bubble in self._transcript_layout_hooks:
+            return
+        bubble.layout_height_changed.connect(self._on_transcript_bubble_layout_changed)
+        self._transcript_layout_hooks.append(bubble)
+
     def _attach_transcript_layout_hooks(self) -> None:
         """Follow markdown height changes on every assistant row in the transcript."""
         self._detach_transcript_layout_hooks()
@@ -161,8 +168,7 @@ class _ChatPanelStreamingMixin(_ChatPanelScrollMixin):  # type: ignore[misc]
             widget = item.widget() if item is not None else None
             if not isinstance(widget, ChatMessageBubble) or widget.role != "assistant":
                 continue
-            widget.layout_height_changed.connect(self._on_transcript_bubble_layout_changed)
-            self._transcript_layout_hooks.append(widget)
+            self._ensure_assistant_layout_hook(widget)
 
     def _on_transcript_bubble_layout_changed(self) -> None:
         """Refresh sticky overlay after any transcript row layout settles."""
@@ -250,6 +256,8 @@ class _ChatPanelStreamingMixin(_ChatPanelScrollMixin):  # type: ignore[misc]
         )
         self._messages_layout.addWidget(bubble)
         self._invalidate_sticky_turn_pairs()  # type: ignore[attr-defined]
+        if role == "assistant":
+            self._ensure_assistant_layout_hook(bubble)
         return bubble
 
     def last_assistant_thinking_duration_seconds(self) -> int | None:

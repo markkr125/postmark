@@ -66,7 +66,7 @@ class AiChatPanel(_ChatPanelStreamingMixin, QWidget):  # type: ignore[misc]
         self._mode_popup = AiAgentModePopup.instance()
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(0, 4, 0, 8)
+        root.setContentsMargins(0, 4, 0, 0)
         root.setSpacing(8)
 
         # --- Transcript ------------------------------------------------
@@ -132,8 +132,9 @@ class AiChatPanel(_ChatPanelStreamingMixin, QWidget):  # type: ignore[misc]
         # --- Composer --------------------------------------------------
         composer = QWidget()
         composer.setObjectName("aiChatComposer")
+        composer.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         composer_layout = QVBoxLayout(composer)
-        composer_layout.setContentsMargins(_CHAT_COMPOSER_MARGIN_H, 8, _CHAT_COMPOSER_MARGIN_H, 0)
+        composer_layout.setContentsMargins(_CHAT_COMPOSER_MARGIN_H, 8, _CHAT_COMPOSER_MARGIN_H, 8)
         composer_layout.setSpacing(6)
 
         # Attachment chips (row hidden until a file is added)

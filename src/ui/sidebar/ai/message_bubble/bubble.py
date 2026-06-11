@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QPoint, Qt, Signal
 from PySide6.QtGui import QColor, QLinearGradient, QPainter, QResizeEvent
 from PySide6.QtWidgets import QFrame, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
@@ -15,7 +15,7 @@ from ui.sidebar.ai.message_bubble.activity_row import AssistantActivityRow
 from ui.sidebar.ai.message_bubble.markdown_content import MarkdownContent
 from ui.sidebar.ai.message_bubble.thought_section import ThoughtSection
 from ui.sidebar.ai.message_bubble.wrapping_label import _WrappingLabel
-from ui.styling.theme import current_palette
+from ui.styling.theme import ThemePalette, current_palette
 
 ChatRole = Literal["user", "assistant"]
 
@@ -32,10 +32,14 @@ class _UserMessageBottomFade(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self.setFixedHeight(_USER_MESSAGE_FADE_HEIGHT_PX)
 
+    def _fade_base_color(self, palette: ThemePalette) -> QColor:
+        """Return the solid colour the bottom fade should blend into."""
+        return QColor(palette["composer_bg"])
+
     def paintEvent(self, _event: object) -> None:
         """Paint a vertical fade from transparent to the user bubble background."""
         palette = current_palette()
-        base = QColor(palette["bg_alt"])
+        base = self._fade_base_color(palette)
         gradient = QLinearGradient(0.0, 0.0, 0.0, float(self.height()))
         gradient.setColorAt(0.0, QColor(base.red(), base.green(), base.blue(), 0))
         gradient.setColorAt(1.0, base)
@@ -85,6 +89,7 @@ class ChatMessageBubble(QWidget):
         self._stream_row_floor_px = 0
         self._defer_layout_height_changed = False
         self._layout_height_pending = False
+        self._scroll_compensation_capture: tuple[int, int] | None = None
 
         if role == "user":
             frame = QFrame()
@@ -300,6 +305,47 @@ class ChatMessageBubble(QWidget):
         if layout_pending or height_pending:
             self.layout_height_changed.emit()
 
+    def begin_scroll_compensation_capture(self, thought: ThoughtSection) -> None:
+        """Record thought height before a thought expand/collapse changes layout."""
+        messages = self.parentWidget()
+        if messages is None:
+            self._scroll_compensation_capture = None
+            return
+        anchor_y = thought.mapTo(messages, QPoint(0, thought.height())).y()
+        self._scroll_compensation_capture = (anchor_y, thought.sizeHint().height())
+
+    def consume_scroll_compensation(self) -> tuple[int, int] | None:
+        """Return ``(anchor_messages_y, delta_px)`` after a thought toggle, if any."""
+        capture = self._scroll_compensation_capture
+        self._scroll_compensation_capture = None
+        if capture is None or self._thought_section is None:
+            return None
+        anchor_y, before_thought_h = capture
+        delta_px = self._thought_section.sizeHint().height() - before_thought_h
+        if delta_px == 0:
+            return None
+        return anchor_y, delta_px
+
+    def _ancestor_chat_panel(self) -> QWidget | None:
+        """Return the enclosing ``AiChatPanel``, if this row lives in one."""
+        widget: QWidget | None = self
+        while widget is not None:
+            if widget.objectName() == "aiChatPanel":
+                return widget
+            widget = widget.parentWidget()
+        return None
+
+    def _apply_thought_toggle_scroll_compensation(self) -> None:
+        """Keep viewport content stable after the thought body expands or collapses."""
+        compensation = self.consume_scroll_compensation()
+        if compensation is None:
+            return
+        panel = self._ancestor_chat_panel()
+        if panel is None or not hasattr(panel, "_compensate_scroll_for_messages_growth"):
+            return
+        anchor_y, delta_px = compensation
+        panel._compensate_scroll_for_messages_growth(self, anchor_y, delta_px)  # type: ignore[attr-defined]
+
     def _on_thought_layout_changed(self) -> None:
         """Propagate thought expand/collapse to the transcript scroll layer."""
         if self._defer_layout_height_changed:
@@ -310,6 +356,7 @@ class ChatMessageBubble(QWidget):
         else:
             self._commit_stream_row_layout()
         self.updateGeometry()
+        self._apply_thought_toggle_scroll_compensation()
         self.layout_height_changed.emit()
 
     def _on_markdown_height_changed(self) -> None:

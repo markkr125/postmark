@@ -153,10 +153,15 @@ recomputed from content instead.
 #### User messages
 
 User prompts render in ``aiChatMessageUser`` (``ChatMessageBubble`` user row) with
-wrapped text in ``aiChatUserMessageText``. A muted ``aiChatUserMessageTime`` label
+``composer_bg`` (same as the composer footer and sticky user clone) and wrapped
+text in ``aiChatUserMessageText``. A muted ``aiChatUserMessageTime`` label
 inside the bubble below the prompt shows when the message was sent (local date and
 clock, e.g. ``Jun 7, 2:39 PM``). New sends pass ``sent_at=datetime.now(UTC)``;
 ``load_transcript`` restores user rows from persisted ``created_at``.
+
+**Thought block.** ``aiChatThoughtToggle`` expands or collapses ``aiChatThoughtText``
+above the answer. Toggling adjusts the transcript scroll offset so visible answer
+content stays in place instead of jumping.
 
 #### Assistant answer markdown
 
@@ -253,8 +258,8 @@ deferred rows and runs one sticky pass. Hidden panels skip resize work.
 ``QTextDocument`` layout during ``heightForWidth`` and ``_sync_height``.
 
 **Sticky turn prompt.** While scrolling through any turn in the transcript,
-``_sync_sticky_turn_prompt()`` picks the closest eligible user/assistant pair for
-the current viewport (not just the latest turn) and shows a read-only clone
+``_sync_sticky_turn_prompt()`` picks the newest eligible user/assistant pair for
+the current viewport and shows a read-only clone
 (``aiChatStickyTurnPrompt``) pinned to the top of ``aiChatScroll``'s viewport.
 The clone copies the anchor user prompt and ``sent_at`` timestamp, compacts row
 margins to pin flush to the viewport top, keeps at least 3px inset from the
@@ -263,9 +268,10 @@ user bubble.
 Sticky overlay logic lives in ``chat_panel/sticky_prompt.py``
 (``_ChatPanelStickyPromptMixin``). Turn pairs are cached in ``_sticky_turn_pairs`` with
 a dirty flag; scroll-independent Y extents per pair live in ``_sticky_turn_extents``
-(indexed by turn identity) and are rebuilt lazily when layout, resize, or transcript
-mutations mark them dirty. Viewport selection uses arithmetic
-(``messages_y - scroll_value``) instead of per-tick ``mapTo``. Event-driven updates
+(indexed by turn identity) with user top/bottom and assistant top/bottom in
+messages coordinates; each sticky sync rebuilds extents from the live layout.
+Viewport selection uses arithmetic (``messages_y - scroll_value``) instead of
+per-tick ``mapTo`` during scroll. Event-driven updates
 call ``_schedule_sticky_sync()`` (one coalesced ``singleShot(0)`` pass per frame;
 deferred while smooth scroll animates or pane resize is coalescing);
 explicit paths (turn scroll, load finalize, stream end, resize settle) call
@@ -273,9 +279,12 @@ explicit paths (turn scroll, load finalize, stream end, resize settle) call
 unchanged, sticky sync skips all overlay widget mutation. The overlay uses
 ``WA_TransparentForMouseEvents``, does not change scroll range,
 and is clamped to 35% of viewport height for tall prompts (``aiChatUserMessageFade``
-gradient at the clipped bottom). It hides when the real user bubble is visible near
-the top, when the turn answer has scrolled fully above the viewport, or when the
-assistant bottom no longer extends below the sticky overlay height. ``_turn_scroll_anchor``
+gradient at the clipped bottom). It hides when any later turn's user bubble is
+still visible near the viewport top (so an older prompt is not pinned underneath),
+when the selected turn's real user bubble is visible near the top, when the turn
+answer has scrolled fully above the viewport, when the assistant row does not
+intersect the viewport, or when the assistant bottom no longer extends below the
+sticky overlay height. ``_turn_scroll_anchor``
 remains the streaming turn-start anchor; ``_sticky_turn_anchor`` is the visual
 overlay source selected from viewport position. ``load_transcript`` +
 ``_finish_load_transcript_layout`` re-lays out markdown at the real viewport width
@@ -344,6 +353,10 @@ _COMPOSER_QSS_VERTICAL_PADDING = 12
 - [x] Removed ``setFixedHeight(72)`` from ``AiChatPanel.__init__``.
 - [x] Unit/UI tests for grow, cap, shrink.
 - [x] ``src/ui/AGENTS.md`` ``aiChatInput`` row; this section in ``sidebar.md``.
+
+The composer chrome (``aiChatComposer``) uses ``composer_bg`` — slightly darker
+than the transcript ``bg``, lighter than the mode pill. The text field keeps
+``input_bg``.
 
 The composer **mode** control is a compact pill (``aiChatModeButton``): mode icon,
 label, and caret on a **darker** background (``composer_pill_dark_bg`` in

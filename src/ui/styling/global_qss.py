@@ -1552,7 +1552,7 @@ def build_global_qss(p: ThemePalette) -> str:
         border-color: {p["accent"]};
     }}
     QFrame[objectName="aiChatMessageUser"] {{
-        background: {p["bg_alt"]};
+        background: {p["composer_bg"]};
         border: 1px solid {p["border"]};
         border-radius: 5px;
     }}
@@ -1614,7 +1614,7 @@ def build_global_qss(p: ThemePalette) -> str:
         padding-left: 14px;
     }}
     QWidget[objectName="aiChatComposer"] {{
-        background: {p["bg"]};
+        background: {p["composer_bg"]};
         border-top: 1px solid {p["border"]};
         border-right: 1px solid {p["border"]};
     }}

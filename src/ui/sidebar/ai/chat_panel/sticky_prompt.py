@@ -25,6 +25,8 @@ class StickyTurnExtent(NamedTuple):
     user: ChatMessageBubble
     assistant: ChatMessageBubble
     user_top_messages: int
+    user_bottom_messages: int
+    assistant_top_messages: int
     assistant_bottom_messages: int
 
 
@@ -82,8 +84,17 @@ class _ChatPanelStickyPromptMixin:  # type: ignore[misc]
             if not isValid(user) or not isValid(assistant):
                 continue
             user_top = user.mapTo(self._messages, QPoint(0, 0)).y()
+            user_bottom = user.mapTo(self._messages, QPoint(0, user.height())).y()
+            assistant_top = assistant.mapTo(self._messages, QPoint(0, 0)).y()
             assistant_bottom = assistant.mapTo(self._messages, QPoint(0, assistant.height())).y()
-            extent = StickyTurnExtent(user, assistant, user_top, assistant_bottom)
+            extent = StickyTurnExtent(
+                user,
+                assistant,
+                user_top,
+                user_bottom,
+                assistant_top,
+                assistant_bottom,
+            )
             extents.append(extent)
             extent_by_pair[(id(user), id(assistant))] = extent
         self._sticky_turn_extents = extents
@@ -100,15 +111,20 @@ class _ChatPanelStickyPromptMixin:  # type: ignore[misc]
         self,
         anchor: ChatMessageBubble,
         assistant: ChatMessageBubble,
-    ) -> tuple[int, int] | None:
-        """Return cached ``(user_top, assistant_bottom)`` in messages coordinates."""
+    ) -> tuple[int, int, int, int] | None:
+        """Return cached turn Y extents in messages coordinates."""
         extent = self._sticky_extent_by_pair.get((id(anchor), id(assistant)))
         if extent is None:
             self._ensure_sticky_turn_extents()
             extent = self._sticky_extent_by_pair.get((id(anchor), id(assistant)))
         if extent is None:
             return None
-        return extent.user_top_messages, extent.assistant_bottom_messages
+        return (
+            extent.user_top_messages,
+            extent.user_bottom_messages,
+            extent.assistant_top_messages,
+            extent.assistant_bottom_messages,
+        )
 
     def _reset_sticky_applied_state(self) -> None:
         """Clear last-applied sticky overlay geometry and visibility."""
@@ -145,27 +161,35 @@ class _ChatPanelStickyPromptMixin:  # type: ignore[misc]
         # Keep typical 2-line prompts + timestamp uncropped; still clamp very tall turns.
         return max(ratio_cap, min(viewport_h - 16, 120))
 
+    def _assistant_intersects_viewport(self, assistant_top_y: int, assistant_bottom_y: int) -> bool:
+        """Return whether the assistant row overlaps the transcript viewport."""
+        viewport_h = self._scroll.viewport().height()
+        return assistant_bottom_y > 0 and assistant_top_y < viewport_h
+
+    def _user_prompt_visible_near_viewport_top(self, user_top_y: int) -> bool:
+        """Return whether the user prompt still sits at the top of the viewport."""
+        viewport_h = self._scroll.viewport().height()
+        return user_top_y >= -_STICKY_PROMPT_MARGIN_PX and user_top_y < viewport_h
+
     def _sticky_turn_for_viewport(
         self,
         sticky_h_estimate: int,
     ) -> tuple[ChatMessageBubble, ChatMessageBubble] | None:
-        """Return the closest eligible user/assistant turn for the current viewport."""
+        """Return the newest eligible user/assistant turn for the current viewport."""
         scroll_val = self._scroll.verticalScrollBar().value()
-        best: tuple[ChatMessageBubble, ChatMessageBubble] | None = None
-        best_user_y = -(10**9)
-        for extent in self._ensure_sticky_turn_extents():
+        for extent in reversed(self._ensure_sticky_turn_extents()):
             user_y = extent.user_top_messages - scroll_val
+            if self._user_prompt_visible_near_viewport_top(user_y):
+                # A later turn still shows its user prompt — do not pin an older one.
+                return None
+            assistant_top_y = extent.assistant_top_messages - scroll_val
             assistant_bottom_y = extent.assistant_bottom_messages - scroll_val
-            if assistant_bottom_y <= 0:
+            if not self._assistant_intersects_viewport(assistant_top_y, assistant_bottom_y):
                 continue
             if assistant_bottom_y <= sticky_h_estimate + _STICKY_PROMPT_TOP_PX:
                 continue
-            if user_y >= -_STICKY_PROMPT_MARGIN_PX:
-                continue
-            if user_y > best_user_y:
-                best_user_y = user_y
-                best = (extent.user, extent.assistant)
-        return best
+            return (extent.user, extent.assistant)
+        return None
 
     def _clear_sticky_turn_prompt(self) -> None:
         """Remove the sticky turn prompt overlay from the viewport."""
@@ -264,6 +288,8 @@ class _ChatPanelStickyPromptMixin:  # type: ignore[misc]
         if viewport_w <= 0:
             return
 
+        self._ensure_sticky_turn_pairs()
+        self._rebuild_sticky_turn_extents()
         cap = self._sticky_prompt_height_cap()
         selected = self._sticky_turn_for_viewport(cap)
         if selected is None:
@@ -276,7 +302,7 @@ class _ChatPanelStickyPromptMixin:  # type: ignore[misc]
             self._hide_sticky_unless_already_hidden()
             return
 
-        user_top, assistant_bottom = messages_y
+        user_top, _user_bottom, _assistant_top, assistant_bottom = messages_y
         scroll_val = self._scroll.verticalScrollBar().value()
         assistant_bottom_y = assistant_bottom - scroll_val
         anchor_y = user_top - scroll_val
@@ -289,7 +315,7 @@ class _ChatPanelStickyPromptMixin:  # type: ignore[misc]
             self._hide_sticky_unless_already_hidden()
             return
 
-        if anchor_y >= -_STICKY_PROMPT_MARGIN_PX:
+        if self._user_prompt_visible_near_viewport_top(anchor_y):
             self._hide_sticky_unless_already_hidden()
             return
 

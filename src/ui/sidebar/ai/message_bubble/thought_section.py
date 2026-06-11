@@ -116,6 +116,9 @@ class ThoughtSection(QFrame):
         return self._header.text().strip()
 
     def _toggle(self) -> None:
+        bubble = self.parentWidget()
+        if bubble is not None and hasattr(bubble, "begin_scroll_compensation_capture"):
+            bubble.begin_scroll_compensation_capture(self)
         self._expanded = not self._expanded
         self._label.setVisible(self._expanded and self.has_text())
         self._refresh_header()

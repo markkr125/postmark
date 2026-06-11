@@ -381,6 +381,24 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
         bottom = top + bubble.height()
         return bottom > vp_top and top < vp_bottom
 
+    def _compensate_scroll_for_messages_growth(
+        self,
+        bubble: ChatMessageBubble,
+        _anchor_messages_y: int,
+        delta_px: int,
+    ) -> None:
+        """Keep on-screen content stable when a visible row grows."""
+        if delta_px == 0 or not isValid(self._scroll):
+            return
+        if not self._bubble_intersects_viewport(bubble):
+            return
+        bar = self._scroll.verticalScrollBar()
+        scroll_val = bar.value()
+        self._set_bar_value(
+            bar,
+            max(bar.minimum(), min(bar.maximum(), scroll_val + delta_px)),
+        )
+
     def _apply_visible_rows_reflow_during_resize(self) -> None:
         """Enter resize coalescing without walking every transcript row."""
         self._prepare_panel_resize_coalescing()

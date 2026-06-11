@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pytest
 from PySide6.QtCore import QPoint, QPointF, Qt, QTimer
 from PySide6.QtGui import QWheelEvent
-from PySide6.QtWidgets import QApplication, QLabel, QLayout, QTextBrowser, QWidget
+from PySide6.QtWidgets import QApplication, QLabel, QLayout, QPushButton, QTextBrowser, QWidget
 
 from services.ai.chat.session_service import AiChatMessageDict
 from ui.sidebar.ai import AiChatPanel
@@ -1349,6 +1349,59 @@ def test_sticky_user_prompt_persists_after_stream_for_same_turn(qapp: QApplicati
     assert sticky.isVisible()
 
 
+def test_sticky_user_prompt_updates_to_later_turn_when_scrolling(qapp: QApplication, qtbot) -> None:
+    """Scrolling into a later turn pins that turn's user prompt, not the first."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitExposed(panel)
+    panel.resize(360, 280)
+    _ensure_transcript_scroll_range(panel, qapp)
+    panel.add_message("user", "first question")
+    panel.add_message("assistant", "first answer line\n" * 40)
+    panel.add_message("user", "second question")
+    panel.add_message("assistant", "second answer line\n" * 40)
+    qapp.processEvents()
+    second_user = _user_bubble_with_text(panel, "second question")
+    _scroll_until_user_above_viewport(panel, second_user, qapp)
+    sticky = _sticky_turn_prompt(panel)
+    assert sticky is not None
+    assert sticky.isVisible()
+    assert sticky.text() == "second question"
+
+
+def test_sticky_user_prompt_hides_while_later_turn_user_is_visible(
+    qapp: QApplication, qtbot
+) -> None:
+    """Do not pin an older turn while the current turn's user bubble is on screen."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitExposed(panel)
+    panel.resize(360, 280)
+    for index in range(12):
+        panel.add_message("user", f"fill {index} " * 10)
+    panel.add_message("user", "first question")
+    panel.add_message("assistant", "first answer line\n" * 40)
+    panel.add_message("user", "second question")
+    panel.add_message("assistant", "second answer line\n" * 40)
+    qapp.processEvents()
+    second_user = _user_bubble_with_text(panel, "second question")
+    bar = panel._scroll.verticalScrollBar()
+    viewport_h = panel._scroll.viewport().height()
+    for scroll_val in range(0, bar.maximum() + 1, 4):
+        bar.setValue(scroll_val)
+        qapp.processEvents()
+        second_top = panel._widget_top_in_viewport(second_user)
+        if not (0 <= second_top < viewport_h):
+            continue
+        panel._sync_sticky_turn_prompt()
+        sticky = _sticky_turn_prompt(panel)
+        assert sticky is None or not sticky.isVisible() or sticky.text() != "first question"
+        return
+    pytest.fail("could not find scroll position with a visible later-turn user prompt")
+
+
 def test_sticky_user_prompt_clears_on_new_turn(qapp: QApplication, qtbot) -> None:
     """Starting a new turn clears the previous sticky overlay."""
     panel = AiChatPanel()
@@ -1771,6 +1824,40 @@ def test_wheel_over_assistant_text_scrolls_transcript(qapp: QApplication, qtbot)
     _wheel_on_widget(body, delta_y=120)
     _drain_smooth_scroll(panel, qapp, qtbot)
     assert bar.value() < value_before
+
+
+def test_thought_toggle_compensates_scroll_to_avoid_answer_jump(qapp: QApplication, qtbot) -> None:
+    """Expanding thought keeps the answer body at the same viewport position."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitExposed(panel)
+    panel.resize(360, 400)
+    panel.add_message("user", "what about python?")
+    bubble = panel.add_message(
+        "assistant",
+        "answer line\n" * 40,
+        thinking="internal reasoning line\n" * 10,
+        thinking_duration_seconds=18,
+    )
+    qapp.processEvents()
+    body = bubble.findChild(MarkdownContent, "aiChatAssistantText")
+    assert body is not None
+    toggle = bubble.findChild(QPushButton, "aiChatThoughtToggle")
+    assert toggle is not None
+    bar = panel._scroll.verticalScrollBar()
+    bar.setValue(0)
+    qapp.processEvents()
+    assert panel._bubble_intersects_viewport(bubble)
+    answer_top_before = panel._widget_top_in_viewport(body)
+    scroll_before = bar.value()
+    toggle.click()
+    qapp.processEvents()
+    assert bubble.is_thinking_expanded()
+    answer_top_after = panel._widget_top_in_viewport(body)
+    assert abs(answer_top_after - answer_top_before) <= 4
+    if scroll_before < bar.maximum():
+        assert bar.value() > scroll_before
 
 
 def test_wheel_over_thought_text_scrolls_transcript(qapp: QApplication, qtbot) -> None:
