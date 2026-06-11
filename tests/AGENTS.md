@@ -8,6 +8,8 @@
    [AGENTS.md](../AGENTS.md) (CRITICAL — Verify after every change).
    Reserve `-n0` for single-file debugging only. A **120s per-test timeout**
    (`pytest-timeout`) aborts stuck tests instead of blocking the run indefinitely.
+   **``--max-worker-restart=8``** stops the session when xdist workers segfault
+   repeatedly instead of replacing them forever.
 2. **Also run `poetry run ruff check src/ tests/`,
    `poetry run ruff format --check src/ tests/`, and
    `poetry run mypy src/ tests/`** — see [AGENTS.md](../AGENTS.md) for the
@@ -29,6 +31,12 @@
    the stubs mark as optional.
 5. **UI tests need `qapp` and `qtbot` fixtures.**  Register widgets with
    `qtbot.addWidget(widget)`.
+5b. **Qt widget destruction in tests** — never ``del`` a visible ``QWidget`` and
+   hammer ``gc.collect()`` in a loop; that can segfault Shiboken during parallel
+   runs. Use ``tests/qt_widget_lifecycle.py`` (``dispose_qt_widget``,
+   ``run_gc_after_qt_flush``, ``wait_for_weakrefs_cleared``). Memory-leak tests
+   in ``test_code_editor_memory.py`` use ``pytest.mark.xdist_group("code_editor_memory")``
+   so they run serially on one worker.
 6. **The `_no_fetch` fixture is autouse in `tests/ui/`** — it prevents
    `CollectionWidget` from spawning a background thread.  You do not need
    to apply it manually.
@@ -173,7 +181,8 @@ tests/
 │   │   │   ├── test_markdown_content_static.py
 │   │   │   ├── test_chat_time_format.py
 │   │   │   ├── test_thought_collapse_height.py
-│   │   │   └── test_bubble_stream_row_height.py
+│   │   │   ├── test_bubble_stream_row_height.py
+│   │   │   └── test_user_message_collapse.py
 │   │   └── widgets/
 │   │       ├── test_text_format_helpers.py
 │   │       └── test_text_format_async.py
@@ -282,7 +291,7 @@ tests/
     │   ├── test_code_editor.py
     │   ├── test_code_editor_folding.py
     │   ├── test_code_editor_painting.py
-    │   ├── test_code_editor_memory.py
+    │   ├── test_code_editor_memory.py  # xdist_group code_editor_memory; qt_widget_lifecycle teardown
     │   ├── test_code_editor_minimap.py
     │   ├── test_completion_engine.py
     │   ├── test_completion_engine_top_level.py

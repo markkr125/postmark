@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Literal, NamedTuple
 
 from PySide6.QtCore import QPoint, Qt, Signal
-from PySide6.QtGui import QColor, QLinearGradient, QPainter, QResizeEvent
 from PySide6.QtWidgets import QFrame, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from ui.sidebar.ai.chat_sessions.time_format import format_message_sent_at
@@ -14,37 +13,19 @@ from ui.sidebar.ai.chat_sessions.time_format import format_message_sent_at
 from ui.sidebar.ai.message_bubble.activity_row import AssistantActivityRow
 from ui.sidebar.ai.message_bubble.markdown_content import MarkdownContent
 from ui.sidebar.ai.message_bubble.thought_section import ThoughtSection
-from ui.sidebar.ai.message_bubble.wrapping_label import _WrappingLabel
-from ui.styling.theme import ThemePalette, current_palette
+from ui.sidebar.ai.message_bubble.user_message import UserMessageSection
 
 ChatRole = Literal["user", "assistant"]
+_QWIDGET_MAX_HEIGHT = 16777215
 
-_USER_MESSAGE_FADE_HEIGHT_PX = 28
 
+class UserMessageStickyMetrics(NamedTuple):
+    """Explicit sticky-overlay height parts for a user message row."""
 
-class _UserMessageBottomFade(QWidget):
-    """Gradient fade at the bottom of a height-clamped user message bubble."""
-
-    def __init__(self, parent: QWidget) -> None:
-        """Build a mouse-transparent fade strip over the user bubble frame."""
-        super().__init__(parent)
-        self.setObjectName("aiChatUserMessageFade")
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        self.setFixedHeight(_USER_MESSAGE_FADE_HEIGHT_PX)
-
-    def _fade_base_color(self, palette: ThemePalette) -> QColor:
-        """Return the solid colour the bottom fade should blend into."""
-        return QColor(palette["composer_bg"])
-
-    def paintEvent(self, _event: object) -> None:
-        """Paint a vertical fade from transparent to the user bubble background."""
-        palette = current_palette()
-        base = self._fade_base_color(palette)
-        gradient = QLinearGradient(0.0, 0.0, 0.0, float(self.height()))
-        gradient.setColorAt(0.0, QColor(base.red(), base.green(), base.blue(), 0))
-        gradient.setColorAt(1.0, base)
-        painter = QPainter(self)
-        painter.fillRect(self.rect(), gradient)
+    label_height: int
+    chrome_height: int
+    total_height: int
+    clamped: bool
 
 
 class ChatMessageBubble(QWidget):
@@ -79,8 +60,7 @@ class ChatMessageBubble(QWidget):
         self._thought_section: ThoughtSection | None = None
         self._activity_row: AssistantActivityRow | None = None
         self._user_frame: QFrame | None = None
-        self._user_message_fade: _UserMessageBottomFade | None = None
-        self._user_label: _WrappingLabel | None = None
+        self._user_section: UserMessageSection | None = None
         self._user_timestamp: QLabel | None = None
         self._sent_at: datetime | None = sent_at if role == "user" else None
         self._markdown_body: MarkdownContent | None = None
@@ -90,6 +70,7 @@ class ChatMessageBubble(QWidget):
         self._defer_layout_height_changed = False
         self._layout_height_pending = False
         self._scroll_compensation_capture: tuple[int, int] | None = None
+        self._scroll_compensation_block: QWidget | None = None
 
         if role == "user":
             frame = QFrame()
@@ -102,9 +83,9 @@ class ChatMessageBubble(QWidget):
             frame_layout = QVBoxLayout(frame)
             frame_layout.setContentsMargins(12, 10, 12, 10)
             frame_layout.setSpacing(0)
-            self._user_label = _WrappingLabel(text)
-            self._user_label.setObjectName("aiChatUserMessageText")
-            frame_layout.addWidget(self._user_label)
+            self._user_section = UserMessageSection(text, frame)
+            self._user_section.layout_height_changed.connect(self._on_user_message_layout_changed)
+            frame_layout.addWidget(self._user_section)
             self._user_timestamp = QLabel()
             self._user_timestamp.setObjectName("aiChatUserMessageTime")
             self._user_timestamp.setTextInteractionFlags(
@@ -119,8 +100,6 @@ class ChatMessageBubble(QWidget):
             else:
                 self._user_timestamp.hide()
             self._user_frame = frame
-            self._user_message_fade = _UserMessageBottomFade(frame)
-            self._user_message_fade.hide()
             outer.addWidget(frame)
         else:
             self.setObjectName("aiChatAssistantRow")
@@ -169,8 +148,8 @@ class ChatMessageBubble(QWidget):
         """Return the answer text (markdown source for assistant rows)."""
         if self._markdown_body is not None:
             return self._markdown_body.markdown()
-        if self._user_label is not None:
-            return self._user_label.text()
+        if self._user_section is not None:
+            return self._user_section.text()
         return ""
 
     def sent_at(self) -> datetime | None:
@@ -182,6 +161,18 @@ class ChatMessageBubble(QWidget):
         if self._thought_section is None:
             return ""
         return self._thought_section.text()
+
+    def is_user_message_expanded(self) -> bool:
+        """Return whether the user prompt is fully expanded."""
+        if self._user_section is None:
+            return True
+        return self._user_section.is_expanded()
+
+    def user_message_collapsed_cap_height(self) -> int | None:
+        """Return the collapsed user-label cap height when applicable."""
+        if self._user_section is None:
+            return None
+        return self._user_section.collapsed_cap_height()
 
     def begin_streaming(self) -> None:
         """Mark the answer body as receiving streamed markdown."""
@@ -305,23 +296,27 @@ class ChatMessageBubble(QWidget):
         if layout_pending or height_pending:
             self.layout_height_changed.emit()
 
-    def begin_scroll_compensation_capture(self, thought: ThoughtSection) -> None:
-        """Record thought height before a thought expand/collapse changes layout."""
+    def begin_scroll_compensation_capture(self, block: QWidget) -> None:
+        """Record block height before an expand/collapse changes layout."""
         messages = self.parentWidget()
         if messages is None:
             self._scroll_compensation_capture = None
+            self._scroll_compensation_block = None
             return
-        anchor_y = thought.mapTo(messages, QPoint(0, thought.height())).y()
-        self._scroll_compensation_capture = (anchor_y, thought.sizeHint().height())
+        anchor_y = block.mapTo(messages, QPoint(0, block.height())).y()
+        self._scroll_compensation_capture = (anchor_y, block.sizeHint().height())
+        self._scroll_compensation_block = block
 
     def consume_scroll_compensation(self) -> tuple[int, int] | None:
-        """Return ``(anchor_messages_y, delta_px)`` after a thought toggle, if any."""
+        """Return ``(anchor_messages_y, delta_px)`` after a layout toggle, if any."""
         capture = self._scroll_compensation_capture
+        block = self._scroll_compensation_block
         self._scroll_compensation_capture = None
-        if capture is None or self._thought_section is None:
+        self._scroll_compensation_block = None
+        if capture is None or block is None:
             return None
-        anchor_y, before_thought_h = capture
-        delta_px = self._thought_section.sizeHint().height() - before_thought_h
+        anchor_y, before_h = capture
+        delta_px = block.sizeHint().height() - before_h
         if delta_px == 0:
             return None
         return anchor_y, delta_px
@@ -335,8 +330,12 @@ class ChatMessageBubble(QWidget):
             widget = widget.parentWidget()
         return None
 
-    def _apply_thought_toggle_scroll_compensation(self) -> None:
-        """Keep viewport content stable after the thought body expands or collapses."""
+    def _chat_panel_for_sticky_sync(self) -> QWidget | None:
+        """Return ``AiChatPanel`` for transcript rows and viewport sticky clones."""
+        return self._ancestor_chat_panel()
+
+    def _apply_row_scroll_compensation(self) -> None:
+        """Keep viewport content stable after a row block expands or collapses."""
         compensation = self.consume_scroll_compensation()
         if compensation is None:
             return
@@ -356,8 +355,39 @@ class ChatMessageBubble(QWidget):
         else:
             self._commit_stream_row_layout()
         self.updateGeometry()
-        self._apply_thought_toggle_scroll_compensation()
+        self._apply_row_scroll_compensation()
         self.layout_height_changed.emit()
+
+    def _on_user_message_layout_changed(self) -> None:
+        """Propagate user prompt expand/collapse to the transcript scroll layer."""
+        if self._defer_layout_height_changed:
+            self._layout_height_pending = True
+            return
+        self.updateGeometry()
+        self._apply_row_scroll_compensation()
+        self._sync_transcript_user_toggle_to_sticky()
+        self.layout_height_changed.emit()
+
+    def _sync_transcript_user_toggle_to_sticky(self) -> None:
+        """Refresh the sticky clone when the anchor user prompt toggles."""
+        panel = self._chat_panel_for_sticky_sync()
+        if panel is None or not hasattr(panel, "_sticky_turn_anchor"):
+            return
+        if panel._sticky_turn_anchor is not self:  # type: ignore[attr-defined]
+            return
+        sticky = panel._sticky_turn_prompt  # type: ignore[attr-defined]
+        if sticky is None:
+            return
+        if hasattr(sticky, "sync_expanded_from_anchor"):
+            sticky.sync_expanded_from_anchor(self)
+        else:
+            sticky.sync_user_message_collapse_from(self)
+        if hasattr(panel, "_reset_sticky_applied_state"):
+            panel._reset_sticky_applied_state()  # type: ignore[attr-defined]
+        if hasattr(panel, "_invalidate_sticky_extents"):
+            panel._invalidate_sticky_extents()  # type: ignore[attr-defined]
+        if hasattr(panel, "_schedule_sticky_sync"):
+            panel._schedule_sticky_sync()  # type: ignore[attr-defined]
 
     def _on_markdown_height_changed(self) -> None:
         """Propagate markdown body height changes to the transcript scroll layer."""
@@ -373,20 +403,6 @@ class ChatMessageBubble(QWidget):
         self._stream_row_floor_px = 0
         self.setMinimumHeight(0)
 
-    def _position_user_message_fade(self) -> None:
-        """Place the bottom fade strip over the user bubble frame."""
-        fade = self._user_message_fade
-        frame = self._user_frame
-        if fade is None or frame is None or not fade.isVisible():
-            return
-        fade.setFixedWidth(frame.width())
-        fade.move(0, max(0, frame.height() - fade.height()))
-
-    def resizeEvent(self, event: QResizeEvent) -> None:
-        """Reposition the user-message fade when the row is resized."""
-        super().resizeEvent(event)
-        self._position_user_message_fade()
-
     def user_message_frame_height(self) -> int:
         """Return the painted user-bubble frame height (excludes row outer margins)."""
         if self._user_frame is None:
@@ -397,15 +413,15 @@ class ChatMessageBubble(QWidget):
         """Defer or resume width reflow for this row during an active pane resize."""
         if self._markdown_body is not None:
             self._markdown_body.set_reflow_deferred(deferred)
-        if self._user_label is not None:
-            self._user_label.set_reflow_deferred(deferred)
+        if self._user_section is not None:
+            self._user_section.set_reflow_deferred(deferred)
 
     def flush_deferred_reflow(self) -> None:
         """Flush deferred reflow on child text widgets and refresh row geometry."""
         if self._markdown_body is not None:
             self._markdown_body.flush_deferred_reflow()
-        if self._user_label is not None:
-            self._user_label.flush_deferred_reflow()
+        if self._user_section is not None:
+            self._user_section.flush_deferred_reflow()
         self.updateGeometry()
 
     def prepare_sticky_overlay(self) -> None:
@@ -418,20 +434,101 @@ class ChatMessageBubble(QWidget):
         frame = self._user_frame
         if frame is not None:
             frame.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+            frame.setMaximumHeight(16777215)
+        if self._user_section is not None:
+            self._user_section._refresh_collapse_layout(force=True)
 
-    def set_user_message_max_height(self, max_height: int | None) -> None:
+    def sync_user_message_collapse_from(self, anchor: ChatMessageBubble) -> None:
+        """Mirror another user row's expand/collapse state (sticky clone)."""
+        anchor_section = anchor._user_section
+        if self._user_section is None or anchor_section is None:
+            return
+        if anchor_section.is_collapsible() or self._user_section.is_collapsible():
+            self._user_section.set_expanded(anchor_section._expanded)
+        else:
+            self._user_section.set_expanded(True)
+
+    def set_user_message_max_height(
+        self,
+        max_height: int | None,
+        *,
+        content_width: int | None = None,
+    ) -> None:
         """Clamp user-message row height (sticky prompt overlay)."""
-        if self._role != "user":
+        if self._role != "user" or self._user_section is None:
             return
         if max_height is None or max_height <= 0:
-            self.setMaximumHeight(16777215)
-            if self._user_message_fade is not None:
-                self._user_message_fade.hide()
+            self.setMaximumHeight(_QWIDGET_MAX_HEIGHT)
+            self._user_section.apply_viewport_clamp(None)
             return
+        width = content_width if content_width is not None else max(1, self.width())
+        metrics = self.user_message_sticky_metrics(
+            bubble_max_h=max_height,
+            content_width=width,
+        )
         self.setMaximumHeight(max_height)
-        if self._user_message_fade is not None:
-            self._user_message_fade.show()
-            self._position_user_message_fade()
+        self._user_section.apply_viewport_clamp(metrics.label_height)
+
+    def user_message_sticky_metrics(
+        self,
+        *,
+        bubble_max_h: int,
+        content_width: int,
+        force_expanded: bool | None = None,
+    ) -> UserMessageStickyMetrics:
+        """Return explicit sticky-overlay height parts without mutating layout."""
+        if self._role != "user" or self._user_section is None or self._user_frame is None:
+            return UserMessageStickyMetrics(1, 0, 1, False)
+
+        section = self._user_section
+        label_width = self._user_message_label_width(content_width)
+        chrome_height = self._user_message_chrome_height(label_width)
+        label_budget = max(1, bubble_max_h - chrome_height)
+        natural_label_h = section.natural_label_height_for_width(label_width)
+
+        expanded = (
+            force_expanded
+            if force_expanded is not None
+            else (section._expanded or not section.needs_collapse_for_width(label_width))
+        )
+        collapsible = section.needs_collapse_for_width(label_width)
+        if collapsible and not expanded:
+            collapsed_cap = section.collapsed_label_height_for_width(label_width)
+            cap = collapsed_cap if collapsed_cap is not None else natural_label_h
+            label_height = min(natural_label_h, cap, label_budget)
+        else:
+            label_height = min(natural_label_h, label_budget)
+
+        clamped = label_height < natural_label_h
+        total_height = chrome_height + label_height
+        return UserMessageStickyMetrics(label_height, chrome_height, total_height, clamped)
+
+    def _user_message_label_width(self, content_width: int) -> int:
+        """Return inner label column width for a proposed bubble width."""
+        frame = self._user_frame
+        if frame is None:
+            return max(1, content_width)
+        margins = frame.contentsMargins()
+        return max(1, content_width - margins.left() - margins.right())
+
+    def _user_message_chrome_height(self, label_width: int) -> int:
+        """Return non-label chrome height for sticky sizing at *label_width*."""
+        chrome = 0
+        frame = self._user_frame
+        if frame is None:
+            return chrome
+        margins = frame.contentsMargins()
+        chrome += margins.top() + margins.bottom()
+        visible_rows = 1
+        if self._user_timestamp is not None and self._user_timestamp.isVisible():
+            chrome += self._user_timestamp.sizeHint().height()
+            visible_rows += 1
+        frame_layout = frame.layout()
+        if frame_layout is not None and visible_rows > 1:
+            chrome += frame_layout.spacing() * (visible_rows - 1)
+        if self._user_section is not None:
+            chrome += self._user_section.toggle_row_height_for_width(label_width)
+        return chrome
 
     def append_text(self, text: str) -> None:
         """Append answer text (legacy alias for content-only streaming)."""
@@ -447,8 +544,8 @@ class ChatMessageBubble(QWidget):
                 self._thought_section.setVisible(False)
         if self._markdown_body is not None:
             self._markdown_body.set_markdown(content)
-        elif self._user_label is not None:
-            self._user_label.setText(content)
+        elif self._user_section is not None:
+            self._user_section.set_text(content)
         if content.strip():
             self._answer_started = True
             self._ensure_answer_visible()
@@ -460,8 +557,8 @@ class ChatMessageBubble(QWidget):
         """Replace the answer text only."""
         if self._markdown_body is not None:
             self._markdown_body.set_markdown(text)
-        elif self._user_label is not None:
-            self._user_label.setText(text)
+        elif self._user_section is not None:
+            self._user_section.set_text(text)
         if text.strip():
             self._answer_started = True
             self._ensure_answer_visible()

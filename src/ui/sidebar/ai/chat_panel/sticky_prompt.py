@@ -5,11 +5,15 @@ from __future__ import annotations
 from collections.abc import Iterator
 from typing import Any, NamedTuple
 
-from PySide6.QtCore import QPoint, Qt, QTimer
+from PySide6.QtCore import QPoint, QTimer
 from PySide6.QtWidgets import QPushButton, QScrollArea, QWidget
 from shiboken6 import isValid
 
 from ui.sidebar.ai.message_bubble import ChatMessageBubble
+from ui.sidebar.ai.message_bubble.user_message.overlay import (
+    StickyOverlayMetrics,
+    StickyUserPromptOverlay,
+)
 
 _STICKY_PROMPT_TOP_PX = 0
 _STICKY_PROMPT_MAX_VIEWPORT_RATIO = 0.35
@@ -17,6 +21,7 @@ _STICKY_PROMPT_MARGIN_PX = 4
 _STICKY_PROMPT_HYSTERESIS_PX = 4
 _STICKY_PROMPT_VIEWPORT_INSET_PX = 3
 _STICKY_PROMPT_LEFT_SHIFT_PX = 4
+_MIN_STICKY_HEIGHT_ESTIMATE_PX = 48
 
 
 class StickyTurnExtent(NamedTuple):
@@ -38,7 +43,7 @@ class _ChatPanelStickyPromptMixin:  # type: ignore[misc]
     _messages_layout: Any = None
     _scroll_down_btn: QPushButton
     _sticky_turn_anchor: ChatMessageBubble | None = None
-    _sticky_turn_prompt: ChatMessageBubble | None = None
+    _sticky_turn_prompt: StickyUserPromptOverlay | None = None
     _sticky_turn_pairs: list[tuple[ChatMessageBubble, ChatMessageBubble]]
     _sticky_turn_pairs_dirty: bool = True
     _sticky_turn_extents: list[StickyTurnExtent]
@@ -135,9 +140,6 @@ class _ChatPanelStickyPromptMixin:  # type: ignore[misc]
 
     def _schedule_sticky_sync(self) -> None:
         """Coalesce sticky overlay updates to one pass per event-loop frame."""
-        if getattr(self, "_smooth_scroll_active", False):
-            self._sticky_sync_deferred_during_smooth = True
-            return
         if getattr(self, "_resize_active", False):
             self._sticky_sync_deferred_during_resize = True
             return
@@ -158,7 +160,6 @@ class _ChatPanelStickyPromptMixin:  # type: ignore[misc]
         """Return the maximum sticky overlay height for the current viewport."""
         viewport_h = self._scroll.viewport().height()
         ratio_cap = int(viewport_h * _STICKY_PROMPT_MAX_VIEWPORT_RATIO)
-        # Keep typical 2-line prompts + timestamp uncropped; still clamp very tall turns.
         return max(ratio_cap, min(viewport_h - 16, 120))
 
     def _assistant_intersects_viewport(self, assistant_top_y: int, assistant_bottom_y: int) -> bool:
@@ -180,7 +181,6 @@ class _ChatPanelStickyPromptMixin:  # type: ignore[misc]
         for extent in reversed(self._ensure_sticky_turn_extents()):
             user_y = extent.user_top_messages - scroll_val
             if self._user_prompt_visible_near_viewport_top(user_y):
-                # A later turn still shows its user prompt — do not pin an older one.
                 return None
             assistant_top_y = extent.assistant_top_messages - scroll_val
             assistant_bottom_y = extent.assistant_bottom_messages - scroll_val
@@ -229,44 +229,79 @@ class _ChatPanelStickyPromptMixin:  # type: ignore[misc]
 
     def _sticky_overlay_height(
         self,
-        sticky: ChatMessageBubble,
+        sticky: StickyUserPromptOverlay,
+        anchor: ChatMessageBubble,
         *,
         content_w: int,
         cap: int,
-        anchor_h: int,
         available_h: int,
-    ) -> int:
-        """Size the sticky overlay to match the anchor bubble when it fits."""
-        sticky.setFixedWidth(content_w)
-        sticky.set_user_message_max_height(None)
-        natural_h = max(1, anchor_h)
-        sticky_h = min(cap, available_h) if natural_h > cap else min(natural_h, available_h)
-        if natural_h > sticky_h:
-            sticky.set_user_message_max_height(sticky_h)
-            sticky.setFixedHeight(sticky_h)
-        else:
-            sticky.setFixedHeight(sticky_h)
-        return sticky_h
+    ) -> tuple[int, StickyOverlayMetrics]:
+        """Size the sticky overlay from explicit metrics and apply geometry once."""
+        sticky.sync_expanded_from_anchor(anchor)
+        height_cap = min(cap, available_h)
+        metrics = sticky.measure_for_width(content_w, height_cap)
+        sticky_h = min(metrics.total_height, height_cap)
 
-    def _ensure_sticky_turn_prompt(self, anchor: ChatMessageBubble) -> ChatMessageBubble:
-        """Create or refresh the read-only sticky clone for *anchor*."""
+        section = anchor._user_section
+        if (
+            section is not None
+            and section.is_collapsible()
+            and not anchor.is_user_message_expanded()
+        ):
+            anchor_metrics = StickyUserPromptOverlay.measure_from_anchor(
+                anchor,
+                content_width=content_w,
+                max_height=height_cap,
+            )
+            sticky_h = min(sticky_h, anchor_metrics.total_height)
+
+        metrics = sticky.measure_for_width(content_w, sticky_h)
+        sticky.apply_geometry(content_w, sticky_h, metrics)
+        return sticky_h, metrics
+
+    def _resolve_sticky_turn_anchor(
+        self,
+        sticky: StickyUserPromptOverlay,
+    ) -> ChatMessageBubble | None:
+        """Return the transcript user row mirrored by the sticky overlay."""
+        anchor = self._sticky_turn_anchor
+        if anchor is not None:
+            return anchor
+        for user, _assistant in self._ensure_sticky_turn_pairs():
+            if user.text() == sticky.text() and user.sent_at() == sticky.sent_at():
+                self._sticky_turn_anchor = user
+                return user
+        return None
+
+    def _on_sticky_overlay_expanded_changed(self) -> None:
+        """Mirror sticky Show more/less onto the anchor row and re-sync overlay geometry."""
+        sticky = self._sticky_turn_prompt
+        if sticky is None:
+            return
+        anchor = self._resolve_sticky_turn_anchor(sticky)
+        if anchor is not None and anchor._user_section is not None:
+            anchor._user_section.set_expanded(sticky.is_user_message_expanded())
+            anchor._user_section._refresh_collapse_layout(force=True)
+            anchor.updateGeometry()
+        self._reset_sticky_applied_state()
+        self._invalidate_sticky_extents()
+        self._schedule_sticky_sync()
+
+    def _ensure_sticky_turn_prompt(self, anchor: ChatMessageBubble) -> StickyUserPromptOverlay:
+        """Create or refresh the read-only sticky overlay for *anchor*."""
         text = anchor.text()
         sent_at = anchor.sent_at()
         sticky = self._sticky_turn_prompt
-        if (
-            sticky is not None
-            and self._sticky_turn_anchor is anchor
-            and sticky.text() == text
-            and sticky.sent_at() == sent_at
-        ):
+        if sticky is not None and sticky.text() == text and sticky.sent_at() == sent_at:
+            self._sticky_turn_anchor = anchor
+            sticky.sync_expanded_from_anchor(anchor)
             return sticky
         self._clear_sticky_turn_prompt()
         self._sticky_turn_anchor = anchor
         viewport = self._scroll.viewport()
-        sticky = ChatMessageBubble("user", text, sent_at=sent_at, parent=viewport)
-        sticky.setObjectName("aiChatStickyTurnPrompt")
-        sticky.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        sticky.prepare_sticky_overlay()
+        sticky = StickyUserPromptOverlay(parent=viewport)
+        sticky.sync_expanded_from_anchor(anchor)
+        sticky.expanded_changed.connect(self._on_sticky_overlay_expanded_changed)
         self._sticky_turn_prompt = sticky
         return sticky
 
@@ -291,7 +326,7 @@ class _ChatPanelStickyPromptMixin:  # type: ignore[misc]
         self._ensure_sticky_turn_pairs()
         self._rebuild_sticky_turn_extents()
         cap = self._sticky_prompt_height_cap()
-        selected = self._sticky_turn_for_viewport(cap)
+        selected = self._sticky_turn_for_viewport(_MIN_STICKY_HEIGHT_ESTIMATE_PX)
         if selected is None:
             self._hide_sticky_unless_already_hidden()
             return
@@ -321,13 +356,12 @@ class _ChatPanelStickyPromptMixin:  # type: ignore[misc]
 
         sticky = self._ensure_sticky_turn_prompt(anchor)
         sticky_x, content_w = self._sticky_content_geometry(anchor, viewport)
-        anchor_h = max(1, anchor.user_message_frame_height())
         available_h = max(1, assistant_bottom_y - _STICKY_PROMPT_TOP_PX)
-        sticky_h = self._sticky_overlay_height(
+        sticky_h, metrics = self._sticky_overlay_height(
             sticky,
+            anchor,
             content_w=content_w,
             cap=cap,
-            anchor_h=anchor_h,
             available_h=available_h,
         )
         target_geom = (
@@ -341,16 +375,21 @@ class _ChatPanelStickyPromptMixin:  # type: ignore[misc]
             self._hide_sticky_unless_already_hidden()
             return
 
-        if (
+        unchanged = (
             self._sticky_applied_visible
             and self._sticky_applied_anchor is anchor
             and self._sticky_applied_geom == target_geom
             and self._sticky_applied_height_cap == cap
-        ):
+        )
+        if unchanged:
+            sticky.apply_geometry(content_w, sticky_h, metrics)
+            sticky.ensure_painted_geometry(metrics)
             return
 
         sticky.move(target_geom[0], target_geom[1])
         sticky.show()
+        sticky.ensure_painted_geometry(metrics)
+        self._sticky_turn_anchor = anchor
         self._sticky_applied_anchor = anchor
         self._sticky_applied_visible = True
         self._sticky_applied_geom = target_geom

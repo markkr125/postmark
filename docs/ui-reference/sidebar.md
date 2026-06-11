@@ -276,10 +276,18 @@ call ``_schedule_sticky_sync()`` (one coalesced ``singleShot(0)`` pass per frame
 deferred while smooth scroll animates or pane resize is coalescing);
 explicit paths (turn scroll, load finalize, stream end, resize settle) call
 ``_sync_sticky_turn_prompt()`` synchronously. When anchor, geometry, and height cap are
-unchanged, sticky sync skips all overlay widget mutation. The overlay uses
-``WA_TransparentForMouseEvents``, does not change scroll range,
-and is clamped to 35% of viewport height for tall prompts (``aiChatUserMessageFade``
-gradient at the clipped bottom). It hides when any later turn's user bubble is
+unchanged, sticky sync skips overlay moves when geometry is unchanged but still
+calls ``ensure_painted_geometry()`` to repair zero-height labels. The overlay is a
+``StickyUserPromptOverlay`` (not a ``ChatMessageBubble`` clone): it measures with
+``measure_for_width()`` and paints via ``apply_geometry()`` using explicit label
+heights instead of nested ``QVBoxLayout`` height-for-width. Turn selection uses a
+conservative minimum height estimate before the final overlay height is computed.
+The overlay does not change scroll range and is clamped to 35% of viewport height
+for tall prompts (``aiChatUserMessageFade`` gradient at the clipped bottom). Long
+prompts use the same Show more/less control as transcript rows; sticky toggle syncs
+expand/collapse to the anchor row. Sticky sync is no longer fully deferred during
+smooth scrolling (only pane resize coalescing defers it). It hides when any later
+turn's user bubble is
 still visible near the viewport top (so an older prompt is not pinned underneath),
 when the selected turn's real user bubble is visible near the top, when the turn
 answer has scrolled fully above the viewport, when the assistant row does not

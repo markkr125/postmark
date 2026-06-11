@@ -62,8 +62,8 @@ def test_programmatic_scroll_cancels_smooth_animation(qapp: QApplication, qtbot)
     assert bar.value() == bar.maximum()
 
 
-def test_sticky_sync_deferred_until_smooth_scroll_settles(qapp: QApplication, qtbot) -> None:
-    """Sticky overlay sync waits until smooth scrolling finishes."""
+def test_sticky_sync_runs_during_and_after_smooth_scroll(qapp: QApplication, qtbot) -> None:
+    """Sticky overlay sync tracks smooth-scroll steps and settles with a final pass."""
     panel = AiChatPanel()
     qtbot.addWidget(panel)
     panel.show()
@@ -84,9 +84,9 @@ def test_sticky_sync_deferred_until_smooth_scroll_settles(qapp: QApplication, qt
         _wheel_on_transcript(panel, delta_y=120)
         qapp.processEvents()
         assert panel._smooth_scroller.is_animating()
-        assert sync_mock.call_count == 0
+        during_count = sync_mock.call_count
         _drain_smooth_scroll(panel, qapp, qtbot)
-        assert sync_mock.call_count >= 1
+        assert sync_mock.call_count >= during_count + 1
 
 
 def test_smooth_scroll_repeated_wheel_extends_target_without_hanging(

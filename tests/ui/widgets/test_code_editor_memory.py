@@ -7,22 +7,22 @@ creating/destroying widgets, or repeatedly folding/unfolding regions.
 
 from __future__ import annotations
 
-import gc
 import json
 import tracemalloc
 import weakref
 
+import pytest
 from PySide6.QtWidgets import QApplication
 
+from tests.qt_widget_lifecycle import (
+    dispose_qt_widget,
+    flush_qt_pending_deletes,
+    run_gc_after_qt_flush,
+    wait_for_weakrefs_cleared,
+)
 from ui.widgets.code_editor import CodeEditorWidget
 
-# -- Helpers -----------------------------------------------------------
-
-
-def _force_gc() -> None:
-    """Run multiple GC passes to collect cyclic references."""
-    for _ in range(4):
-        gc.collect()
+pytestmark = pytest.mark.xdist_group("code_editor_memory")
 
 
 _SAMPLE_JSON_SMALL = json.dumps({"key": "value", "num": 42, "list": [1, 2, 3]})
@@ -49,12 +49,9 @@ class TestHighlighterLifecycle:
         widget_ref = weakref.ref(editor)
         assert highlighter_ref() is not None
 
-        # Release all Python references — Qt parent chain should not hold
-        editor.close()
+        dispose_qt_widget(qapp, editor)
         del editor
-        qapp.processEvents()
-        _force_gc()
-        qapp.processEvents()
+        run_gc_after_qt_flush(qapp)
 
         # The Python wrapper may survive if the C++ side is still alive,
         # but the highlighter (a pure-Python object owned by the document)
@@ -81,7 +78,7 @@ class TestLanguageSwitchingMemory:
         for lang in languages:
             editor.set_language(lang)
             qapp.processEvents()
-        _force_gc()
+        run_gc_after_qt_flush(qapp)
 
         tracemalloc.start()
         snap_before = tracemalloc.take_snapshot()
@@ -90,7 +87,7 @@ class TestLanguageSwitchingMemory:
             editor.set_language(languages[i % len(languages)])
             qapp.processEvents()
 
-        _force_gc()
+        run_gc_after_qt_flush(qapp)
         snap_after = tracemalloc.take_snapshot()
         tracemalloc.stop()
 
@@ -122,7 +119,7 @@ class TestRepeatedContentLoadMemory:
             editor.set_text(body)
             qapp.processEvents()
 
-        _force_gc()
+        run_gc_after_qt_flush(qapp)
         snap_after = tracemalloc.take_snapshot()
         tracemalloc.stop()
 
@@ -139,6 +136,7 @@ class TestRepeatedContentLoadMemory:
 class TestWidgetDestructionCleansUp:
     """Verify that creating and destroying many editors does not leak."""
 
+    @pytest.mark.timeout(30)
     def test_twenty_widgets_all_collected(self, qapp: QApplication, qtbot) -> None:
         """Create 20 CodeEditorWidgets, destroy them, verify all collected."""
         refs: list[weakref.ref] = []
@@ -149,15 +147,11 @@ class TestWidgetDestructionCleansUp:
             editor.setPlainText(_SAMPLE_JSON_SMALL)
             qapp.processEvents()
             refs.append(weakref.ref(editor))
-
-            editor.close()
+            dispose_qt_widget(qapp, editor)
             del editor
 
-        qapp.processEvents()
-        _force_gc()
-        qapp.processEvents()
-
-        alive = sum(1 for r in refs if r() is not None)
+        flush_qt_pending_deletes(qapp)
+        alive = wait_for_weakrefs_cleared(qapp, refs, timeout_s=8.0)
         assert alive == 0, f"{alive}/20 CodeEditorWidgets leaked after destruction"
 
 
@@ -185,7 +179,7 @@ class TestRepeatedFoldUnfoldMemory:
             editor.unfold_all()
             qapp.processEvents()
 
-        _force_gc()
+        run_gc_after_qt_flush(qapp)
         snap_after = tracemalloc.take_snapshot()
         tracemalloc.stop()
 
@@ -221,7 +215,7 @@ class TestRepeatedValidationMemory:
             editor._validate()
             qapp.processEvents()
 
-        _force_gc()
+        run_gc_after_qt_flush(qapp)
         snap_after = tracemalloc.take_snapshot()
         tracemalloc.stop()
 

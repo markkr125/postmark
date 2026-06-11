@@ -131,8 +131,7 @@ def test_sticky_sync_deferred_until_resize_settles(qapp: QApplication, qtbot) ->
     panel.resize(440, 280)
     qapp.processEvents()
     assert len(sync_calls) == 0
-    qtbot.wait(_RESIZE_SETTLE_MS + 30)
-    qapp.processEvents()
+    qtbot.waitUntil(lambda: len(sync_calls) == 1, timeout=_RESIZE_SETTLE_MS + 500)
     assert len(sync_calls) == 1
 
 

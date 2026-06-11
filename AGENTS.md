@@ -346,10 +346,15 @@ src/
     │   │   │   ├── render.py
     │   │   │   └── streaming_render.py  # StreamingMarkdownCache — incremental segment reuse
     │   │   ├── message_bubble/    # ChatMessageBubble sub-package (bubble, markdown body, thought, activity)
-    │   │   │   ├── bubble.py      # ChatMessageBubble — user bubble + assistant row
+    │   │   │   ├── bubble.py      # ChatMessageBubble — user bubble + assistant row; UserMessageStickyMetrics
     │   │   │   ├── markdown_content.py  # MarkdownContent + theme re-render registry
     │   │   │   ├── thought_section.py   # ThoughtSection collapsible block
-    │   │   │   └── activity_row.py      # AssistantActivityRow spinner row
+    │   │   │   ├── activity_row.py      # AssistantActivityRow spinner row
+    │   │   │   ├── wrapping_label.py    # _WrappingLabel — height-for-width QLabel
+    │   │   │   └── user_message/        # UserMessageSection — collapse, fade, Show more/less
+    │   │   │       ├── section.py
+    │   │   │       ├── fade.py
+    │   │   │       └── overlay.py       # StickyUserPromptOverlay — viewport sticky clone
     │   │   ├── model_picker_edit.py  # AiModelPickerEditPanel flyout (context / thinking / reasoning)
     │   │   └── model_picker_popup.py  # AiModelPickerPopup — Cursor-style model list + gear
     │   ├── left_sidebar.py        # LeftSidebar — activity rail + stacked nav flyout pages
@@ -720,7 +725,8 @@ poetry run mypy src/ tests/                # type checker clean
 
 > **CRITICAL — Do not disable pytest parallelism for full-suite runs.**
 > Use plain `poetry run pytest` so `pyproject.toml` addopts apply (`-n auto`,
-> `--dist loadfile`, `--timeout=120`). That finishes in about **2–3 minutes**.
+> `--dist loadfile`, `--timeout=120`, `--max-worker-restart=8`). That finishes
+> in about **2–3 minutes**.
 > **Never** run the full suite with `-n0` or `--numprocesses=0` for routine
 > validation — single-process runs take **~10+ minutes** and feel hung.
 > Reserve `-n0` only for debugging one file or one failing test (e.g.

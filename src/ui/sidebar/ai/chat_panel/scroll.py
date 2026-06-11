@@ -85,9 +85,7 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
     def _on_smooth_scroll_finished(self) -> None:
         """Flush deferred sticky sync after smooth scrolling settles."""
         self._smooth_scroll_active = False
-        if self._sticky_sync_deferred_during_smooth:
-            self._sticky_sync_deferred_during_smooth = False
-            self._schedule_sticky_sync()
+        self._schedule_sticky_sync()
 
     def _set_bar_value(self, bar: QScrollBar, value: int) -> None:
         """Programmatically set scrollbar value without updating scroll-lock state."""

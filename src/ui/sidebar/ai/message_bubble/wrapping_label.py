@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, QPointF, Qt
+from PySide6.QtCore import QEvent, QPointF, Qt, QSize
 from PySide6.QtGui import QWheelEvent
 from PySide6.QtWidgets import QApplication, QLabel, QScrollArea, QSizePolicy, QWidget
+
+_QWIDGET_MAX_HEIGHT = 16777215
 
 
 def forward_wheel_to_ancestor_scroll_area(widget: QWidget, event: QWheelEvent) -> bool:
@@ -89,6 +91,18 @@ class _WrappingLabel(QLabel):
         """Allow the layout to size this label from the available width."""
         return True
 
+    def _clamp_to_max_height(self, height: int) -> int:
+        """Return *height* capped by ``maximumHeight`` when the label is clamped."""
+        max_h = self.maximumHeight()
+        if 0 < max_h < _QWIDGET_MAX_HEIGHT:
+            return min(height, max_h)
+        return height
+
+    def sizeHint(self) -> QSize:
+        """Return a size hint that respects an active ``maximumHeight`` clamp."""
+        hint = super().sizeHint()
+        return QSize(hint.width(), self._clamp_to_max_height(hint.height()))
+
     def _cached_height_for_text_width(self, text_width: int) -> int:
         """Return wrap height for *text_width*, reusing the last measure when unchanged."""
         if self._measured_text_width == text_width and self._measured_height is not None:
@@ -108,7 +122,7 @@ class _WrappingLabel(QLabel):
         if self._reflow_deferred:
             self._reflow_flush_pending = True
             return max(1, self.height())
-        return self._cached_height_for_text_width(text_width)
+        return self._clamp_to_max_height(self._cached_height_for_text_width(text_width))
 
     def setText(self, text: str) -> None:
         """Replace text and invalidate cached height."""

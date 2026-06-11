@@ -1572,6 +1572,17 @@ def build_global_qss(p: ThemePalette) -> str:
         font-size: 11px;
         padding-top: 4px;
     }}
+    QPushButton[objectName="aiChatUserMessageToggle"] {{
+        background: transparent;
+        border: none;
+        color: {p["text_muted"]};
+        font-size: 12px;
+        padding: 0;
+        text-align: left;
+    }}
+    QPushButton[objectName="aiChatUserMessageToggle"]:hover {{
+        color: {p["text"]};
+    }}
     QWidget[objectName="aiChatAssistantRow"] {{
         background: transparent;
     }}
