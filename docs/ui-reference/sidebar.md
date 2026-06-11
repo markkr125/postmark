@@ -170,12 +170,16 @@ bubble uses the same widget and document with the incremental cache below.
 
 Prose (bold, lists, links) is converted with Qt ``QTextDocument.setMarkdown``.
 Fenced code blocks are split out and rendered as themed HTML: Pygments syntax
-highlighting (palette editor token colours), line numbers, language label, and
-``pre-wrap`` wrapping for long one-liners. The block chrome is a sharp-cornered
-``1px`` single flat table frame (``ThemePalette`` ``border`` on perimeter cells
-only — no nested tables, so Qt does not paint a second inner box around the code
-area). Header row shows the language label with a bottom rule; code rows use gutter
-+ code cells with ``border-collapse:separate``. Inline `` `code` `` spans get a
+highlighting (palette editor token colours), language label, and ``pre-wrap``
+wrapping for long one-liners (no line-number gutter — matches Cursor / GitHub chat
+snippets). The block chrome is a sharp-cornered ``1px`` single flat table frame
+(``ThemePalette`` ``border`` on perimeter cells only — no nested tables, so Qt
+does not paint a second inner box around the code area). Header row shows the
+language label with a bottom rule; a **Copy** link on the right of the header row
+(``postmark-code-copy:<index>`` anchor copies the raw fenced source to the
+clipboard, shows a pointing-hand cursor and accent underline on hover, then
+**Copied** in accent for two seconds). Code rows are full-width cells with
+``border-collapse:separate``. Inline `` `code` `` spans get a
 muted pill style. Fenced-block chrome uses inline styles from ``ThemePalette``
 (QSS does not apply inside rich-text HTML). ``ThemeManager.theme_changed``
 re-renders stored markdown on live assistant rows.

@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import weakref
 
-from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QUrl, Signal
+from PySide6.QtCore import QEvent, QPointF, Qt, QTimer, QUrl, Signal, QRectF
 from PySide6.QtGui import (
     QAbstractTextDocumentLayout,
+    QCursor,
     QDesktopServices,
+    QEnterEvent,
+    QHoverEvent,
     QGuiApplication,
     QKeySequence,
     QMouseEvent,
@@ -17,10 +20,17 @@ from PySide6.QtGui import (
     QTextDocument,
     QWheelEvent,
 )
-from PySide6.QtWidgets import QApplication, QMenu, QSizePolicy, QWidget
+from PySide6.QtWidgets import QApplication, QMenu, QScrollArea, QSizePolicy, QWidget
 from shiboken6 import isValid
 
-from ui.sidebar.ai.markdown.highlight_code import clear_highlight_cache
+from ui.sidebar.ai.markdown.copy_chrome import CodeCopyChrome
+from ui.sidebar.ai.markdown.fence_split import fenced_code_sources
+from ui.sidebar.ai.markdown.highlight_code import (
+    clear_highlight_cache,
+    code_copy_href,
+    copy_block_index_at_document_pos,
+    parse_code_copy_block_index,
+)
 from ui.sidebar.ai.markdown.render import render_chat_markdown_html
 from ui.sidebar.ai.markdown.streaming_render import StreamingMarkdownCache
 from ui.sidebar.ai.message_bubble.wrapping_label import forward_wheel_to_ancestor_scroll_area
@@ -29,6 +39,7 @@ from ui.styling.theme_manager import ThemeManager
 _markdown_bodies: weakref.WeakSet[MarkdownContent] = weakref.WeakSet()
 _theme_hook_installed = False
 _SELECTION_DRAG_THRESHOLD_PX = 4
+_COPY_CONFIRM_MS = 2000
 
 
 def rerender_all_markdown_browsers() -> None:
@@ -68,6 +79,8 @@ class MarkdownContent(QWidget):
         super().__init__(parent)
         self.setObjectName("aiChatAssistantText")
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
+        self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -88,6 +101,12 @@ class MarkdownContent(QWidget):
         self._selection_anchor: int | None = None
         self._selection_cursor: int | None = None
         self._press_position: QPointF | None = None
+        self._copy_confirmed_index: int | None = None
+        self._copy_hover_index: int | None = None
+        self._copy_confirm_timer = QTimer(self)
+        self._copy_confirm_timer.setSingleShot(True)
+        self._copy_confirm_timer.timeout.connect(self._clear_copy_confirmation)
+        self._scroll_hover_connected = False
         _markdown_bodies.add(self)
         _install_markdown_theme_hook()
         self._apply_document_defaults()
@@ -135,12 +154,92 @@ class MarkdownContent(QWidget):
         self._markdown = text
         self._render_markdown()
 
-    def _set_document_html(self, html: str) -> None:
+    def _set_document_html(self, html: str, *, preserve_selection: bool = False) -> None:
         """Replace document HTML and schedule a repaint."""
-        self._clear_selection()
+        if not preserve_selection:
+            self._clear_selection()
         self._invalidate_measured_height()
         self._document.setHtml(html)
         self.update()
+
+    def _copy_chrome(self) -> CodeCopyChrome:
+        """Return active fenced-code copy-link chrome state."""
+        return CodeCopyChrome(
+            confirmed_index=self._copy_confirmed_index,
+            hover_index=self._copy_hover_index,
+        )
+
+    def _clear_copy_confirmation(self) -> None:
+        """Revert a confirmed Copy label after the feedback timeout."""
+        if self._copy_confirmed_index is None:
+            return
+        self._copy_confirmed_index = None
+        self._refresh_copy_chrome()
+
+    def _refresh_copy_chrome(self) -> None:
+        """Re-render copy-link labels without disturbing text selection."""
+        text_width = self._document.textWidth()
+        if text_width <= 0:
+            text_width = float(self._content_width())
+        if self._streaming:
+            html = self._stream_cache.render_document_html(
+                self._markdown,
+                copy_chrome=self._copy_chrome(),
+            )
+        else:
+            html = render_chat_markdown_html(self._markdown, copy_chrome=self._copy_chrome())
+        self._set_document_html(html, preserve_selection=True)
+        if text_width > 0:
+            self._document.setTextWidth(text_width)
+        if self._copy_hover_index is not None:
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+        elif self.underMouse():
+            self._update_copy_hover(QPointF(self.mapFromGlobal(QCursor.pos())))
+
+    def _copy_block_index_at(self, pos: QPointF) -> int | None:
+        """Return the fenced-code Copy index under widget-local *pos*, if any."""
+        return copy_block_index_at_document_pos(self._document, pos)
+
+    def _connect_transcript_scroll_hover(self) -> None:
+        """Re-check Copy hover when the transcript scrolls under a stationary cursor."""
+        if self._scroll_hover_connected:
+            return
+        parent = self.parentWidget()
+        while parent is not None:
+            if isinstance(parent, QScrollArea):
+                parent.verticalScrollBar().valueChanged.connect(self._on_transcript_scrolled)
+                self._scroll_hover_connected = True
+                return
+            parent = parent.parentWidget()
+
+    def _on_transcript_scrolled(self, _value: int) -> None:
+        """Refresh Copy hover after scroll moves content under the pointer."""
+        if not self.isVisible():
+            return
+        local = QPointF(self.mapFromGlobal(QCursor.pos()))
+        if not self.rect().contains(local.toPoint()):
+            if self._copy_hover_index is not None:
+                self._copy_hover_index = None
+                self._refresh_copy_chrome()
+            self.unsetCursor()
+            return
+        self._update_copy_hover(local)
+
+    def _update_copy_hover(self, pos: QPointF) -> None:
+        """Track hover over fenced-code Copy links for cursor and label styling."""
+        hover_index = self._copy_block_index_at(pos)
+        if hover_index == self._copy_hover_index:
+            if hover_index is not None:
+                self.setCursor(Qt.CursorShape.PointingHandCursor)
+            else:
+                self.unsetCursor()
+            return
+        self._copy_hover_index = hover_index
+        self._refresh_copy_chrome()
+        if hover_index is not None:
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+        else:
+            self.unsetCursor()
 
     def _invalidate_measured_height(self) -> None:
         """Drop cached wrap height so the next measure recomputes."""
@@ -200,12 +299,19 @@ class MarkdownContent(QWidget):
 
     def _render_markdown(self) -> None:
         """Render stored markdown via the full HTML pipeline."""
-        self._set_document_html(render_chat_markdown_html(self._markdown))
+        self._set_document_html(
+            render_chat_markdown_html(self._markdown, copy_chrome=self._copy_chrome())
+        )
         self._sync_height()
 
     def _render_markdown_streaming(self) -> None:
         """Incrementally render stored markdown while a stream is open."""
-        self._set_document_html(self._stream_cache.render_document_html(self._markdown))
+        self._set_document_html(
+            self._stream_cache.render_document_html(
+                self._markdown,
+                copy_chrome=self._copy_chrome(),
+            )
+        )
         self._sync_height()
 
     def set_defer_height_changed(self, defer: bool) -> None:
@@ -275,6 +381,18 @@ class MarkdownContent(QWidget):
             self._height_changed_pending = True
         else:
             self.height_changed.emit()
+
+    def showEvent(self, event) -> None:
+        """Attach transcript scroll listeners once the body is on screen."""
+        super().showEvent(event)
+        self._connect_transcript_scroll_hover()
+        if self.underMouse():
+            self._update_copy_hover(QPointF(self.mapFromGlobal(QCursor.pos())))
+
+    def enterEvent(self, event: QEnterEvent) -> None:
+        """Apply Copy hover when the pointer enters without a move event."""
+        super().enterEvent(event)
+        self._update_copy_hover(event.position())
 
     def resizeEvent(self, event) -> None:
         """Recompute height when the available width changes."""
@@ -386,11 +504,31 @@ class MarkdownContent(QWidget):
         QGuiApplication.clipboard().setText(text)
         return True
 
+    def _try_copy_fenced_code_block(self, anchor: str) -> bool:
+        """Copy a fenced code block when the user clicks its header Copy link."""
+        block_index = parse_code_copy_block_index(anchor)
+        if block_index is None:
+            return False
+        sources = fenced_code_sources(self._markdown)
+        if block_index < 0 or block_index >= len(sources):
+            return False
+        QGuiApplication.clipboard().setText(sources[block_index])
+        self._copy_confirmed_index = block_index
+        self._copy_hover_index = None
+        self._copy_confirm_timer.start(_COPY_CONFIRM_MS)
+        self._refresh_copy_chrome()
+        return True
+
     def mousePressEvent(self, event: QMouseEvent) -> None:
         """Begin or extend a text selection."""
         if event.button() == Qt.MouseButton.LeftButton:
             self.setFocus(Qt.FocusReason.MouseFocusReason)
             pos = QPointF(event.position())
+            if self._copy_block_index_at(pos) is not None:
+                self._press_position = pos
+                self._clear_selection()
+                event.accept()
+                return
             self._press_position = pos
             index = self._cursor_position_at(pos)
             if (
@@ -413,7 +551,16 @@ class MarkdownContent(QWidget):
             self.update()
             event.accept()
             return
+        self._update_copy_hover(QPointF(event.position()))
         super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event: QEvent) -> None:
+        """Clear copy-link hover styling when the pointer leaves the body."""
+        if self._copy_hover_index is not None:
+            self._copy_hover_index = None
+            self._refresh_copy_chrome()
+        self.unsetCursor()
+        super().leaveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         """Open external links when the user clicks without selecting text."""
@@ -425,7 +572,14 @@ class MarkdownContent(QWidget):
                 ).manhattanLength() > _SELECTION_DRAG_THRESHOLD_PX
             self._press_position = None
             if not dragged and not self._has_selection():
-                anchor = self._document.documentLayout().anchorAt(QPointF(event.position()))
+                pos = QPointF(event.position())
+                copy_index = self._copy_block_index_at(pos)
+                if copy_index is not None and self._try_copy_fenced_code_block(
+                    code_copy_href(copy_index)
+                ):
+                    event.accept()
+                    return
+                anchor = self._document.documentLayout().anchorAt(pos)
                 if anchor:
                     url = QUrl(anchor)
                     if url.isValid() and QDesktopServices.openUrl(url):
@@ -478,7 +632,9 @@ class MarkdownContent(QWidget):
             QGuiApplication.clipboard().setText(self._markdown)
 
     def event(self, event: QEvent) -> bool:
-        """Route wheel input to the transcript scroll area before local handling."""
+        """Route hover and wheel input before default widget handling."""
+        if event.type() == QEvent.Type.HoverMove and isinstance(event, QHoverEvent):
+            self._update_copy_hover(event.position())
         if (
             event.type() == QEvent.Type.Wheel
             and isinstance(event, QWheelEvent)

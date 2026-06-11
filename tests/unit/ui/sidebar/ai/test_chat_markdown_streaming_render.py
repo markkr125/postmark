@@ -29,6 +29,9 @@ class TestStreamingMarkdownCache:
             *,
             palette: object,
             line_numbers: bool = True,
+            block_index: int = 0,
+            copy_copied: bool = False,
+            copy_hovered: bool = False,
         ) -> str:
             highlight_calls.append((lang, code))
             return f"<highlighted>{code}</highlighted>"
@@ -55,11 +58,22 @@ class TestStreamingMarkdownCache:
             *,
             palette: object,
             line_numbers: bool = True,
+            block_index: int = 0,
+            copy_copied: bool = False,
+            copy_hovered: bool = False,
         ) -> str:
             highlight_calls.append(code)
             return f"<highlighted>{code}</highlighted>"
 
-        def _fake_provisional(code: str, lang: str, *, palette: object) -> str:
+        def _fake_provisional(
+            code: str,
+            lang: str,
+            *,
+            palette: object,
+            block_index: int = 0,
+            copy_copied: bool = False,
+            copy_hovered: bool = False,
+        ) -> str:
             provisional_calls.append(code)
             return f"<provisional>{code}</provisional>"
 
@@ -93,6 +107,9 @@ class TestMarkdownContentStreamingIncremental:
             *,
             palette: object,
             line_numbers: bool = True,
+            block_index: int = 0,
+            copy_copied: bool = False,
+            copy_hovered: bool = False,
         ) -> str:
             highlight_calls.append(code)
             return f'<table><tr><td style="font-family:monospace;">{code}</td></tr></table>'
@@ -122,7 +139,15 @@ class TestMarkdownContentStreamingIncremental:
         provisional_calls: list[str] = []
         highlight_calls: list[str] = []
 
-        def _fake_provisional(code: str, lang: str, *, palette: object) -> str:
+        def _fake_provisional(
+            code: str,
+            lang: str,
+            *,
+            palette: object,
+            block_index: int = 0,
+            copy_copied: bool = False,
+            copy_hovered: bool = False,
+        ) -> str:
             provisional_calls.append(code)
             return f"<provisional>{code}</provisional>"
 
@@ -132,6 +157,9 @@ class TestMarkdownContentStreamingIncremental:
             *,
             palette: object,
             line_numbers: bool = True,
+            block_index: int = 0,
+            copy_copied: bool = False,
+            copy_hovered: bool = False,
         ) -> str:
             highlight_calls.append(code)
             return f"<table>{code}</table>"
@@ -152,4 +180,4 @@ class TestMarkdownContentStreamingIncremental:
         assert provisional_calls == ["print(1"]
         assert not highlight_calls
         body.append_markdown(")\n```")
-        assert highlight_calls == ["print(1)\n"]
+        assert highlight_calls == ["print(1)"]

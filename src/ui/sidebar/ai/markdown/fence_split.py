@@ -92,7 +92,7 @@ def split_fenced_blocks(markdown: str) -> list[MarkdownSegment]:
             segments.append(CodeSegment(lang=lang, code=code, provisional=True))
             return segments
 
-        code = markdown[code_start:close_fence]
+        code = markdown[code_start:close_fence].removesuffix("\n")
         segments.append(CodeSegment(lang=lang, code=code, provisional=False))
         cursor = _fence_line_end(markdown, close_fence)
         prose_start = cursor
@@ -101,3 +101,12 @@ def split_fenced_blocks(markdown: str) -> list[MarkdownSegment]:
         segments.append(ProseSegment(markdown[prose_start:]))
 
     return segments if segments else [ProseSegment(markdown)]
+
+
+def fenced_code_sources(markdown: str) -> list[str]:
+    """Return raw fenced code bodies in document order."""
+    return [
+        segment.code
+        for segment in split_fenced_blocks(markdown)
+        if isinstance(segment, CodeSegment)
+    ]

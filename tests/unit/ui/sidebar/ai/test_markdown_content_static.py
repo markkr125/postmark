@@ -5,8 +5,8 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
-from PySide6.QtCore import QPointF, Qt, QUrl
-from PySide6.QtGui import QColor, QImage, QMouseEvent
+from PySide6.QtCore import QPoint, QPointF, Qt, QUrl
+from PySide6.QtGui import QColor, QEnterEvent, QImage, QMouseEvent
 from PySide6.QtWidgets import QApplication, QTextBrowser
 
 from ui.sidebar.ai.message_bubble.markdown_content import MarkdownContent
@@ -59,6 +59,171 @@ def test_link_click_opens_external_url(qapp: QApplication, qtbot) -> None:
 
     assert len(opened) == 1
     assert opened[0].toString() == "https://example.com/test"
+
+
+def test_code_block_copy_link_puts_source_on_clipboard(qapp: QApplication, qtbot) -> None:
+    """Clicking a fenced-code Copy link places the raw block source on the clipboard."""
+    source = "```python\nprint(1)\n```"
+    body = MarkdownContent(source)
+    qtbot.addWidget(body)
+    body.resize(360, 200)
+    body.show()
+    qtbot.waitExposed(body)
+
+    local = QPointF(300, 24)
+    with patch.object(
+        body._document.documentLayout(),
+        "anchorAt",
+        return_value="postmark-code-copy:0",
+    ):
+        event = QMouseEvent(
+            QMouseEvent.Type.MouseButtonRelease,
+            local,
+            local,
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        body.mouseReleaseEvent(event)
+
+    assert QApplication.clipboard().text() == "print(1)"
+
+
+def test_code_block_copy_link_shows_copied_feedback(qapp: QApplication, qtbot) -> None:
+    """After copying, the header label switches to Copied briefly."""
+    source = "```python\nprint(1)\n```"
+    body = MarkdownContent(source)
+    qtbot.addWidget(body)
+    body.resize(360, 200)
+    body.show()
+    qtbot.waitExposed(body)
+
+    local = QPointF(300, 24)
+    with patch.object(
+        body._document.documentLayout(),
+        "anchorAt",
+        return_value="postmark-code-copy:0",
+    ):
+        event = QMouseEvent(
+            QMouseEvent.Type.MouseButtonRelease,
+            local,
+            local,
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        body.mouseReleaseEvent(event)
+
+    assert "Copied" in body.toHtml()
+    qtbot.waitUntil(lambda: "Copied" not in body.toHtml(), timeout=3000)
+    assert "postmark-code-copy:0" in body.toHtml()
+
+
+def _copy_link_hover_point(body: MarkdownContent) -> QPointF | None:
+    """Return a widget-local point over the first fenced-code Copy anchor."""
+    layout = body._document.documentLayout()
+    size = layout.documentSize()
+    for y in range(0, int(size.height()) + 1):
+        for x in range(int(size.width()) - 1, -1, -1):
+            if layout.anchorAt(QPointF(x, y)) == "postmark-code-copy:0":
+                return QPointF(x, y)
+    return None
+
+
+def test_markdown_content_enables_mouse_tracking(qapp: QApplication, qtbot) -> None:
+    """Copy-link hover requires mouse tracking on the markdown body."""
+    body = MarkdownContent("```python\nprint(1)\n```")
+    qtbot.addWidget(body)
+    assert body.hasMouseTracking()
+
+
+def test_copy_link_hover_sets_pointing_hand_cursor(qapp: QApplication, qtbot) -> None:
+    """Hovering a Copy link shows a pointing-hand cursor."""
+    body = MarkdownContent("```python\nprint(1)\n```")
+    qtbot.addWidget(body)
+    body.resize(360, 200)
+    body.show()
+    qtbot.waitExposed(body)
+
+    hover_point = _copy_link_hover_point(body)
+    assert hover_point is not None
+
+    move = QMouseEvent(
+        QMouseEvent.Type.MouseMove,
+        hover_point,
+        hover_point,
+        Qt.MouseButton.NoButton,
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    body.mouseMoveEvent(move)
+
+    assert body.cursor().shape() == Qt.CursorShape.PointingHandCursor
+    assert body._copy_hover_index == 0
+
+
+def test_copy_link_hover_on_enter_without_mouse_move(qapp: QApplication, qtbot) -> None:
+    """Entering the body over Copy applies hover without a mouse-move event."""
+    body = MarkdownContent("```python\nprint(1)\n```")
+    qtbot.addWidget(body)
+    body.resize(360, 200)
+    body.show()
+    qtbot.waitExposed(body)
+
+    hover_point = _copy_link_hover_point(body)
+    assert hover_point is not None
+    global_point = body.mapToGlobal(hover_point.toPoint())
+    enter = QEnterEvent(
+        hover_point,
+        hover_point,
+        QPoint(global_point),
+    )
+    body.enterEvent(enter)
+
+    assert body.cursor().shape() == Qt.CursorShape.PointingHandCursor
+    assert body._copy_hover_index == 0
+
+
+def test_copy_link_geometry_hit_near_label(qapp: QApplication, qtbot) -> None:
+    """Padded geometry hit-testing reaches Copy when anchorAt misses by a few pixels."""
+    body = MarkdownContent("```python\nprint(1)\n```")
+    qtbot.addWidget(body)
+    body.resize(360, 200)
+    body.show()
+    qtbot.waitExposed(body)
+
+    anchor_point = _copy_link_hover_point(body)
+    assert anchor_point is not None
+    near_point = QPointF(anchor_point.x() + 6, anchor_point.y() + 4)
+    layout = body._document.documentLayout()
+    assert layout.anchorAt(near_point) != "postmark-code-copy:0"
+
+    move = QMouseEvent(
+        QMouseEvent.Type.MouseMove,
+        near_point,
+        near_point,
+        Qt.MouseButton.NoButton,
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    body.mouseMoveEvent(move)
+
+    assert body._copy_hover_index == 0
+    assert body.cursor().shape() == Qt.CursorShape.PointingHandCursor
+
+
+def test_copy_link_anchor_is_on_header_right_edge(qapp: QApplication, qtbot) -> None:
+    """Copy link hit-testing aligns with the right edge of the code block."""
+    body = MarkdownContent("```python\nprint(1)\n```")
+    qtbot.addWidget(body)
+    body.resize(360, 200)
+    body.show()
+    qtbot.waitExposed(body)
+
+    hover_point = _copy_link_hover_point(body)
+    assert hover_point is not None
+    layout = body._document.documentLayout()
+    assert hover_point.x() >= layout.documentSize().width() * 0.75
 
 
 def test_context_menu_copy_message_puts_markdown_on_clipboard(qapp: QApplication, qtbot) -> None:

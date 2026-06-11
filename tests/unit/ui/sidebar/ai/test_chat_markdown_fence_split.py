@@ -16,7 +16,7 @@ class TestSplitFencedBlocks:
         assert segments[0].text == "Before\n\n"
         assert isinstance(segments[1], CodeSegment)
         assert segments[1].lang == "python"
-        assert segments[1].code == "print(1)\n"
+        assert segments[1].code == "print(1)"
         assert segments[1].provisional is False
         assert isinstance(segments[2], ProseSegment)
         assert segments[2].text == "\nAfter"
@@ -42,3 +42,17 @@ class TestSplitFencedBlocks:
         assert len(segments) == 1
         assert isinstance(segments[0], ProseSegment)
         assert segments[0].text == ""
+
+    def test_closing_fence_newline_not_in_code_body(self) -> None:
+        """The newline before a closing fence is not an extra code line."""
+        source = "```python\nline_a\nline_b\n```"
+        segments = split_fenced_blocks(source)
+        assert isinstance(segments[0], CodeSegment)
+        assert segments[0].code == "line_a\nline_b"
+
+    def test_intentional_blank_line_before_close(self) -> None:
+        """A blank line immediately before the closing fence is preserved."""
+        source = "```python\nline_a\n\n```"
+        segments = split_fenced_blocks(source)
+        assert isinstance(segments[0], CodeSegment)
+        assert segments[0].code == "line_a\n"

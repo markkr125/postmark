@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ui.sidebar.ai.markdown.highlight_code import (
+    CODE_COPY_URL_PREFIX,
     highlight_code_to_html,
     normalize_language,
     provisional_code_to_html,
@@ -31,14 +32,60 @@ class TestHighlightCodeToHtml:
         assert 'style="color:' in html
         assert "import" in html
 
-    def test_line_numbers(self) -> None:
+    def test_chat_blocks_omit_line_number_gutter(self) -> None:
         html = highlight_code_to_html("a\nb", "python", palette=DARK_PALETTE)
+        assert "user-select:none" not in html
+        assert html.count('colspan="3"') >= 2
+
+    def test_optional_line_numbers(self) -> None:
+        html = highlight_code_to_html("a\nb", "python", palette=DARK_PALETTE, line_numbers=True)
         assert ">1<" in html or "> 1<" in html or "1</td>" in html
         assert ">2<" in html or "> 2<" in html or "2</td>" in html
+        assert "user-select:none" in html
 
     def test_language_label(self) -> None:
         html = highlight_code_to_html("pass", "py", palette=DARK_PALETTE)
         assert ">python<" in html
+
+    def test_no_spurious_trailing_blank_rows(self) -> None:
+        """Closing-fence newline must not render as extra empty code rows."""
+        html = highlight_code_to_html("import httpx\nprint(1)", "python", palette=DARK_PALETTE)
+        assert html.count("<tr>") == 3
+
+    def test_intentional_trailing_blank_line_preserved(self) -> None:
+        """A deliberate blank line before the closing fence is kept."""
+        single_line = highlight_code_to_html("print(1)", "python", palette=DARK_PALETTE)
+        with_blank = highlight_code_to_html("print(1)\n", "python", palette=DARK_PALETTE)
+        assert single_line.count("<tr>") == 2
+        assert with_blank.count("<tr>") == 3
+
+    def test_header_copy_link(self) -> None:
+        html = highlight_code_to_html("pass", "python", palette=DARK_PALETTE, block_index=2)
+        assert f'href="{CODE_COPY_URL_PREFIX}2"' in html
+        assert ">Copy</a>" in html
+        assert 'align="right"' in html
+        assert "white-space:nowrap" in html
+        assert "cursor:pointer" in html
+
+    def test_header_copy_link_hovered(self) -> None:
+        html = highlight_code_to_html(
+            "pass",
+            "python",
+            palette=DARK_PALETTE,
+            copy_hovered=True,
+        )
+        assert "text-decoration:underline" in html
+        assert DARK_PALETTE["accent"] in html
+
+    def test_header_copy_link_copied(self) -> None:
+        html = highlight_code_to_html(
+            "pass",
+            "python",
+            palette=DARK_PALETTE,
+            copy_copied=True,
+        )
+        assert ">Copied</a>" in html
+        assert DARK_PALETTE["accent"] in html
 
     def test_sharp_bordered_table_chrome(self) -> None:
         html = highlight_code_to_html("pass", "python", palette=DARK_PALETTE)
