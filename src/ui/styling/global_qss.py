@@ -1536,12 +1536,29 @@ def build_global_qss(p: ThemePalette) -> str:
         border-right: 1px solid {p["border"]};
         background: transparent;
     }}
-    QScrollArea[objectName="aiChatStickyScroll"] {{
+    QWidget[objectName="aiChatStickyLabelHost"] {{
         background: transparent;
         border: none;
     }}
+    QScrollArea[objectName="aiChatStickyScroll"] {{
+        background: {p["composer_bg"]};
+        border: none;
+    }}
     QScrollArea[objectName="aiChatStickyScroll"] > QWidget > QWidget {{
+        background: {p["composer_bg"]};
+        border: none;
+    }}
+    QScrollArea[objectName="aiChatStickyScroll"] QScrollBar:vertical {{
+        width: 0px;
         background: transparent;
+        border: none;
+        margin: 0px;
+    }}
+    QScrollArea[objectName="aiChatStickyScroll"] QScrollBar::handle:vertical {{
+        background: transparent;
+        border: none;
+        min-height: 0px;
+        margin: 0px;
     }}
     QPushButton[objectName="aiChatScrollDown"] {{
         background: {p["bg_alt"]};
@@ -1577,7 +1594,7 @@ def build_global_qss(p: ThemePalette) -> str:
         border: none;
         color: {p["text_muted"]};
         font-size: 11px;
-        padding-top: 4px;
+        padding: 0;
     }}
     QPushButton[objectName="aiChatUserMessageToggle"] {{
         background: transparent;
@@ -1589,6 +1606,36 @@ def build_global_qss(p: ThemePalette) -> str:
     }}
     QPushButton[objectName="aiChatUserMessageToggle"]:hover {{
         color: {p["text"]};
+    }}
+
+    QPushButton[objectName="aiChatUserMessageConfig"] {{
+        border: none;
+        background: transparent;
+        padding: 0;
+        color: {p["text_muted"]};
+    }}
+    QPushButton[objectName="aiChatUserMessageConfig"]:hover {{
+        background: {"rgba(255,255,255,0.08)" if p is DARK_PALETTE else "rgba(0,0,0,0.06)"};
+        color: {p["text"]};
+    }}
+    QWidget[objectName="aiChatUserMessageFooter"] {{
+        background: transparent;
+        border: none;
+        padding-top: 2px;
+    }}
+    QFrame[objectName="aiUserMessageActionsPopup"] {{
+        background: {p["bg"]};
+        border: 1px solid {p["border"]};
+        border-radius: 8px;
+    }}
+    QWidget[objectName="aiUserMessageActionRow"] {{
+        background: transparent;
+    }}
+    QLabel[objectName="aiUserMessageActionLabel"] {{
+        color: {p["text"]};
+        font-size: 12px;
+        background: transparent;
+        padding: 6px 10px;
     }}
     QWidget[objectName="aiChatAssistantRow"] {{
         background: transparent;

@@ -7,10 +7,10 @@ from typing import TYPE_CHECKING, NamedTuple
 
 from PySide6.QtCore import QPointF, Qt, Signal
 from PySide6.QtGui import QResizeEvent, QShowEvent, QWheelEvent
-from PySide6.QtWidgets import QApplication, QFrame, QLabel, QPushButton, QScrollArea, QWidget
+from PySide6.QtWidgets import QApplication, QFrame, QPushButton, QScrollArea, QWidget
 
-from ui.sidebar.ai.chat_sessions.time_format import format_message_sent_at
 from ui.sidebar.ai.message_bubble.user_message.fade import UserMessageBottomFade
+from ui.sidebar.ai.message_bubble.user_message.footer import UserMessageFooterRow
 from ui.sidebar.ai.message_bubble.wrapping_label import (
     _WrappingLabel,
     forward_wheel_to_ancestor_scroll_area,
@@ -20,13 +20,14 @@ if TYPE_CHECKING:
     from ui.sidebar.ai.message_bubble.bubble import ChatMessageBubble
 
 _FRAME_MARGIN_LEFT = 12
-_FRAME_MARGIN_TOP = 10
+_FRAME_MARGIN_TOP = 6
 _FRAME_MARGIN_RIGHT = 12
-_FRAME_MARGIN_BOTTOM = 10
+_FRAME_MARGIN_BOTTOM = 6
 _ROW_SPACING = 4
 _COLLAPSED_MAX_LINES = 5
 _SHOW_MORE_LABEL = "Show more"
 _SHOW_LESS_LABEL = "Show less"
+_QWIDGET_MAX_HEIGHT = 16777215
 
 
 class StickyOverlayMetrics(NamedTuple):
@@ -116,20 +117,24 @@ class StickyUserPromptOverlay(QWidget):
         self._frame.setObjectName("aiChatMessageUser")
         self._frame.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
+        self._label_host = QWidget(self._frame)
+        self._label_host.setObjectName("aiChatStickyLabelHost")
+
+        self._label = _StickyPromptLabel("", self._label_host)
+        self._label.setObjectName("aiChatUserMessageText")
+
+        self._fade = UserMessageBottomFade(self._label_host)
+        self._fade.hide()
+
         self._scroll_area = _StickyInnerScrollArea(self._frame)
         self._scroll_area.setObjectName("aiChatStickyScroll")
         self._scroll_area.setFrameShape(QFrame.Shape.NoFrame)
         self._scroll_area.setWidgetResizable(False)
         self._scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._scroll_area.setViewportMargins(0, 0, 0, 0)
         self._scroll_area.viewport().setAutoFillBackground(False)
-
-        self._label = _StickyPromptLabel("", self._scroll_area)
-        self._label.setObjectName("aiChatUserMessageText")
-        self._scroll_area.setWidget(self._label)
-
-        self._fade = UserMessageBottomFade(self._frame)
-        self._fade.hide()
+        self._scroll_area.hide()
 
         self._toggle = QPushButton(self._frame)
         self._toggle.setObjectName("aiChatUserMessageToggle")
@@ -138,11 +143,7 @@ class StickyUserPromptOverlay(QWidget):
         self._toggle.clicked.connect(self._on_toggle_clicked)
         self._toggle.hide()
 
-        self._timestamp = QLabel(self._frame)
-        self._timestamp.setObjectName("aiChatUserMessageTime")
-        self._timestamp.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        self._timestamp.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        self._timestamp.hide()
+        self._footer = UserMessageFooterRow(self._frame)
 
     def text(self) -> str:
         """Return the full user prompt text."""
@@ -158,17 +159,20 @@ class StickyUserPromptOverlay(QWidget):
 
     def label_painted_height(self) -> int:
         """Return the visible label viewport height (for layout repair checks)."""
-        return self._scroll_area.height()
+        return self._label_container().height()
 
     def label_widget(self) -> _StickyPromptLabel:
         """Return the wrapped prompt label."""
         return self._label
 
     def prompt_content_bottom_y(self) -> int:
-        """Return the bottom edge of label/toggle chrome in overlay coordinates."""
-        bottom = self._scroll_area.y() + self._scroll_area.height()
+        """Return the bottom edge of label/toggle/footer chrome in overlay coordinates."""
+        container = self._label_container()
+        bottom = container.y() + container.height()
         if self._toggle.isVisible():
             bottom = max(bottom, self._toggle.y() + self._toggle.height())
+        if self._footer.isVisible():
+            bottom = max(bottom, self._footer.y() + self._footer.height())
         return self._frame.y() + bottom
 
     def set_anchor_state(
@@ -186,13 +190,8 @@ class StickyUserPromptOverlay(QWidget):
         self._label.setText(text)
         if text_changed:
             self._expanded = not collapsible
-        if sent_at is not None:
-            self._timestamp.setText(format_message_sent_at(sent_at))
-        else:
-            self._timestamp.clear()
+        self._footer.set_sent_at(sent_at)
         self._refresh_collapsible_state()
-        self._toggle.hide()
-        self._timestamp.hide()
 
     def sync_expanded_from_anchor(self, anchor: ChatMessageBubble) -> None:
         """Copy text/time/collapsible from a transcript user row (keeps own expand state)."""
@@ -245,9 +244,21 @@ class StickyUserPromptOverlay(QWidget):
         self._layout_children(metrics)
 
     def ensure_painted_geometry(self, metrics: StickyOverlayMetrics) -> None:
-        """Re-apply child geometry when the scroll viewport failed to size as expected."""
-        if self._scroll_area.height() < max(8, min(metrics.label_height, 40) // 2):
+        """Re-apply child geometry when the label container failed to size as expected."""
+        if self._label_container().height() < max(8, min(metrics.label_height, 40) // 2):
             self._layout_children(metrics)
+
+    def _label_container(self) -> QWidget:
+        """Return the widget that currently hosts the visible prompt column."""
+        if self._scroll_area.isVisible():
+            return self._scroll_area
+        return self._label_host
+
+    def _uses_internal_scroll(self, metrics: StickyOverlayMetrics) -> bool:
+        """Return whether expanded overflow should scroll inside the sticky overlay."""
+        expanded = self.is_user_message_expanded()
+        content_h = max(metrics.content_height, metrics.label_height)
+        return expanded and content_h > metrics.label_height
 
     def _inner_label_width(self, content_width: int) -> int:
         """Return label column width inside the user frame."""
@@ -283,8 +294,7 @@ class StickyUserPromptOverlay(QWidget):
     def _chrome_height(self, toggle_h: int) -> int:
         """Return non-label chrome height."""
         chrome = _FRAME_MARGIN_TOP + _FRAME_MARGIN_BOTTOM
-        if self._sent_at is not None:
-            chrome += self._timestamp.sizeHint().height()
+        chrome += self._footer.sizeHint().height()
         if toggle_h > 0:
             chrome += toggle_h
         return chrome
@@ -299,6 +309,48 @@ class StickyUserPromptOverlay(QWidget):
                 _SHOW_LESS_LABEL if self.is_user_message_expanded() else _SHOW_MORE_LABEL
             )
 
+    def _layout_label_host(
+        self, *, x: int, y: int, inner_w: int, metrics: StickyOverlayMetrics
+    ) -> None:
+        """Place the transcript-style label host with max-height clamp (no scroll area)."""
+        if self._scroll_area.widget() is self._label_host:
+            self._scroll_area.takeWidget()
+        self._label_host.setParent(self._frame)
+
+        natural_h = max(metrics.content_height, self._natural_label_height(inner_w))
+        label_content_h = min(natural_h, metrics.label_height)
+        self._label_host.setGeometry(x, y, inner_w, metrics.label_height)
+        self._label_host.show()
+        self._label.setFixedWidth(inner_w)
+        self._label.setMinimumHeight(0)
+        self._label.setMaximumHeight(metrics.label_height)
+        self._label.setFixedHeight(label_content_h)
+        self._scroll_area.hide()
+        self._scroll_area.verticalScrollBar().setValue(0)
+
+    def _layout_internal_scroll(
+        self,
+        *,
+        x: int,
+        y: int,
+        inner_w: int,
+        metrics: StickyOverlayMetrics,
+    ) -> None:
+        """Place the label host inside the internal scroll area for expanded overflow."""
+        content_h = max(metrics.content_height, metrics.label_height)
+        self._label_host.setFixedWidth(inner_w)
+        self._label_host.setFixedHeight(content_h)
+        self._label.setFixedWidth(inner_w)
+        self._label.setMinimumHeight(0)
+        self._label.setMaximumHeight(_QWIDGET_MAX_HEIGHT)
+        self._label.setFixedHeight(content_h)
+        if self._scroll_area.widget() is not self._label_host:
+            self._scroll_area.setWidget(self._label_host)
+        self._scroll_area.setGeometry(x, y, inner_w, metrics.label_height)
+        self._scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._scroll_area.show()
+        self._fade.hide()
+
     def _layout_children(self, metrics: StickyOverlayMetrics) -> None:
         """Position frame children from explicit metrics (no height-for-width layout loop)."""
         self._frame.setGeometry(0, 0, self.width(), self.height())
@@ -310,15 +362,11 @@ class StickyUserPromptOverlay(QWidget):
         y = _FRAME_MARGIN_TOP
         x = _FRAME_MARGIN_LEFT
 
-        content_h = max(metrics.content_height, metrics.label_height)
-        self._scroll_area.setGeometry(x, y, inner_w, metrics.label_height)
-        self._label.setFixedWidth(inner_w)
-        self._label.setFixedHeight(content_h)
-        if expanded and content_h > metrics.label_height:
-            self._scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        if self._uses_internal_scroll(metrics):
+            self._layout_internal_scroll(x=x, y=y, inner_w=inner_w, metrics=metrics)
         else:
-            self._scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-            self._scroll_area.verticalScrollBar().setValue(0)
+            self._layout_label_host(x=x, y=y, inner_w=inner_w, metrics=metrics)
+
         y += metrics.label_height
 
         if collapsible:
@@ -329,32 +377,41 @@ class StickyUserPromptOverlay(QWidget):
         else:
             self._toggle.hide()
 
-        if self._sent_at is not None:
-            ts_h = self._timestamp.sizeHint().height()
-            self._timestamp.setGeometry(x, y, inner_w, ts_h)
-            self._timestamp.show()
-        else:
-            self._timestamp.hide()
+        footer_h = self._footer.sizeHint().height()
+        self._footer.setGeometry(x, y, inner_w, footer_h)
+        self._footer.show()
 
         if collapsible and not expanded:
             self._fade.show()
         else:
             self._fade.hide()
-        self._position_fade(inner_w, metrics.label_height)
+        self._position_fade()
+        if collapsible:
+            self._toggle.raise_()
+        self._footer.raise_()
 
-    def _position_fade(self, inner_w: int, label_h: int) -> None:
-        """Place the fade along the bottom of the label area."""
+    def _position_fade(self) -> None:
+        """Place the fade strip along the bottom of the label host."""
         if not self._fade.isVisible():
             return
+        host = self._label_host
         fade_h = self._fade.height()
-        self._fade.setFixedWidth(inner_w)
-        self._fade.move(_FRAME_MARGIN_LEFT, _FRAME_MARGIN_TOP + label_h - fade_h)
+        self._fade.setFixedWidth(host.width())
+        self._fade.move(0, max(0, host.height() - fade_h))
         self._fade.raise_()
 
     def _on_toggle_clicked(self) -> None:
-        """Flip expanded state and let the panel recompute geometry (avoids stale-metric flicker)."""
+        """Flip expanded state, relayout immediately, then notify the panel."""
         self._expanded = not self._expanded
         self._refresh_collapsible_state()
+        if self.width() > 0:
+            budget = (
+                self.height()
+                if self._applied_metrics is None
+                else self._applied_metrics.total_height
+            )
+            metrics = self.measure_for_width(self.width(), max(budget, 1))
+            self.apply_geometry(self.width(), metrics.total_height, metrics)
         self.expanded_changed.emit()
 
     def showEvent(self, event: QShowEvent) -> None:

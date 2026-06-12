@@ -549,3 +549,27 @@ def test_set_run_busy_shows_stop_button(qapp: QApplication, qtbot) -> None:
     panel.set_run_busy(False)
     assert panel._run_busy is False
     assert panel._send_btn.toolTip() == "Send (Enter)"
+
+
+def test_user_message_config_button_opens_actions_popover(qapp: QApplication, qtbot) -> None:
+    """Panel user rows open the display-only actions flyout from the config button."""
+    from PySide6.QtWidgets import QPushButton
+
+    from ui.sidebar.ai.message_bubble.user_message.actions_popup import AiUserMessageActionsPopup
+
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.add_message("user", "hello", sent_at=datetime(2026, 1, 15, 9, 30, tzinfo=UTC))
+    bubble = panel.findChildren(ChatMessageBubble)[0]
+    frame = bubble.findChild(QFrame, "aiChatMessageUser")
+    assert frame is not None
+    config = frame.findChild(QPushButton, "aiChatUserMessageConfig")
+    assert config is not None
+
+    popup = AiUserMessageActionsPopup.instance()
+    qtbot.mouseClick(config, Qt.MouseButton.LeftButton)
+    assert popup.isVisible()
+    assert {label.text() for label in popup.findChildren(QLabel, "aiUserMessageActionLabel")} == {
+        "Edit message",
+        "Fork conversation",
+    }

@@ -360,6 +360,7 @@ class _ChatPanelStickyPromptMixin:  # type: ignore[misc]
             return
 
         sticky.move(target_geom[0], target_geom[1])
+        sticky.apply_geometry(content_w, sticky_h, metrics)
         sticky.show()
         sticky.ensure_painted_geometry(metrics)
         self._sticky_turn_anchor = anchor

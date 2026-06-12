@@ -9,7 +9,15 @@ from unittest.mock import patch
 import pytest
 from PySide6.QtCore import QPoint, QPointF, Qt, QTimer
 from PySide6.QtGui import QWheelEvent
-from PySide6.QtWidgets import QApplication, QLabel, QLayout, QPushButton, QTextBrowser, QWidget
+from PySide6.QtWidgets import (
+    QApplication,
+    QLabel,
+    QLayout,
+    QPushButton,
+    QScrollArea,
+    QTextBrowser,
+    QWidget,
+)
 
 from services.ai.chat.session_service import AiChatMessageDict
 from ui.sidebar.ai import AiChatPanel
@@ -95,6 +103,31 @@ def _wheel_on_widget(
         False,
     )
     QApplication.sendEvent(widget, event)
+
+
+def _sticky_label_column_bottom(sticky: QWidget) -> int:
+    """Return the bottom edge of the visible sticky prompt column."""
+    scroll = sticky.findChild(QScrollArea, "aiChatStickyScroll")
+    host = sticky.findChild(QWidget, "aiChatStickyLabelHost")
+    if scroll is not None and scroll.isVisible():
+        return scroll.y() + scroll.height()
+    assert host is not None
+    return host.y() + host.height()
+
+
+def _wait_for_bubble_in_viewport(
+    panel: AiChatPanel,
+    bubble: ChatMessageBubble,
+    qtbot,
+    *,
+    timeout_ms: int = 3000,
+) -> None:
+    """Wait until *bubble* has non-zero height and overlaps the transcript viewport."""
+
+    def _ready() -> bool:
+        return bubble.height() > 0 and panel._bubble_intersects_viewport(bubble)
+
+    qtbot.waitUntil(_ready, timeout=timeout_ms)
 
 
 def _ensure_transcript_scroll_range(
@@ -1479,10 +1512,13 @@ def test_sticky_user_prompt_with_timestamp_keeps_label_visible(
 
     label = sticky.findChild(QLabel, "aiChatUserMessageText")
     scroll_area = sticky.findChild(QScrollArea, "aiChatStickyScroll")
-    assert label is not None and scroll_area is not None
+    label_host = sticky.findChild(QWidget, "aiChatStickyLabelHost")
+    assert label is not None and scroll_area is not None and label_host is not None
+    assert not scroll_area.isVisible()
+    assert label_host.isVisible()
     assert label.text() == long_prompt
     assert label.height() >= 40
-    assert sticky.height() >= scroll_area.height() + 20
+    assert sticky.height() >= label_host.height() + 20
     timestamp = sticky.findChild(QLabel, "aiChatUserMessageTime")
     assert timestamp is not None
     assert timestamp.isVisible()
@@ -1522,14 +1558,19 @@ def test_sticky_toggle_positioned_after_unchanged_sync(qapp: QApplication, qtbot
     sticky = _sticky_turn_prompt(panel)
     assert sticky is not None and sticky.isVisible()
     scroll_area = sticky.findChild(QScrollArea, "aiChatStickyScroll")
+    label_host = sticky.findChild(QWidget, "aiChatStickyLabelHost")
     toggle = sticky.findChild(QPushButton, "aiChatUserMessageToggle")
+    footer = sticky.findChild(QWidget, "aiChatUserMessageFooter")
     timestamp = sticky.findChild(QLabel, "aiChatUserMessageTime")
-    assert scroll_area is not None and toggle is not None and timestamp is not None
-    assert toggle.isVisible() and timestamp.isVisible()
-    scroll_bottom = scroll_area.y() + scroll_area.height()
-    assert toggle.y() >= scroll_bottom - 2
+    assert scroll_area is not None and label_host is not None
+    assert toggle is not None and footer is not None
+    assert timestamp is not None
+    assert not scroll_area.isVisible() and label_host.isVisible()
+    assert toggle.isVisible() and footer.isVisible() and timestamp.isVisible()
+    label_bottom = _sticky_label_column_bottom(sticky)
+    assert toggle.y() >= label_bottom - 2
     toggle_bottom = toggle.y() + toggle.height()
-    assert timestamp.y() >= toggle_bottom - 2
+    assert footer.y() >= toggle_bottom - 2
 
 
 def test_sticky_user_prompt_show_more_caps_to_content_without_timestamp_gap(
@@ -1573,12 +1614,12 @@ def test_sticky_user_prompt_show_more_caps_to_content_without_timestamp_gap(
     label = sticky.findChild(QLabel, "aiChatUserMessageText")
     assert label is not None
     assert label.height() >= 40
-    timestamp = sticky.findChild(QLabel, "aiChatUserMessageTime")
-    assert timestamp is not None
-    assert timestamp.isVisible()
-    timestamp_y = timestamp.mapTo(sticky, QPoint(0, 0)).y()
-    timestamp_gap = timestamp_y - sticky.prompt_content_bottom_y()
-    assert timestamp_gap <= 8
+    footer = sticky.findChild(QWidget, "aiChatUserMessageFooter")
+    timestamp = footer.findChild(QLabel, "aiChatUserMessageTime") if footer is not None else None
+    assert footer is not None and timestamp is not None
+    assert footer.isVisible() and timestamp.isVisible()
+    toggle_bottom = toggle.y() + toggle.height()
+    assert footer.y() >= toggle_bottom - 2
 
 
 def test_sticky_user_prompt_toggle_does_not_mutate_anchor(qapp: QApplication, qtbot) -> None:
@@ -1613,6 +1654,51 @@ def test_sticky_user_prompt_toggle_does_not_mutate_anchor(qapp: QApplication, qt
     assert panel._scroll.verticalScrollBar().value() == scroll_before
 
 
+def test_sticky_toggle_roundtrip_stays_clickable_without_manual_sync(
+    qapp: QApplication,
+    qtbot,
+) -> None:
+    """Expand/collapse/expand on sticky stays clickable via deferred sync only."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    long_prompt = "user prompt line\n" * 24
+    _fill_transcript_and_start_stream(
+        panel,
+        qapp,
+        qtbot,
+        user_text=long_prompt,
+        assistant_lines=30,
+    )
+    _scroll_until_anchor_above_viewport(panel, qapp)
+    sticky = _sticky_turn_prompt(panel)
+    assert sticky is not None
+    toggle = sticky.findChild(QPushButton, "aiChatUserMessageToggle")
+    label = sticky.findChild(QLabel, "aiChatUserMessageText")
+    label_host = sticky.findChild(QWidget, "aiChatStickyLabelHost")
+    assert toggle is not None and label is not None and label_host is not None
+    assert toggle.text() == "Show more"
+
+    toggle.click()
+    _drain_follow_passes(qtbot, qapp)
+    qapp.processEvents()
+    assert sticky.is_user_message_expanded()
+    assert toggle.text() == "Show less"
+    assert label.height() <= label_host.height()
+
+    toggle.click()
+    _drain_follow_passes(qtbot, qapp)
+    qapp.processEvents()
+    assert not sticky.is_user_message_expanded()
+    assert toggle.text() == "Show more"
+    assert label.height() <= label_host.height()
+
+    qtbot.mouseClick(toggle, Qt.MouseButton.LeftButton)
+    _drain_follow_passes(qtbot, qapp)
+    qapp.processEvents()
+    assert sticky.is_user_message_expanded()
+    assert toggle.text() == "Show less"
+
+
 def test_sticky_user_prompt_expanded_is_internally_scrollable(qapp: QApplication, qtbot) -> None:
     """Expanding a very long sticky prompt yields an internal scrollbar, not a clamp."""
     from PySide6.QtWidgets import QScrollArea
@@ -1642,7 +1728,7 @@ def test_sticky_user_prompt_expanded_is_internally_scrollable(qapp: QApplication
         qapp.processEvents()
     assert sticky.is_user_message_expanded()
     scroll_area = sticky.findChild(QScrollArea, "aiChatStickyScroll")
-    assert scroll_area is not None
+    assert scroll_area is not None and scroll_area.isVisible()
     bar = scroll_area.verticalScrollBar()
     assert bar.maximum() > 0
 
@@ -1711,7 +1797,7 @@ def test_sticky_wheel_at_internal_top_scrolls_transcript(qapp: QApplication, qtb
         qapp.processEvents()
     assert sticky.is_user_message_expanded()
     inner = sticky.findChild(QScrollArea, "aiChatStickyScroll")
-    assert inner is not None
+    assert inner is not None and inner.isVisible()
     inner.verticalScrollBar().setValue(0)
     qapp.processEvents()
     transcript_before = panel._scroll.verticalScrollBar().value()
@@ -2213,15 +2299,14 @@ def test_thought_toggle_compensates_scroll_to_avoid_answer_jump(qapp: QApplicati
         thinking="internal reasoning line\n" * 10,
         thinking_duration_seconds=18,
     )
-    qapp.processEvents()
     body = bubble.findChild(MarkdownContent, "aiChatAssistantText")
     assert body is not None
     toggle = bubble.findChild(QPushButton, "aiChatThoughtToggle")
     assert toggle is not None
     bar = panel._scroll.verticalScrollBar()
     bar.setValue(0)
-    qapp.processEvents()
-    assert panel._bubble_intersects_viewport(bubble)
+    _drain_follow_passes(qtbot, qapp)
+    _wait_for_bubble_in_viewport(panel, bubble, qtbot)
     answer_top_before = panel._widget_top_in_viewport(body)
     scroll_before = bar.value()
     toggle.click()

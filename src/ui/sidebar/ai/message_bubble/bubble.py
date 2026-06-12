@@ -8,12 +8,10 @@ from typing import Literal, NamedTuple
 from PySide6.QtCore import QPoint, Qt, Signal
 from PySide6.QtWidgets import QFrame, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
-from ui.sidebar.ai.chat_sessions.time_format import format_message_sent_at
-
 from ui.sidebar.ai.message_bubble.activity_row import AssistantActivityRow
 from ui.sidebar.ai.message_bubble.markdown_content import MarkdownContent
 from ui.sidebar.ai.message_bubble.thought_section import ThoughtSection
-from ui.sidebar.ai.message_bubble.user_message import UserMessageSection
+from ui.sidebar.ai.message_bubble.user_message import UserMessageFooterRow, UserMessageSection
 
 ChatRole = Literal["user", "assistant"]
 _QWIDGET_MAX_HEIGHT = 16777215
@@ -61,7 +59,7 @@ class ChatMessageBubble(QWidget):
         self._activity_row: AssistantActivityRow | None = None
         self._user_frame: QFrame | None = None
         self._user_section: UserMessageSection | None = None
-        self._user_timestamp: QLabel | None = None
+        self._user_footer: UserMessageFooterRow | None = None
         self._sent_at: datetime | None = sent_at if role == "user" else None
         self._markdown_body: MarkdownContent | None = None
         self._answer_visible = bool(text.strip())
@@ -81,24 +79,14 @@ class ChatMessageBubble(QWidget):
                 QSizePolicy.Policy.Minimum,
             )
             frame_layout = QVBoxLayout(frame)
-            frame_layout.setContentsMargins(12, 10, 12, 10)
+            frame_layout.setContentsMargins(12, 6, 12, 6)
             frame_layout.setSpacing(0)
             self._user_section = UserMessageSection(text, frame)
             self._user_section.layout_height_changed.connect(self._on_user_message_layout_changed)
             frame_layout.addWidget(self._user_section)
-            self._user_timestamp = QLabel()
-            self._user_timestamp.setObjectName("aiChatUserMessageTime")
-            self._user_timestamp.setTextInteractionFlags(
-                Qt.TextInteractionFlag.TextSelectableByMouse
-            )
-            self._user_timestamp.setAlignment(
-                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
-            )
-            if sent_at is not None:
-                self._user_timestamp.setText(format_message_sent_at(sent_at))
-                frame_layout.addWidget(self._user_timestamp)
-            else:
-                self._user_timestamp.hide()
+            self._user_footer = UserMessageFooterRow(frame)
+            self._user_footer.set_sent_at(sent_at)
+            frame_layout.addWidget(self._user_footer)
             self._user_frame = frame
             outer.addWidget(frame)
         else:
@@ -151,6 +139,13 @@ class ChatMessageBubble(QWidget):
         if self._user_section is not None:
             return self._user_section.text()
         return ""
+
+    @property
+    def _user_timestamp(self) -> QLabel | None:
+        """Legacy accessor for tests that locate the send-time label."""
+        if self._user_footer is None:
+            return None
+        return self._user_footer.timestamp_label()
 
     def sent_at(self) -> datetime | None:
         """Return the user-message send time, if any."""
@@ -520,8 +515,8 @@ class ChatMessageBubble(QWidget):
         margins = frame.contentsMargins()
         chrome += margins.top() + margins.bottom()
         visible_rows = 1
-        if self._user_timestamp is not None and self._user_timestamp.isVisible():
-            chrome += self._user_timestamp.sizeHint().height()
+        if self._user_footer is not None:
+            chrome += self._user_footer.sizeHint().height()
             visible_rows += 1
         frame_layout = frame.layout()
         if frame_layout is not None and visible_rows > 1:

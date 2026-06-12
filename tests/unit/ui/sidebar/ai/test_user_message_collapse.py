@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QApplication,
+    QFrame,
     QLabel,
     QPushButton,
     QScrollArea,
@@ -22,6 +24,16 @@ def _user_toggle(bubble: ChatMessageBubble) -> QPushButton | None:
     if bubble._user_section is None:
         return None
     return bubble._user_section.findChild(QPushButton, "aiChatUserMessageToggle")
+
+
+def _sticky_label_column_bottom(overlay: StickyUserPromptOverlay) -> int:
+    """Return the bottom edge of the visible sticky prompt column."""
+    scroll = overlay.findChild(QScrollArea, "aiChatStickyScroll")
+    host = overlay.findChild(QWidget, "aiChatStickyLabelHost")
+    if scroll is not None and scroll.isVisible():
+        return scroll.y() + scroll.height()
+    assert host is not None
+    return host.y() + host.height()
 
 
 def _long_prompt() -> str:
@@ -291,10 +303,14 @@ def test_sticky_overlay_toggle_stays_below_label_after_state_resync(
     qapp.processEvents()
 
     scroll_area = overlay.findChild(QScrollArea, "aiChatStickyScroll")
+    label_host = overlay.findChild(QWidget, "aiChatStickyLabelHost")
     toggle = overlay.findChild(QPushButton, "aiChatUserMessageToggle")
+    footer = overlay.findChild(QWidget, "aiChatUserMessageFooter")
     timestamp = overlay.findChild(QLabel, "aiChatUserMessageTime")
-    assert scroll_area is not None
+    assert scroll_area is not None and not scroll_area.isVisible()
+    assert label_host is not None and label_host.isVisible()
     assert toggle is not None and toggle.isVisible()
+    assert footer is not None and footer.isVisible()
     assert timestamp is not None and timestamp.isVisible()
 
     overlay.set_anchor_state(
@@ -305,7 +321,70 @@ def test_sticky_overlay_toggle_stays_below_label_after_state_resync(
     overlay.apply_geometry(width, metrics.total_height, metrics)
     qapp.processEvents()
 
-    scroll_bottom = scroll_area.y() + scroll_area.height()
-    assert toggle.y() >= scroll_bottom - 1
+    label_bottom = _sticky_label_column_bottom(overlay)
+    assert toggle.y() >= label_bottom - 1
     toggle_bottom = toggle.y() + toggle.height()
-    assert timestamp.y() >= toggle_bottom - 1
+    assert footer.y() >= toggle_bottom - 1
+
+
+def test_user_message_has_config_button(qapp: QApplication, qtbot) -> None:
+    """User bubbles expose a config menu button in the footer row."""
+    host = QWidget()
+    layout = QVBoxLayout(host)
+    bubble = ChatMessageBubble("user", "Hi there")
+    layout.addWidget(bubble)
+    qtbot.addWidget(host)
+    host.resize(360, 200)
+    host.show()
+    qtbot.waitExposed(host)
+
+    frame = bubble.findChild(QFrame, "aiChatMessageUser")
+    assert frame is not None
+    config = frame.findChild(QPushButton, "aiChatUserMessageConfig")
+    assert config is not None
+    assert config.isVisible()
+
+
+def test_user_message_config_opens_actions_popover(qapp: QApplication, qtbot) -> None:
+    """Clicking the config button toggles the display-only actions flyout."""
+    from ui.sidebar.ai.message_bubble.user_message.actions_popup import AiUserMessageActionsPopup
+
+    host = QWidget()
+    layout = QVBoxLayout(host)
+    bubble = ChatMessageBubble("user", "Hi there")
+    layout.addWidget(bubble)
+    qtbot.addWidget(host)
+    host.resize(360, 200)
+    host.show()
+    qtbot.waitExposed(host)
+
+    frame = bubble.findChild(QFrame, "aiChatMessageUser")
+    assert frame is not None
+    config = frame.findChild(QPushButton, "aiChatUserMessageConfig")
+    assert config is not None
+    popup = AiUserMessageActionsPopup.instance()
+
+    qtbot.mouseClick(config, Qt.MouseButton.LeftButton)
+    assert popup.isVisible()
+    labels = popup.findChildren(QLabel, "aiUserMessageActionLabel")
+    assert {label.text() for label in labels} == {"Edit message", "Fork conversation"}
+    rows = popup.findChildren(QWidget, "aiUserMessageActionRow")
+    assert len(rows) == 2
+    assert all(row.cursor().shape() == Qt.CursorShape.PointingHandCursor for row in rows)
+
+    qtbot.mouseClick(config, Qt.MouseButton.LeftButton)
+    assert not popup.isVisible()
+
+
+def test_sticky_overlay_has_config_button(qapp: QApplication, qtbot) -> None:
+    """Sticky user prompt overlay mirrors the config footer button."""
+    host = QWidget()
+    qtbot.addWidget(host)
+    overlay = StickyUserPromptOverlay(host)
+    overlay.set_anchor_state(
+        text="Sticky prompt",
+        sent_at=datetime(2026, 6, 11, 18, 41, tzinfo=UTC),
+        collapsible=False,
+    )
+    config = overlay.findChild(QPushButton, "aiChatUserMessageConfig")
+    assert config is not None

@@ -351,7 +351,7 @@ src/
     │   │   │   ├── thought_section.py   # ThoughtSection collapsible block
     │   │   │   ├── activity_row.py      # AssistantActivityRow spinner row
     │   │   │   ├── wrapping_label.py    # _WrappingLabel — height-for-width QLabel
-    │   │   │   └── user_message/        # UserMessageSection — collapse, fade, Show more/less
+    │   │   │   └── user_message/        # UserMessageSection, footer, actions popup, sticky overlay
     │   │   │       ├── section.py
     │   │   │       ├── fade.py
     │   │   │       └── overlay.py       # StickyUserPromptOverlay — viewport sticky clone
