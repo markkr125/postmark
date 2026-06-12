@@ -7,7 +7,14 @@ from typing import TYPE_CHECKING, NamedTuple
 
 from PySide6.QtCore import QPointF, Qt, Signal
 from PySide6.QtGui import QResizeEvent, QShowEvent, QWheelEvent
-from PySide6.QtWidgets import QApplication, QFrame, QPushButton, QScrollArea, QWidget
+from PySide6.QtWidgets import (
+    QApplication,
+    QFrame,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QWidget,
+)
 
 from ui.sidebar.ai.message_bubble.user_message.fade import UserMessageBottomFade
 from ui.sidebar.ai.message_bubble.user_message.footer import UserMessageFooterRow
@@ -139,6 +146,7 @@ class StickyUserPromptOverlay(QWidget):
         self._toggle = QPushButton(self._frame)
         self._toggle.setObjectName("aiChatUserMessageToggle")
         self._toggle.setFlat(True)
+        self._toggle.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self._toggle.setCursor(Qt.CursorShape.PointingHandCursor)
         self._toggle.clicked.connect(self._on_toggle_clicked)
         self._toggle.hide()
@@ -371,7 +379,8 @@ class StickyUserPromptOverlay(QWidget):
 
         if collapsible:
             toggle_h = self._toggle.sizeHint().height()
-            self._toggle.setGeometry(x, y + _ROW_SPACING, inner_w, toggle_h)
+            toggle_w = self._toggle.sizeHint().width()
+            self._toggle.setGeometry(x, y + _ROW_SPACING, toggle_w, toggle_h)
             self._toggle.show()
             y += _ROW_SPACING + toggle_h
         else:

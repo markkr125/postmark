@@ -52,11 +52,12 @@ class UserMessageSection(QWidget):
         self._toggle = QPushButton()
         self._toggle.setObjectName("aiChatUserMessageToggle")
         self._toggle.setFlat(True)
+        self._toggle.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self._toggle.setCursor(Qt.CursorShape.PointingHandCursor)
         self._toggle.clicked.connect(self._on_toggle_clicked)
         self._toggle.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
         self._toggle.hide()
-        layout.addWidget(self._toggle)
+        layout.addWidget(self._toggle, 0, Qt.AlignmentFlag.AlignLeft)
 
         self._expanded = True
         self._collapsible = False
@@ -223,6 +224,7 @@ class UserMessageSection(QWidget):
         if self._collapsible:
             self._toggle.show()
             self._toggle.setText(_SHOW_LESS_LABEL if self.is_expanded() else _SHOW_MORE_LABEL)
+            self._toggle.setFixedWidth(self._toggle.sizeHint().width())
         else:
             self._toggle.hide()
 

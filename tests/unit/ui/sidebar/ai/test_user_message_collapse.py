@@ -75,6 +75,7 @@ def test_long_user_message_collapsed_by_default(qapp: QApplication, qtbot) -> No
     assert toggle is not None
     assert toggle.isVisible()
     assert toggle.text() == "Show more"
+    assert toggle.width() <= toggle.sizeHint().width() + 2
     assert not bubble.is_user_message_expanded()
     assert bubble._user_section is not None
     assert bubble._user_section._fade.isVisible()
@@ -310,6 +311,7 @@ def test_sticky_overlay_toggle_stays_below_label_after_state_resync(
     assert scroll_area is not None and not scroll_area.isVisible()
     assert label_host is not None and label_host.isVisible()
     assert toggle is not None and toggle.isVisible()
+    assert toggle.width() < width - 24
     assert footer is not None and footer.isVisible()
     assert timestamp is not None and timestamp.isVisible()
 
