@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QApplication,
+    QLabel,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ui.sidebar.ai.message_bubble import ChatMessageBubble
 from ui.sidebar.ai.message_bubble.user_message.overlay import StickyUserPromptOverlay
@@ -192,7 +199,6 @@ def test_sticky_overlay_metrics_short_prompt_with_timestamp(
     overlay.set_anchor_state(
         text="Hi there",
         sent_at=datetime(2026, 6, 11, 18, 41, tzinfo=UTC),
-        expanded=True,
         collapsible=False,
     )
     metrics = overlay.measure_for_width(360, 400)
@@ -212,7 +218,6 @@ def test_sticky_overlay_metrics_long_collapsed_prompt(
     overlay.set_anchor_state(
         text=_long_prompt(),
         sent_at=None,
-        expanded=False,
         collapsible=True,
     )
     width = 360
@@ -221,6 +226,7 @@ def test_sticky_overlay_metrics_long_collapsed_prompt(
     metrics = overlay.measure_for_width(width, 400)
     assert metrics.label_height <= collapsed_cap
     assert metrics.total_height <= 400
+    assert metrics.content_height >= metrics.label_height
 
 
 def test_sticky_overlay_metrics_expanded_long_prompt_respects_cap(
@@ -234,9 +240,9 @@ def test_sticky_overlay_metrics_expanded_long_prompt_respects_cap(
     overlay.set_anchor_state(
         text=_long_prompt(),
         sent_at=None,
-        expanded=True,
         collapsible=True,
     )
+    overlay._expanded = True
     cap = 180
     metrics = overlay.measure_for_width(360, cap)
     assert metrics.total_height <= cap
@@ -254,7 +260,6 @@ def test_sticky_overlay_metrics_tiny_cap_never_returns_zero(
     overlay.set_anchor_state(
         text=_long_prompt(),
         sent_at=datetime(2026, 6, 11, 18, 41, tzinfo=UTC),
-        expanded=False,
         collapsible=True,
     )
     metrics = overlay.measure_for_width(360, 30)
@@ -275,7 +280,6 @@ def test_sticky_overlay_toggle_stays_below_label_after_state_resync(
     overlay.set_anchor_state(
         text=_long_prompt(),
         sent_at=sent_at,
-        expanded=False,
         collapsible=True,
     )
     width = 320
@@ -286,22 +290,22 @@ def test_sticky_overlay_toggle_stays_below_label_after_state_resync(
     qtbot.waitExposed(host)
     qapp.processEvents()
 
-    label = overlay.label_widget()
+    scroll_area = overlay.findChild(QScrollArea, "aiChatStickyScroll")
     toggle = overlay.findChild(QPushButton, "aiChatUserMessageToggle")
     timestamp = overlay.findChild(QLabel, "aiChatUserMessageTime")
+    assert scroll_area is not None
     assert toggle is not None and toggle.isVisible()
     assert timestamp is not None and timestamp.isVisible()
 
     overlay.set_anchor_state(
         text=_long_prompt(),
         sent_at=sent_at,
-        expanded=False,
         collapsible=True,
     )
     overlay.apply_geometry(width, metrics.total_height, metrics)
     qapp.processEvents()
 
-    label_bottom = label.y() + label.height()
-    assert toggle.y() >= label_bottom - 1
+    scroll_bottom = scroll_area.y() + scroll_area.height()
+    assert toggle.y() >= scroll_bottom - 1
     toggle_bottom = toggle.y() + toggle.height()
     assert timestamp.y() >= toggle_bottom - 1

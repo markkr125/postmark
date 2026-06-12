@@ -282,11 +282,13 @@ calls ``ensure_painted_geometry()`` to repair zero-height labels. The overlay is
 ``measure_for_width()`` and paints via ``apply_geometry()`` using explicit label
 heights instead of nested ``QVBoxLayout`` height-for-width. Turn selection uses a
 conservative minimum height estimate before the final overlay height is computed.
-The overlay does not change scroll range and is clamped to 35% of viewport height
-for tall prompts (``aiChatUserMessageFade`` gradient at the clipped bottom). Long
-prompts use the same Show more/less control as transcript rows; sticky toggle syncs
-expand/collapse to the anchor row. Sticky sync is no longer fully deferred during
-smooth scrolling (only pane resize coalescing defers it). It hides when any later
+The overlay does not change scroll range. Collapsed tall prompts are clamped to
+35% of viewport height (``aiChatUserMessageFade`` on the preview); expanded
+prompts use up to 60% with the label hosted in an internal ``aiChatStickyScroll``
+area so the full prompt scrolls inside the overlay. Long prompts use Show
+more/less on the overlay only; expanding does not mutate the transcript anchor
+row. Sticky sync is no longer fully deferred during smooth scrolling (only pane
+resize coalescing defers it). It hides when any later
 turn's user bubble is
 still visible near the viewport top (so an older prompt is not pinned underneath),
 when the selected turn's real user bubble is visible near the top, when the turn

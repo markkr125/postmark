@@ -1536,6 +1536,13 @@ def build_global_qss(p: ThemePalette) -> str:
         border-right: 1px solid {p["border"]};
         background: transparent;
     }}
+    QScrollArea[objectName="aiChatStickyScroll"] {{
+        background: transparent;
+        border: none;
+    }}
+    QScrollArea[objectName="aiChatStickyScroll"] > QWidget > QWidget {{
+        background: transparent;
+    }}
     QPushButton[objectName="aiChatScrollDown"] {{
         background: {p["bg_alt"]};
         border: 1px solid {p["border"]};

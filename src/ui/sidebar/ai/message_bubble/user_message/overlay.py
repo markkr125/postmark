@@ -5,9 +5,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING, NamedTuple
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QPointF, Qt, Signal
 from PySide6.QtGui import QResizeEvent, QShowEvent, QWheelEvent
-from PySide6.QtWidgets import QFrame, QLabel, QPushButton, QWidget
+from PySide6.QtWidgets import QApplication, QFrame, QLabel, QPushButton, QScrollArea, QWidget
 
 from ui.sidebar.ai.chat_sessions.time_format import format_message_sent_at
 from ui.sidebar.ai.message_bubble.user_message.fade import UserMessageBottomFade
@@ -36,6 +36,65 @@ class StickyOverlayMetrics(NamedTuple):
     chrome_height: int
     total_height: int
     clamped: bool
+    content_height: int = 0
+
+
+class _StickyInnerScrollArea(QScrollArea):
+    """Internal sticky scroll area that releases boundary wheels to the transcript."""
+
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        """Scroll internally, but forward to the transcript at top/bottom edges."""
+        if self._forward_boundary_wheel_to_transcript(event):
+            return
+        super().wheelEvent(event)
+
+    def _forward_boundary_wheel_to_transcript(self, event: QWheelEvent) -> bool:
+        """Return True when a boundary wheel was forwarded to the transcript."""
+        bar = self.verticalScrollBar()
+        delta_y = event.angleDelta().y()
+        at_top = bar.value() <= bar.minimum()
+        at_bottom = bar.value() >= bar.maximum()
+        if not ((delta_y > 0 and at_top) or (delta_y < 0 and at_bottom)):
+            return False
+        widget: QWidget | None = self
+        while widget is not None:
+            parent = widget.parentWidget()
+            if isinstance(parent, QScrollArea) and parent.objectName() == "aiChatScroll":
+                viewport = parent.viewport()
+                local = viewport.mapFromGlobal(event.globalPosition().toPoint())
+                forwarded = QWheelEvent(
+                    QPointF(local),
+                    event.globalPosition(),
+                    event.pixelDelta(),
+                    event.angleDelta(),
+                    event.buttons(),
+                    event.modifiers(),
+                    event.phase(),
+                    event.inverted(),
+                )
+                QApplication.sendEvent(viewport, forwarded)
+                event.accept()
+                return True
+            widget = parent
+        return forward_wheel_to_ancestor_scroll_area(self, event)
+
+
+class _StickyPromptLabel(_WrappingLabel):
+    """Sticky prompt label that scrolls internally and releases boundary wheels."""
+
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        """Route wheels through the internal scroll area boundary logic."""
+        scroll_area = self.parentWidget()
+        while scroll_area is not None and not isinstance(scroll_area, _StickyInnerScrollArea):
+            scroll_area = scroll_area.parentWidget()
+        if isinstance(scroll_area, _StickyInnerScrollArea):
+            if scroll_area._forward_boundary_wheel_to_transcript(event):
+                return
+            super().wheelEvent(event)
+            return
+        if forward_wheel_to_ancestor_scroll_area(self, event):
+            return
+        super().wheelEvent(event)
 
 
 class StickyUserPromptOverlay(QWidget):
@@ -57,8 +116,17 @@ class StickyUserPromptOverlay(QWidget):
         self._frame.setObjectName("aiChatMessageUser")
         self._frame.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
-        self._label = _WrappingLabel("", self._frame)
+        self._scroll_area = _StickyInnerScrollArea(self._frame)
+        self._scroll_area.setObjectName("aiChatStickyScroll")
+        self._scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        self._scroll_area.setWidgetResizable(False)
+        self._scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._scroll_area.viewport().setAutoFillBackground(False)
+
+        self._label = _StickyPromptLabel("", self._scroll_area)
         self._label.setObjectName("aiChatUserMessageText")
+        self._scroll_area.setWidget(self._label)
 
         self._fade = UserMessageBottomFade(self._frame)
         self._fade.hide()
@@ -89,16 +157,16 @@ class StickyUserPromptOverlay(QWidget):
         return self._expanded or not self._collapsible
 
     def label_painted_height(self) -> int:
-        """Return the painted label height (for layout repair checks)."""
-        return self._label.height()
+        """Return the visible label viewport height (for layout repair checks)."""
+        return self._scroll_area.height()
 
-    def label_widget(self) -> _WrappingLabel:
+    def label_widget(self) -> _StickyPromptLabel:
         """Return the wrapped prompt label."""
         return self._label
 
     def prompt_content_bottom_y(self) -> int:
         """Return the bottom edge of label/toggle chrome in overlay coordinates."""
-        bottom = self._label.y() + self._label.height()
+        bottom = self._scroll_area.y() + self._scroll_area.height()
         if self._toggle.isVisible():
             bottom = max(bottom, self._toggle.y() + self._toggle.height())
         return self._frame.y() + bottom
@@ -108,15 +176,16 @@ class StickyUserPromptOverlay(QWidget):
         *,
         text: str,
         sent_at: datetime | None,
-        expanded: bool,
         collapsible: bool,
     ) -> None:
-        """Mirror anchor prompt state without relying on nested row layout."""
+        """Mirror anchor prompt text/time without relying on nested row layout."""
+        text_changed = text != self._text
         self._text = text
         self._sent_at = sent_at
-        self._expanded = expanded
         self._collapsible = collapsible
         self._label.setText(text)
+        if text_changed:
+            self._expanded = not collapsible
         if sent_at is not None:
             self._timestamp.setText(format_message_sent_at(sent_at))
         else:
@@ -126,18 +195,15 @@ class StickyUserPromptOverlay(QWidget):
         self._timestamp.hide()
 
     def sync_expanded_from_anchor(self, anchor: ChatMessageBubble) -> None:
-        """Copy expand/collapse state from a transcript user row."""
+        """Copy text/time/collapsible from a transcript user row (keeps own expand state)."""
         section = anchor._user_section
         inner_w = self._inner_label_width(max(1, self.width()))
         collapsible = False
-        expanded = True
         if section is not None:
             collapsible = section.is_collapsible() or section.needs_collapse_for_width(inner_w)
-            expanded = section._expanded if collapsible else True
         self.set_anchor_state(
             text=anchor.text(),
             sent_at=anchor.sent_at(),
-            expanded=expanded,
             collapsible=collapsible,
         )
 
@@ -157,7 +223,7 @@ class StickyUserPromptOverlay(QWidget):
             label_h = min(natural_h, label_budget)
 
         clamped = label_h < natural_h
-        return StickyOverlayMetrics(label_h, chrome, chrome + label_h, clamped)
+        return StickyOverlayMetrics(label_h, chrome, chrome + label_h, clamped, natural_h)
 
     @classmethod
     def measure_from_anchor(
@@ -179,8 +245,8 @@ class StickyUserPromptOverlay(QWidget):
         self._layout_children(metrics)
 
     def ensure_painted_geometry(self, metrics: StickyOverlayMetrics) -> None:
-        """Re-apply child geometry when the label failed to paint at the expected height."""
-        if self._label.height() < max(8, min(metrics.label_height, 40) // 2):
+        """Re-apply child geometry when the scroll viewport failed to size as expected."""
+        if self._scroll_area.height() < max(8, min(metrics.label_height, 40) // 2):
             self._layout_children(metrics)
 
     def _inner_label_width(self, content_width: int) -> int:
@@ -239,10 +305,20 @@ class StickyUserPromptOverlay(QWidget):
         inner_w = self._inner_label_width(self.width())
         self._refresh_collapsible_state()
         collapsible = self._collapsible
+        expanded = self.is_user_message_expanded()
 
         y = _FRAME_MARGIN_TOP
         x = _FRAME_MARGIN_LEFT
-        self._label.setGeometry(x, y, inner_w, metrics.label_height)
+
+        content_h = max(metrics.content_height, metrics.label_height)
+        self._scroll_area.setGeometry(x, y, inner_w, metrics.label_height)
+        self._label.setFixedWidth(inner_w)
+        self._label.setFixedHeight(content_h)
+        if expanded and content_h > metrics.label_height:
+            self._scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        else:
+            self._scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            self._scroll_area.verticalScrollBar().setValue(0)
         y += metrics.label_height
 
         if collapsible:
@@ -260,7 +336,7 @@ class StickyUserPromptOverlay(QWidget):
         else:
             self._timestamp.hide()
 
-        if metrics.clamped or (self._collapsible and not self.is_user_message_expanded()):
+        if collapsible and not expanded:
             self._fade.show()
         else:
             self._fade.hide()
@@ -276,11 +352,9 @@ class StickyUserPromptOverlay(QWidget):
         self._fade.raise_()
 
     def _on_toggle_clicked(self) -> None:
-        """Toggle expanded/collapsed preview on the overlay."""
+        """Flip expanded state and let the panel recompute geometry (avoids stale-metric flicker)."""
         self._expanded = not self._expanded
         self._refresh_collapsible_state()
-        if self._applied_metrics is not None:
-            self._layout_children(self._applied_metrics)
         self.expanded_changed.emit()
 
     def showEvent(self, event: QShowEvent) -> None:

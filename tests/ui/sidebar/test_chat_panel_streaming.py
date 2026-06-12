@@ -1469,15 +1469,20 @@ def test_sticky_user_prompt_with_timestamp_keeps_label_visible(
     )
     panel.begin_assistant_stream()
     panel.append_assistant_chunk("", "answer line\n" * 50)
+    _flush_stream_chunks(qtbot)
+    _drain_follow_passes(qtbot, qapp)
     qapp.processEvents()
     _scroll_until_sticky_shows_text(panel, qapp, long_prompt)
     sticky = _sticky_turn_prompt(panel)
     assert sticky is not None
+    from PySide6.QtWidgets import QScrollArea
+
     label = sticky.findChild(QLabel, "aiChatUserMessageText")
-    assert label is not None
+    scroll_area = sticky.findChild(QScrollArea, "aiChatStickyScroll")
+    assert label is not None and scroll_area is not None
     assert label.text() == long_prompt
     assert label.height() >= 40
-    assert sticky.height() >= label.height() + 20
+    assert sticky.height() >= scroll_area.height() + 20
     timestamp = sticky.findChild(QLabel, "aiChatUserMessageTime")
     assert timestamp is not None
     assert timestamp.isVisible()
@@ -1505,20 +1510,24 @@ def test_sticky_toggle_positioned_after_unchanged_sync(qapp: QApplication, qtbot
     )
     panel.begin_assistant_stream()
     panel.append_assistant_chunk("", "answer line\n" * 50)
+    _flush_stream_chunks(qtbot)
+    _drain_follow_passes(qtbot, qapp)
     qapp.processEvents()
     _scroll_until_sticky_shows_text(panel, qapp, long_prompt)
     panel._sync_sticky_turn_prompt()
     panel._sync_sticky_turn_prompt()
 
+    from PySide6.QtWidgets import QScrollArea
+
     sticky = _sticky_turn_prompt(panel)
     assert sticky is not None and sticky.isVisible()
-    label = sticky.findChild(QLabel, "aiChatUserMessageText")
+    scroll_area = sticky.findChild(QScrollArea, "aiChatStickyScroll")
     toggle = sticky.findChild(QPushButton, "aiChatUserMessageToggle")
     timestamp = sticky.findChild(QLabel, "aiChatUserMessageTime")
-    assert label is not None and toggle is not None and timestamp is not None
+    assert scroll_area is not None and toggle is not None and timestamp is not None
     assert toggle.isVisible() and timestamp.isVisible()
-    label_bottom = label.y() + label.height()
-    assert toggle.y() >= label_bottom - 2
+    scroll_bottom = scroll_area.y() + scroll_area.height()
+    assert toggle.y() >= scroll_bottom - 2
     toggle_bottom = toggle.y() + toggle.height()
     assert timestamp.y() >= toggle_bottom - 2
 
@@ -1555,6 +1564,7 @@ def test_sticky_user_prompt_show_more_caps_to_content_without_timestamp_gap(
     assert toggle is not None
     assert toggle.text() == "Show more"
     toggle.click()
+    panel._sync_sticky_turn_prompt()
     for _ in range(3):
         qapp.processEvents()
     assert sticky.is_user_message_expanded()
@@ -1571,8 +1581,8 @@ def test_sticky_user_prompt_show_more_caps_to_content_without_timestamp_gap(
     assert timestamp_gap <= 8
 
 
-def test_sticky_user_prompt_toggle_expands_and_syncs_anchor(qapp: QApplication, qtbot) -> None:
-    """Show more on the sticky overlay expands the anchor transcript row too."""
+def test_sticky_user_prompt_toggle_does_not_mutate_anchor(qapp: QApplication, qtbot) -> None:
+    """Show more on the sticky overlay expands only the overlay, not the transcript row."""
     panel = AiChatPanel()
     qtbot.addWidget(panel)
     long_prompt = "user prompt line\n" * 24
@@ -1591,19 +1601,126 @@ def test_sticky_user_prompt_toggle_expands_and_syncs_anchor(qapp: QApplication, 
     assert toggle is not None
     assert toggle.isVisible()
     assert toggle.text() == "Show more"
-    collapsed_sticky_h = sticky.height()
+    anchor_expanded_before = user.is_user_message_expanded()
+    scroll_before = panel._scroll.verticalScrollBar().value()
     toggle.click()
+    panel._sync_sticky_turn_prompt()
     for _ in range(3):
         qapp.processEvents()
     assert sticky.is_user_message_expanded()
-    assert user.is_user_message_expanded()
     assert toggle.text() == "Show less"
-    cap = panel._sticky_prompt_height_cap()
-    assert sticky.height() >= collapsed_sticky_h
-    assert sticky.height() <= cap + 2
+    assert user.is_user_message_expanded() == anchor_expanded_before
+    assert panel._scroll.verticalScrollBar().value() == scroll_before
+
+
+def test_sticky_user_prompt_expanded_is_internally_scrollable(qapp: QApplication, qtbot) -> None:
+    """Expanding a very long sticky prompt yields an internal scrollbar, not a clamp."""
+    from PySide6.QtWidgets import QScrollArea
+
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitExposed(panel)
+    panel.resize(360, 700)
+    long_prompt = "scrollable prompt line\n" * 60
+    for index in range(16):
+        panel.add_message("user", f"fill {index} " * 8)
+    panel.add_message("user", long_prompt)
+    panel.begin_assistant_stream()
+    panel.append_assistant_chunk("", "answer line\n" * 60)
+    _flush_stream_chunks(qtbot)
+    _drain_follow_passes(qtbot, qapp)
+    qapp.processEvents()
+    _scroll_until_sticky_shows_text(panel, qapp, long_prompt)
+    sticky = _sticky_turn_prompt(panel)
+    assert sticky is not None
+    toggle = sticky.findChild(QPushButton, "aiChatUserMessageToggle")
+    assert toggle is not None
+    toggle.click()
+    panel._sync_sticky_turn_prompt()
+    for _ in range(3):
+        qapp.processEvents()
+    assert sticky.is_user_message_expanded()
+    scroll_area = sticky.findChild(QScrollArea, "aiChatStickyScroll")
+    assert scroll_area is not None
+    bar = scroll_area.verticalScrollBar()
+    assert bar.maximum() > 0
+
+
+def test_sticky_user_prompt_expand_grows_without_moving_transcript(
+    qapp: QApplication,
+    qtbot,
+) -> None:
+    """Show more makes the sticky overlay taller while the transcript scroll stays put."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitExposed(panel)
+    panel.resize(360, 700)
+    long_prompt = "scrollable prompt line\n" * 60
+    for index in range(16):
+        panel.add_message("user", f"fill {index} " * 8)
+    panel.add_message("user", long_prompt)
+    panel.begin_assistant_stream()
+    panel.append_assistant_chunk("", "answer line\n" * 60)
+    _flush_stream_chunks(qtbot)
+    _drain_follow_passes(qtbot, qapp)
+    qapp.processEvents()
+    _scroll_until_sticky_shows_text(panel, qapp, long_prompt)
+    sticky = _sticky_turn_prompt(panel)
+    assert sticky is not None
+    collapsed_h = sticky.height()
+    scroll_before = panel._scroll.verticalScrollBar().value()
+    toggle = sticky.findChild(QPushButton, "aiChatUserMessageToggle")
+    assert toggle is not None
+    toggle.click()
+    panel._sync_sticky_turn_prompt()
+    for _ in range(3):
+        qapp.processEvents()
+    assert sticky.is_user_message_expanded()
+    assert sticky.height() > collapsed_h
+    assert panel._scroll.verticalScrollBar().value() == scroll_before
+
+
+def test_sticky_wheel_at_internal_top_scrolls_transcript(qapp: QApplication, qtbot) -> None:
+    """At the sticky's internal scroll top, wheeling up scrolls the transcript, not nothing."""
+    from PySide6.QtWidgets import QScrollArea
+
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitExposed(panel)
+    panel.resize(360, 700)
+    long_prompt = "scrollable prompt line\n" * 60
+    for index in range(16):
+        panel.add_message("user", f"fill {index} " * 8)
+    panel.add_message("user", long_prompt)
+    panel.begin_assistant_stream()
+    panel.append_assistant_chunk("", "answer line\n" * 60)
+    _flush_stream_chunks(qtbot)
+    _drain_follow_passes(qtbot, qapp)
+    qapp.processEvents()
+    _scroll_until_sticky_shows_text(panel, qapp, long_prompt)
+    sticky = _sticky_turn_prompt(panel)
+    assert sticky is not None
+    toggle = sticky.findChild(QPushButton, "aiChatUserMessageToggle")
+    assert toggle is not None
+    toggle.click()
+    panel._sync_sticky_turn_prompt()
+    for _ in range(3):
+        qapp.processEvents()
+    assert sticky.is_user_message_expanded()
+    inner = sticky.findChild(QScrollArea, "aiChatStickyScroll")
+    assert inner is not None
+    inner.verticalScrollBar().setValue(0)
+    qapp.processEvents()
+    transcript_before = panel._scroll.verticalScrollBar().value()
     label = sticky.findChild(QLabel, "aiChatUserMessageText")
     assert label is not None
-    assert label.height() >= 40
+    _wheel_on_widget(label, delta_y=120)
+    _drain_smooth_scroll(panel, qapp, qtbot)
+    qapp.processEvents()
+    assert panel._scroll.verticalScrollBar().value() < transcript_before
 
 
 def test_sticky_user_prompt_short_non_collapsible_shows_label_text(
@@ -1639,23 +1756,23 @@ def test_sticky_user_prompt_expanded_long_anchor_stays_visible(
     qapp: QApplication,
     qtbot,
 ) -> None:
-    """Expanded long anchor prompts remain visible on the sticky overlay."""
+    """Expanding the sticky overlay shows a tall readable prompt independent of the anchor."""
     panel = AiChatPanel()
     qtbot.addWidget(panel)
     long_prompt = "user prompt line\n" * 24
     _fill_transcript_and_start_stream(panel, qapp, qtbot, user_text=long_prompt, assistant_lines=30)
     user = _user_bubble_with_text(panel, long_prompt)
-    section = user._user_section
-    assert section is not None
-    toggle = section.findChild(QPushButton, "aiChatUserMessageToggle")
-    assert toggle is not None
-    toggle.click()
-    qapp.processEvents()
-    assert user.is_user_message_expanded()
     _scroll_until_anchor_above_viewport(panel, qapp)
     sticky = _sticky_turn_prompt(panel)
     assert sticky is not None
+    sticky_toggle = sticky.findChild(QPushButton, "aiChatUserMessageToggle")
+    assert sticky_toggle is not None
+    sticky_toggle.click()
+    panel._sync_sticky_turn_prompt()
+    for _ in range(3):
+        qapp.processEvents()
     assert sticky.is_user_message_expanded()
+    assert not user.is_user_message_expanded()
     label = sticky.findChild(QLabel, "aiChatUserMessageText")
     assert label is not None
     assert label.height() >= 40

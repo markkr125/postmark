@@ -16,7 +16,8 @@ from ui.sidebar.ai.message_bubble.user_message.overlay import (
 )
 
 _STICKY_PROMPT_TOP_PX = 0
-_STICKY_PROMPT_MAX_VIEWPORT_RATIO = 0.35
+_STICKY_PROMPT_COLLAPSED_VIEWPORT_RATIO = 0.35
+_STICKY_PROMPT_EXPANDED_VIEWPORT_RATIO = 0.6
 _STICKY_PROMPT_MARGIN_PX = 4
 _STICKY_PROMPT_HYSTERESIS_PX = 4
 _STICKY_PROMPT_VIEWPORT_INSET_PX = 3
@@ -159,7 +160,14 @@ class _ChatPanelStickyPromptMixin:  # type: ignore[misc]
     def _sticky_prompt_height_cap(self) -> int:
         """Return the maximum sticky overlay height for the current viewport."""
         viewport_h = self._scroll.viewport().height()
-        ratio_cap = int(viewport_h * _STICKY_PROMPT_MAX_VIEWPORT_RATIO)
+        sticky = self._sticky_turn_prompt
+        expanded = sticky is not None and sticky.is_user_message_expanded()
+        ratio = (
+            _STICKY_PROMPT_EXPANDED_VIEWPORT_RATIO
+            if expanded
+            else _STICKY_PROMPT_COLLAPSED_VIEWPORT_RATIO
+        )
+        ratio_cap = int(viewport_h * ratio)
         return max(ratio_cap, min(viewport_h - 16, 120))
 
     def _assistant_intersects_viewport(self, assistant_top_y: int, assistant_bottom_y: int) -> bool:
@@ -241,50 +249,15 @@ class _ChatPanelStickyPromptMixin:  # type: ignore[misc]
         height_cap = min(cap, available_h)
         metrics = sticky.measure_for_width(content_w, height_cap)
         sticky_h = min(metrics.total_height, height_cap)
-
-        section = anchor._user_section
-        if (
-            section is not None
-            and section.is_collapsible()
-            and not anchor.is_user_message_expanded()
-        ):
-            anchor_metrics = StickyUserPromptOverlay.measure_from_anchor(
-                anchor,
-                content_width=content_w,
-                max_height=height_cap,
-            )
-            sticky_h = min(sticky_h, anchor_metrics.total_height)
-
         metrics = sticky.measure_for_width(content_w, sticky_h)
         sticky.apply_geometry(content_w, sticky_h, metrics)
         return sticky_h, metrics
 
-    def _resolve_sticky_turn_anchor(
-        self,
-        sticky: StickyUserPromptOverlay,
-    ) -> ChatMessageBubble | None:
-        """Return the transcript user row mirrored by the sticky overlay."""
-        anchor = self._sticky_turn_anchor
-        if anchor is not None:
-            return anchor
-        for user, _assistant in self._ensure_sticky_turn_pairs():
-            if user.text() == sticky.text() and user.sent_at() == sticky.sent_at():
-                self._sticky_turn_anchor = user
-                return user
-        return None
-
     def _on_sticky_overlay_expanded_changed(self) -> None:
-        """Mirror sticky Show more/less onto the anchor row and re-sync overlay geometry."""
-        sticky = self._sticky_turn_prompt
-        if sticky is None:
+        """Recompute sticky geometry after Show more/less without touching the transcript."""
+        if self._sticky_turn_prompt is None:
             return
-        anchor = self._resolve_sticky_turn_anchor(sticky)
-        if anchor is not None and anchor._user_section is not None:
-            anchor._user_section.set_expanded(sticky.is_user_message_expanded())
-            anchor._user_section._refresh_collapse_layout(force=True)
-            anchor.updateGeometry()
         self._reset_sticky_applied_state()
-        self._invalidate_sticky_extents()
         self._schedule_sticky_sync()
 
     def _ensure_sticky_turn_prompt(self, anchor: ChatMessageBubble) -> StickyUserPromptOverlay:
