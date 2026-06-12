@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from PySide6.QtCore import QPoint, QPointF, Qt
 from PySide6.QtWidgets import QApplication, QFrame, QLabel
 
 from services.ai.ai_config import AiConfig, AiModelEntry
 from services.ai.chat.session_service import AiChatMessageDict
 from ui.sidebar.ai import AiChatPanel
 from ui.sidebar.ai.message_bubble import ChatMessageBubble
+from ui.sidebar.ai.message_bubble.markdown_content import MarkdownContent
 
 
 def _flush_stream_chunks(qtbot) -> None:
@@ -359,6 +361,107 @@ def test_assistant_message_renders_fenced_python(qapp: QApplication, qtbot) -> N
     assert "python" in html
     assert "import" in html
     assert "monospace" in html or "<table" in html
+
+
+_COPY_SAMPLE_BASH = (
+    "```bash\n"
+    "# Initialise a module (only needed once)\n"
+    "go mod init example.com/httpclient\n"
+    "# Run\n"
+    "go run HTTPClientWithValidation.go\n"
+    "```"
+)
+
+
+def _assistant_markdown_body(panel: AiChatPanel, qtbot) -> MarkdownContent:
+    """Return the rendered assistant markdown body after layout."""
+    panel.resize(360, 480)
+    panel.show()
+    qtbot.waitExposed(panel)
+    bubble = panel.findChildren(ChatMessageBubble)[0]
+    body = bubble.findChild(MarkdownContent, "aiChatAssistantText")
+    assert body is not None
+    return body
+
+
+def _select_code_block_range(body: MarkdownContent) -> None:
+    """Highlight the bash code lines inside a rendered fenced block."""
+    doc = body._document
+    start = doc.find("# Initialise").selectionStart()
+    end = doc.find("go run HTTPClientWithValidation.go").selectionEnd()
+    body._selection_anchor = start
+    body._selection_cursor = end
+    body.setFocus(Qt.FocusReason.OtherFocusReason)
+
+
+def _point_for_char(body: MarkdownContent, char_index: int, x: float = 50.0) -> QPointF:
+    """Map a document character index to a widget-local point for mouse events."""
+    for y in range(body.height()):
+        if body._cursor_position_at(QPointF(x, float(y))) >= char_index:
+            return QPointF(x, float(y))
+    return QPointF(x, float(max(0, body.height() - 1)))
+
+
+def test_assistant_code_selection_copy_preserves_newlines(qapp: QApplication, qtbot) -> None:
+    """Ctrl+C on a multi-line code selection keeps newlines on the clipboard."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.add_message("assistant", _COPY_SAMPLE_BASH)
+    body = _assistant_markdown_body(panel, qtbot)
+    _select_code_block_range(body)
+
+    qtbot.keyClick(body, Qt.Key.Key_C, modifier=Qt.KeyboardModifier.ControlModifier)
+
+    copied = QApplication.clipboard().text()
+    assert "\n" in copied
+    assert "go mod init example.com/httpclient" in copied
+    assert ")go mod init" not in copied
+
+
+def test_assistant_code_selection_paste_into_composer_preserves_newlines(
+    qapp: QApplication, qtbot
+) -> None:
+    """Copying a multi-line code selection and pasting into the composer keeps line breaks."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.add_message("assistant", _COPY_SAMPLE_BASH)
+    body = _assistant_markdown_body(panel, qtbot)
+    _select_code_block_range(body)
+
+    qtbot.keyClick(body, Qt.Key.Key_C, modifier=Qt.KeyboardModifier.ControlModifier)
+    panel._input.setFocus(Qt.FocusReason.OtherFocusReason)
+    qtbot.keyClick(panel._input, Qt.Key.Key_V, modifier=Qt.KeyboardModifier.ControlModifier)
+
+    pasted = panel._input.toPlainText()
+    assert "\n" in pasted
+    assert "go mod init example.com/httpclient" in pasted
+    assert ")go mod init" not in pasted
+
+
+def test_assistant_code_mouse_drag_copy_preserves_newlines(qapp: QApplication, qtbot) -> None:
+    """Mouse drag selection across code lines copies plain text with newlines."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.add_message("assistant", _COPY_SAMPLE_BASH)
+    body = _assistant_markdown_body(panel, qtbot)
+
+    doc = body._document
+    start = doc.find("# Initialise").selectionStart()
+    end = doc.find("go run HTTPClientWithValidation.go").selectionEnd()
+    press = _point_for_char(body, start)
+    release = _point_for_char(body, end, x=press.x() + 120.0)
+
+    press_pt = QPoint(int(press.x()), int(press.y()))
+    release_pt = QPoint(int(release.x()), int(release.y()))
+    qtbot.mousePress(body, Qt.MouseButton.LeftButton, pos=press_pt)
+    qtbot.mouseMove(body, pos=release_pt)
+    qtbot.mouseRelease(body, Qt.MouseButton.LeftButton, pos=release_pt)
+
+    qtbot.keyClick(body, Qt.Key.Key_C, modifier=Qt.KeyboardModifier.ControlModifier)
+
+    copied = QApplication.clipboard().text()
+    assert "\n" in copied
+    assert ")go mod init" not in copied
 
 
 def test_assistant_streaming_renders_markdown(qapp: QApplication, qtbot) -> None:

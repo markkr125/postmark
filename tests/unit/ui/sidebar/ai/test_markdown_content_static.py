@@ -272,6 +272,48 @@ def test_text_selection_and_copy_shortcut(qapp: QApplication, qtbot) -> None:
     assert QApplication.clipboard().text() == "Hello"
 
 
+_MULTILINE_BASH_SAMPLE = (
+    "```bash\n"
+    "# Initialise a module (only needed once)\n"
+    "go mod init example.com/httpclient\n"
+    "# Run\n"
+    "go run HTTPClientWithValidation.go\n"
+    "```"
+)
+
+
+def test_multiline_code_selection_preserves_newlines(qapp: QApplication, qtbot) -> None:
+    """Selecting across fenced-code table rows keeps line breaks in plain text."""
+    body = MarkdownContent(_MULTILINE_BASH_SAMPLE)
+    qtbot.addWidget(body)
+    body.resize(360, 400)
+    body.show()
+    qtbot.waitExposed(body)
+
+    doc = body._document
+    start = doc.find("# Initialise").selectionStart()
+    end = doc.find("go run HTTPClientWithValidation.go").selectionEnd()
+    body._selection_anchor = start
+    body._selection_cursor = end
+
+    selected = body._selected_text()
+    assert "\n" in selected
+    assert "go mod init example.com/httpclient" in selected
+    assert ")go mod init" not in selected
+
+    from PySide6.QtGui import QKeyEvent
+
+    event = QKeyEvent(
+        QKeyEvent.Type.KeyPress,
+        Qt.Key.Key_C,
+        Qt.KeyboardModifier.ControlModifier,
+    )
+    body.keyPressEvent(event)
+    copied = QApplication.clipboard().text()
+    assert "\n" in copied
+    assert ")go mod init" not in copied
+
+
 def test_wheel_forwards_to_ancestor_scroll_area(
     qapp: QApplication, qtbot, monkeypatch: pytest.MonkeyPatch
 ) -> None:

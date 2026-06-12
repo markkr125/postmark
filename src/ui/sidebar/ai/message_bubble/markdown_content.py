@@ -18,6 +18,7 @@ from PySide6.QtGui import (
     QPalette,
     QTextCursor,
     QTextDocument,
+    QTextTable,
     QWheelEvent,
 )
 from PySide6.QtWidgets import QApplication, QMenu, QScrollArea, QSizePolicy, QWidget
@@ -462,6 +463,35 @@ class MarkdownContent(QWidget):
             return False
         return self._selection_anchor != self._selection_cursor
 
+    def _plain_text_for_table_selection(self, cursor: QTextCursor, table: QTextTable) -> str:
+        """Rebuild plain text for a range that spans HTML table rows.
+
+        ``QTextCursor.selectedText()`` concatenates table cells with no
+        separator; walk rows/columns and join with tabs/newlines instead.
+        """
+        sel_start = cursor.selectionStart()
+        sel_end = cursor.selectionEnd()
+        rows_text: list[str] = []
+        for row in range(table.rows()):
+            row_parts: list[str] = []
+            for col in range(table.columns()):
+                cell = table.cellAt(row, col)
+                if cell.row() != row or cell.column() != col:
+                    continue
+                cell_start = cell.firstPosition()
+                cell_end = cell.lastPosition()
+                if cell_end <= sel_start or cell_start >= sel_end:
+                    continue
+                sub = QTextCursor(self._document)
+                sub.setPosition(max(sel_start, cell_start))
+                sub.setPosition(min(sel_end, cell_end), QTextCursor.MoveMode.KeepAnchor)
+                part = sub.selection().toPlainText()
+                if part:
+                    row_parts.append(part)
+            if row_parts:
+                rows_text.append("\t".join(row_parts))
+        return "\n".join(rows_text)
+
     def _selected_text(self) -> str:
         """Return the currently selected plain text, if any."""
         if not self._has_selection():
@@ -475,7 +505,10 @@ class MarkdownContent(QWidget):
         cursor = QTextCursor(self._document)
         cursor.setPosition(start)
         cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
-        return cursor.selectedText().replace("\u2029", "\n")
+        table = cursor.currentTable()
+        if table is not None:
+            return self._plain_text_for_table_selection(cursor, table)
+        return cursor.selection().toPlainText()
 
     def _selection_paint_context(self) -> QAbstractTextDocumentLayout.Selection | None:
         """Build a paint-context selection for the active highlight range."""

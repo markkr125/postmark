@@ -122,7 +122,7 @@ def _palette_fingerprint(palette: ThemePalette) -> tuple[str, ...]:
     """Return colour slots that affect fenced-code HTML output."""
     return (
         palette["bg"],
-        palette["bg_alt"],
+        palette["chat_code_bg"],
         palette["text"],
         palette["text_muted"],
         palette["border"],
@@ -255,7 +255,7 @@ def _render_code_block_table(
     copy_hovered: bool = False,
 ) -> str:
     """Wrap *body_rows_html* in a single flat table chrome (no nested tables)."""
-    bg = palette["bg_alt"]
+    bg = palette["chat_code_bg"]
     muted = palette["text_muted"]
     lang_style = _perimeter_cell_style(
         palette=palette,
@@ -380,7 +380,7 @@ def provisional_code_to_html(
     lexer_lang = normalize_language(lang)
     display_lang = lexer_lang if lexer_lang != "text" else (lang.strip() or "text")
     text = palette["text"]
-    bg = palette["bg_alt"]
+    bg = palette["chat_code_bg"]
     body_style = _perimeter_cell_style(
         palette=palette,
         role="full_width",

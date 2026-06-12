@@ -111,6 +111,9 @@ class ThemePalette(TypedDict):
     editor_debug_gutter_arrow: str
     editor_inline_log_text: str
 
+    # AI chat fenced-code blocks
+    chat_code_bg: str
+
     # Diff viewer
     diff_removed_bg: str
     diff_added_bg: str
@@ -199,6 +202,7 @@ LIGHT_PALETTE: ThemePalette = {
     "editor_debug_line": "#ffe89a",
     "editor_debug_gutter_arrow": "#f39c12",
     "editor_inline_log_text": "#7f8c8d",
+    "chat_code_bg": "#fdfdfd",
     "diff_removed_bg": "#fce4e4",
     "diff_added_bg": "#d4edda",
     "diff_removed_inline": "#f5c6c6",
@@ -286,6 +290,7 @@ DARK_PALETTE: ThemePalette = {
     "editor_debug_line": "#5a4a1e",
     "editor_debug_gutter_arrow": "#f39c12",
     "editor_inline_log_text": "#8b949e",
+    "chat_code_bg": "#2a2a2b",
     "diff_removed_bg": "#4a2020",
     "diff_added_bg": "#1a3a2a",
     "diff_removed_inline": "#6b3030",
