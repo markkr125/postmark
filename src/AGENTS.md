@@ -108,7 +108,8 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   banner/Rich logging and SQLAlchemy INFO noise. `AiLlmService` builds
   and tests `openhands.sdk.LLM` instances (lazy SDK import).
   **Multi-session AI chat:** `AiChatSessionService` (`services/ai/chat/`)
-  indexes sessions/messages in SQLite and builds OpenHands `Conversation`
+  indexes sessions/messages in SQLite (`get_session_with_messages` for one-shot
+  session+transcript reads) and builds OpenHands `Conversation`
   on worker threads (`AiChatWorker`). SDK state persists under
   `session_disk_dir(id)`; searchable metadata in `ai_chat_sessions` /
   `ai_chat_messages`. Postmark agent/tool registries (`agent_registry.py`,

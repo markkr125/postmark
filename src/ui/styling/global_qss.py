@@ -1643,6 +1643,17 @@ def build_global_qss(p: ThemePalette) -> str:
     QWidget[objectName="aiChatActivityRow"] {{
         background: transparent;
     }}
+    QWidget[objectName="aiChatTranscriptLoading"] {{
+        background: {p["composer_bg"]};
+        border: 1px solid {p["border"]};
+        border-radius: 8px;
+    }}
+    QLabel[objectName="aiChatTranscriptLoadingLabel"] {{
+        background: transparent;
+        border: none;
+        color: {p["text_muted"]};
+        font-size: 12px;
+    }}
     QLabel[objectName="aiChatActivitySpinner"] {{
         color: {p["text_muted"]};
         font-family: monospace;

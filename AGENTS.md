@@ -334,11 +334,14 @@ src/
     │   │   │   ├── composer.py    # _ComposerInput + ModelPickerButton
     │   │   │   └── scroll.py      # _ChatPanelScrollMixin — direction-based scroll-lock, turn-start anchor, viewport spacer, queued follow passes
     │   │   ├── chat_panel_streaming.py  # _ChatPanelStreamingMixin — stream orchestration + activity timer
+    │   │   ├── chat_transcript_load.py  # _ChatPanelTranscriptLoadMixin — incremental session transcript load
+    │   │   ├── chat_transcript_loading_row.py  # ChatTranscriptLoadingOverlay — viewport line animation during session load
     │   │   ├── chat_sessions/     # Session history popover + time formatting
     │   │   │   ├── history_popup.py  # AiSessionHistoryPopup
     │   │   │   └── time_format.py
     │   │   ├── workers/           # AiChatWorker + AiChatTitleWorker (QThread)
     │   │   │   ├── chat_worker.py
+    │   │   │   ├── session_load_worker.py
     │   │   │   └── title_worker.py
     │   │   ├── markdown/          # Custom assistant markdown HTML (fence split + Pygments code blocks)
     │   │   │   ├── fence_split.py

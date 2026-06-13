@@ -71,6 +71,7 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
         self._last_scroll_maximum = bar.maximum()
         bar.valueChanged.connect(self._on_scrollbar_value_changed)
         bar.rangeChanged.connect(self._on_scrollbar_range_changed)
+        bar.valueChanged.connect(self._on_transcript_scroll_for_lazy_markdown)
         self._smooth_scroller = SmoothScroller(
             self._scroll,
             on_animation_started=self._on_smooth_scroll_started,
@@ -237,6 +238,12 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
         self._last_scroll_maximum = _max_val
         if self._turn_scroll_pending:
             return
+        if (
+            getattr(self, "is_transcript_load_active", lambda: False)()
+            and self._scroll_lock_enabled
+        ):
+            self._pin_transcript_to_bottom()
+            return
         if self._open_stream_generation > 0 and self._scroll_lock_enabled:
             self._queue_stream_follow_passes()
         self._schedule_sticky_sync()
@@ -301,6 +308,33 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
         bar = self._scroll.verticalScrollBar()
         self._set_bar_value(bar, bar.maximum())
         self._arm_scroll_lock()
+        self._sync_sticky_turn_prompt()
+
+    def _pin_transcript_to_bottom(self) -> None:
+        """Scroll to the current transcript bottom after layout updates."""
+        self._messages.updateGeometry()
+        self._scroll.updateGeometry()
+        self._scroll_to_bottom(force=True)
+
+    def _scroll_to_bottom_settled(self) -> None:
+        """Scroll to the transcript bottom after layout and lazy markdown settle."""
+        self._messages.updateGeometry()
+        self._scroll.updateGeometry()
+        for _ in range(2):
+            QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
+        self._render_visible_lazy_markdown(force=True)
+        self._messages.updateGeometry()
+        self._scroll.updateGeometry()
+        QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
+        bar = self._scroll.verticalScrollBar()
+        max_before = bar.maximum()
+        self._set_bar_value(bar, bar.maximum())
+        self._arm_scroll_lock()
+        self._render_visible_lazy_markdown(force=True)
+        self._messages.updateGeometry()
+        self._scroll.updateGeometry()
+        if bar.maximum() > max_before:
+            self._set_bar_value(bar, bar.maximum())
         self._sync_sticky_turn_prompt()
 
     def _scroll_to_turn_start(self, *, force: bool = False) -> None:
@@ -453,3 +487,31 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
         if self._sticky_sync_deferred_during_resize:
             self._sticky_sync_deferred_during_resize = False
         self._schedule_sticky_sync()
+
+    def markdown_body_intersects_viewport(self, body: QWidget) -> bool:
+        """Return whether *body* intersects the transcript scroll viewport."""
+        viewport = self._scroll.viewport()
+        top_left = body.mapTo(viewport, QPoint(0, 0))
+        bottom_y = top_left.y() + body.height()
+        return bottom_y > 0 and top_left.y() < viewport.height()
+
+    def _on_transcript_scroll_for_lazy_markdown(self, _value: int) -> None:
+        """Render deferred markdown for rows that scroll into view."""
+        if getattr(self, "_transcript_loading_visible", False):
+            return
+        self._render_visible_lazy_markdown()
+
+    def _render_visible_lazy_markdown(self, *, force: bool = False) -> None:
+        """Materialise lazy assistant bodies currently visible in the viewport."""
+        if not force and getattr(self, "_transcript_loading_visible", False):
+            return
+        for index in range(self._messages_layout.count()):
+            item = self._messages_layout.itemAt(index)
+            widget = item.widget() if item is not None else None
+            if not isinstance(widget, ChatMessageBubble) or widget.role != "assistant":
+                continue
+            body = widget._markdown_body
+            if body is None or not body.is_render_deferred():
+                continue
+            if self.markdown_body_intersects_viewport(body):
+                body.ensure_rendered()

@@ -44,6 +44,7 @@ class ChatMessageBubble(QWidget):
         thinking: str = "",
         thinking_duration_seconds: int | None = None,
         sent_at: datetime | None = None,
+        lazy_markdown: bool = False,
         parent: QWidget | None = None,
     ) -> None:
         """Build a row for *role* showing *text* and optional *thinking*."""
@@ -103,7 +104,11 @@ class ChatMessageBubble(QWidget):
                 self._thought_section.set_collapsed(True)
             outer.addWidget(self._thought_section)
 
-            self._markdown_body = MarkdownContent(text)
+            self._markdown_body = MarkdownContent("")
+            if lazy_markdown and text.strip():
+                self._markdown_body.set_markdown_lazy(text)
+            elif text.strip():
+                self._markdown_body.set_markdown(text)
             self._markdown_body.height_changed.connect(self._on_markdown_height_changed)
             outer.addWidget(self._markdown_body)
             if not self._answer_visible:

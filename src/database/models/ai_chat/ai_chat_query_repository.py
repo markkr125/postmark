@@ -40,6 +40,25 @@ def get_session_by_id(session_id: str) -> dict[str, Any] | None:
         return _session_to_dict(row)
 
 
+def get_session_with_messages(
+    session_id: str,
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    """Return session metadata and ordered messages in one read transaction."""
+    from .ai_chat_repository import _message_to_dict
+
+    with db_session() as db:
+        row = db.get(AiChatSessionModel, session_id)
+        if row is None:
+            return None, []
+        stmt = (
+            select(AiChatMessageModel)
+            .where(AiChatMessageModel.session_id == session_id)
+            .order_by(AiChatMessageModel.created_at.asc(), AiChatMessageModel.id.asc())
+        )
+        messages = [_message_to_dict(message_row) for message_row in db.scalars(stmt).all()]
+        return _session_to_dict(row), messages
+
+
 def search_messages(query: str) -> list[dict[str, Any]]:
     """Return sessions whose title or any message content matches *query*."""
     pattern = f"%{query}%"

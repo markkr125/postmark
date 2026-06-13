@@ -13,24 +13,14 @@ from typing import Any
 from PySide6.QtCore import QEventLoop, Qt, QTimer, Slot
 from PySide6.QtWidgets import QApplication
 
-from services.ai.chat.session_service import AiChatMessageDict
 from ui.sidebar.ai.chat_panel.scroll import _ChatPanelScrollMixin
+from ui.sidebar.ai.chat_transcript_load import _ChatPanelTranscriptLoadMixin
 from ui.sidebar.ai.message_bubble import ChatMessageBubble, ChatRole
 
 _ACTIVITY_DEFAULT_MESSAGE = "Thinking…"
 _ACTIVITY_LONG_WAIT_MESSAGE = "Taking longer than expected…"
 _ACTIVITY_LONG_WAIT_MS = 15_000
 _CHUNK_COALESCE_MS = 50
-
-
-def _parse_message_sent_at(raw: object) -> datetime | None:
-    """Parse an ISO ``created_at`` value for transcript user timestamps."""
-    if not isinstance(raw, str) or not raw.strip():
-        return None
-    try:
-        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
-    except ValueError:
-        return None
 
 
 # Reject enum-like SDK noise (e.g. AgentState.RUNNING, <Status.foo: 1>).
@@ -69,7 +59,7 @@ def format_activity_status(raw: str) -> str | None:
     return f"{text}…"
 
 
-class _ChatPanelStreamingMixin(_ChatPanelScrollMixin):  # type: ignore[misc]
+class _ChatPanelStreamingMixin(_ChatPanelTranscriptLoadMixin, _ChatPanelScrollMixin):  # type: ignore[misc]
     """Activity row + timer orchestration for assistant streaming."""
 
     _streaming_bubble: ChatMessageBubble | None = None
@@ -85,6 +75,7 @@ class _ChatPanelStreamingMixin(_ChatPanelScrollMixin):  # type: ignore[misc]
 
     def _init_chat_streaming_state(self) -> None:
         """Create streaming timers (call from panel ``__init__``)."""
+        self._init_transcript_load_state()
         self._activity_timer = QTimer(self)  # type: ignore[arg-type]
         self._activity_timer.setSingleShot(True)
         self._activity_timer.timeout.connect(self._on_activity_long_wait)
@@ -188,8 +179,7 @@ class _ChatPanelStreamingMixin(_ChatPanelScrollMixin):  # type: ignore[misc]
         self._rebuild_sticky_turn_pairs()  # type: ignore[attr-defined]
         self._rebuild_sticky_turn_extents()  # type: ignore[attr-defined]
         self._attach_transcript_layout_hooks()
-        self._scroll_to_bottom(force=True)  # type: ignore[attr-defined]
-        self._sync_sticky_turn_prompt()  # type: ignore[attr-defined]
+        self._finish_transcript_bottom_scroll()  # type: ignore[attr-defined]
 
     def _attach_streaming_bubble_height_hook(self, bubble: ChatMessageBubble) -> None:
         """Connect one layout-height hook for the active streaming assistant row."""
@@ -244,6 +234,7 @@ class _ChatPanelStreamingMixin(_ChatPanelScrollMixin):  # type: ignore[misc]
         thinking: str = "",
         thinking_duration_seconds: int | None = None,
         sent_at: datetime | None = None,
+        lazy_markdown: bool = False,
     ) -> ChatMessageBubble:
         """Append a message bubble to the transcript."""
         self._empty_label.hide()
@@ -253,11 +244,13 @@ class _ChatPanelStreamingMixin(_ChatPanelScrollMixin):  # type: ignore[misc]
             thinking=thinking,
             thinking_duration_seconds=thinking_duration_seconds,
             sent_at=sent_at,
+            lazy_markdown=lazy_markdown,
         )
         self._messages_layout.addWidget(bubble)
-        self._invalidate_sticky_turn_pairs()  # type: ignore[attr-defined]
-        if role == "assistant":
-            self._ensure_assistant_layout_hook(bubble)
+        if not self._defer_transcript_hooks:
+            self._invalidate_sticky_turn_pairs()  # type: ignore[attr-defined]
+            if role == "assistant":
+                self._ensure_assistant_layout_hook(bubble)
         return bubble
 
     def last_assistant_thinking_duration_seconds(self) -> int | None:
@@ -267,8 +260,8 @@ class _ChatPanelStreamingMixin(_ChatPanelScrollMixin):  # type: ignore[misc]
             return None
         return bubble.thinking_duration_seconds()
 
-    def clear_streaming_transcript(self) -> None:
-        """Remove all message bubbles and restore the empty state."""
+    def _clear_transcript_widgets(self) -> None:
+        """Remove message bubbles without touching load-generation state."""
         self._reset_pending_chunks()
         self._cancel_activity_timer()
         self._clear_sticky_turn_prompt()  # type: ignore[attr-defined]
@@ -290,24 +283,10 @@ class _ChatPanelStreamingMixin(_ChatPanelScrollMixin):  # type: ignore[misc]
                 widget.deleteLater()
         self._empty_label.show()
 
-    def load_transcript(self, messages: list[AiChatMessageDict]) -> None:
-        """Replace the transcript with persisted *messages*."""
-        self.clear_streaming_transcript()
-        for msg in messages:
-            role: ChatRole = "user" if msg["role"] == "user" else "assistant"
-            thinking = str(msg.get("thinking") or "")
-            duration = msg.get("thinking_duration_seconds")
-            duration_seconds = int(duration) if isinstance(duration, int) and duration > 0 else None
-            sent_at = _parse_message_sent_at(msg.get("created_at"))
-            self.add_message(
-                role,
-                msg["content"],
-                thinking=thinking,
-                thinking_duration_seconds=duration_seconds,
-                sent_at=sent_at if role == "user" else None,
-            )
-        self._turn_scroll_anchor = self._find_last_turn_user_bubble()
-        QTimer.singleShot(0, self._finish_load_transcript_layout)
+    def clear_streaming_transcript(self) -> None:
+        """Remove all message bubbles and restore the empty state."""
+        self.cancel_transcript_load()
+        self._clear_transcript_widgets()
 
     def begin_assistant_stream(self) -> None:
         """Create one empty assistant bubble for streaming."""

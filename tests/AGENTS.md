@@ -322,6 +322,9 @@ tests/
    │   ├── test_chat_panel_resize.py
    │   ├── test_ai_chat_worker.py
    │   ├── test_ai_session_history_popup.py
+   │   ├── test_session_transcript_load.py  # Async session switch + lazy markdown
+   │   └── ai/
+   │       └── conftest.py  # load_transcript_sync helper
    │   ├── test_sidebar.py
    │   ├── test_left_sidebar.py
    │   ├── test_variables_panel.py

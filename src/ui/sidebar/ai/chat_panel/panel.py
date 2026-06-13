@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread, Signal, Slot
-from PySide6.QtGui import QResizeEvent
+from PySide6.QtGui import QResizeEvent, QShowEvent
 from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
@@ -24,6 +24,7 @@ from services.ai.reasoning_effort import clamp_effort, default_effort_for, forma
 from ui.sidebar.ai.agent_mode_popup import AgentModeButton, AiAgentModePopup
 from ui.sidebar.ai.chat_panel.composer import ModelPickerButton, _ComposerInput
 from ui.sidebar.ai.chat_panel_streaming import _ChatPanelStreamingMixin
+from ui.sidebar.ai.chat_transcript_loading_row import ChatTranscriptLoadingOverlay
 from ui.sidebar.ai.message_bubble import ChatMessageBubble
 from ui.sidebar.ai.model_picker_edit import reasoning_levels_for_entry, thinking_enabled_for_entry
 from ui.sidebar.ai.model_picker_popup import AiModelPickerPopup
@@ -46,6 +47,7 @@ class AiChatPanel(_ChatPanelStreamingMixin, QWidget):  # type: ignore[misc]
     manage_models_requested = Signal()
     effort_changed = Signal(str, str)
     context_requested = Signal()
+    transcript_load_finished = Signal()
     _assistant_chunk_delivery_requested = Signal(str, str)
     _activity_status_delivery_requested = Signal(str)
 
@@ -93,6 +95,8 @@ class AiChatPanel(_ChatPanelStreamingMixin, QWidget):  # type: ignore[misc]
         self._empty_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._messages_layout.addWidget(self._empty_label)
+
+        self._transcript_loading = ChatTranscriptLoadingOverlay(self._scroll.viewport())
 
         self._scroll.setWidget(self._messages)
         self._scroll_lock_enabled = False
@@ -503,6 +507,17 @@ class AiChatPanel(_ChatPanelStreamingMixin, QWidget):  # type: ignore[misc]
         if self.isVisible():
             self._reconcile_visible_rows_after_resize()
             self._finish_panel_resize_coalescing()
+        if getattr(self, "_transcript_loading_visible", False):
+            self._reposition_transcript_loading()
+        if getattr(self, "_pending_transcript_bottom_scroll", False):
+            self._maybe_flush_pending_transcript_bottom_scroll()
+
+    def showEvent(self, event: QShowEvent) -> None:
+        """Pin restored transcripts once the panel becomes visible."""
+        super().showEvent(event)
+        if getattr(self, "_pending_transcript_bottom_scroll", False):
+            self._maybe_flush_pending_transcript_bottom_scroll()
+            self._schedule_pending_transcript_bottom_retries()
 
     def _on_send(self) -> None:
         """Send a message, or request stop while a run is in flight."""

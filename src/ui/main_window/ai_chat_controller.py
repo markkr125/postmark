@@ -11,9 +11,15 @@ from PySide6.QtCore import QObject, QThread, Qt, Slot
 from services.ai.ai_config import AiConfig
 from services.ai.chat.agent_registry import DEFAULT_AGENT_ID
 from services.ai.chat.response_text import pick_richest_text
-from services.ai.chat.session_service import AiChatSessionService, ComposerRunContext
+from services.ai.chat.session_service import (
+    AiChatSessionDict,
+    AiChatSessionLoadDict,
+    AiChatSessionService,
+    ComposerRunContext,
+)
 from ui.sidebar.ai.chat_sessions.history_popup import AiSessionHistoryPopup
 from ui.sidebar.ai.workers.chat_worker import AiChatWorker
+from ui.sidebar.ai.workers.session_load_worker import AiChatSessionLoader
 from ui.sidebar.ai.workers.title_worker import AiChatTitleWorker
 
 if TYPE_CHECKING:
@@ -33,6 +39,8 @@ class _AiChatControllerMixin:
     _active_ai_session_id: str | None
     _pending_title_session_id: str | None
     _title_run_session_id: str | None
+    _session_load_generation: int
+    _session_loader: AiChatSessionLoader
 
     def _init_ai_chat_controller(self) -> None:
         """Connect sidebar signals and initialise chat state."""
@@ -43,6 +51,12 @@ class _AiChatControllerMixin:
         self._active_ai_session_id = None
         self._pending_title_session_id = None
         self._title_run_session_id = None
+        self._session_load_generation = 0
+
+        self_q = cast(QObject, self)
+        self._session_loader = AiChatSessionLoader(self_q)
+        queued = Qt.ConnectionType.QueuedConnection
+        self._session_loader.finished.connect(self._on_session_load_finished, queued)
 
         panel = self._right_sidebar.ai_chat_panel
         # Synchronous on the GUI thread: begin_assistant_stream runs before _on_send
@@ -51,8 +65,6 @@ class _AiChatControllerMixin:
         panel.stop_requested.connect(self._on_ai_chat_stop)
         self._right_sidebar.ai_new_chat_requested.connect(self._on_ai_new_chat)
         self._right_sidebar.ai_session_history_requested.connect(self._on_ai_session_history)
-        self_q = cast(QObject, self)
-        queued = Qt.ConnectionType.QueuedConnection
         self_q._ai_assistant_finish_requested.connect(  # type: ignore[attr-defined]
             self._apply_ai_worker_assistant_finished,
             queued,
@@ -65,11 +77,12 @@ class _AiChatControllerMixin:
             self._apply_ai_title_worker_ready,
             queued,
         )
-        self._restore_active_chat_session()
-        self._sync_ai_session_title()
 
-    def _sync_ai_session_title(self) -> None:
+    def _sync_ai_session_title(self, session: AiChatSessionDict | None = None) -> None:
         """Refresh the flyout conversation title for the active session."""
+        if session is not None:
+            self._right_sidebar.set_ai_session_title(session["title"])
+            return
         session_id = self._active_ai_session_id
         if session_id is None:
             self._right_sidebar.set_ai_session_title("New chat")
@@ -82,6 +95,9 @@ class _AiChatControllerMixin:
 
     def _on_ai_new_chat(self) -> None:
         """Clear transcript UI; next send creates a fresh session."""
+        self._session_load_generation += 1
+        self._session_loader.cancel()
+        self._right_sidebar.ai_chat_panel.cancel_transcript_load()
         self._active_ai_session_id = None
         AiConfig.set_chat_session_id("")
         self._right_sidebar.ai_chat_panel.clear()
@@ -107,20 +123,45 @@ class _AiChatControllerMixin:
 
     def _activate_chat_session(self, session_id: str) -> None:
         """Load *session_id* into the panel and persist it as the active chat."""
-        session = AiChatSessionService.get_session(session_id)
-        if session is None:
+        if session_id == self._active_ai_session_id:
             return
-        self._active_ai_session_id = session_id
-        AiConfig.set_chat_session_id(session_id)
+        self._session_load_generation += 1
+        generation = self._session_load_generation
         panel = self._right_sidebar.ai_chat_panel
-        panel.load_transcript(AiChatSessionService.get_messages(session_id))
+        panel.prepare_transcript_load(lazy_markdown=True)
+        self._session_loader.load(session_id, generation)
+
+    def _apply_session_chrome(self, session: AiChatSessionDict) -> None:
+        """Update flyout title and composer model/mode for *session*."""
+        self._sync_ai_session_title(session)
+        panel = self._right_sidebar.ai_chat_panel
         model_id = session.get("model_id")
         if isinstance(model_id, str) and model_id:
             panel.select_model_if_available(model_id)
         mode = session.get("mode")
         if isinstance(mode, str) and mode.strip():
             panel.set_mode(mode.strip())
-        self._sync_ai_session_title()
+
+    @Slot(int, object)
+    def _on_session_load_finished(self, generation: int, payload: object) -> None:
+        """Apply a background session read and start incremental transcript build."""
+        if generation != self._session_load_generation:
+            return
+        panel = self._right_sidebar.ai_chat_panel
+        if not isinstance(payload, dict):
+            panel.cancel_transcript_load()
+            panel._clear_transcript_widgets()
+            return
+        load = cast(AiChatSessionLoadDict, payload)
+        session = load["session"]
+        self._active_ai_session_id = session["id"]
+        AiConfig.set_chat_session_id(session["id"])
+        self._apply_session_chrome(session)
+        panel.load_transcript_async(
+            load["messages"],
+            generation=generation,
+            lazy_markdown=True,
+        )
 
     def _restore_active_chat_session(self) -> None:
         """Reload the last active chat transcript after startup."""
@@ -392,6 +433,7 @@ class _AiChatControllerMixin:
     def _cleanup_ai_chat_threads(self) -> None:
         """Stop AI chat/title worker threads during window teardown."""
         self._pending_title_session_id = None
+        self._session_loader.shutdown()
         for attr in ("_ai_chat_thread", "_ai_title_thread"):
             thread = getattr(self, attr)
             if thread is None:

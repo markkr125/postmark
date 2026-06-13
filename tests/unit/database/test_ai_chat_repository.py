@@ -9,6 +9,7 @@ import pytest
 from database.data_paths import session_disk_dir
 from database.models.ai_chat.ai_chat_query_repository import (
     get_session_by_id,
+    get_session_with_messages,
     list_sessions,
     search_messages,
 )
@@ -44,6 +45,24 @@ def test_create_and_get_session(session_id: str) -> None:
     fetched = get_session_by_id(session_id)
     assert fetched is not None
     assert fetched["title"] == "Hello"
+
+
+def test_get_session_with_messages(session_id: str) -> None:
+    """Session metadata and messages load in one query."""
+    create_session(
+        session_id=session_id,
+        title="Combo",
+        model_id="openai/gpt-4",
+        mode="agent",
+    )
+    append_message(session_id=session_id, role="user", content="one")
+    append_message(session_id=session_id, role="assistant", content="two")
+    session, messages = get_session_with_messages(session_id)
+    assert session is not None
+    assert session["title"] == "Combo"
+    assert len(messages) == 2
+    assert messages[0]["role"] == "user"
+    assert messages[1]["role"] == "assistant"
 
 
 def test_append_message_and_list(session_id: str) -> None:

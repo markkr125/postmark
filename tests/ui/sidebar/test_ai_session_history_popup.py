@@ -164,16 +164,10 @@ def test_long_session_title_is_elided(qapp: QApplication, qtbot) -> None:
     flyout.resize(420, 600)
     anchor = QPushButton("anchor", flyout)
     qtbot.addWidget(flyout)
-    long_title = (
-        "tell me how to send an http request in classic asp with a very long title"
-    )
+    long_title = "tell me how to send an http request in classic asp with a very long title"
     popup.show_for(anchor, [_session("a", long_title)], lambda _id: None)
-    assert popup.width() == round(
-        AI_SESSION_HISTORY_POPUP_WIDTH_EM * popup.fontMetrics().height()
-    )
-    assert (
-        popup._list.horizontalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-    )
+    assert popup.width() == round(AI_SESSION_HISTORY_POPUP_WIDTH_EM * popup.fontMetrics().height())
+    assert popup._list.horizontalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
     title = popup.findChild(QLabel, "aiSessionHistoryTitle")
     assert title is not None
     assert title.toolTip() == long_title

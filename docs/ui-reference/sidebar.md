@@ -174,7 +174,16 @@ User prompts render in ``aiChatMessageUser`` (``ChatMessageBubble`` user row) wi
 text in ``aiChatUserMessageText``. A muted ``aiChatUserMessageTime`` label
 inside the bubble below the prompt shows when the message was sent (local date and
 clock, e.g. ``Jun 7, 2:39 PM``). New sends pass ``sent_at=datetime.now(UTC)``;
-``load_transcript`` restores user rows from persisted ``created_at``.
+``load_transcript`` / session switches restore user rows from persisted
+``created_at``. Session picks load off the GUI thread
+(``AiChatSessionLoader`` + ``get_session_with_messages``), update flyout
+title/model/mode immediately when the read completes, show the
+``aiChatTranscriptLoading`` viewport overlay (sliding accent line +
+``aiChatTranscriptLoadingLabel`` caption, not the stream spinner) until
+``_finish_load_transcript_layout`` completes, build rows incrementally, and defer
+Pygments for off-screen assistant bodies until they scroll into view. Startup
+restore is scheduled after the main window leaves the loading screen; if the AI
+flyout is still hidden, bottom scroll is retried when the panel is shown.
 
 **Thought block.** ``aiChatThoughtToggle`` expands or collapses ``aiChatThoughtText``
 above the answer. Toggling adjusts the transcript scroll offset so visible answer
@@ -313,8 +322,9 @@ answer has scrolled fully above the viewport, when the assistant row does not
 intersect the viewport, or when the assistant bottom no longer extends below the
 sticky overlay height. ``_turn_scroll_anchor``
 remains the streaming turn-start anchor; ``_sticky_turn_anchor`` is the visual
-overlay source selected from viewport position. ``load_transcript`` +
-``_finish_load_transcript_layout`` re-lays out markdown at the real viewport width
+overlay source selected from viewport position. ``load_transcript`` /
+``load_transcript_async`` append rows in chunks; ``_finish_load_transcript_layout``
+re-lays out markdown at the real viewport width
 and hooks all assistant rows for sticky resync. ``aiChatScrollDown`` stays above
 the sticky overlay.
 

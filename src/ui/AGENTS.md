@@ -306,6 +306,9 @@ standard object names:
 | `aiChatActivityRow` | `QWidget` | Spinner + status caption while waiting for the first stream token |
 | `aiChatActivitySpinner` | `QLabel` | Braille spinner in the activity row (reuses `busyChipSpinner` QSS) |
 | `aiChatActivityLabel` | `QLabel` | Muted activity caption (`Thinking…`, SDK status, long-wait escalation) |
+| `aiChatTranscriptLoading` | `QWidget` (`ChatTranscriptLoadingOverlay`) | Viewport overlay with indeterminate line animation while a session transcript loads; hidden after `_finish_load_transcript_layout` |
+| `aiChatTranscriptLoadingBar` | `QWidget` | Sliding accent segment on the session-load track |
+| `aiChatTranscriptLoadingLabel` | `QLabel` | Muted caption under the session-load line (`Loading conversation…`) |
 | `aiChatComposer` | `QWidget` | AI chat bottom composer (attachments + input + controls); `WA_StyledBackground` + `composer_bg` (darker than transcript `bg`, lighter than `aiChatModeButton` `composer_pill_dark_bg`); input uses `input_bg` |
 | `aiChatInput` | `QPlainTextEdit` | AI chat prompt (`_ComposerInput`); auto-grows 3..15 lines then scrolls; Enter send, Shift+Enter newline |
 | `aiChatModeButton` | `QFrame` | Agent / Ask / Plan pill; `WA_StyledBackground` + `composer_pill_dark_bg`; opens `aiAgentModePopup` |

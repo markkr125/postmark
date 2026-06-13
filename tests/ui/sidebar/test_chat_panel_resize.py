@@ -16,6 +16,7 @@ from ui.sidebar.ai.chat_panel.scroll import _RESIZE_SETTLE_MS
 from ui.sidebar.ai.message_bubble import ChatMessageBubble
 from ui.sidebar.ai.message_bubble.markdown_content import MarkdownContent
 from ui.sidebar.ai.message_bubble.wrapping_label import _WrappingLabel
+from tests.ui.sidebar.ai.conftest import load_transcript_sync
 
 
 def _long_transcript_messages(count: int) -> list[AiChatMessageDict]:
@@ -167,7 +168,7 @@ def test_transcript_rows_skip_document_layout_during_active_resize(
     panel.show()
     qtbot.waitExposed(panel)
     panel.resize(360, 140)
-    panel.load_transcript(_long_transcript_messages(80))
+    load_transcript_sync(panel, _long_transcript_messages(80), qtbot)
     qapp.processEvents()
     bar = panel._scroll.verticalScrollBar()
     bar.setValue(bar.maximum())
@@ -212,7 +213,7 @@ def test_resize_settle_flushes_all_deferred_rows(qapp: QApplication, qtbot) -> N
     panel.show()
     qtbot.waitExposed(panel)
     panel.resize(360, 140)
-    panel.load_transcript(_long_transcript_messages(24))
+    load_transcript_sync(panel, _long_transcript_messages(24), qtbot)
     qapp.processEvents()
     bar = panel._scroll.verticalScrollBar()
     bar.setValue(bar.maximum())

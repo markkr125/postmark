@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, NotRequired, TypedDict, cast
 from database.data_paths import session_disk_dir, user_ai_conversations_root
 from database.models.ai_chat.ai_chat_query_repository import (
     get_session_by_id,
+    get_session_with_messages as repo_get_session_with_messages,
     list_sessions as repo_list_sessions,
     search_messages as repo_search_messages,
 )
@@ -78,6 +79,13 @@ class ComposerRunContext(TypedDict, total=False):
     run_context_tokens: int | None
     thinking_enabled: str | None
     reasoning_effort: str | None
+
+
+class AiChatSessionLoadDict(TypedDict):
+    """Session row plus transcript messages from a single read."""
+
+    session: AiChatSessionDict
+    messages: list[AiChatMessageDict]
 
 
 @contextmanager
@@ -152,6 +160,17 @@ class AiChatSessionService:
     def get_messages(session_id: str) -> list[AiChatMessageDict]:
         """Return transcript messages for repaint."""
         return [AiChatSessionService._cast_message(m) for m in list_messages(session_id)]
+
+    @staticmethod
+    def get_session_with_messages(session_id: str) -> AiChatSessionLoadDict | None:
+        """Return session metadata and messages from one indexed read."""
+        session_row, message_rows = repo_get_session_with_messages(session_id)
+        if session_row is None:
+            return None
+        return AiChatSessionLoadDict(
+            session=AiChatSessionService._cast_session(session_row),
+            messages=[AiChatSessionService._cast_message(m) for m in message_rows],
+        )
 
     @staticmethod
     def resolve_restore_session_id() -> str | None:
@@ -325,6 +344,7 @@ class AiChatSessionService:
 __all__ = [
     "AiChatMessageDict",
     "AiChatSessionDict",
+    "AiChatSessionLoadDict",
     "AiChatSessionService",
     "ComposerRunContext",
 ]

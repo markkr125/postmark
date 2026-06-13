@@ -12,6 +12,7 @@ from services.ai.chat.session_service import AiChatMessageDict
 from ui.sidebar.ai import AiChatPanel
 from ui.sidebar.ai.message_bubble import ChatMessageBubble
 from ui.sidebar.ai.message_bubble.markdown_content import MarkdownContent
+from tests.ui.sidebar.ai.conftest import load_transcript_sync
 
 
 def _flush_stream_chunks(qtbot) -> None:
@@ -47,7 +48,7 @@ def test_load_transcript_restores_user_timestamp(qapp: QApplication, qtbot) -> N
             "created_at": "2026-01-15T09:30:00+00:00",
         },
     ]
-    panel.load_transcript(messages)
+    load_transcript_sync(panel, messages, qtbot)
     bubble = panel.findChildren(ChatMessageBubble)[0]
     frame = bubble.findChild(QFrame, "aiChatMessageUser")
     assert frame is not None
@@ -79,7 +80,7 @@ def test_load_transcript_repaints(qapp: QApplication, qtbot) -> None:
             "created_at": "2026-01-01T00:00:01+00:00",
         },
     ]
-    panel.load_transcript(messages)
+    load_transcript_sync(panel, messages, qtbot)
     bubbles = panel.findChildren(ChatMessageBubble)
     assert len(bubbles) == 2
     assert bubbles[0].text() == "Hi"
@@ -165,7 +166,7 @@ def test_load_transcript_does_not_show_activity(qapp: QApplication, qtbot) -> No
             "created_at": "2026-01-01T00:00:00+00:00",
         },
     ]
-    panel.load_transcript(messages)
+    load_transcript_sync(panel, messages, qtbot)
     bubble = panel.findChildren(ChatMessageBubble)[0]
     assert not bubble.is_activity_visible()
 
@@ -289,7 +290,7 @@ def test_load_transcript_restores_thinking(qapp: QApplication, qtbot) -> None:
             "created_at": "2026-01-01T00:00:00+00:00",
         },
     ]
-    panel.load_transcript(messages)
+    load_transcript_sync(panel, messages, qtbot)
     bubble = panel.findChildren(ChatMessageBubble)[0]
     assert bubble.thinking_text() == "Internal trace"
     assert bubble.text() == "Answer"

@@ -49,6 +49,8 @@ def rerender_all_markdown_browsers() -> None:
     for body in list(_markdown_bodies):
         if not isValid(body):
             continue
+        if body.is_render_deferred():
+            continue
         if body.is_streaming():
             body._render_markdown_streaming()
         else:
@@ -90,6 +92,7 @@ class MarkdownContent(QWidget):
         self._document.setDocumentMargin(0)
         self._markdown = ""
         self._streaming = False
+        self._render_deferred = False
         self._stream_cache = StreamingMarkdownCache()
         self._stream_layout_floor_px = 0
         self._defer_height_changed = False
@@ -129,6 +132,29 @@ class MarkdownContent(QWidget):
     def is_streaming(self) -> bool:
         """Return whether an assistant reply is still streaming into this body."""
         return self._streaming
+
+    def is_render_deferred(self) -> bool:
+        """Return whether full markdown rendering is still pending."""
+        return self._render_deferred
+
+    def ensure_rendered(self) -> None:
+        """Render deferred markdown when the row becomes visible."""
+        if not self._render_deferred:
+            return
+        self._render_deferred = False
+        self._render_markdown()
+
+    def set_markdown_lazy(self, text: str) -> None:
+        """Store markdown source and defer the expensive HTML pipeline."""
+        self._streaming = False
+        self._stream_cache.clear()
+        self._markdown = text
+        self._render_deferred = True
+        self._invalidate_measured_height()
+        line_h = max(1, self.fontMetrics().height())
+        placeholder_lines = 3
+        self.setFixedHeight(line_h * placeholder_lines)
+        self.updateGeometry()
 
     def streaming_cache_segment_count(self) -> int:
         """Return the number of cached rendered segments (for tests)."""
@@ -356,6 +382,16 @@ class MarkdownContent(QWidget):
             return max(1, parent.width())
         return 1
 
+    def _is_in_transcript_viewport(self) -> bool:
+        """Return whether this body intersects the ancestor transcript scroll viewport."""
+        parent = self.parentWidget()
+        while parent is not None:
+            checker = getattr(parent, "markdown_body_intersects_viewport", None)
+            if callable(checker):
+                return bool(checker(self))
+            parent = parent.parentWidget()
+        return True
+
     def _sync_height(self, *_args: object) -> None:
         """Resize the widget to the wrapped document height."""
         if self._should_defer_reflow():
@@ -383,12 +419,27 @@ class MarkdownContent(QWidget):
         else:
             self.height_changed.emit()
 
+    def _transcript_load_blocks_lazy_render(self) -> bool:
+        """Return whether session load should defer eager markdown materialisation."""
+        parent = self.parentWidget()
+        while parent is not None:
+            if getattr(parent, "_transcript_loading_visible", False):
+                return True
+            parent = parent.parentWidget()
+        return False
+
     def showEvent(self, event) -> None:
         """Attach transcript scroll listeners once the body is on screen."""
         super().showEvent(event)
         self._connect_transcript_scroll_hover()
         if self.underMouse():
             self._update_copy_hover(QPointF(self.mapFromGlobal(QCursor.pos())))
+        if (
+            self._render_deferred
+            and self._is_in_transcript_viewport()
+            and not self._transcript_load_blocks_lazy_render()
+        ):
+            self.ensure_rendered()
 
     def enterEvent(self, event: QEnterEvent) -> None:
         """Apply Copy hover when the pointer enters without a move event."""

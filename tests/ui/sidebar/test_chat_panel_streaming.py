@@ -29,6 +29,7 @@ from ui.sidebar.ai.chat_panel.sticky_prompt import (
 from ui.sidebar.ai.chat_panel_streaming import format_activity_status
 from ui.sidebar.ai.message_bubble import ChatMessageBubble
 from ui.sidebar.ai.message_bubble.markdown_content import MarkdownContent
+from tests.ui.sidebar.ai.conftest import load_transcript_sync
 
 
 def _flush_stream_chunks(qtbot) -> None:
@@ -157,7 +158,7 @@ def _anchor_viewport_y(panel: AiChatPanel) -> int:
     assert anchor is not None
     bar = panel._scroll.verticalScrollBar()
     # mapTo(viewport) ignores scroll offset in headless Qt; derive from messages Y.
-    return anchor.mapTo(panel._messages, QPoint(0, 0)).y() - bar.value()
+    return int(anchor.mapTo(panel._messages, QPoint(0, 0)).y() - bar.value())
 
 
 def _expected_spacer_height(panel: AiChatPanel) -> int:
@@ -1272,7 +1273,7 @@ def test_load_transcript_exits_streaming_mode(qapp: QApplication, qtbot) -> None
             "created_at": "2026-01-01T00:00:00+00:00",
         },
     ]
-    panel.load_transcript(messages)
+    load_transcript_sync(panel, messages, qtbot)
     restored = panel.findChildren(ChatMessageBubble)[0]
     assert not restored.is_content_streaming()
     body = restored.findChild(MarkdownContent, "aiChatAssistantText")
@@ -1964,7 +1965,7 @@ def test_sticky_user_prompt_clears_on_load_transcript(qapp: QApplication, qtbot)
             "created_at": "2026-01-01T00:00:00+00:00",
         },
     ]
-    panel.load_transcript(messages)
+    load_transcript_sync(panel, messages, qtbot)
     qtbot.wait(10)
     qapp.processEvents()
     sticky = _sticky_turn_prompt(panel)
@@ -1996,7 +1997,7 @@ def test_sticky_user_prompt_works_after_load_transcript(qapp: QApplication, qtbo
             "created_at": "2026-01-01T00:00:01+00:00",
         },
     ]
-    panel.load_transcript(messages)
+    load_transcript_sync(panel, messages, qtbot)
     qtbot.wait(10)
     qapp.processEvents()
     assert panel._turn_scroll_anchor is not None
@@ -2027,7 +2028,7 @@ def test_sticky_user_prompt_works_after_startup_style_load(qapp: QApplication, q
             "created_at": "2026-01-01T00:00:01+00:00",
         },
     ]
-    panel.load_transcript(messages)
+    load_transcript_sync(panel, messages, qtbot)
     qtbot.wait(10)
     qapp.processEvents()
     panel.show()
@@ -2099,7 +2100,7 @@ def test_sticky_pins_closest_older_turn_in_restored_history(qapp: QApplication, 
             "created_at": "2026-01-01T00:00:03+00:00",
         },
     ]
-    panel.load_transcript(messages)
+    load_transcript_sync(panel, messages, qtbot)
     qtbot.wait(10)
     qapp.processEvents()
     bar = panel._scroll.verticalScrollBar()
@@ -2152,7 +2153,7 @@ def test_sticky_hides_between_turns_in_multi_turn_history(qapp: QApplication, qt
             "created_at": "2026-01-01T00:00:03+00:00",
         },
     ]
-    panel.load_transcript(messages)
+    load_transcript_sync(panel, messages, qtbot)
     qtbot.wait(10)
     qapp.processEvents()
     bar = panel._scroll.verticalScrollBar()
@@ -2220,7 +2221,7 @@ def test_sticky_switches_to_second_turn_when_scrolling_into_its_answer(
             "created_at": "2026-01-01T00:00:03+00:00",
         },
     ]
-    panel.load_transcript(messages)
+    load_transcript_sync(panel, messages, qtbot)
     qtbot.wait(10)
     qapp.processEvents()
     bar = panel._scroll.verticalScrollBar()
@@ -2403,9 +2404,7 @@ def test_sticky_turn_pairs_rebuild_after_load_transcript(qapp: QApplication, qtb
             "created_at": "2026-01-01T00:00:03+00:00",
         },
     ]
-    panel.load_transcript(messages)
-    assert panel._sticky_turn_pairs_dirty is True
-    panel._finish_load_transcript_layout()
+    load_transcript_sync(panel, messages, qtbot)
     assert panel._sticky_turn_pairs_dirty is False
     assert len(panel._sticky_turn_pairs) == 2
     assert panel._sticky_turn_pairs == list(panel._iter_chat_turns())
@@ -2465,7 +2464,7 @@ def test_sticky_turn_selection_uses_cached_pairs_for_closest_turn(
             "created_at": "2026-01-01T00:00:03+00:00",
         },
     ]
-    panel.load_transcript(messages)
+    load_transcript_sync(panel, messages, qtbot)
     qtbot.wait(10)
     qapp.processEvents()
     panel._finish_load_transcript_layout()
@@ -2635,7 +2634,7 @@ def test_long_transcript_has_no_assistant_qtext_browsers(qapp: QApplication, qtb
                 "created_at": "2026-01-01T00:00:01+00:00",
             }
         )
-    panel.load_transcript(messages)
+    load_transcript_sync(panel, messages, qtbot)
     qapp.processEvents()
     browsers = panel.findChildren(QTextBrowser, "aiChatAssistantText")
     bodies = panel.findChildren(MarkdownContent, "aiChatAssistantText")

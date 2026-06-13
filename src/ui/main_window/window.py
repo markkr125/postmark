@@ -771,6 +771,7 @@ class MainWindow(
         self.statusBar().show()
 
         # Let the main UI paint and accept input before restore/background startup work.
+        self._schedule_startup_task(150, self._restore_active_chat_session)
         self._schedule_startup_task(150, self._restore_tabs)
         self._schedule_startup_task(750, self._start_ai_model_backfill)
 
