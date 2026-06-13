@@ -607,6 +607,14 @@ LEFT_RAIL_BUTTON_EXTRA_HEIGHT_PX = 28
 # Full-height painted accent (``QToolButton`` QSS ``border-left`` clips to content).
 LEFT_RAIL_ACCENT_STRIPE_WIDTH_PX = 3
 
+# Right flyout (``RightSidebar`` / ``_FlyoutPanel``): minimum drag width and default
+# open width when a rail icon is clicked (left flyout uses 20em open).
+RIGHT_FLYOUT_MIN_WIDTH_EM = 14.0
+RIGHT_FLYOUT_OPEN_WIDTH_EM = 29.0
+
+# AI session history popover — narrower than the flyout; titles ellipsize inside.
+AI_SESSION_HISTORY_POPUP_WIDTH_EM = 20.0
+
 
 def ai_capability_color(kind: str) -> tuple[str, str]:
     """Return ``(background, foreground)`` hex colours for an AI capability pill."""

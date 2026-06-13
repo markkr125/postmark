@@ -19,7 +19,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QEvent, QObject, QSize, Qt, Signal
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QIcon, QResizeEvent
 from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
@@ -37,6 +37,7 @@ from ui.sidebar.saved_responses.panel import SavedResponsesPanel
 from ui.sidebar.snippet_panel import SnippetPanel
 from ui.sidebar.variables_panel import VariablesPanel
 from ui.styling.icons import phi
+from ui.styling.theme import RIGHT_FLYOUT_MIN_WIDTH_EM, RIGHT_FLYOUT_OPEN_WIDTH_EM
 
 if TYPE_CHECKING:
     from services.environment_service import LocalOverride, VariableDetail
@@ -60,6 +61,43 @@ def _rail_tooltip(enabled: bool, enabled_tip: str, disabled_tip: str) -> str:
     return enabled_tip if enabled else disabled_tip
 
 
+_AI_SESSION_TITLE_PLACEHOLDER = "New chat"
+
+
+class _AiChatSessionTitleLabel(QLabel):
+    """Single-line session title with ellipsis and full-text tooltip."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        """Build the muted subtitle under the AI assistant headline."""
+        super().__init__(parent)
+        self.setObjectName("aiChatSessionTitle")
+        self._full_text = _AI_SESSION_TITLE_PLACEHOLDER
+        self.setToolTip(self._full_text)
+        self._apply_elide()
+
+    def set_full_text(self, title: str) -> None:
+        """Store *title* and repaint with elision for the current width."""
+        cleaned = title.strip()
+        self._full_text = cleaned or _AI_SESSION_TITLE_PLACEHOLDER
+        self.setToolTip(self._full_text)
+        self._apply_elide()
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        """Re-elide when the flyout width changes."""
+        super().resizeEvent(event)
+        self._apply_elide()
+
+    def _apply_elide(self) -> None:
+        """Paint the truncated label text for the current geometry."""
+        width = max(0, self.width())
+        elided = self.fontMetrics().elidedText(
+            self._full_text,
+            Qt.TextElideMode.ElideRight,
+            width,
+        )
+        self.setText(elided)
+
+
 # ------------------------------------------------------------------
 # Flyout panel — separate splitter child
 # ------------------------------------------------------------------
@@ -77,7 +115,7 @@ class _FlyoutPanel(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
         em = self.fontMetrics().height()
-        self._min_width: int = round(12.0 * em)
+        self._min_width: int = round(RIGHT_FLYOUT_MIN_WIDTH_EM * em)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -111,21 +149,18 @@ class _FlyoutPanel(QWidget):
 
         self._ai_history_btn = QPushButton()
         self._ai_history_btn.setObjectName("iconButton")
+        self._ai_history_btn.setCheckable(True)
         self._ai_history_btn.setFixedSize(28, 28)
         self._ai_history_btn.setIcon(phi("clock-counter-clockwise", size=16))
         self._ai_history_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._ai_history_btn.setToolTip("Session history")
-        self._ai_history_btn.hide()
-        title_bar.addWidget(self._ai_history_btn)
 
         self._ai_new_chat_btn = QPushButton()
         self._ai_new_chat_btn.setObjectName("iconButton")
         self._ai_new_chat_btn.setFixedSize(28, 28)
-        self._ai_new_chat_btn.setIcon(phi("note-pencil", size=16))
+        self._ai_new_chat_btn.setIcon(phi("plus", size=16))
         self._ai_new_chat_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._ai_new_chat_btn.setToolTip("New chat")
-        self._ai_new_chat_btn.hide()
-        title_bar.addWidget(self._ai_new_chat_btn)
+        self._ai_new_chat_btn.setToolTip("New conversation")
 
         self._ai_settings_btn = QPushButton()
         self._ai_settings_btn.setObjectName("iconButton")
@@ -136,15 +171,24 @@ class _FlyoutPanel(QWidget):
         self._ai_settings_btn.hide()
         title_bar.addWidget(self._ai_settings_btn)
 
-        self.close_btn = QPushButton()
-        self.close_btn.setObjectName("iconButton")
-        self.close_btn.setFixedSize(28, 28)
-        self.close_btn.setIcon(phi("x", size=16))
-        self.close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.close_btn.setToolTip("Close panel")
-        title_bar.addWidget(self.close_btn)
-
         layout.addLayout(title_bar)
+
+        self._ai_session_title_bar = QWidget()
+        self._ai_session_title_bar.setObjectName("aiChatSessionTitleBar")
+        session_title_layout = QHBoxLayout(self._ai_session_title_bar)
+        session_title_layout.setContentsMargins(12, 0, 8, 4)
+        session_title_layout.setSpacing(4)
+        self._ai_session_title_label = _AiChatSessionTitleLabel(self._ai_session_title_bar)
+        self._ai_session_title_label.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Preferred,
+        )
+        session_title_layout.addWidget(self._ai_session_title_label, 1)
+        session_title_layout.addWidget(self._ai_history_btn, 0)
+        session_title_layout.addWidget(self._ai_new_chat_btn, 0)
+        layout.addWidget(self._ai_session_title_bar)
+        self._ai_session_title_bar.hide()
+
         title_sep = QLabel()
         title_sep.setObjectName("sidebarSeparator")
         title_sep.setFixedHeight(1)
@@ -163,6 +207,10 @@ class _FlyoutPanel(QWidget):
     def minimumSizeHint(self) -> QSize:
         """Enforce a readable minimum width for the flyout."""
         return QSize(self._min_width, 0)
+
+    def set_ai_session_title(self, title: str) -> None:
+        """Update the conversation title shown under the AI assistant headline."""
+        self._ai_session_title_label.set_full_text(title)
 
 
 # ------------------------------------------------------------------
@@ -194,20 +242,18 @@ class RightSidebar(QWidget):
         self._rail_width: int = round(2.4 * em)
         self._icon_size: int = round(1.35 * em)
         self._btn_size: int = self._rail_width - round(0.35 * em)
-        self._panel_hint_width: int = round(15.0 * em)
+        self._panel_hint_width: int = round(RIGHT_FLYOUT_OPEN_WIDTH_EM * em)
 
         self.setFixedWidth(self._rail_width)
 
         # --- Flyout (separate widget, placed in splitter later) -------
         self._flyout = _FlyoutPanel(request_history_panel)
-        self._close_btn = self._flyout.close_btn
         self._title_label = self._flyout.title_label
         self._variables_panel = self._flyout.variables_panel
         self._snippet_panel = self._flyout.snippet_panel
         self._saved_responses_panel = self._flyout.saved_responses_panel
         self._request_history_panel = self._flyout.request_history_panel
         self._ai_chat_panel = self._flyout.ai_chat_panel
-        self._close_btn.clicked.connect(self._close_panel)
         self._flyout._ai_new_chat_btn.clicked.connect(self.ai_new_chat_requested.emit)
         self._flyout._ai_history_btn.clicked.connect(self.ai_session_history_requested.emit)
         self._flyout._ai_settings_btn.clicked.connect(self.ai_settings_requested.emit)
@@ -273,6 +319,10 @@ class RightSidebar(QWidget):
     def ai_history_button(self) -> QWidget:
         """Header button the session-history popover anchors to."""
         return self._flyout._ai_history_btn
+
+    def set_ai_session_title(self, title: str) -> None:
+        """Update the active conversation title in the AI flyout chrome."""
+        self._flyout.set_ai_session_title(title)
 
     # ------------------------------------------------------------------
     # Splitter integration
@@ -617,9 +667,8 @@ class RightSidebar(QWidget):
         }
         self._title_label.setText(titles.get(panel, panel))
         self._flyout._history_refresh_btn.setVisible(panel == "request_history")
-        self._flyout._ai_history_btn.setVisible(panel == "ai")
-        self._flyout._ai_new_chat_btn.setVisible(panel == "ai")
         self._flyout._ai_settings_btn.setVisible(panel == "ai")
+        self._flyout._ai_session_title_bar.setVisible(panel == "ai")
         self._flyout.show()
         if expand_flyout:
             self._expand_flyout()
@@ -638,16 +687,20 @@ class RightSidebar(QWidget):
         self._history_btn.setChecked(False)
         self._ai_btn.setChecked(False)
         self._flyout._history_refresh_btn.hide()
-        self._flyout._ai_history_btn.hide()
-        self._flyout._ai_new_chat_btn.hide()
         self._flyout._ai_settings_btn.hide()
+        self._flyout._ai_session_title_bar.hide()
         self._collapse_flyout()
 
     def _expand_flyout(self, target_width: int | None = None) -> None:
         """Expand the flyout in the parent splitter via setSizes."""
         if not self._splitter or self._flyout_idx < 0:
             return
-        want = target_width if target_width is not None else self._panel_hint_width
+        if target_width is not None:
+            want = target_width
+        else:
+            em = self.fontMetrics().height()
+            want = round(RIGHT_FLYOUT_OPEN_WIDTH_EM * em)
+            self._panel_hint_width = want
         sizes = self._splitter.sizes()
         if sizes[self._flyout_idx] >= want:
             return

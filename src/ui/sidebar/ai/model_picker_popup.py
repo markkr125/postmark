@@ -137,6 +137,7 @@ class _ModelRow(QWidget):
         self._hover = False
         self._editing = False
 
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setMouseTracking(True)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(16, 3, 8, 3)
@@ -149,10 +150,12 @@ class _ModelRow(QWidget):
 
         self._ctx_lbl = QLabel(context_label_for_row(entry))
         self._ctx_lbl.setObjectName("aiModelPickerContext")
+        self._ctx_lbl.setCursor(Qt.CursorShape.PointingHandCursor)
         layout.addWidget(self._ctx_lbl, 0)
 
         self._effort_lbl = QLabel("")
         self._effort_lbl.setObjectName("aiModelPickerEffort")
+        self._effort_lbl.setCursor(Qt.CursorShape.PointingHandCursor)
         self._effort_lbl.hide()
         layout.addWidget(self._effort_lbl, 0)
 

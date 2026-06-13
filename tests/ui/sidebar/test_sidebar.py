@@ -213,17 +213,48 @@ class TestRightSidebar:
         assert sidebar.active_panel is None
         assert sidebar._ai_btn.isEnabled()  # AI is a global assistant; never disabled by clear()
 
-    def test_close_button_closes_panel(self, qapp: QApplication, qtbot) -> None:
-        """Clicking the close button hides the active panel."""
+    def test_open_panel_expands_to_hint_width(self, qapp: QApplication, qtbot) -> None:
+        """Opening a rail panel expands the flyout to the default open width."""
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QSplitter, QWidget
+
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        filler = QWidget()
+        filler.setMinimumWidth(400)
+        splitter.addWidget(filler)
         sidebar = RightSidebar()
-        qtbot.addWidget(sidebar)
+        sidebar.install_in_splitter(splitter)
+        splitter.resize(1400, 400)
+        qtbot.addWidget(splitter)
+        splitter.show()
+        qapp.processEvents()
+
+        rail_w = sidebar.width()
+        splitter.setSizes([1300, 0, rail_w])
+        qapp.processEvents()
+
         sidebar.show_request_panels({}, method="GET", url="")
         sidebar.open_panel("variables")
-        assert sidebar.panel_open
+        qapp.processEvents()
 
-        sidebar._close_btn.click()
-        assert not sidebar.panel_open
-        assert sidebar.active_panel is None
+        assert sidebar.panel_open
+        assert sidebar.flyout_width >= sidebar._panel_hint_width
+        assert sidebar.flyout_width > 0
+
+    def test_flyout_title_bar_has_no_close_button(self, qapp: QApplication, qtbot) -> None:
+        """Right flyout chrome has no close (X) button to avoid accidental dismiss."""
+        from PySide6.QtWidgets import QPushButton
+
+        sidebar = RightSidebar()
+        qtbot.addWidget(sidebar)
+        sidebar.clear()
+        sidebar.open_panel("ai")
+        close_buttons = [
+            btn
+            for btn in sidebar._flyout.findChildren(QPushButton)
+            if btn.toolTip() == "Close panel"
+        ]
+        assert close_buttons == []
 
     def test_open_unavailable_panel_ignored(
         self,
@@ -262,6 +293,40 @@ class TestRightSidebar:
         assert sidebar._flyout._ai_settings_btn.isVisible()
         sidebar.open_panel("variables")
         assert not sidebar._flyout._ai_settings_btn.isVisible()
+
+    def test_ai_session_title_bar_visible_only_on_ai_panel(self, qapp: QApplication, qtbot) -> None:
+        """Session title chrome is shown only when the AI panel is open."""
+        from PySide6.QtWidgets import QLabel
+
+        sidebar = RightSidebar()
+        qtbot.addWidget(sidebar)
+        sidebar.show_request_panels({}, method="GET", url="")
+        sidebar.open_panel("ai")
+        title_bar = sidebar._flyout._ai_session_title_bar
+        title = sidebar._flyout.findChild(QLabel, "aiChatSessionTitle")
+        assert title_bar.isVisible()
+        assert title is not None
+        assert title.toolTip() == "New chat"
+        assert sidebar._flyout._ai_history_btn.parent() is title_bar
+        assert sidebar._flyout._ai_new_chat_btn.parent() is title_bar
+
+        sidebar.open_panel("variables")
+        assert not title_bar.isVisible()
+
+        sidebar.open_panel("ai")
+        assert title_bar.isVisible()
+        assert title.toolTip() == "New chat"
+
+    def test_set_ai_session_title_updates_label(self, qapp: QApplication, qtbot) -> None:
+        """RightSidebar.set_ai_session_title updates the flyout subtitle."""
+        from PySide6.QtWidgets import QLabel
+
+        sidebar = RightSidebar()
+        qtbot.addWidget(sidebar)
+        sidebar.set_ai_session_title("What does this code do")
+        title = sidebar._flyout.findChild(QLabel, "aiChatSessionTitle")
+        assert title is not None
+        assert title.toolTip() == "What does this code do"
 
     def test_toggle_ai_panel_closes_active(self, qapp: QApplication, qtbot) -> None:
         """Toggling the AI rail button closes the panel when it is already open."""

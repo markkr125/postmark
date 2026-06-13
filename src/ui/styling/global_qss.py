@@ -1848,6 +1848,15 @@ def build_global_qss(p: ThemePalette) -> str:
         border: none;
         outline: none;
     }}
+    QLabel[objectName="aiSessionHistoryTitle"] {{
+        color: {p["text"]};
+        font-size: 12px;
+        background: transparent;
+    }}
+    QWidget[objectName="aiSessionHistoryRow"][activeSession="true"] {{
+        background: {p["selected_bg"]};
+        border-radius: 4px;
+    }}
     QListWidget[objectName="aiSessionHistoryList"]::item:selected {{
         background: {p["selected_bg"]};
         border-radius: 4px;
@@ -1881,6 +1890,15 @@ def build_global_qss(p: ThemePalette) -> str:
         font-weight: bold;
         font-size: 13px;
         color: {p["text"]};
+    }}
+    QWidget[objectName="aiChatSessionTitleBar"] {{
+        background: transparent;
+        border: none;
+    }}
+    QLabel[objectName="aiChatSessionTitle"] {{
+        font-size: 12px;
+        color: {p["text_muted"]};
+        background: transparent;
     }}
     QLabel[objectName="variableKeyLabel"] {{
         font-family: monospace;

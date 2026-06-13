@@ -121,15 +121,32 @@ Always-visible fixed-width icon rail.
 Panel key for session restore / `open_panel`: `"ai"`. The AI rail button is always
 enabled; `_toggle_panel("ai")` opens without checking `_available_panels`, while
 `open_panel("ai")` requires `"ai"` in `_available_panels` (always true after
-`clear()`, and included in request/folder contexts). The flyout title bar shows
-**session history** (clock), **new chat** (note-pencil), and **gear** buttons
-(left of close) when the AI panel is open. History opens ``AiSessionHistoryPopup``
-(search + relative-time list); new chat clears the transcript and persisted
-``ai/chat_session_id`` (SQLite row created on first send). On startup,
-``MainWindow`` reloads the last active session from ``ai/chat_session_id`` when
-set. The gear emits ``RightSidebar.ai_settings_requested``; ``MainWindow``
-opens Settings on the **AI** category and refreshes the model picker when the
-dialog closes.
+`clear()`, and included in request/folder contexts).
+
+#### AI flyout chrome layout
+
+When the AI panel is open, the flyout header is three stacked rows **above**
+``AiChatPanel`` (the transcript scroll area and composer are unchanged):
+
+1. **Headline** — ``sidebarTitleLabel`` (static **AI assistant**) plus **gear** on the right.
+2. **Conversation title** — ``aiChatSessionTitle`` inside ``aiChatSessionTitleBar``;
+   elided single line with full-text tooltip on the left; **session history** (clock, checkable
+   ``iconButton`` — selected while the history popover is open) and
+   **new chat** (plus icon) ``iconButton``s on the right. Source: SQLite
+   ``ai_chat_sessions.title``. Placeholder **New chat** when there is no active
+   session (including after **New chat** until the first send). Updated on session
+   restore/switch, first message (fallback title), and async title generation
+   (``AiChatTitleWorker``). Hidden when another right-rail panel is active.
+3. **Separator** — ``sidebarSeparator``, then ``AiChatPanel``.
+
+History opens ``AiSessionHistoryPopup`` (search + elided session titles,
+``AI_SESSION_HISTORY_POPUP_WIDTH_EM`` wide); the row for the **currently open**
+session is highlighted (``activeSession`` on ``aiSessionHistoryRow``). New chat
+clears the transcript and persisted ``ai/chat_session_id`` (SQLite row created
+on first send). On startup, ``MainWindow`` reloads the last active session from
+``ai/chat_session_id`` when set. The gear emits ``RightSidebar.ai_settings_requested``;
+``MainWindow`` opens Settings on the **AI** category and refreshes the model
+picker when the dialog closes.
 
 #### AI composer input (auto-grow)
 
@@ -421,7 +438,10 @@ usage in its tooltip via ``set_context_usage()``; clicking emits
 
 Collapsible content area as a splitter child (`objectName` ``sidebarPanelArea``).
 
-Contains five stacked panels with a title bar and close button.
+Contains five stacked panels with a title bar (no close button — collapse via rail
+toggle, splitter drag to zero, or **View → Toggle Sidebar** / ``Ctrl+B``).
+Default open width is ``RIGHT_FLYOUT_OPEN_WIDTH_EM`` (29× font height) in
+``theme.py``; minimum drag width is ``RIGHT_FLYOUT_MIN_WIDTH_EM`` (14×).
 The flyout can snap closed via its splitter handle.  The **left** edge against
 the editor is the ``mainWindowHorizontalSplitter`` handle only (no flyout
 ``border-left`` — a full-height left border was hidden under ``QScrollArea``

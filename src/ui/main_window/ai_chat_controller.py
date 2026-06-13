@@ -66,15 +66,29 @@ class _AiChatControllerMixin:
             queued,
         )
         self._restore_active_chat_session()
+        self._sync_ai_session_title()
+
+    def _sync_ai_session_title(self) -> None:
+        """Refresh the flyout conversation title for the active session."""
+        session_id = self._active_ai_session_id
+        if session_id is None:
+            self._right_sidebar.set_ai_session_title("New chat")
+            return
+        session = AiChatSessionService.get_session(session_id)
+        if session is None:
+            self._right_sidebar.set_ai_session_title("New chat")
+            return
+        self._right_sidebar.set_ai_session_title(session["title"])
 
     def _on_ai_new_chat(self) -> None:
         """Clear transcript UI; next send creates a fresh session."""
         self._active_ai_session_id = None
         AiConfig.set_chat_session_id("")
         self._right_sidebar.ai_chat_panel.clear()
+        self._sync_ai_session_title()
 
     def _on_ai_session_history(self) -> None:
-        """Open the session history popover."""
+        """Toggle the session history popover."""
         popup = AiSessionHistoryPopup.instance()
         if popup.isVisible():
             popup.hide_popup()
@@ -84,6 +98,7 @@ class _AiChatControllerMixin:
             self._right_sidebar.ai_history_button,
             sessions,
             self._on_ai_session_selected,
+            active_session_id=self._active_ai_session_id,
         )
 
     def _on_ai_session_selected(self, session_id: str) -> None:
@@ -105,6 +120,7 @@ class _AiChatControllerMixin:
         mode = session.get("mode")
         if isinstance(mode, str) and mode.strip():
             panel.set_mode(mode.strip())
+        self._sync_ai_session_title()
 
     def _restore_active_chat_session(self) -> None:
         """Reload the last active chat transcript after startup."""
@@ -132,6 +148,7 @@ class _AiChatControllerMixin:
             )
             session_id = session["id"]
             self._active_ai_session_id = session_id
+            self._sync_ai_session_title()
 
         AiChatSessionService.record_user_message(session_id, text)
         panel.set_run_busy(True)
@@ -339,6 +356,7 @@ class _AiChatControllerMixin:
         if session_id != self._active_ai_session_id:
             return
         AiChatSessionService.rename_session(session_id, title)
+        self._sync_ai_session_title()
 
     def _on_ai_chat_thread_finished(self) -> None:
         """Release chat worker/thread after the QThread has fully stopped."""
