@@ -8,20 +8,15 @@ import pytest
 
 from database.data_paths import session_disk_dir
 from database.models.ai_chat.ai_chat_query_repository import (
-    get_session_by_id,
-    get_session_with_messages,
-    list_sessions,
-    search_messages,
-)
-from database.models.ai_chat.ai_chat_repository import (
-    append_message,
-    archive_session,
-    create_session,
-    delete_session,
-    list_messages,
-    rename_session,
-    touch_session,
-)
+    get_session_by_id, get_session_with_messages, list_sessions,
+    search_messages)
+from database.models.ai_chat.ai_chat_repository import (append_message,
+                                                        archive_session,
+                                                        create_session,
+                                                        delete_session,
+                                                        list_messages,
+                                                        rename_session,
+                                                        touch_session)
 
 
 @pytest.fixture

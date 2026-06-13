@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QObject, QThread, Signal, Slot, QMetaObject, Qt, Q_ARG
+from PySide6.QtCore import (Q_ARG, QMetaObject, QObject, Qt, QThread, Signal,
+                            Slot)
 from shiboken6 import isValid
 
-from services.ai.chat.session_service import AiChatSessionLoadDict, AiChatSessionService
+from services.ai.chat.session_service import (AiChatSessionLoadDict,
+                                              AiChatSessionService)
 
 
 class AiChatSessionLoadWorker(QObject):

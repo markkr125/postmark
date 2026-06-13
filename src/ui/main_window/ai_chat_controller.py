@@ -6,17 +6,15 @@ import contextlib
 import logging
 from typing import TYPE_CHECKING, cast
 
-from PySide6.QtCore import QObject, QThread, Qt, Slot
+from PySide6.QtCore import QObject, Qt, QThread, Slot
 
 from services.ai.ai_config import AiConfig
 from services.ai.chat.agent_registry import DEFAULT_AGENT_ID
 from services.ai.chat.response_text import pick_richest_text
-from services.ai.chat.session_service import (
-    AiChatSessionDict,
-    AiChatSessionLoadDict,
-    AiChatSessionService,
-    ComposerRunContext,
-)
+from services.ai.chat.session_service import (AiChatSessionDict,
+                                              AiChatSessionLoadDict,
+                                              AiChatSessionService,
+                                              ComposerRunContext)
 from ui.sidebar.ai.chat_sessions.history_popup import AiSessionHistoryPopup
 from ui.sidebar.ai.workers.chat_worker import AiChatWorker
 from ui.sidebar.ai.workers.session_load_worker import AiChatSessionLoader

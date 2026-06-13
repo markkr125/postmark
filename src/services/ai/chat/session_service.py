@@ -9,30 +9,28 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, NotRequired, TypedDict, cast
 
 from database.data_paths import session_disk_dir, user_ai_conversations_root
-from database.models.ai_chat.ai_chat_query_repository import (
-    get_session_by_id,
-    get_session_with_messages as repo_get_session_with_messages,
-    list_sessions as repo_list_sessions,
-    search_messages as repo_search_messages,
-)
-from database.models.ai_chat.ai_chat_repository import (
-    DEFAULT_AGENT_ID,
-    append_message,
-    archive_session,
-    create_session,
-    delete_session,
-    list_messages,
-    rename_session,
-    touch_session,
-)
+from database.models.ai_chat.ai_chat_query_repository import get_session_by_id
+from database.models.ai_chat.ai_chat_query_repository import \
+    get_session_with_messages as repo_get_session_with_messages
+from database.models.ai_chat.ai_chat_query_repository import \
+    list_sessions as repo_list_sessions
+from database.models.ai_chat.ai_chat_query_repository import \
+    search_messages as repo_search_messages
+from database.models.ai_chat.ai_chat_repository import (DEFAULT_AGENT_ID,
+                                                        append_message,
+                                                        archive_session,
+                                                        create_session,
+                                                        delete_session,
+                                                        list_messages,
+                                                        rename_session,
+                                                        touch_session)
 from services.ai.ai_config import AiConfig, AiModelEntry
-from services.ai.chat.agent_registry import (
-    DEFAULT_MAX_ITERATIONS,
-    get_agent_def,
-)
-from services.ai.chat.response_text import extract_final_text as _extract_final_text
-from services.ai.chat.tool_registry import resolve_tools
 from services.ai.ai_logging import log as ai_log
+from services.ai.chat.agent_registry import (DEFAULT_MAX_ITERATIONS,
+                                             get_agent_def)
+from services.ai.chat.response_text import \
+    extract_final_text as _extract_final_text
+from services.ai.chat.tool_registry import resolve_tools
 from services.ai.llm_service import AiLlmService, resolve_llm_base_url
 from services.ai.reasoning_effort import _is_ollama_model
 

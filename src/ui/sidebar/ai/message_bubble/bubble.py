@@ -11,7 +11,8 @@ from PySide6.QtWidgets import QFrame, QLabel, QSizePolicy, QVBoxLayout, QWidget
 from ui.sidebar.ai.message_bubble.activity_row import AssistantActivityRow
 from ui.sidebar.ai.message_bubble.markdown_content import MarkdownContent
 from ui.sidebar.ai.message_bubble.thought_section import ThoughtSection
-from ui.sidebar.ai.message_bubble.user_message import UserMessageFooterRow, UserMessageSection
+from ui.sidebar.ai.message_bubble.user_message import (UserMessageFooterRow,
+                                                       UserMessageSection)
 
 ChatRole = Literal["user", "assistant"]
 _QWIDGET_MAX_HEIGHT = 16777215

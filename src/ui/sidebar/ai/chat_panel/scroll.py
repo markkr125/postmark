@@ -6,14 +6,8 @@ from collections.abc import Iterator
 from typing import Any
 
 from PySide6.QtCore import QEventLoop, QPoint, QSignalBlocker, Qt, QTimer
-from PySide6.QtWidgets import (
-    QApplication,
-    QPushButton,
-    QScrollArea,
-    QScrollBar,
-    QSizePolicy,
-    QWidget,
-)
+from PySide6.QtWidgets import (QApplication, QPushButton, QScrollArea,
+                               QScrollBar, QSizePolicy, QWidget)
 from shiboken6 import isValid
 
 from ui.sidebar.ai.chat_panel.smooth_scroll import SmoothScroller
