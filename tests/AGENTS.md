@@ -36,6 +36,8 @@
    runs. Use ``tests/qt_widget_lifecycle.py`` (``dispose_qt_widget``,
    ``run_gc_after_qt_flush``, ``wait_for_weakrefs_cleared``). Memory-leak tests
    in ``test_code_editor_memory.py`` use ``pytest.mark.xdist_group("code_editor_memory")``
+   (serialized under xdist); ``test_transcript_memory.py`` uses
+   ``pytest.mark.xdist_group("transcript_memory")`` — run ``-n0`` when debugging.
    so they run serially on one worker.
 6. **The `_no_fetch` fixture is autouse in `tests/ui/`** — it prevents
    `CollectionWidget` from spawning a background thread.  You do not need
@@ -227,6 +229,7 @@ tests/
 │       │   ├── test_provider_display_name.py
 │       │   ├── test_chat_response_text.py
 │       │   ├── test_chat_session_service.py
+│       │   ├── test_session_transcript_window.py  # Tail/older turn slicing
 │       │   ├── test_llm_service.py
 │       │   ├── test_postmark_agent_registry.py
 │       │   ├── test_provider_ops.py
@@ -324,7 +327,10 @@ tests/
    │   ├── test_ai_session_history_popup.py
    │   ├── test_session_transcript_load.py  # Async session switch + lazy markdown
    │   └── ai/
-   │       └── conftest.py  # load_transcript_sync helper
+   │       ├── conftest.py  # load_transcript_sync helper
+   │       ├── test_transcript_window.py  # Virtual tail/prepend paging + spacers
+   │       ├── test_transcript_integration.py  # Real SQLite tail load + prefetch guards
+   │       └── test_transcript_memory.py  # xdist_group transcript_memory; tail vs full RAM
    │   ├── test_sidebar.py
    │   ├── test_left_sidebar.py
    │   ├── test_variables_panel.py

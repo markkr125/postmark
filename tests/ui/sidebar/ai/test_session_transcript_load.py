@@ -8,7 +8,11 @@ from unittest.mock import patch
 
 from PySide6.QtWidgets import QApplication
 
-from services.ai.chat.session_service import AiChatMessageDict, AiChatSessionLoadDict
+from services.ai.chat.session_service import (
+    AiChatMessageDict,
+    AiChatSessionTailLoadDict,
+    AiChatTranscriptPageDict,
+)
 from tests.ui.sidebar.ai.conftest import load_transcript_sync
 from ui.main_window.ai_chat_controller import _AiChatControllerMixin
 from ui.sidebar.ai import AiChatPanel
@@ -28,6 +32,31 @@ def _session_row(session_id: str, title: str) -> dict[str, Any]:
         "last_preview": None,
         "archived": False,
     }
+
+
+def _tail_payload(
+    session_id: str,
+    title: str,
+    messages: list[AiChatMessageDict],
+    *,
+    has_older: bool = False,
+) -> tuple[str, AiChatSessionTailLoadDict]:
+    """Build a tail-load worker payload for controller tests."""
+    oldest_id = messages[0]["id"] if messages else None
+    newest_id = messages[-1]["id"] if messages else None
+    return (
+        "tail",
+        AiChatSessionTailLoadDict(
+            session=cast(Any, _session_row(session_id, title)),
+            page=AiChatTranscriptPageDict(
+                messages=messages,
+                has_older=has_older,
+                has_newer=False,
+                oldest_id=oldest_id,
+                newest_id=newest_id,
+            ),
+        ),
+    )
 
 
 def _long_messages(count: int) -> list[AiChatMessageDict]:
@@ -106,14 +135,25 @@ def test_activate_skips_reload_for_current_session(qapp: QApplication, qtbot) ->
     prepare.assert_not_called()
 
 
+def test_activate_uses_tail_loader(qapp: QApplication, qtbot) -> None:
+    """Session activation loads only the virtualized transcript tail."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    host = _Host(panel)
+    with patch.object(host._session_loader, "load_tail") as load_tail:
+        host._activate_chat_session("sess-tail")
+    load_tail.assert_called_once_with("sess-tail", 1)
+
+
 def test_session_load_finished_applies_chrome_before_transcript(qapp: QApplication, qtbot) -> None:
     """Worker completion updates title before incremental transcript build."""
     panel = AiChatPanel()
     qtbot.addWidget(panel)
     host = _Host(panel)
-    payload = AiChatSessionLoadDict(
-        session=cast(Any, _session_row("sess-b", "Rust HTTP")),
-        messages=[
+    payload = _tail_payload(
+        "sess-b",
+        "Rust HTTP",
+        [
             {
                 "id": 1,
                 "session_id": "sess-b",
@@ -138,10 +178,7 @@ def test_stale_session_load_generation_is_ignored(qapp: QApplication, qtbot) -> 
     qtbot.addWidget(panel)
     host = _Host(panel)
     host._session_load_generation = 2
-    payload = AiChatSessionLoadDict(
-        session=cast(Any, _session_row("old", "Old")),
-        messages=[],
-    )
+    payload = _tail_payload("old", "Old", [])
     host._on_session_load_finished(1, payload)
     assert host._active_ai_session_id is None
 

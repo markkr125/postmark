@@ -8,15 +8,23 @@ import pytest
 
 from database.data_paths import session_disk_dir
 from database.models.ai_chat.ai_chat_query_repository import (
-    get_session_by_id, get_session_with_messages, list_sessions,
-    search_messages)
-from database.models.ai_chat.ai_chat_repository import (append_message,
-                                                        archive_session,
-                                                        create_session,
-                                                        delete_session,
-                                                        list_messages,
-                                                        rename_session,
-                                                        touch_session)
+    get_session_by_id,
+    get_session_with_messages,
+    list_messages_after,
+    list_messages_before,
+    list_messages_tail,
+    list_sessions,
+    search_messages,
+)
+from database.models.ai_chat.ai_chat_repository import (
+    append_message,
+    archive_session,
+    create_session,
+    delete_session,
+    list_messages,
+    rename_session,
+    touch_session,
+)
 
 
 @pytest.fixture
@@ -146,3 +154,47 @@ def test_delete_session_removes_rows_and_disk(
     assert get_session_by_id(session_id) is None
     assert list_messages(session_id) == []
     assert not disk.exists()
+
+
+def _seed_turns(session_id: str, turns: int) -> list[dict]:
+    """Append *turns* user/assistant pairs and return message dicts."""
+    rows: list[dict] = []
+    for index in range(turns):
+        rows.append(append_message(session_id=session_id, role="user", content=f"u{index}"))
+        rows.append(append_message(session_id=session_id, role="assistant", content=f"a{index}"))
+    return rows
+
+
+def test_list_messages_tail_and_before(session_id: str) -> None:
+    """Tail and before pagination return ordered slices with has_older probes."""
+    create_session(session_id=session_id, title="Page", model_id=None, mode="agent")
+    all_rows = _seed_turns(session_id, 5)
+    tail, has_older = list_messages_tail(session_id, limit=4)
+    assert has_older
+    assert len(tail) == 4
+    assert tail[-1]["id"] == all_rows[-1]["id"]
+    older, has_more = list_messages_before(session_id, before_id=tail[0]["id"], limit=4)
+    assert older
+    assert older[-1]["id"] < tail[0]["id"]
+    assert has_more or older[0]["id"] == all_rows[0]["id"]
+
+
+def test_list_messages_after(session_id: str) -> None:
+    """After pagination returns rows newer than a cursor id."""
+    create_session(session_id=session_id, title="After", model_id=None, mode="agent")
+    all_rows = _seed_turns(session_id, 4)
+    middle_id = all_rows[3]["id"]
+    newer, has_newer = list_messages_after(session_id, after_id=middle_id, limit=4)
+    assert newer
+    assert newer[0]["id"] > middle_id
+    assert newer[-1]["id"] == all_rows[-1]["id"]
+    assert not has_newer
+
+
+def test_list_messages_tail_exact_length(session_id: str) -> None:
+    """Tail has_older is false when the session fits in one page."""
+    create_session(session_id=session_id, title="Exact", model_id=None, mode="agent")
+    _seed_turns(session_id, 2)
+    tail, has_older = list_messages_tail(session_id, limit=4)
+    assert len(tail) == 4
+    assert not has_older

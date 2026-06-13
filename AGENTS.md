@@ -215,6 +215,7 @@ src/
 │   │       ├── agent_registry.py  # PostmarkAgentDef + DEFAULT_AGENT_ID
 │   │       ├── tool_registry.py   # register_postmark_tool / resolve_tools
 │   │       ├── response_text.py   # Turn-scoped thinking/answer extraction from SDK messages + stream chunks
+│   │       ├── transcript_window.py # Turn-aware tail/older/newer slice helpers + paging constants
 │   │       └── session_service.py # AiChatSessionService — SQLite index + SDK bridge
 │   ├── assertion_service.py       # AssertionService + AssertionDict — declarative tests CRUD + compile
 │   ├── local_script_service.py    # LocalScriptService + LocalScriptLoadDict
@@ -334,7 +335,10 @@ src/
     │   │   │   ├── composer.py    # _ComposerInput + ModelPickerButton
     │   │   │   └── scroll.py      # _ChatPanelScrollMixin — direction-based scroll-lock, turn-start anchor, viewport spacer, queued follow passes
     │   │   ├── chat_panel_streaming.py  # _ChatPanelStreamingMixin — stream orchestration + activity timer
-    │   │   ├── chat_transcript_load.py  # _ChatPanelTranscriptLoadMixin — incremental session transcript load
+    │   │   ├── chat_transcript_load.py  # Re-export shim → transcript.load
+    │   │   ├── transcript/  # Virtualized transcript mixins
+    │   │   │   ├── load.py  # _ChatPanelTranscriptLoadMixin — incremental session transcript load
+    │   │   │   └── window.py  # _ChatPanelTranscriptWindowMixin — tail paging, eviction, virtual spacers
     │   │   ├── chat_transcript_loading_row.py  # ChatTranscriptLoadingOverlay — viewport line animation during session load
     │   │   ├── chat_sessions/     # Session history popover + time formatting
     │   │   │   ├── history_popup.py  # AiSessionHistoryPopup
@@ -603,6 +607,7 @@ tests/
 │       ├── ai/                    # AI config + LLM service tests
 │       │   ├── test_ai_config.py
 │       │   ├── test_chat_session_service.py
+│       │   ├── test_session_transcript_window.py
 │       │   ├── test_postmark_agent_registry.py
 │       │   ├── test_model_metadata.py
 │       │   └── test_llm_service.py

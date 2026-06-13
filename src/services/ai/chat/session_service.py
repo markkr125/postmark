@@ -10,27 +10,41 @@ from typing import TYPE_CHECKING, Any, NotRequired, TypedDict, cast
 
 from database.data_paths import session_disk_dir, user_ai_conversations_root
 from database.models.ai_chat.ai_chat_query_repository import get_session_by_id
-from database.models.ai_chat.ai_chat_query_repository import \
-    get_session_with_messages as repo_get_session_with_messages
-from database.models.ai_chat.ai_chat_query_repository import \
-    list_sessions as repo_list_sessions
-from database.models.ai_chat.ai_chat_query_repository import \
-    search_messages as repo_search_messages
-from database.models.ai_chat.ai_chat_repository import (DEFAULT_AGENT_ID,
-                                                        append_message,
-                                                        archive_session,
-                                                        create_session,
-                                                        delete_session,
-                                                        list_messages,
-                                                        rename_session,
-                                                        touch_session)
+from database.models.ai_chat.ai_chat_query_repository import (
+    get_session_with_messages as repo_get_session_with_messages,
+)
+from database.models.ai_chat.ai_chat_query_repository import (
+    list_messages_after as repo_list_messages_after,
+)
+from database.models.ai_chat.ai_chat_query_repository import (
+    list_messages_before as repo_list_messages_before,
+)
+from database.models.ai_chat.ai_chat_query_repository import (
+    list_messages_tail as repo_list_messages_tail,
+)
+from database.models.ai_chat.ai_chat_query_repository import list_sessions as repo_list_sessions
+from database.models.ai_chat.ai_chat_query_repository import search_messages as repo_search_messages
+from database.models.ai_chat.ai_chat_repository import (
+    DEFAULT_AGENT_ID,
+    append_message,
+    archive_session,
+    create_session,
+    delete_session,
+    list_messages,
+    rename_session,
+    touch_session,
+)
 from services.ai.ai_config import AiConfig, AiModelEntry
 from services.ai.ai_logging import log as ai_log
-from services.ai.chat.agent_registry import (DEFAULT_MAX_ITERATIONS,
-                                             get_agent_def)
-from services.ai.chat.response_text import \
-    extract_final_text as _extract_final_text
+from services.ai.chat.agent_registry import DEFAULT_MAX_ITERATIONS, get_agent_def
+from services.ai.chat.response_text import extract_final_text as _extract_final_text
 from services.ai.chat.tool_registry import resolve_tools
+from services.ai.chat.transcript_window import (
+    INITIAL_TAIL_TURNS,
+    NEWER_PAGE_TURNS,
+    OLDER_PAGE_TURNS,
+    message_limit_for_turns,
+)
 from services.ai.llm_service import AiLlmService, resolve_llm_base_url
 from services.ai.reasoning_effort import _is_ollama_model
 
@@ -84,6 +98,23 @@ class AiChatSessionLoadDict(TypedDict):
 
     session: AiChatSessionDict
     messages: list[AiChatMessageDict]
+
+
+class AiChatTranscriptPageDict(TypedDict):
+    """One virtualized transcript page of messages."""
+
+    messages: list[AiChatMessageDict]
+    has_older: bool
+    has_newer: bool
+    oldest_id: int | None
+    newest_id: int | None
+
+
+class AiChatSessionTailLoadDict(TypedDict):
+    """Session metadata plus the initial tail transcript page."""
+
+    session: AiChatSessionDict
+    page: AiChatTranscriptPageDict
 
 
 @contextmanager
@@ -168,6 +199,159 @@ class AiChatSessionService:
         return AiChatSessionLoadDict(
             session=AiChatSessionService._cast_session(session_row),
             messages=[AiChatSessionService._cast_message(m) for m in message_rows],
+        )
+
+    @staticmethod
+    def _page_from_messages(
+        messages: list[AiChatMessageDict],
+        *,
+        has_older: bool,
+        has_newer: bool,
+    ) -> AiChatTranscriptPageDict:
+        """Build a transcript page dict from ordered message rows."""
+        oldest_id = messages[0]["id"] if messages else None
+        newest_id = messages[-1]["id"] if messages else None
+        return AiChatTranscriptPageDict(
+            messages=messages,
+            has_older=has_older,
+            has_newer=has_newer,
+            oldest_id=oldest_id,
+            newest_id=newest_id,
+        )
+
+    @staticmethod
+    def _tail_turn_slice(
+        raw_messages: list[dict[str, Any]],
+        *,
+        tail_turns: int,
+        has_older_db: bool,
+    ) -> tuple[list[AiChatMessageDict], bool]:
+        """Trim a raw tail fetch to complete trailing user turns."""
+        if not raw_messages:
+            return [], False
+        cast_messages = [AiChatSessionService._cast_message(m) for m in raw_messages]
+        user_indices = [
+            index for index, message in enumerate(cast_messages) if message["role"] == "user"
+        ]
+        if len(user_indices) <= tail_turns:
+            return cast_messages, has_older_db
+        start_index = user_indices[-tail_turns]
+        return cast_messages[start_index:], True
+
+    @staticmethod
+    def _older_turn_slice(
+        raw_messages: list[dict[str, Any]],
+        *,
+        page_turns: int,
+        has_older_db: bool,
+    ) -> tuple[list[AiChatMessageDict], bool]:
+        """Trim a before-page fetch to the newest complete turns in the batch."""
+        if not raw_messages:
+            return [], False
+        cast_messages = [AiChatSessionService._cast_message(m) for m in raw_messages]
+        user_indices = [
+            index for index, message in enumerate(cast_messages) if message["role"] == "user"
+        ]
+        if len(user_indices) <= page_turns:
+            return cast_messages, has_older_db
+        start_index = user_indices[-page_turns]
+        return cast_messages[start_index:], True
+
+    @staticmethod
+    def _newer_turn_slice(
+        raw_messages: list[dict[str, Any]],
+        *,
+        page_turns: int,
+        has_newer_db: bool,
+    ) -> tuple[list[AiChatMessageDict], bool]:
+        """Trim an after-page fetch to the oldest complete turns in the batch."""
+        if not raw_messages:
+            return [], False
+        cast_messages = [AiChatSessionService._cast_message(m) for m in raw_messages]
+        user_indices = [
+            index for index, message in enumerate(cast_messages) if message["role"] == "user"
+        ]
+        if len(user_indices) <= page_turns:
+            has_newer = has_newer_db
+            return cast_messages, has_newer
+        next_start = user_indices[page_turns]
+        return cast_messages[:next_start], True
+
+    @staticmethod
+    def get_session_tail(
+        session_id: str,
+        *,
+        tail_turns: int = INITIAL_TAIL_TURNS,
+    ) -> AiChatSessionTailLoadDict | None:
+        """Return session metadata and the latest *tail_turns* user turns."""
+        session_row = get_session_by_id(session_id)
+        if session_row is None:
+            return None
+        raw_limit = message_limit_for_turns(tail_turns + 1)
+        raw_messages, has_older_db = repo_list_messages_tail(session_id, limit=raw_limit)
+        messages, has_older = AiChatSessionService._tail_turn_slice(
+            raw_messages,
+            tail_turns=tail_turns,
+            has_older_db=has_older_db,
+        )
+        page = AiChatSessionService._page_from_messages(
+            messages,
+            has_older=has_older,
+            has_newer=False,
+        )
+        return AiChatSessionTailLoadDict(
+            session=AiChatSessionService._cast_session(session_row),
+            page=page,
+        )
+
+    @staticmethod
+    def load_older_messages(
+        session_id: str,
+        *,
+        before_id: int,
+        page_turns: int = OLDER_PAGE_TURNS,
+    ) -> AiChatTranscriptPageDict:
+        """Fetch the preceding *page_turns* user turns before *before_id*."""
+        raw_limit = message_limit_for_turns(page_turns + 1)
+        raw_messages, has_older_db = repo_list_messages_before(
+            session_id,
+            before_id=before_id,
+            limit=raw_limit,
+        )
+        messages, has_older = AiChatSessionService._older_turn_slice(
+            raw_messages,
+            page_turns=page_turns,
+            has_older_db=has_older_db,
+        )
+        return AiChatSessionService._page_from_messages(
+            messages,
+            has_older=has_older,
+            has_newer=True,
+        )
+
+    @staticmethod
+    def load_newer_messages(
+        session_id: str,
+        *,
+        after_id: int,
+        page_turns: int = NEWER_PAGE_TURNS,
+    ) -> AiChatTranscriptPageDict:
+        """Fetch the next *page_turns* user turns after *after_id*."""
+        raw_limit = message_limit_for_turns(page_turns + 1)
+        raw_messages, has_newer_db = repo_list_messages_after(
+            session_id,
+            after_id=after_id,
+            limit=raw_limit,
+        )
+        messages, has_newer = AiChatSessionService._newer_turn_slice(
+            raw_messages,
+            page_turns=page_turns,
+            has_newer_db=has_newer_db,
+        )
+        return AiChatSessionService._page_from_messages(
+            messages,
+            has_older=True,
+            has_newer=has_newer,
         )
 
     @staticmethod

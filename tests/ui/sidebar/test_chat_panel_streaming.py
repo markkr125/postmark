@@ -8,16 +8,25 @@ from unittest.mock import patch
 
 import pytest
 from PySide6.QtCore import QPoint, QPointF, Qt, QTimer
-from PySide6.QtGui import QWheelEvent
-from PySide6.QtWidgets import (QApplication, QLabel, QLayout, QPushButton,
-                               QScrollArea, QTextBrowser, QWidget)
+from PySide6.QtGui import QTextTable, QWheelEvent
+from PySide6.QtWidgets import (
+    QApplication,
+    QLabel,
+    QLayout,
+    QPushButton,
+    QScrollArea,
+    QTextBrowser,
+    QWidget,
+)
 
 from services.ai.chat.session_service import AiChatMessageDict
 from tests.ui.sidebar.ai.conftest import load_transcript_sync
 from ui.sidebar.ai import AiChatPanel
 from ui.sidebar.ai.chat_panel.scroll import _FOLLOW_THRESHOLD_PX
 from ui.sidebar.ai.chat_panel.sticky_prompt import (
-    _STICKY_PROMPT_LEFT_SHIFT_PX, _STICKY_PROMPT_VIEWPORT_INSET_PX)
+    _STICKY_PROMPT_LEFT_SHIFT_PX,
+    _STICKY_PROMPT_VIEWPORT_INSET_PX,
+)
 from ui.sidebar.ai.chat_panel_streaming import format_activity_status
 from ui.sidebar.ai.message_bubble import ChatMessageBubble
 from ui.sidebar.ai.message_bubble.markdown_content import MarkdownContent
@@ -157,13 +166,12 @@ def _expected_spacer_height(panel: AiChatPanel) -> int:
     viewport_h = panel._scroll.viewport().height()
     if viewport_h <= 0:
         return 0
-    return max(0, viewport_h - panel._streaming_turn_extent_px())
+    return int(max(0, viewport_h - panel._streaming_turn_extent_px()))
 
 
 def _sticky_turn_prompt(panel: AiChatPanel):
     """Return the sticky turn prompt overlay on the transcript viewport, if any."""
-    from ui.sidebar.ai.message_bubble.user_message.overlay import \
-        StickyUserPromptOverlay
+    from ui.sidebar.ai.message_bubble.user_message.overlay import StickyUserPromptOverlay
 
     viewport = panel._scroll.viewport()
     for child in viewport.children():
@@ -209,6 +217,13 @@ def _user_bubble_with_text(panel: AiChatPanel, text: str) -> ChatMessageBubble:
         ):
             return widget
     pytest.fail(f"user bubble with text {text!r} not found")
+
+
+def _document_table_count(body: MarkdownContent) -> int:
+    """Return the number of top-level QTextTable frames in *body*."""
+    return sum(
+        1 for frame in body.document().rootFrame().childFrames() if isinstance(frame, QTextTable)
+    )
 
 
 def _scroll_until_user_above_viewport(
@@ -336,6 +351,42 @@ def test_end_assistant_stream_flushes_pending_chunks(qapp: QApplication, qtbot) 
     bubble = panel.findChildren(ChatMessageBubble)[0]
     assert bubble.text() == "partial"
     assert not bubble.is_content_streaming()
+
+
+def test_streaming_markdown_table_does_not_create_live_qt_table(
+    qapp: QApplication,
+    qtbot,
+) -> None:
+    """Incomplete streamed pipe tables remain plain until final render."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    panel.resize(360, 480)
+    qtbot.waitExposed(panel)
+
+    panel.add_message("user", "compare insomnia and postman")
+    panel.begin_assistant_stream()
+    chunks = [
+        "## 1. Core Strengths\n\n",
+        "| Feature | Insomnia | Postman |\n",
+        "|---------|----------|---------|\n",
+        "| UI & UX | Minimalist, tab-based, dark-theme-friendly. |",
+        " Feature-heavy dashboard UI. |\n",
+        "| Request building | One-window form. | Menu-driven panels. |\n",
+    ]
+    for chunk in chunks:
+        panel.append_assistant_chunk("", chunk)
+        _flush_stream_chunks(qtbot)
+
+    assistant_bubbles = [
+        bubble for bubble in panel.findChildren(ChatMessageBubble) if bubble.role == "assistant"
+    ]
+    assert len(assistant_bubbles) == 1
+    body = assistant_bubbles[0].findChild(MarkdownContent, "aiChatAssistantText")
+    assert body is not None
+    assert body.is_streaming()
+    assert _document_table_count(body) == 0
+    assert "Minimalist, tab-based" in body.document().toPlainText()
 
 
 def test_messages_layout_has_min_and_max_size_constraint(qapp: QApplication, qtbot) -> None:

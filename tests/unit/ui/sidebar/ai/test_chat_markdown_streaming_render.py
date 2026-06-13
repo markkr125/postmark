@@ -91,6 +91,20 @@ class TestStreamingMarkdownCache:
         assert not highlight_calls
         assert "<provisional>" in html
 
+    def test_streaming_tables_render_as_plain_text_until_finalize(self) -> None:
+        """Pipe tables stay stable while incomplete rows are still streaming."""
+        cache = StreamingMarkdownCache()
+        markdown = (
+            "## Core Strengths\n\n"
+            "| Feature | Insomnia | Postman |\n"
+            "|---------|----------|---------|\n"
+            "| UI & UX | Minimalist, tab-based, dark-theme-friendly. |"
+        )
+        html = cache.render_document_html(markdown, palette=DARK_PALETTE).lower()
+        assert "<pre" in html
+        assert "<td" not in html
+        assert "minimalist, tab-based" in html
+
 
 class TestMarkdownContentStreamingIncremental:
     """Integration tests for :class:`MarkdownContent` streaming updates."""

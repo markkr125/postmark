@@ -6,8 +6,14 @@ from collections.abc import Iterator
 from typing import Any
 
 from PySide6.QtCore import QEventLoop, QPoint, QSignalBlocker, Qt, QTimer
-from PySide6.QtWidgets import (QApplication, QPushButton, QScrollArea,
-                               QScrollBar, QSizePolicy, QWidget)
+from PySide6.QtWidgets import (
+    QApplication,
+    QPushButton,
+    QScrollArea,
+    QScrollBar,
+    QSizePolicy,
+    QWidget,
+)
 from shiboken6 import isValid
 
 from ui.sidebar.ai.chat_panel.smooth_scroll import SmoothScroller
@@ -214,6 +220,8 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
             self._scroll_lock_enabled = at_bottom
         self._update_scroll_down_button_visibility()
         self._schedule_sticky_sync()
+        if hasattr(self, "on_transcript_scroll_activity"):
+            self.on_transcript_scroll_activity()
 
     def _stream_follow_target(self) -> int:
         """Return the scroll offset to follow while streaming with lock on."""
@@ -351,7 +359,12 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
             spacer.setObjectName("aiChatStreamingViewportSpacer")
             spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             spacer.setFixedHeight(target_h)
-            self._messages_layout.addWidget(spacer)
+            bottom_virtual = getattr(self, "_bottom_virtual_spacer", None)
+            if bottom_virtual is not None:
+                insert_index = self._messages_layout.indexOf(bottom_virtual)
+                self._messages_layout.insertWidget(insert_index, spacer)
+            else:
+                self._messages_layout.addWidget(spacer)
             self._streaming_viewport_spacer = spacer
         else:
             self._streaming_viewport_spacer.setFixedHeight(target_h)

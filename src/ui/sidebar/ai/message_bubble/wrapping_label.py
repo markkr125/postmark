@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QEvent, QPointF, QSize, Qt
 from PySide6.QtGui import QWheelEvent
-from PySide6.QtWidgets import (QApplication, QLabel, QScrollArea, QSizePolicy,
-                               QWidget)
+from PySide6.QtWidgets import QApplication, QLabel, QScrollArea, QSizePolicy, QWidget
 
 _QWIDGET_MAX_HEIGHT = 16777215
 

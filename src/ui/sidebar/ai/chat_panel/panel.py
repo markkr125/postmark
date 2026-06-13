@@ -7,22 +7,26 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread, Signal, Slot
 from PySide6.QtGui import QResizeEvent, QShowEvent
-from PySide6.QtWidgets import (QFileDialog, QHBoxLayout, QLabel, QLayout,
-                               QPushButton, QScrollArea, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QLayout,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
 
 from services.ai.ai_config import AiConfig, AiModelEntry, model_entry_enabled
-from services.ai.provider_catalog import (effective_run_context_tokens,
-                                          format_run_context_tokens)
-from services.ai.reasoning_effort import (clamp_effort, default_effort_for,
-                                          format_reasoning_effort)
+from services.ai.provider_catalog import effective_run_context_tokens, format_run_context_tokens
+from services.ai.reasoning_effort import clamp_effort, default_effort_for, format_reasoning_effort
 from ui.sidebar.ai.agent_mode_popup import AgentModeButton, AiAgentModePopup
 from ui.sidebar.ai.chat_panel.composer import ModelPickerButton, _ComposerInput
 from ui.sidebar.ai.chat_panel_streaming import _ChatPanelStreamingMixin
-from ui.sidebar.ai.chat_transcript_loading_row import \
-    ChatTranscriptLoadingOverlay
+from ui.sidebar.ai.chat_transcript_loading_row import ChatTranscriptLoadingOverlay
 from ui.sidebar.ai.message_bubble import ChatMessageBubble
-from ui.sidebar.ai.model_picker_edit import (reasoning_levels_for_entry,
-                                             thinking_enabled_for_entry)
+from ui.sidebar.ai.model_picker_edit import reasoning_levels_for_entry, thinking_enabled_for_entry
 from ui.sidebar.ai.model_picker_popup import AiModelPickerPopup
 from ui.styling.icons import phi
 

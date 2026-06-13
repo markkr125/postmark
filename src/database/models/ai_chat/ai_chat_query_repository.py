@@ -59,6 +59,123 @@ def get_session_with_messages(
         return _session_to_dict(row), messages
 
 
+def _ordered_messages_stmt(session_id: str):
+    """Base statement for chronologically ordered session messages."""
+    return (
+        select(AiChatMessageModel)
+        .where(AiChatMessageModel.session_id == session_id)
+        .order_by(AiChatMessageModel.created_at.asc(), AiChatMessageModel.id.asc())
+    )
+
+
+def list_messages_tail(
+    session_id: str,
+    *,
+    limit: int,
+) -> tuple[list[dict[str, Any]], bool]:
+    """Return the newest *limit* messages (oldest-first) and whether older rows exist."""
+    from .ai_chat_repository import _message_to_dict
+
+    if limit <= 0:
+        return [], False
+    probe = limit + 1
+    with db_session() as db:
+        stmt = (
+            select(AiChatMessageModel)
+            .where(AiChatMessageModel.session_id == session_id)
+            .order_by(AiChatMessageModel.created_at.desc(), AiChatMessageModel.id.desc())
+            .limit(probe)
+        )
+        rows = list(db.scalars(stmt).all())
+    has_older = len(rows) > limit
+    slice_rows = rows[:limit]
+    slice_rows.reverse()
+    return [_message_to_dict(row) for row in slice_rows], has_older
+
+
+def list_messages_before(
+    session_id: str,
+    *,
+    before_id: int,
+    limit: int,
+) -> tuple[list[dict[str, Any]], bool]:
+    """Return up to *limit* messages strictly before *before_id* (oldest-first)."""
+    from .ai_chat_repository import _message_to_dict
+
+    if limit <= 0:
+        return [], False
+    probe = limit + 1
+    with db_session() as db:
+        anchor = db.get(AiChatMessageModel, before_id)
+        if anchor is None or anchor.session_id != session_id:
+            return [], False
+        stmt = (
+            select(AiChatMessageModel)
+            .where(AiChatMessageModel.session_id == session_id)
+            .where(
+                (AiChatMessageModel.created_at < anchor.created_at)
+                | (
+                    (AiChatMessageModel.created_at == anchor.created_at)
+                    & (AiChatMessageModel.id < anchor.id)
+                )
+            )
+            .order_by(AiChatMessageModel.created_at.desc(), AiChatMessageModel.id.desc())
+            .limit(probe)
+        )
+        rows = list(db.scalars(stmt).all())
+    has_older = len(rows) > limit
+    slice_rows = rows[:limit]
+    slice_rows.reverse()
+    return [_message_to_dict(row) for row in slice_rows], has_older
+
+
+def list_messages_after(
+    session_id: str,
+    *,
+    after_id: int,
+    limit: int,
+) -> tuple[list[dict[str, Any]], bool]:
+    """Return up to *limit* messages strictly after *after_id* (oldest-first)."""
+    from .ai_chat_repository import _message_to_dict
+
+    if limit <= 0:
+        return [], False
+    probe = limit + 1
+    with db_session() as db:
+        anchor = db.get(AiChatMessageModel, after_id)
+        if anchor is None or anchor.session_id != session_id:
+            return [], False
+        stmt = (
+            select(AiChatMessageModel)
+            .where(AiChatMessageModel.session_id == session_id)
+            .where(
+                (AiChatMessageModel.created_at > anchor.created_at)
+                | (
+                    (AiChatMessageModel.created_at == anchor.created_at)
+                    & (AiChatMessageModel.id > anchor.id)
+                )
+            )
+            .order_by(AiChatMessageModel.created_at.asc(), AiChatMessageModel.id.asc())
+            .limit(probe)
+        )
+        rows = list(db.scalars(stmt).all())
+    has_newer = len(rows) > limit
+    return [_message_to_dict(row) for row in rows[:limit]], has_newer
+
+
+def count_messages(session_id: str) -> int:
+    """Return the number of messages in *session_id*."""
+    from sqlalchemy import func
+
+    with db_session() as db:
+        count = db.scalar(
+            select(func.count())
+            .select_from(AiChatMessageModel)
+            .where(AiChatMessageModel.session_id == session_id)
+        )
+    return int(count or 0)
+
+
 def search_messages(query: str) -> list[dict[str, Any]]:
     """Return sessions whose title or any message content matches *query*."""
     pattern = f"%{query}%"

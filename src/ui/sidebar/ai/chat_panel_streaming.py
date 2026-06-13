@@ -14,7 +14,7 @@ from PySide6.QtCore import QEventLoop, Qt, QTimer, Slot
 from PySide6.QtWidgets import QApplication
 
 from ui.sidebar.ai.chat_panel.scroll import _ChatPanelScrollMixin
-from ui.sidebar.ai.chat_transcript_load import _ChatPanelTranscriptLoadMixin
+from ui.sidebar.ai.transcript.window import _ChatPanelTranscriptWindowMixin
 from ui.sidebar.ai.message_bubble import ChatMessageBubble, ChatRole
 
 _ACTIVITY_DEFAULT_MESSAGE = "Thinking…"
@@ -59,7 +59,7 @@ def format_activity_status(raw: str) -> str | None:
     return f"{text}…"
 
 
-class _ChatPanelStreamingMixin(_ChatPanelTranscriptLoadMixin, _ChatPanelScrollMixin):  # type: ignore[misc]
+class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScrollMixin):  # type: ignore[misc]
     """Activity row + timer orchestration for assistant streaming."""
 
     _streaming_bubble: ChatMessageBubble | None = None
@@ -76,6 +76,7 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptLoadMixin, _ChatPanelScrollMi
     def _init_chat_streaming_state(self) -> None:
         """Create streaming timers (call from panel ``__init__``)."""
         self._init_transcript_load_state()
+        self._init_transcript_window_state()
         self._activity_timer = QTimer(self)  # type: ignore[arg-type]
         self._activity_timer.setSingleShot(True)
         self._activity_timer.timeout.connect(self._on_activity_long_wait)
@@ -235,6 +236,7 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptLoadMixin, _ChatPanelScrollMi
         thinking_duration_seconds: int | None = None,
         sent_at: datetime | None = None,
         lazy_markdown: bool = False,
+        message_id: int | None = None,
     ) -> ChatMessageBubble:
         """Append a message bubble to the transcript."""
         self._empty_label.hide()
@@ -246,7 +248,12 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptLoadMixin, _ChatPanelScrollMi
             sent_at=sent_at,
             lazy_markdown=lazy_markdown,
         )
-        self._messages_layout.addWidget(bubble)
+        self._ensure_virtual_spacers()
+        assert self._bottom_virtual_spacer is not None
+        insert_index = self._messages_layout.indexOf(self._bottom_virtual_spacer)
+        self._messages_layout.insertWidget(insert_index, bubble)
+        if message_id is not None:
+            self.attach_message_id(bubble, message_id)
         if not self._defer_transcript_hooks:
             self._invalidate_sticky_turn_pairs()  # type: ignore[attr-defined]
             if role == "assistant":
@@ -274,6 +281,7 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptLoadMixin, _ChatPanelScrollMi
         self._stream_content_started = False
         self._stream_generation = 0
         self._open_stream_generation = 0
+        self.reset_transcript_window()
         for i in reversed(range(self._messages_layout.count())):
             item = self._messages_layout.itemAt(i)
             widget = item.widget() if item is not None else None
@@ -436,6 +444,7 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptLoadMixin, _ChatPanelScrollMi
         self._attach_transcript_layout_hooks()
         self._update_scroll_down_button_visibility()  # type: ignore[attr-defined]
         self._sync_sticky_turn_prompt()  # type: ignore[attr-defined]
+        self._schedule_virtual_transcript_pass()
         if self._scroll_lock_enabled:  # type: ignore[attr-defined]
             if content_started:
                 QTimer.singleShot(0, lambda: self._scroll_to_bottom(force=True))

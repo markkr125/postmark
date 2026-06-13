@@ -5,7 +5,12 @@ from __future__ import annotations
 from html import escape as html_escape
 
 from ui.sidebar.ai.markdown.copy_chrome import CodeCopyChrome
-from ui.sidebar.ai.markdown.fence_split import CodeSegment, MarkdownSegment, split_fenced_blocks
+from ui.sidebar.ai.markdown.fence_split import (
+    CodeSegment,
+    MarkdownSegment,
+    ProseSegment,
+    split_fenced_blocks,
+)
 from ui.sidebar.ai.markdown.render import render_segment_html
 from ui.styling.theme import ThemePalette, current_palette
 
@@ -44,6 +49,44 @@ def wrap_markdown_body_html(body: str, *, palette: ThemePalette) -> str:
     )
 
 
+def _looks_like_markdown_table_block(lines: list[str]) -> bool:
+    """Return whether *lines* contain markdown pipe-table syntax."""
+    if len(lines) < 2:
+        return False
+    pipe_rows = [line for line in lines if "|" in line]
+    if len(pipe_rows) < 2:
+        return False
+    return any(set(line.strip().replace("|", "").replace(":", "")) <= {"-"} for line in lines)
+
+
+def _streaming_table_block_to_html(block: str, *, palette: ThemePalette) -> str:
+    """Render an in-progress markdown table as stable plain text."""
+    border = html_escape(palette["border"])
+    bg = html_escape(palette["bg_alt"])
+    text = html_escape(palette["text"])
+    return (
+        f'<pre style="white-space:pre-wrap;margin:0 0 8px 0;padding:6px 8px;'
+        f"border:1px solid {border};background:{bg};color:{text};"
+        'font-family:monospace;">'
+        f"{html_escape(block.rstrip())}</pre>"
+    )
+
+
+def _render_streaming_prose_html(text: str, *, palette: ThemePalette) -> str:
+    """Render prose for an open stream, shielding Qt from incomplete tables."""
+    if "|" not in text:
+        return render_segment_html(ProseSegment(text), palette=palette)
+    blocks = text.split("\n\n")
+    parts: list[str] = []
+    for block in blocks:
+        lines = [line for line in block.splitlines() if line.strip()]
+        if _looks_like_markdown_table_block(lines):
+            parts.append(_streaming_table_block_to_html(block, palette=palette))
+        else:
+            parts.append(render_segment_html(ProseSegment(block), palette=palette))
+    return "".join(parts)
+
+
 class StreamingMarkdownCache:
     """Reuse stable segment HTML while the live tail of a stream changes."""
 
@@ -80,14 +123,17 @@ class StreamingMarkdownCache:
         for index in range(change_at, len(segments)):
             segment = segments[index]
             block_index = code_index if isinstance(segment, CodeSegment) else None
-            rendered.append(
-                render_segment_html(
-                    segment,
-                    palette=active,
-                    block_index=block_index,
-                    copy_chrome=chrome,
+            if isinstance(segment, ProseSegment):
+                rendered.append(_render_streaming_prose_html(segment.text, palette=active))
+            else:
+                rendered.append(
+                    render_segment_html(
+                        segment,
+                        palette=active,
+                        block_index=block_index,
+                        copy_chrome=chrome,
+                    )
                 )
-            )
             if isinstance(segment, CodeSegment):
                 code_index += 1
 

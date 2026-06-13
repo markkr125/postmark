@@ -176,14 +176,17 @@ inside the bubble below the prompt shows when the message was sent (local date a
 clock, e.g. ``Jun 7, 2:39 PM``). New sends pass ``sent_at=datetime.now(UTC)``;
 ``load_transcript`` / session switches restore user rows from persisted
 ``created_at``. Session picks load off the GUI thread
-(``AiChatSessionLoader`` + ``get_session_with_messages``), update flyout
+(``AiChatSessionLoader`` + ``get_session_tail``), update flyout
 title/model/mode immediately when the read completes, show the
 ``aiChatTranscriptLoading`` viewport overlay (sliding accent line +
 ``aiChatTranscriptLoadingLabel`` caption, not the stream spinner) until
-``_finish_load_transcript_layout`` completes, build rows incrementally, and defer
-Pygments for off-screen assistant bodies until they scroll into view. Startup
-restore is scheduled after the main window leaves the loading screen; if the AI
-flyout is still hidden, bottom scroll is retried when the panel is shown.
+``_finish_load_transcript_layout`` completes, build only the latest turns
+incrementally (silent older-page fetch on scroll-up; no in-transcript loading
+sentinel), and defer Pygments for off-screen assistant bodies until they scroll
+into view. Off-screen bubbles are evicted into invisible ``aiChatVirtualSpacer``
+rows to bound RAM. Startup restore is scheduled after the main window leaves the
+loading screen; if the AI flyout is still hidden, bottom scroll is retried when
+the panel is shown.
 
 **Thought block.** ``aiChatThoughtToggle`` expands or collapses ``aiChatThoughtText``
 above the answer. Toggling adjusts the transcript scroll offset so visible answer
@@ -220,7 +223,10 @@ GUI thread (~50ms) before updating the active bubble. Rich markdown stays live
 during streaming via an incremental segment renderer: stable prose and closed code
 blocks are reused; only the changed tail is re-rendered. Open (unclosed) fenced
 code uses a cheap provisional monospace block; full Pygments highlighting applies
-when the fence closes or the stream finalizes. The transcript scroll area
+when the fence closes or the stream finalizes. Pipe-table blocks render as
+stable plain text while streaming so incomplete table syntax cannot blow up Qt
+table layout; finalised rows use the normal full markdown renderer. The
+transcript scroll area
 (``aiChatScroll``) uses **smooth wheel scrolling** via ``SmoothScroller``
 (``chat_panel/smooth_scroll.py``): a viewport event filter intercepts wheel input
 forwarded from message rows, accumulates a target scrollbar offset, and animates

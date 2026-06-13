@@ -5,24 +5,36 @@ from __future__ import annotations
 import weakref
 
 from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import (QAbstractTextDocumentLayout, QCursor,
-                           QDesktopServices, QEnterEvent, QGuiApplication,
-                           QHoverEvent, QKeySequence, QMouseEvent, QPainter,
-                           QPalette, QTextCursor, QTextDocument, QTextTable,
-                           QWheelEvent)
-from PySide6.QtWidgets import (QApplication, QMenu, QScrollArea, QSizePolicy,
-                               QWidget)
+from PySide6.QtGui import (
+    QAbstractTextDocumentLayout,
+    QCursor,
+    QDesktopServices,
+    QEnterEvent,
+    QGuiApplication,
+    QHoverEvent,
+    QKeySequence,
+    QMouseEvent,
+    QPainter,
+    QPalette,
+    QTextCursor,
+    QTextDocument,
+    QTextTable,
+    QWheelEvent,
+)
+from PySide6.QtWidgets import QApplication, QMenu, QScrollArea, QSizePolicy, QWidget
 from shiboken6 import isValid
 
 from ui.sidebar.ai.markdown.copy_chrome import CodeCopyChrome
 from ui.sidebar.ai.markdown.fence_split import fenced_code_sources
 from ui.sidebar.ai.markdown.highlight_code import (
-    clear_highlight_cache, code_copy_href, copy_block_index_at_document_pos,
-    parse_code_copy_block_index)
+    clear_highlight_cache,
+    code_copy_href,
+    copy_block_index_at_document_pos,
+    parse_code_copy_block_index,
+)
 from ui.sidebar.ai.markdown.render import render_chat_markdown_html
 from ui.sidebar.ai.markdown.streaming_render import StreamingMarkdownCache
-from ui.sidebar.ai.message_bubble.wrapping_label import \
-    forward_wheel_to_ancestor_scroll_area
+from ui.sidebar.ai.message_bubble.wrapping_label import forward_wheel_to_ancestor_scroll_area
 from ui.styling.theme_manager import ThemeManager
 
 _markdown_bodies: weakref.WeakSet[MarkdownContent] = weakref.WeakSet()

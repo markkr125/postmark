@@ -11,10 +11,13 @@ from PySide6.QtCore import QObject, Qt, QThread, Slot
 from services.ai.ai_config import AiConfig
 from services.ai.chat.agent_registry import DEFAULT_AGENT_ID
 from services.ai.chat.response_text import pick_richest_text
-from services.ai.chat.session_service import (AiChatSessionDict,
-                                              AiChatSessionLoadDict,
-                                              AiChatSessionService,
-                                              ComposerRunContext)
+from services.ai.chat.session_service import (
+    AiChatSessionDict,
+    AiChatSessionService,
+    AiChatSessionTailLoadDict,
+    AiChatTranscriptPageDict,
+    ComposerRunContext,
+)
 from ui.sidebar.ai.chat_sessions.history_popup import AiSessionHistoryPopup
 from ui.sidebar.ai.workers.chat_worker import AiChatWorker
 from ui.sidebar.ai.workers.session_load_worker import AiChatSessionLoader
@@ -57,6 +60,7 @@ class _AiChatControllerMixin:
         self._session_loader.finished.connect(self._on_session_load_finished, queued)
 
         panel = self._right_sidebar.ai_chat_panel
+        panel.set_window_load_callback(self._on_transcript_window_load_requested)
         # Synchronous on the GUI thread: begin_assistant_stream runs before _on_send
         # returns so turn-boundary scroll sees both user and assistant bubbles.
         panel.message_submitted.connect(self._on_ai_message_submitted)
@@ -127,7 +131,20 @@ class _AiChatControllerMixin:
         generation = self._session_load_generation
         panel = self._right_sidebar.ai_chat_panel
         panel.prepare_transcript_load(lazy_markdown=True)
-        self._session_loader.load(session_id, generation)
+        self._session_loader.load_tail(session_id, generation)
+
+    def _on_transcript_window_load_requested(
+        self,
+        kind: str,
+        session_id: str,
+        cursor_id: int,
+        generation: int,
+    ) -> None:
+        """Dispatch silent older/newer transcript page loads."""
+        if kind == "older":
+            self._session_loader.load_older(session_id, cursor_id, generation)
+        elif kind == "newer":
+            self._session_loader.load_newer(session_id, cursor_id, generation)
 
     def _apply_session_chrome(self, session: AiChatSessionDict) -> None:
         """Update flyout title and composer model/mode for *session*."""
@@ -143,22 +160,50 @@ class _AiChatControllerMixin:
     @Slot(int, object)
     def _on_session_load_finished(self, generation: int, payload: object) -> None:
         """Apply a background session read and start incremental transcript build."""
+        if isinstance(payload, tuple) and len(payload) == 2:
+            kind, page_payload = payload
+            if kind == "older" and isinstance(page_payload, dict):
+                panel = self._right_sidebar.ai_chat_panel
+                panel.apply_older_page(
+                    cast(AiChatTranscriptPageDict, page_payload),
+                    generation=generation,
+                )
+                return
+            if kind == "newer" and isinstance(page_payload, dict):
+                panel = self._right_sidebar.ai_chat_panel
+                panel.apply_newer_page(
+                    cast(AiChatTranscriptPageDict, page_payload),
+                    generation=generation,
+                )
+                return
         if generation != self._session_load_generation:
             return
         panel = self._right_sidebar.ai_chat_panel
-        if not isinstance(payload, dict):
+        if not isinstance(payload, tuple) or len(payload) != 2:
             panel.cancel_transcript_load()
             panel._clear_transcript_widgets()
             return
-        load = cast(AiChatSessionLoadDict, payload)
+        kind, load_payload = payload
+        if kind != "tail" or not isinstance(load_payload, dict):
+            panel.cancel_transcript_load()
+            panel._clear_transcript_widgets()
+            return
+        if load_payload is None:
+            panel.cancel_transcript_load()
+            panel._clear_transcript_widgets()
+            return
+        load = cast(AiChatSessionTailLoadDict, load_payload)
         session = load["session"]
+        page = load["page"]
         self._active_ai_session_id = session["id"]
         AiConfig.set_chat_session_id(session["id"])
         self._apply_session_chrome(session)
+        panel.begin_virtual_session(session["id"], page)
         panel.load_transcript_async(
-            load["messages"],
+            page["messages"],
             generation=generation,
             lazy_markdown=True,
+            page=page,
         )
 
     def _restore_active_chat_session(self) -> None:
@@ -188,8 +233,19 @@ class _AiChatControllerMixin:
             session_id = session["id"]
             self._active_ai_session_id = session_id
             self._sync_ai_session_title()
+            panel.begin_virtual_session(
+                session_id,
+                AiChatTranscriptPageDict(
+                    messages=[],
+                    has_older=False,
+                    has_newer=False,
+                    oldest_id=None,
+                    newest_id=None,
+                ),
+            )
 
-        AiChatSessionService.record_user_message(session_id, text)
+        user_row = AiChatSessionService.record_user_message(session_id, text)
+        panel.attach_last_user_message_id(user_row["id"])
         panel.set_run_busy(True)
         panel.begin_assistant_stream()
 
@@ -273,12 +329,13 @@ class _AiChatControllerMixin:
         content = pick_richest_text(content, panel.streaming_assistant_text())
         panel.end_assistant_stream(content, thinking=thinking)
         thinking_duration = panel.last_assistant_thinking_duration_seconds()
-        AiChatSessionService.record_assistant_message(
+        assistant_row = AiChatSessionService.record_assistant_message(
             session_id,
             content,
             thinking=thinking,
             thinking_duration_seconds=thinking_duration,
         )
+        panel.attach_streaming_assistant_message_id(assistant_row["id"])
         panel.set_run_busy(False)
         self._pending_title_session_id = session_id
 
@@ -314,12 +371,13 @@ class _AiChatControllerMixin:
             display = self._compose_failure_transcript(body, self._format_chat_error(message))
         panel.end_assistant_stream(display, thinking=thinking)
         thinking_duration = panel.last_assistant_thinking_duration_seconds()
-        AiChatSessionService.record_assistant_message(
+        assistant_row = AiChatSessionService.record_assistant_message(
             session_id,
             display,
             thinking=thinking,
             thinking_duration_seconds=thinking_duration,
         )
+        panel.attach_streaming_assistant_message_id(assistant_row["id"])
         panel.set_run_busy(False)
 
     @staticmethod

@@ -11,8 +11,7 @@ from PySide6.QtWidgets import QFrame, QLabel, QSizePolicy, QVBoxLayout, QWidget
 from ui.sidebar.ai.message_bubble.activity_row import AssistantActivityRow
 from ui.sidebar.ai.message_bubble.markdown_content import MarkdownContent
 from ui.sidebar.ai.message_bubble.thought_section import ThoughtSection
-from ui.sidebar.ai.message_bubble.user_message import (UserMessageFooterRow,
-                                                       UserMessageSection)
+from ui.sidebar.ai.message_bubble.user_message import UserMessageFooterRow, UserMessageSection
 
 ChatRole = Literal["user", "assistant"]
 _QWIDGET_MAX_HEIGHT = 16777215
@@ -51,6 +50,7 @@ class ChatMessageBubble(QWidget):
         """Build a row for *role* showing *text* and optional *thinking*."""
         super().__init__(parent)
         self._role: ChatRole = role
+        self._message_id: int | None = None
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
         outer = QVBoxLayout(self)
@@ -137,6 +137,15 @@ class ChatMessageBubble(QWidget):
     def role(self) -> ChatRole:
         """Return the message role."""
         return self._role
+
+    @property
+    def message_id(self) -> int | None:
+        """Return the persisted SQLite message id, if assigned."""
+        return self._message_id
+
+    def set_message_id(self, message_id: int) -> None:
+        """Bind this bubble to a persisted message row."""
+        self._message_id = message_id
 
     def text(self) -> str:
         """Return the answer text (markdown source for assistant rows)."""
