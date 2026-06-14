@@ -328,6 +328,89 @@ class TestRightSidebar:
         assert title is not None
         assert title.toolTip() == "What does this code do"
 
+    def test_ai_session_title_shows_pencil_on_hover(self, qapp: QApplication, qtbot) -> None:
+        """Hovering the session title reveals a pencil icon hugging the text."""
+        from PySide6.QtCore import QEvent, QPointF, Qt
+        from PySide6.QtGui import QEnterEvent
+        from PySide6.QtWidgets import QLabel, QSplitter, QWidget
+
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        filler = QWidget()
+        filler.setMinimumWidth(400)
+        splitter.addWidget(filler)
+        sidebar = RightSidebar()
+        sidebar.install_in_splitter(splitter)
+        splitter.resize(800, 600)
+        qtbot.addWidget(splitter)
+        splitter.show()
+        rail_w = sidebar.width()
+        splitter.setSizes([400, sidebar._panel_hint_width, rail_w])
+        qapp.processEvents()
+
+        sidebar.show_request_panels({}, method="GET", url="")
+        sidebar.open_panel("ai")
+        sidebar.set_ai_session_title("potatoes cost money")
+        sidebar.set_ai_session_title_rename_enabled(True)
+        qtbot.waitExposed(splitter)
+
+        pencil = sidebar._flyout.findChild(QLabel, "aiChatSessionTitlePencil")
+        inline = sidebar._flyout.findChild(QWidget, "aiChatSessionTitleInline")
+        assert pencil is not None
+        assert inline is not None
+        assert not pencil.isVisible()
+
+        local = QPointF(inline.rect().center())
+        global_pos = QPointF(inline.mapToGlobal(inline.rect().center()))
+        qapp.postEvent(inline, QEnterEvent(local, local, global_pos))
+        qapp.processEvents()
+        assert pencil.isVisible()
+        assert inline.property("titleHovered") == "true"
+
+        qapp.postEvent(inline, QEvent(QEvent.Type.Leave))
+        qapp.processEvents()
+        assert not pencil.isVisible()
+        assert inline.property("titleHovered") == "false"
+
+    def test_ai_session_title_inline_rename_commits_on_enter(
+        self, qapp: QApplication, qtbot
+    ) -> None:
+        """Clicking the title opens an editor; Enter saves the new title."""
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QLabel, QLineEdit, QSplitter, QWidget
+
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        filler = QWidget()
+        filler.setMinimumWidth(400)
+        splitter.addWidget(filler)
+        sidebar = RightSidebar()
+        sidebar.install_in_splitter(splitter)
+        splitter.resize(800, 600)
+        qtbot.addWidget(splitter)
+        splitter.show()
+        rail_w = sidebar.width()
+        splitter.setSizes([400, sidebar._panel_hint_width, rail_w])
+        qapp.processEvents()
+
+        sidebar.show_request_panels({}, method="GET", url="")
+        sidebar.open_panel("ai")
+        sidebar.set_ai_session_title("old title")
+        sidebar.set_ai_session_title_rename_enabled(True)
+        qtbot.waitExposed(splitter)
+
+        title_widget = sidebar._flyout._ai_session_title_label
+        title_widget._begin_rename()
+        edit = sidebar._flyout.findChild(QLineEdit, "aiChatSessionTitleEdit")
+        assert edit is not None
+        edit.setText("renamed chat")
+        qtbot.keyClick(edit, Qt.Key.Key_Return)
+        qtbot.wait(10)
+
+        label = sidebar._flyout.findChild(QLabel, "aiChatSessionTitle")
+        assert label is not None
+        assert label.isVisible()
+        assert label.toolTip() == "renamed chat"
+        assert sidebar._flyout.findChild(QLineEdit, "aiChatSessionTitleEdit") is None
+
     def test_toggle_ai_panel_closes_active(self, qapp: QApplication, qtbot) -> None:
         """Toggling the AI rail button closes the panel when it is already open."""
         sidebar = RightSidebar()

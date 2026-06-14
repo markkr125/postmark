@@ -29,6 +29,7 @@ from database.models.ai_chat.ai_chat_repository import (
     append_message,
     archive_session,
     create_session,
+    delete_message as repo_delete_message,
     delete_session,
     list_messages,
     rename_session,
@@ -399,6 +400,22 @@ class AiChatSessionService:
         touch_session(session_id, last_preview=preview)
         row = append_message(session_id=session_id, role="user", content=content)
         return AiChatSessionService._cast_message(row)
+
+    @staticmethod
+    def delete_message(session_id: str, message_id: int) -> bool:
+        """Delete one message row and refresh the session preview from remaining rows."""
+        deleted_session_id = repo_delete_message(message_id)
+        if deleted_session_id is None or deleted_session_id != session_id:
+            return False
+        remaining = list_messages(session_id)
+        if remaining:
+            last = remaining[-1]
+            preview = (last.get("content") or last.get("thinking") or "").strip()
+            preview = preview.replace("\n", " ")[:_TITLE_PREVIEW_LEN]
+            touch_session(session_id, last_preview=preview or None)
+        else:
+            touch_session(session_id, last_preview="")
+        return True
 
     @staticmethod
     def record_assistant_message(

@@ -224,8 +224,9 @@ Source: `ui/sidebar/sidebar_widget.py`
 | `ai_settings_requested` | *(none)* | Flyout title-bar gear clicked while the AI panel is open |
 | `ai_new_chat_requested` | *(none)* | Flyout title-bar "New chat" clicked while the AI panel is open |
 | `ai_session_history_requested` | *(none)* | Flyout title-bar session-history clock clicked while the AI panel is open |
+| `ai_session_title_renamed` | `str` | User committed an inline rename of the active session title (Enter, Escape, or click-away) |
 
-Wired in `MainWindow.__init__`: `ai_settings_requested` → `_on_open_ai_settings` (Settings **AI** category, then refresh chat model picker). `ai_new_chat_requested` / `ai_session_history_requested` → `_AiChatControllerMixin` (`ai_chat_controller.py`).
+Wired in `MainWindow.__init__`: `ai_settings_requested` → `_on_open_ai_settings` (Settings **AI** category, then refresh chat model picker). `ai_new_chat_requested` / `ai_session_history_requested` / `ai_session_title_renamed` → `_AiChatControllerMixin` (`ai_chat_controller.py`).
 
 ### AiModelPickerPopup
 

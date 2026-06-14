@@ -63,6 +63,7 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
     """Activity row + timer orchestration for assistant streaming."""
 
     _streaming_bubble: ChatMessageBubble | None = None
+    _streaming_turn_user_bubble: ChatMessageBubble | None = None
     _stream_generation: int = 0
     _open_stream_generation: int = 0
     _messages_layout: Any = None
@@ -89,6 +90,23 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
 
         self._pending_thinking_delta = ""
         self._pending_content_delta = ""
+        self._streaming_turn_user_bubble = None
+
+    def _deactivate_streaming_turn_user_footer(self) -> None:
+        """Restore the active turn user bubble footer to message actions."""
+        bubble = self._streaming_turn_user_bubble
+        if bubble is None:
+            return
+        bubble.set_user_footer_mode("actions")
+        self._streaming_turn_user_bubble = None
+
+    def _activate_streaming_turn_user_footer(self, bubble: ChatMessageBubble | None) -> None:
+        """Show turn-scoped stop on the user bubble that started the current run."""
+        self._deactivate_streaming_turn_user_footer()
+        if bubble is None or bubble.role != "user":
+            return
+        self._streaming_turn_user_bubble = bubble
+        bubble.set_user_footer_mode("stop")
 
     def _reset_pending_chunks(self) -> None:
         """Clear coalesced chunk buffers and disarm the flush timer."""
@@ -254,6 +272,8 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
         self._messages_layout.insertWidget(insert_index, bubble)
         if message_id is not None:
             self.attach_message_id(bubble, message_id)
+        if role == "user" and bubble._user_footer is not None:
+            bubble._user_footer.stop_requested.connect(self.stop_requested.emit)  # type: ignore[attr-defined]
         if not self._defer_transcript_hooks:
             self._invalidate_sticky_turn_pairs()  # type: ignore[attr-defined]
             if role == "assistant":
@@ -269,6 +289,7 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
 
     def _clear_transcript_widgets(self) -> None:
         """Remove message bubbles without touching load-generation state."""
+        self._deactivate_streaming_turn_user_footer()
         self._reset_pending_chunks()
         self._cancel_activity_timer()
         self._clear_sticky_turn_prompt()  # type: ignore[attr-defined]
@@ -305,6 +326,7 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
         self._open_stream_generation = self._stream_generation
         self._stream_content_started = False
         self._turn_scroll_anchor = self._find_last_user_bubble()
+        self._activate_streaming_turn_user_footer(self._turn_scroll_anchor)
         self._streaming_bubble = self.add_message("assistant", "", thinking="")
         self._streaming_bubble.begin_streaming()
         self._attach_streaming_bubble_height_hook(self._streaming_bubble)
@@ -386,6 +408,51 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
             return ""
         return self._streaming_bubble.text()
 
+    def is_pre_stream_cancel(self) -> bool:
+        """Return whether stop should rewind the send (activity-only, no tokens yet)."""
+        if self._open_stream_generation == 0:
+            return False
+        if self.streaming_assistant_thinking().strip():
+            return False
+        if self.streaming_assistant_text().strip():
+            return False
+        return not self._stream_content_started
+
+    def discard_active_stream_turn(self) -> None:
+        """Remove the in-flight assistant bubble without persisting a reply."""
+        self._reset_pending_chunks()
+        self._cancel_activity_timer()
+        self._deactivate_streaming_turn_user_footer()
+        bubble = self._resolve_streaming_bubble()
+        if bubble is not None:
+            self.remove_transcript_bubble(bubble)
+        self._clear_streaming_viewport_spacer()  # type: ignore[attr-defined]
+        self._streaming_bubble = None
+        self._stream_bubble_height_hook = None
+        self._stream_content_started = False
+        self._open_stream_generation = 0
+        self._turn_scroll_anchor = None
+        self._streaming_turn_user_bubble = None
+        self._invalidate_sticky_turn_pairs()  # type: ignore[attr-defined]
+        self._invalidate_sticky_extents()  # type: ignore[attr-defined]
+        self._sync_sticky_turn_prompt()  # type: ignore[attr-defined]
+
+    def rollback_pre_stream_turn(self, user_text: str) -> None:
+        """Discard the active stream and restore *user_text* to the composer."""
+        user_bubble = self._streaming_turn_user_bubble or self._find_last_user_bubble()
+        self.discard_active_stream_turn()
+        if user_bubble is not None:
+            self.remove_transcript_bubble(user_bubble)
+        self.restore_composer_text(user_text)  # type: ignore[attr-defined]
+        self._sync_transcript_empty_state()
+
+    def _sync_transcript_empty_state(self) -> None:
+        """Show or hide the empty-state label based on rendered bubbles."""
+        if self._first_loaded_bubble() is None:
+            self._empty_label.show()
+        else:
+            self._empty_label.hide()
+
     def apply_assistant_final(self, content: str, *, thinking: str = "") -> None:
         """Replace the latest assistant bubble with the final thinking and answer."""
         bubble = self._resolve_streaming_bubble() or self._last_assistant_bubble()
@@ -425,6 +492,7 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
 
         self._cancel_activity_timer()
         self._hide_stream_activity()
+        self._deactivate_streaming_turn_user_footer()
 
         content_started = self._stream_content_started
         if bubble is not None:

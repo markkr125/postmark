@@ -574,3 +574,105 @@ def test_user_message_config_button_opens_actions_popover(qapp: QApplication, qt
         "Edit message",
         "Fork conversation",
     }
+
+
+def test_streaming_turn_user_footer_shows_stop_only_on_active_turn(
+    qapp: QApplication, qtbot
+) -> None:
+    """Only the user bubble that started the current run shows stop while streaming."""
+    from PySide6.QtWidgets import QPushButton
+
+    from ui.sidebar.ai.message_bubble.user_message.actions_popup import AiUserMessageActionsPopup
+
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.add_message("user", "older question")
+    panel.add_message("assistant", "older answer")
+    panel.add_message("user", "active question")
+    panel.set_run_busy(True)
+    panel.begin_assistant_stream()
+
+    users = [b for b in panel.findChildren(ChatMessageBubble) if b.role == "user"]
+    assert len(users) == 2
+    assert users[0].user_footer_mode() == "actions"
+    assert users[1].user_footer_mode() == "stop"
+
+    older_frame = users[0].findChild(QFrame, "aiChatMessageUser")
+    assert older_frame is not None
+    older_config = older_frame.findChild(QPushButton, "aiChatUserMessageConfig")
+    assert older_config is not None
+    popup = AiUserMessageActionsPopup.instance()
+    qtbot.mouseClick(older_config, Qt.MouseButton.LeftButton)
+    assert popup.isVisible()
+
+    active_frame = users[1].findChild(QFrame, "aiChatMessageUser")
+    assert active_frame is not None
+    active_stop = active_frame.findChild(QPushButton, "smallPrimaryButton")
+    assert active_stop is not None
+    assert active_stop.toolTip() == "Stop"
+    popup.hide_popup()
+    qtbot.mouseClick(active_stop, Qt.MouseButton.LeftButton)
+    assert not popup.isVisible()
+
+
+def test_streaming_turn_user_footer_stop_emits_panel_signal(qapp: QApplication, qtbot) -> None:
+    """Turn-scoped footer stop reuses the panel stop_requested signal."""
+    from PySide6.QtWidgets import QPushButton
+
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.add_message("user", "question")
+    panel.set_run_busy(True)
+    panel.begin_assistant_stream()
+    bubble = [b for b in panel.findChildren(ChatMessageBubble) if b.role == "user"][-1]
+    frame = bubble.findChild(QFrame, "aiChatMessageUser")
+    assert frame is not None
+    stop_btn = frame.findChild(QPushButton, "smallPrimaryButton")
+    assert stop_btn is not None
+
+    with qtbot.waitSignal(panel.stop_requested, timeout=1000):
+        qtbot.mouseClick(stop_btn, Qt.MouseButton.LeftButton)
+
+
+def test_streaming_turn_user_footer_restores_actions_when_idle(qapp: QApplication, qtbot) -> None:
+    """Footer stop reverts to message actions after the run finishes."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.add_message("user", "question")
+    panel.set_run_busy(True)
+    panel.begin_assistant_stream()
+    bubble = [b for b in panel.findChildren(ChatMessageBubble) if b.role == "user"][-1]
+    assert bubble.user_footer_mode() == "stop"
+
+    panel.set_run_busy(False)
+    assert bubble.user_footer_mode() == "actions"
+
+
+def test_is_pre_stream_cancel_true_during_activity_only(qapp: QApplication, qtbot) -> None:
+    """Activity-only streaming is eligible for composer rewind on stop."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.add_message("user", "hello")
+    panel.begin_assistant_stream()
+    assert panel.is_pre_stream_cancel() is True
+
+
+def test_is_pre_stream_cancel_false_after_thinking_chunk(qapp: QApplication, qtbot) -> None:
+    """Thinking tokens mark the stream as started for stop handling."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.begin_assistant_stream()
+    panel.append_assistant_chunk("trace", "")
+    _flush_stream_chunks(qtbot)
+    assert panel.is_pre_stream_cancel() is False
+
+
+def test_rollback_pre_stream_turn_restores_composer(qapp: QApplication, qtbot) -> None:
+    """rollback_pre_stream_turn removes both bubbles and restores composer text."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.add_message("user", "draft me")
+    panel.begin_assistant_stream()
+    panel.rollback_pre_stream_turn("draft me")
+    assert panel._input.toPlainText() == "draft me"
+    assert panel.findChildren(ChatMessageBubble) == []

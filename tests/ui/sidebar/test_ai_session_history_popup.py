@@ -173,3 +173,37 @@ def test_long_session_title_is_elided(qapp: QApplication, qtbot) -> None:
     assert title.toolTip() == long_title
     assert title.text() != long_title
     assert title.text().endswith("…") or len(title.text()) < len(long_title)
+
+
+def test_session_time_label_shown_below_title_when_scrollbar_visible(
+    qapp: QApplication, qtbot
+) -> None:
+    """Relative time sits on its own line under the title and stays fully visible."""
+    from PySide6.QtWidgets import QLabel
+
+    popup = AiSessionHistoryPopup()
+    qtbot.addWidget(popup)
+    popup.setMinimumHeight(120)
+    popup.resize(popup._width_for_anchor(QWidget()), 120)
+    anchor = QPushButton("anchor")
+    qtbot.addWidget(anchor)
+    old = datetime.now(tz=UTC) - timedelta(days=30)
+    sessions = [_session(f"s{index}", f"Session {index}") for index in range(12)]
+    for session in sessions:
+        session["updated_at"] = old.isoformat()
+    popup.show_for(anchor, sessions, lambda _id: None)
+    qapp.processEvents()
+    assert popup._list.verticalScrollBar().maximum() > 0
+
+    time_labels = popup.findChildren(QLabel, "aiSessionHistoryTime")
+    assert time_labels
+    expected = format_relative_time(old)
+    for label in time_labels:
+        assert label.text() == expected
+        title = label.parentWidget()
+        while title is not None and title.objectName() != "aiSessionHistoryRow":
+            title = title.parentWidget()
+        assert title is not None
+        title_label = title.findChild(QLabel, "aiSessionHistoryTitle")
+        assert title_label is not None
+        assert label.y() > title_label.y()

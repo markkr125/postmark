@@ -501,3 +501,30 @@ def test_worker_failure_emits_partial_text(
     assert failures[0][1] == ""
     assert failures[0][2] == "Partial"
     assert captured["closed"] is True
+
+
+def test_worker_cancel_before_build_emits_stopped(
+    qapp: QApplication, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stop requested before conversation build emits failed without building."""
+
+    def _fail_build(*_args: object, **_kwargs: object) -> object:
+        msg = "build_conversation should not run after pre-build cancel"
+        raise AssertionError(msg)
+
+    monkeypatch.setattr(
+        "ui.sidebar.ai.workers.chat_worker.AiChatSessionService.build_conversation",
+        _fail_build,
+    )
+    worker = AiChatWorker()
+    worker.set_run(
+        session_id="00000000-0000-4000-8000-000000000001",
+        entry=_entry(),
+        agent_id="postmark-assistant",
+        text="Hello",
+    )
+    worker.cancel()
+    failures: list[str] = []
+    worker.failed.connect(lambda message, _thinking, _content: failures.append(message))
+    worker.run()
+    assert failures == ["Stopped"]

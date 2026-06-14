@@ -11,7 +11,6 @@ from PySide6.QtGui import QGuiApplication, QKeyEvent, QMouseEvent, QResizeEvent
 from PySide6.QtWidgets import (
     QAbstractButton,
     QFrame,
-    QHBoxLayout,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -61,7 +60,7 @@ class _ElidingSessionTitleLabel(QLabel):
 
 
 class _SessionRow(QWidget):
-    """One session row with elided title and relative time."""
+    """One session row with elided title and relative time beneath it."""
 
     def __init__(
         self,
@@ -76,20 +75,20 @@ class _SessionRow(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._apply_selected(selected)
-        layout = QHBoxLayout(self)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 6, 8, 6)
-        layout.setSpacing(8)
+        layout.setSpacing(2)
 
         title = _ElidingSessionTitleLabel(session["title"], self)
         title.setCursor(Qt.CursorShape.PointingHandCursor)
-        layout.addWidget(title, 1)
+        layout.addWidget(title)
 
         updated = datetime.fromisoformat(session["updated_at"])
         time_lbl = QLabel(format_relative_time(updated))
         time_lbl.setObjectName("aiSessionHistoryTime")
         time_lbl.setCursor(Qt.CursorShape.PointingHandCursor)
-        time_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        time_lbl.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Preferred)
+        time_lbl.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        time_lbl.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         layout.addWidget(time_lbl)
 
     def _apply_selected(self, selected: bool) -> None:
@@ -148,12 +147,17 @@ class AiSessionHistoryPopup(QFrame):
         self._search.textChanged.connect(self._apply_filter)
         self._list.itemClicked.connect(self._on_item_clicked)
         self._list.viewport().installEventFilter(self)
+        self._list.verticalScrollBar().rangeChanged.connect(self._on_list_scroll_range_changed)
 
         def _clear_singleton_ref(*_args: object) -> None:
             if AiSessionHistoryPopup._instance is self:
                 AiSessionHistoryPopup._instance = None
 
         self.destroyed.connect(_clear_singleton_ref)
+
+    def _on_list_scroll_range_changed(self, _minimum: int, _maximum: int) -> None:
+        """Re-sync row widths when the scrollbar appears or disappears."""
+        self._sync_item_widths()
 
     def show_for(
         self,
@@ -278,9 +282,17 @@ class AiSessionHistoryPopup(QFrame):
                 self._list.setCurrentItem(item)
         self._sync_item_widths()
 
+    def _list_content_width(self) -> int:
+        """Return list row width inside the viewport, excluding the vertical scrollbar."""
+        viewport_w = max(0, self._list.viewport().width())
+        bar = self._list.verticalScrollBar()
+        if bar.maximum() > 0:
+            viewport_w = max(0, viewport_w - bar.sizeHint().width())
+        return viewport_w
+
     def _sync_item_widths(self) -> None:
         """Clamp row size hints to the list viewport so no horizontal scroll appears."""
-        viewport_w = max(0, self._list.viewport().width())
+        content_w = self._list_content_width()
         for index in range(self._list.count()):
             item = self._list.item(index)
             if item is None:
@@ -288,7 +300,8 @@ class AiSessionHistoryPopup(QFrame):
             row = self._list.itemWidget(item)
             if row is None:
                 continue
-            item.setSizeHint(QSize(viewport_w, row.sizeHint().height()))
+            row.setFixedWidth(content_w)
+            item.setSizeHint(QSize(content_w, row.sizeHint().height()))
 
     def _apply_filter(self, text: str) -> None:
         """Filter sessions by title substring."""

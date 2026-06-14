@@ -129,17 +129,20 @@ When the AI panel is open, the flyout header is three stacked rows **above**
 ``AiChatPanel`` (the transcript scroll area and composer are unchanged):
 
 1. **Headline** — ``sidebarTitleLabel`` (static **AI assistant**) plus **gear** on the right.
-2. **Conversation title** — ``aiChatSessionTitle`` inside ``aiChatSessionTitleBar``;
-   elided single line with full-text tooltip on the left; **session history** (clock, checkable
-   ``iconButton`` — selected while the history popover is open) and
-   **new chat** (plus icon) ``iconButton``s on the right. Source: SQLite
-   ``ai_chat_sessions.title``. Placeholder **New chat** when there is no active
-   session (including after **New chat** until the first send). Updated on session
-   restore/switch, first message (fallback title), and async title generation
-   (``AiChatTitleWorker``). Hidden when another right-rail panel is active.
+2. **Conversation title** — text-hugging ``aiChatSessionTitleInline`` (``aiChatSessionTitle`` +
+   hover pencil) inside ``aiChatSessionTitleBar``; elided single line with full-text tooltip on
+   the left; **session history** (clock, checkable ``iconButton`` — selected while the history
+   popover is open) and **new chat** (plus icon) ``iconButton``s on the right. Hover shows a
+   gentle pill and ``pencil-simple`` icon immediately after the visible text; I-beam cursor;
+   click opens ``aiChatSessionTitleEdit`` inline rename (Enter, Escape, or click-away saves via
+   ``ai_session_title_renamed``). Disabled for placeholder **New chat** (no active session).
+   Source: SQLite ``ai_chat_sessions.title``. Updated on session restore/switch, first message
+   (fallback title), async title generation (``AiChatTitleWorker``), and manual rename (manual
+   titles are not overwritten by auto-title). Hidden when another right-rail panel is active.
 3. **Separator** — ``sidebarSeparator``, then ``AiChatPanel``.
 
-History opens ``AiSessionHistoryPopup`` (search + elided session titles,
+History opens ``AiSessionHistoryPopup`` (search + elided session titles with
+relative time on a second line beneath each title,
 ``AI_SESSION_HISTORY_POPUP_WIDTH_EM`` wide); the row for the **currently open**
 session is highlighted (``activeSession`` on ``aiSessionHistoryRow``). New chat
 clears the transcript and persisted ``ai/chat_session_id`` (SQLite row created
@@ -175,14 +178,25 @@ text in ``aiChatUserMessageText``. A muted ``aiChatUserMessageTime`` label
 inside the bubble below the prompt shows when the message was sent (local date and
 clock, e.g. ``Jun 7, 2:39 PM``). New sends pass ``sent_at=datetime.now(UTC)``;
 ``load_transcript`` / session switches restore user rows from persisted
-``created_at``. Session picks load off the GUI thread
+``created_at``. The footer ``aiChatUserMessageConfig`` button opens message actions
+(Edit message, Fork conversation) when idle; during an active run it becomes a
+turn-scoped **stop** control on the user bubble that started the stream (and on
+the sticky clone when pinned), emitting the same ``stop_requested`` signal as
+the composer stop button. **Stop** immediately clears busy state: during the
+activity-only ``Thinking…`` phase (no thinking/answer tokens yet) the user
+bubble is removed and the prompt is restored to ``aiChatInput``; after tokens
+arrive, partial assistant text is kept with a ``Stopped.`` footer. Session picks
+load off the GUI thread
 (``AiChatSessionLoader`` + ``get_session_tail``), update flyout
 title/model/mode immediately when the read completes, show the
 ``aiChatTranscriptLoading`` viewport overlay (sliding accent line +
 ``aiChatTranscriptLoadingLabel`` caption, not the stream spinner) until
 ``_finish_load_transcript_layout`` completes, build only the latest turns
-incrementally (silent older-page fetch on scroll-up; no in-transcript loading
-sentinel), and defer Pygments for off-screen assistant bodies until they scroll
+incrementally (silent older-page fetch when the first bubble nears the top of the
+viewport, when the scrollbar is near the top, or when the thumb is released;
+``aiChatOlderLoadingRow`` shows **Fetching older messages…** at the transcript top
+while the page loads), and defer Pygments for off-screen
+assistant bodies until they scroll
 into view. Off-screen bubbles are evicted into invisible ``aiChatVirtualSpacer``
 rows to bound RAM. Startup restore is scheduled after the main window leaves the
 loading screen; if the AI flyout is still hidden, bottom scroll is retried when

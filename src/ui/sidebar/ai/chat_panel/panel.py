@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QThread, Signal, Slot
+from PySide6.QtCore import Qt, QThread, Signal, Slot, QSize
 from PySide6.QtGui import QResizeEvent, QShowEvent
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -28,7 +28,7 @@ from ui.sidebar.ai.chat_transcript_loading_row import ChatTranscriptLoadingOverl
 from ui.sidebar.ai.message_bubble import ChatMessageBubble
 from ui.sidebar.ai.model_picker_edit import reasoning_levels_for_entry, thinking_enabled_for_entry
 from ui.sidebar.ai.model_picker_popup import AiModelPickerPopup
-from ui.styling.icons import phi
+from ui.styling.icons import CHAT_STOP_ICON_SIZE, chat_stop_icon, phi
 
 _EMPTY_STATE_TEXT = "Ask anything about your API requests."
 _NO_MODELS_TEXT = "No models configured"
@@ -110,9 +110,11 @@ class AiChatPanel(_ChatPanelStreamingMixin, QWidget):  # type: ignore[misc]
         self._sticky_turn_pairs = []
         self._sticky_turn_pairs_dirty = True
         self._sticky_turn_extents = []
-        self._sticky_extent_by_pair = {}
+        self._sticky_extent_by_assistant = {}
         self._sticky_extents_dirty = True
         self._sticky_applied_anchor = None
+        self._sticky_applied_assistant_id = None
+        self._sticky_applied_prompt_text = ""
         self._sticky_applied_visible = False
         self._sticky_applied_geom = (0, 0, 0, 0)
         self._sticky_applied_height_cap = 0
@@ -308,13 +310,20 @@ class AiChatPanel(_ChatPanelStreamingMixin, QWidget):  # type: ignore[misc]
         """Toggle send vs stop while a chat run is in flight."""
         self._run_busy = busy
         if busy:
-            self._send_btn.setIcon(phi("stop", color="#ffffff"))
+            self._send_btn.setIconSize(QSize(CHAT_STOP_ICON_SIZE, CHAT_STOP_ICON_SIZE))
+            self._send_btn.setIcon(chat_stop_icon())
             self._send_btn.setToolTip("Stop")
             self._send_btn.setEnabled(True)
         else:
+            self._deactivate_streaming_turn_user_footer()
             self._send_btn.setIcon(phi("paper-plane-right", color="#ffffff"))
             self._send_btn.setToolTip("Send (Enter)")
             self._send_btn.setEnabled(bool(self._models))
+
+    def restore_composer_text(self, text: str) -> None:
+        """Put unsent prompt text back into the composer input."""
+        self._input.setPlainText(text)
+        self._input.setFocus()
 
     def set_send_enabled(self, enabled: bool) -> None:
         """Enable or disable send when idle (no-op while a run is busy)."""

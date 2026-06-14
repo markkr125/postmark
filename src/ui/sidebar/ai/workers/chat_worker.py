@@ -117,6 +117,10 @@ class AiChatWorker(QObject):
                 self.failed.emit("AI chat worker not configured", "", "")
                 return
 
+            if self._stop_requested:
+                self._emit_failure(None, _STOPPED_MESSAGE)
+                return
+
             def token_cb(chunk: LLMStreamChunk) -> None:
                 parts = chunk_parts_from_stream(chunk)
                 new_thinking = merge_stream_text(self._thinking_buffer, parts.thinking)

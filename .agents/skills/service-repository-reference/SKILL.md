@@ -300,6 +300,7 @@ OpenHands SDK disk state under `session_disk_dir(id)`. Worker thread builds
 | `resolve_restore_session_id()` | Startup restore: persisted id when valid, else most recent if stored id was deleted; `None` when unset (**New chat**) |
 | `get_messages(session_id)` | Transcript for repaint |
 | `record_user_message` / `record_assistant_message` | Append SQLite rows + touch preview |
+| `delete_message` | Delete one message row and recompute session `last_preview` |
 | `build_conversation(session_id, entry, agent_id, *, callbacks, token_callbacks, composer=None, stream=True)` | OpenHands `Conversation` (worker only); title worker passes `stream=False` |
 | `extract_final_parts(conversation)` / `extract_final_text(conversation)` | Current turn's agent message split into thinking + answer (text = answer only) |
 | `extract_latest_turn_parts(conversation)` / `extract_richest_parts(conversation)` | Richest thinking + answer from the **current turn** only (reverse-scan to last user ``MessageEvent``; fallback = last agent message) |

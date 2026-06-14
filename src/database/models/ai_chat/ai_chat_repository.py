@@ -169,6 +169,18 @@ def append_message(
         return _message_to_dict(row)
 
 
+def delete_message(message_id: int) -> str | None:
+    """Delete one message row and return its session id, or ``None`` when missing."""
+    with get_session() as session:
+        row = session.get(AiChatMessageModel, message_id)
+        if row is None:
+            return None
+        session_id = row.session_id
+        session.delete(row)
+        session.commit()
+        return session_id
+
+
 def get_session_row(session_id: str) -> dict[str, Any] | None:
     """Return one session dict or ``None``."""
     with get_session() as session:

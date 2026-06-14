@@ -40,6 +40,8 @@ _icon_cache: dict[tuple[str, str, int], QIcon] = {}
 
 # Default icon size used when none is specified.
 _DEFAULT_SIZE = 16
+# Solid stop square inside 28x28 ``smallPrimaryButton`` (composer + user footer).
+CHAT_STOP_ICON_SIZE = 12
 
 
 def load_font() -> None:
@@ -126,6 +128,41 @@ def phi(name: str, *, color: str = "", size: int = _DEFAULT_SIZE) -> QIcon:
     icon = _render_glyph_icon(glyph, color, size)
     _icon_cache[cache_key] = icon
     return icon
+
+
+def square_filled_icon(*, color: str, size: int = _DEFAULT_SIZE) -> QIcon:
+    """Return a cached solid-square ``QIcon`` (media-style stop affordance).
+
+    Unlike the Phosphor ``stop`` outline glyph, the square fills nearly the
+    full *size* box with only a 1px inset so it reads as a full stop block.
+    """
+    cache_key = ("square-filled", color, size)
+    if cache_key in _icon_cache:
+        return _icon_cache[cache_key]
+
+    dpr = _device_pixel_ratio()
+    px_size = int(size * dpr)
+    inset = 1
+
+    pixmap = QPixmap(px_size, px_size)
+    pixmap.setDevicePixelRatio(dpr)
+    pixmap.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+    painter.fillRect(inset, inset, size - inset * 2, size - inset * 2, QColor(color))
+    painter.end()
+
+    icon = QIcon(pixmap)
+    _icon_cache[cache_key] = icon
+    return icon
+
+
+def chat_stop_icon(*, size: int = CHAT_STOP_ICON_SIZE) -> QIcon:
+    """Return the shared white filled-square stop icon for chat run controls."""
+    from ui.styling.theme import COLOR_SOLID_BUTTON_FG
+
+    return square_filled_icon(color=COLOR_SOLID_BUTTON_FG, size=size)
 
 
 def phi_menu(name: str, *, size: int = _DEFAULT_SIZE) -> QIcon:

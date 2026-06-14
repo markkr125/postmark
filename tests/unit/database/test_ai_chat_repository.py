@@ -20,6 +20,7 @@ from database.models.ai_chat.ai_chat_repository import (
     append_message,
     archive_session,
     create_session,
+    delete_message,
     delete_session,
     list_messages,
     rename_session,
@@ -91,6 +92,19 @@ def test_append_message_and_list(session_id: str) -> None:
     assert messages[1]["content"] == "Hello"
     assert messages[1]["thinking"] == "trace"
     assert messages[1]["thinking_duration_seconds"] == 3
+
+
+def test_delete_message_removes_row(session_id: str) -> None:
+    """delete_message removes one row and returns its session id."""
+    create_session(
+        session_id=session_id,
+        title="Chat",
+        model_id=None,
+        mode="ask",
+    )
+    row = append_message(session_id=session_id, role="user", content="Hi")
+    assert delete_message(row["id"]) == session_id
+    assert list_messages(session_id) == []
 
 
 def test_touch_session_updates_preview(session_id: str) -> None:

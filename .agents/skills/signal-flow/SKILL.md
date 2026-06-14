@@ -361,13 +361,16 @@ MainWindow.__init__
   → ai_chat_panel.set_models(AiConfig.get_models())
   → _AiChatControllerMixin._init_ai_chat_controller()
       message_submitted → _on_ai_message_submitted
-      stop_requested → _on_ai_chat_stop (worker.cancel → Conversation.interrupt)
+      stop_requested → _handle_chat_stop (optimistic UI reset; worker.cancel → Conversation.interrupt)
       ai_new_chat_requested → _on_ai_new_chat (clear transcript; lazy session)
       ai_session_history_requested → _on_ai_session_history (AiSessionHistoryPopup)
+      ai_session_title_renamed → _on_ai_session_title_renamed (rename_session; blocks auto-title)
 
 AiChatPanel._on_send (or Enter)
   → if run busy: stop_requested.emit()
   → else: add_message("user", text); message_submitted.emit(text)
+  → UserMessageFooterRow.stop_requested (active turn bubble + sticky clone) → stop_requested.emit()
+  → _handle_chat_stop: activity-only (`is_pre_stream_cancel`) → rollback_pre_stream_turn + delete_message + restore composer; else optimistic end_assistant_stream + Stopped footer; then worker.cancel()
   → _on_ai_message_submitted: new_session on first message; record_user_message; set_run_busy(True)
   → AiChatWorker on QThread (``asyncio.run(conv.arun())``, stream=True LLM, token_callbacks)
   → begin_assistant_stream → activity row (`Thinking…` + braille spinner) + ``_apply_streaming_viewport_spacer`` (dynamic sibling spacer: ``max(0, viewport_h - turn_extent)``) + ``_request_turn_bottom_scroll`` (turn-start anchor to last user bubble, scroll-lock re-arm; spacer recomputed after layout in ``_flush_turn_bottom_scroll``); chunk_received(thinking, content) → ``deliver_assistant_chunk`` → coalesced ``append_assistant_chunk`` (~50ms GUI batch; incremental rich markdown via ``StreamingMarkdownCache``; spacer recompute + ``rangeChanged`` / chunk flush / post-flush ``layout_height_changed`` → ``_queue_stream_follow_passes`` (one coalesced 0ms frame pass; 16ms retry only when still off-target or range grew after frame; in-flush layout hook suppressed; chunk flush batches deferred markdown/bubble height) + streaming scroll-lock (upward user movement detaches; range-shrink clamp ignored; real bottom re-arms) — ``_stream_follow_target()`` / ``min(maximum, turn_start)`` while turn fits in one viewport else ``maximum``; scroll/resize/layout → ``_schedule_sticky_sync`` → ``_sync_sticky_turn_prompt`` (cached ``_sticky_turn_pairs`` + ``_sticky_turn_extents`` with dirty invalidation; viewport selection via arithmetic; skips overlay mutation when applied anchor/geom/cap unchanged; read-only ``aiChatStickyTurnPrompt`` for closest eligible turn via ``_sticky_turn_anchor``; tall prompts clamped with ``aiChatUserMessageFade``; ``_turn_scroll_anchor`` kept for streaming turn-start scroll; ``load_transcript`` rebuilds cache/extents and hooks all assistant ``layout_height_changed``; ``aiChatAssistantText`` / ``aiChatUserMessageText`` / ``aiChatThoughtText`` forward wheel to transcript scroll); **QueuedConnection**); status_changed → ``deliver_activity_status`` (QueuedConnection, only while activity visible); assistant_finished / failed → ``MainWindow`` ``@Slot`` handlers (QueuedConnection, not lambdas) → end_assistant_stream (flush pending chunks, rich HTML finalize, clears activity, keeps ``_turn_scroll_anchor``); record_assistant_message; set_run_busy(False)

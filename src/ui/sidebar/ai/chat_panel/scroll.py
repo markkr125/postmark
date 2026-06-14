@@ -70,6 +70,7 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
         self._last_scroll_value = bar.value()
         self._last_scroll_maximum = bar.maximum()
         bar.valueChanged.connect(self._on_scrollbar_value_changed)
+        bar.sliderReleased.connect(self._on_scrollbar_slider_released)
         bar.rangeChanged.connect(self._on_scrollbar_range_changed)
         bar.valueChanged.connect(self._on_transcript_scroll_for_lazy_markdown)
         self._smooth_scroller = SmoothScroller(
@@ -198,6 +199,16 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
             elif widget.role == "assistant" and pending_user is not None:
                 yield pending_user, widget
                 pending_user = None
+
+    def _on_scrollbar_slider_released(self) -> None:
+        """Run transcript paging when the user finishes dragging the scrollbar."""
+        if self._programmatic_scroll:
+            return
+        timer = getattr(self, "_virtual_pass_timer", None)
+        if timer is not None:
+            timer.stop()
+        if hasattr(self, "_run_virtual_transcript_pass"):
+            self._run_virtual_transcript_pass()
 
     def _on_scrollbar_value_changed(self, value: int) -> None:
         """Update scroll-lock from user-driven scrollbar movement."""

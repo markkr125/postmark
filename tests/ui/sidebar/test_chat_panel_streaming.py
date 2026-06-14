@@ -1339,6 +1339,35 @@ def test_sticky_user_prompt_shows_after_anchor_scrolls_above_viewport(
     assert sticky.text() == "question"
 
 
+def test_sticky_user_prompt_footer_shows_stop_during_active_stream(
+    qapp: QApplication, qtbot
+) -> None:
+    """Pinned sticky clone mirrors turn-scoped stop while the assistant streams."""
+    from PySide6.QtWidgets import QFrame
+
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitExposed(panel)
+    panel.resize(360, 280)
+    for index in range(16):
+        panel.add_message("user", f"fill {index} " * 8)
+    panel.add_message("user", "question")
+    panel.set_run_busy(True)
+    panel.begin_assistant_stream()
+    qapp.processEvents()
+    _scroll_until_anchor_above_viewport(panel, qapp)
+    sticky = _sticky_turn_prompt(panel)
+    assert sticky is not None
+    assert sticky.isVisible()
+    assert sticky.footer_mode() == "stop"
+    frame = sticky.findChild(QFrame, "aiChatMessageUser")
+    assert frame is not None
+    stop_btn = frame.findChild(QPushButton, "smallPrimaryButton")
+    assert stop_btn is not None
+    assert stop_btn.toolTip() == "Stop"
+
+
 def test_sticky_clone_copies_user_timestamp(qapp: QApplication, qtbot) -> None:
     """Sticky overlay includes the anchor user bubble send-time label."""
     from datetime import UTC, datetime
@@ -2517,17 +2546,17 @@ def test_sticky_turn_selection_uses_cached_pairs_for_closest_turn(
     _scroll_until_sticky_shows_text(panel, qapp, "first question")
     first_user = _user_bubble_with_text(panel, "first question")
     cap = panel._sticky_prompt_height_cap()
-    assert panel._sticky_turn_for_viewport(cap) == (
-        first_user,
-        panel._assistant_bubble_for_turn(first_user),
-    )
+    selected = panel._sticky_turn_for_viewport(cap)
+    assert selected is not None
+    assert selected.user is first_user
+    assert selected.assistant is panel._assistant_bubble_for_turn(first_user)
     _scroll_until_sticky_shows_text(panel, qapp, "second question")
     second_user = _user_bubble_with_text(panel, "second question")
     cap = panel._sticky_prompt_height_cap()
-    assert panel._sticky_turn_for_viewport(cap) == (
-        second_user,
-        panel._assistant_bubble_for_turn(second_user),
-    )
+    selected = panel._sticky_turn_for_viewport(cap)
+    assert selected is not None
+    assert selected.user is second_user
+    assert selected.assistant is panel._assistant_bubble_for_turn(second_user)
 
 
 def test_sticky_extents_cache_stays_warm_across_scroll_values(qapp: QApplication, qtbot) -> None:
@@ -2553,7 +2582,9 @@ def test_sticky_extents_cache_stays_warm_across_scroll_values(qapp: QApplication
     _scroll_until_sticky_shows_text(panel, qapp, "first question")
     first_user = _user_bubble_with_text(panel, "first question")
     first = panel._sticky_turn_for_viewport(cap)
-    assert first == (first_user, panel._assistant_bubble_for_turn(first_user))
+    assert first is not None
+    assert first.user is first_user
+    assert first.assistant is panel._assistant_bubble_for_turn(first_user)
     bar.setValue(min(bar.maximum(), bar.value() + 40))
     qapp.processEvents()
     second = panel._sticky_turn_for_viewport(cap)

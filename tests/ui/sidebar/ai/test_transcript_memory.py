@@ -36,6 +36,7 @@ class _Host(_AiChatControllerMixin):
             SimpleNamespace(
                 ai_chat_panel=panel,
                 set_ai_session_title=lambda _title: None,
+                set_ai_session_title_rename_enabled=lambda _enabled: None,
             ),
         )
         self._active_ai_session_id = None

@@ -31,6 +31,7 @@ class ThemePalette(TypedDict):
     input_bg: str
     composer_bg: str
     composer_pill_dark_bg: str
+    ai_session_title_hover_bg: str
 
     # Semantic
     accent: str
@@ -137,6 +138,7 @@ LIGHT_PALETTE: ThemePalette = {
     "selected_bg": "#d0e4f7",
     "input_bg": "#ffffff",
     "composer_bg": "#f2f2f2",
+    "ai_session_title_hover_bg": "rgba(0,0,0,0.04)",
     "accent": "#3498db",
     "success": "#2ecc71",
     "warning": "#e89a0c",
@@ -225,6 +227,7 @@ DARK_PALETTE: ThemePalette = {
     "selected_bg": "#094771",
     "input_bg": "#2d2d2d",
     "composer_bg": "#1c1c1c",
+    "ai_session_title_hover_bg": "rgba(255,255,255,0.06)",
     "accent": "#4fc1ff",
     "success": "#4ec9b0",
     "warning": "#dcdcaa",

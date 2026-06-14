@@ -1643,6 +1643,9 @@ def build_global_qss(p: ThemePalette) -> str:
     QWidget[objectName="aiChatActivityRow"] {{
         background: transparent;
     }}
+    QWidget[objectName="aiChatOlderLoadingRow"] {{
+        background: transparent;
+    }}
     QWidget[objectName="aiChatTranscriptLoading"] {{
         background: {p["composer_bg"]};
         border: 1px solid {p["border"]};
@@ -1906,10 +1909,31 @@ def build_global_qss(p: ThemePalette) -> str:
         background: transparent;
         border: none;
     }}
+    QWidget[objectName="aiChatSessionTitleSlot"] {{
+        background: transparent;
+        border: none;
+    }}
+    QWidget[objectName="aiChatSessionTitleInline"][titleHovered="true"] {{
+        background: {p["ai_session_title_hover_bg"]};
+        border-radius: 4px;
+    }}
     QLabel[objectName="aiChatSessionTitle"] {{
         font-size: 12px;
         color: {p["text_muted"]};
         background: transparent;
+    }}
+    QLabel[objectName="aiChatSessionTitlePencil"] {{
+        background: transparent;
+        border: none;
+        padding: 0px;
+    }}
+    QLineEdit[objectName="aiChatSessionTitleEdit"] {{
+        font-size: 12px;
+        color: {p["text_muted"]};
+        background: {p["input_bg"]};
+        border: 1px solid {p["border"]};
+        border-radius: 4px;
+        padding: 1px 4px;
     }}
     QLabel[objectName="variableKeyLabel"] {{
         font-family: monospace;

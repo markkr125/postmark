@@ -330,6 +330,7 @@ tests/
    │       ├── conftest.py  # load_transcript_sync helper
    │       ├── test_transcript_window.py  # Virtual tail/prepend paging + spacers
    │       ├── test_transcript_integration.py  # Real SQLite tail load + prefetch guards
+   │       ├── test_sticky_prompt_virtual_transcript.py  # Sticky overlay with virtual tail + evicted user rows
    │       └── test_transcript_memory.py  # xdist_group transcript_memory; tail vs full RAM
    │   ├── test_sidebar.py
    │   ├── test_left_sidebar.py

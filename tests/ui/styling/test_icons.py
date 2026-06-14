@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtGui import QIcon
 
-from ui.styling.icons import clear_cache, load_font, phi
+from ui.styling.icons import chat_stop_icon, clear_cache, load_font, phi, square_filled_icon
 
 
 class TestLoadFont:
@@ -58,6 +58,22 @@ class TestPhi:
         a = phi("trash", color="#cccccc", size=16)
         b = phi("trash", color="#ff0000", size=16)
         assert a is not b
+
+
+class TestSquareFilledIcon:
+    """Tests for the solid-square stop icon helper."""
+
+    def test_returns_non_null_icon(self, qapp) -> None:
+        """square_filled_icon() should return a painted QIcon."""
+        icon = square_filled_icon(color="#ff0000", size=18)
+        assert isinstance(icon, QIcon)
+        assert not icon.isNull()
+
+    def test_chat_stop_icon_matches_composer(self, qapp) -> None:
+        """chat_stop_icon() should return the shared white stop square."""
+        icon = chat_stop_icon()
+        assert isinstance(icon, QIcon)
+        assert not icon.isNull()
 
 
 class TestClearCache:

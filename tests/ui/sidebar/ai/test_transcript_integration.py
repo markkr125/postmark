@@ -44,6 +44,7 @@ class _Host(_AiChatControllerMixin):
             SimpleNamespace(
                 ai_chat_panel=panel,
                 set_ai_session_title=lambda _title: None,
+                set_ai_session_title_rename_enabled=lambda _enabled: None,
             ),
         )
         self._active_ai_session_id = None
@@ -141,6 +142,40 @@ def test_scroll_near_top_prefetches_older_page(qapp: QApplication, qtbot) -> Non
     qapp.processEvents()
     panel._scroll_lock_enabled = False
     panel._run_virtual_transcript_pass()
+
+    callback.assert_called_once()
+    assert callback.call_args.args[0] == "older"
+
+
+def test_scrollbar_drag_to_top_prefetches_older_page(qapp: QApplication, qtbot) -> None:
+    """Jumping the scrollbar to the top and releasing requests one older page."""
+    session_id = _seed_long_session(40)
+    tail = AiChatSessionService.get_session_tail(session_id)
+    assert tail is not None
+
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    panel.resize(360, 480)
+    qtbot.waitExposed(panel)
+
+    callback = MagicMock()
+    panel.set_window_load_callback(callback)
+
+    host = _Host(panel)
+    host._session_load_generation = 1
+    host._on_session_load_finished(1, ("tail", tail))
+    panel.flush_transcript_load()
+    qtbot.wait(50)
+    panel._finish_transcript_bottom_scroll()
+    qapp.processEvents()
+
+    bar = panel._scroll.verticalScrollBar()
+    assert bar.maximum() > 0
+    bar.setValue(0)
+    qapp.processEvents()
+    panel._scroll_lock_enabled = False
+    panel._on_scrollbar_slider_released()
 
     callback.assert_called_once()
     assert callback.call_args.args[0] == "older"

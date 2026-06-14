@@ -338,10 +338,12 @@ src/
     │   │   ├── chat_transcript_load.py  # Re-export shim → transcript.load
     │   │   ├── transcript/  # Virtualized transcript mixins
     │   │   │   ├── load.py  # _ChatPanelTranscriptLoadMixin — incremental session transcript load
+    │   │   │   ├── older_loading_row.py  # TranscriptOlderLoadingRow — top-row older-page spinner
     │   │   │   └── window.py  # _ChatPanelTranscriptWindowMixin — tail paging, eviction, virtual spacers
     │   │   ├── chat_transcript_loading_row.py  # ChatTranscriptLoadingOverlay — viewport line animation during session load
     │   │   ├── chat_sessions/     # Session history popover + time formatting
     │   │   │   ├── history_popup.py  # AiSessionHistoryPopup
+    │   │   │   ├── session_title.py  # AiChatSessionTitle — hover + inline rename
     │   │   │   └── time_format.py
     │   │   ├── workers/           # AiChatWorker + AiChatTitleWorker (QThread)
     │   │   │   ├── chat_worker.py

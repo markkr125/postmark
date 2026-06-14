@@ -19,8 +19,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QEvent, QObject, QSize, Qt, Signal
-from PySide6.QtGui import QIcon, QResizeEvent
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
+    QHBoxLayout,
     QLabel,
     QPushButton,
     QSizePolicy,
@@ -32,6 +33,7 @@ from PySide6.QtWidgets import (
 
 from services.collection_service import SavedResponseDict
 from ui.sidebar.ai import AiChatPanel
+from ui.sidebar.ai.chat_sessions.session_title import AiChatSessionTitle
 from ui.sidebar.history.panel import HistoryPanel
 from ui.sidebar.saved_responses.panel import SavedResponsesPanel
 from ui.sidebar.snippet_panel import SnippetPanel
@@ -59,43 +61,6 @@ _RAIL_TOOLTIP_HISTORY_ORPHAN = (
 def _rail_tooltip(enabled: bool, enabled_tip: str, disabled_tip: str) -> str:
     """Return the rail-button tooltip for *enabled* vs disabled state."""
     return enabled_tip if enabled else disabled_tip
-
-
-_AI_SESSION_TITLE_PLACEHOLDER = "New chat"
-
-
-class _AiChatSessionTitleLabel(QLabel):
-    """Single-line session title with ellipsis and full-text tooltip."""
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        """Build the muted subtitle under the AI assistant headline."""
-        super().__init__(parent)
-        self.setObjectName("aiChatSessionTitle")
-        self._full_text = _AI_SESSION_TITLE_PLACEHOLDER
-        self.setToolTip(self._full_text)
-        self._apply_elide()
-
-    def set_full_text(self, title: str) -> None:
-        """Store *title* and repaint with elision for the current width."""
-        cleaned = title.strip()
-        self._full_text = cleaned or _AI_SESSION_TITLE_PLACEHOLDER
-        self.setToolTip(self._full_text)
-        self._apply_elide()
-
-    def resizeEvent(self, event: QResizeEvent) -> None:
-        """Re-elide when the flyout width changes."""
-        super().resizeEvent(event)
-        self._apply_elide()
-
-    def _apply_elide(self) -> None:
-        """Paint the truncated label text for the current geometry."""
-        width = max(0, self.width())
-        elided = self.fontMetrics().elidedText(
-            self._full_text,
-            Qt.TextElideMode.ElideRight,
-            width,
-        )
-        self.setText(elided)
 
 
 # ------------------------------------------------------------------
@@ -130,8 +95,6 @@ class _FlyoutPanel(QWidget):
             QSizePolicy.Policy.Preferred,
             QSizePolicy.Policy.Expanding,
         )
-
-        from PySide6.QtWidgets import QHBoxLayout
 
         title_bar = QHBoxLayout()
         title_bar.setContentsMargins(12, 8, 8, 4)
@@ -178,11 +141,7 @@ class _FlyoutPanel(QWidget):
         session_title_layout = QHBoxLayout(self._ai_session_title_bar)
         session_title_layout.setContentsMargins(12, 0, 8, 4)
         session_title_layout.setSpacing(4)
-        self._ai_session_title_label = _AiChatSessionTitleLabel(self._ai_session_title_bar)
-        self._ai_session_title_label.setSizePolicy(
-            QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.Preferred,
-        )
+        self._ai_session_title_label = AiChatSessionTitle(self._ai_session_title_bar)
         session_title_layout.addWidget(self._ai_session_title_label, 1)
         session_title_layout.addWidget(self._ai_history_btn, 0)
         session_title_layout.addWidget(self._ai_new_chat_btn, 0)
@@ -212,6 +171,10 @@ class _FlyoutPanel(QWidget):
         """Update the conversation title shown under the AI assistant headline."""
         self._ai_session_title_label.set_full_text(title)
 
+    def set_ai_session_title_rename_enabled(self, enabled: bool) -> None:
+        """Allow or block inline rename for the active session title."""
+        self._ai_session_title_label.set_rename_enabled(enabled)
+
 
 # ------------------------------------------------------------------
 # Icon rail + controller
@@ -226,6 +189,7 @@ class RightSidebar(QWidget):
     ai_settings_requested = Signal()
     ai_new_chat_requested = Signal()
     ai_session_history_requested = Signal()
+    ai_session_title_renamed = Signal(str)
 
     def __init__(
         self,
@@ -257,6 +221,9 @@ class RightSidebar(QWidget):
         self._flyout._ai_new_chat_btn.clicked.connect(self.ai_new_chat_requested.emit)
         self._flyout._ai_history_btn.clicked.connect(self.ai_session_history_requested.emit)
         self._flyout._ai_settings_btn.clicked.connect(self.ai_settings_requested.emit)
+        self._flyout._ai_session_title_label.rename_committed.connect(
+            self.ai_session_title_renamed.emit,
+        )
 
         # --- Rail layout ----------------------------------------------
         rail_layout = QVBoxLayout(self)
@@ -323,6 +290,10 @@ class RightSidebar(QWidget):
     def set_ai_session_title(self, title: str) -> None:
         """Update the active conversation title in the AI flyout chrome."""
         self._flyout.set_ai_session_title(title)
+
+    def set_ai_session_title_rename_enabled(self, enabled: bool) -> None:
+        """Allow or block inline rename for the active session title."""
+        self._flyout.set_ai_session_title_rename_enabled(enabled)
 
     # ------------------------------------------------------------------
     # Splitter integration

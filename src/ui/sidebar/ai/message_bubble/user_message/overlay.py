@@ -17,7 +17,10 @@ from PySide6.QtWidgets import (
 )
 
 from ui.sidebar.ai.message_bubble.user_message.fade import UserMessageBottomFade
-from ui.sidebar.ai.message_bubble.user_message.footer import UserMessageFooterRow
+from ui.sidebar.ai.message_bubble.user_message.footer import (
+    UserMessageFooterMode,
+    UserMessageFooterRow,
+)
 from ui.sidebar.ai.message_bubble.wrapping_label import (
     _WrappingLabel,
     forward_wheel_to_ancestor_scroll_area,
@@ -182,6 +185,14 @@ class StickyUserPromptOverlay(QWidget):
         if self._footer.isVisible():
             bottom = max(bottom, self._footer.y() + self._footer.height())
         return self._frame.y() + bottom
+
+    def set_footer_mode(self, mode: UserMessageFooterMode) -> None:
+        """Mirror transcript user footer between actions menu and turn-scoped stop."""
+        self._footer.set_footer_mode(mode)
+
+    def footer_mode(self) -> UserMessageFooterMode:
+        """Return the sticky footer action mode."""
+        return self._footer.footer_mode()
 
     def set_anchor_state(
         self,

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Literal, NamedTuple, cast
 
 from PySide6.QtCore import QObject, Qt, QThread, Slot
 
@@ -28,6 +28,17 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_StopMode = Literal["pre_stream", "post_stream"]
+
+
+class _AiChatRunContext(NamedTuple):
+    """Snapshot of one in-flight user send for stop/finalize handling."""
+
+    session_id: str
+    user_message_id: int
+    user_text: str
+    run_generation: int
+
 
 class _AiChatControllerMixin:
     """Wire AI chat panel, session service, and background workers."""
@@ -42,6 +53,10 @@ class _AiChatControllerMixin:
     _title_run_session_id: str | None
     _session_load_generation: int
     _session_loader: AiChatSessionLoader
+    _manual_ai_session_titles: set[str]
+    _chat_run_generation: int
+    _active_run_context: _AiChatRunContext | None
+    _stopped_generations: dict[int, _StopMode]
 
     def _init_ai_chat_controller(self) -> None:
         """Connect sidebar signals and initialise chat state."""
@@ -53,6 +68,10 @@ class _AiChatControllerMixin:
         self._pending_title_session_id = None
         self._title_run_session_id = None
         self._session_load_generation = 0
+        self._manual_ai_session_titles = set()
+        self._chat_run_generation = 0
+        self._active_run_context = None
+        self._stopped_generations = {}
 
         self_q = cast(QObject, self)
         self._session_loader = AiChatSessionLoader(self_q)
@@ -67,6 +86,7 @@ class _AiChatControllerMixin:
         panel.stop_requested.connect(self._on_ai_chat_stop)
         self._right_sidebar.ai_new_chat_requested.connect(self._on_ai_new_chat)
         self._right_sidebar.ai_session_history_requested.connect(self._on_ai_session_history)
+        self._right_sidebar.ai_session_title_renamed.connect(self._on_ai_session_title_renamed)
         self_q._ai_assistant_finish_requested.connect(  # type: ignore[attr-defined]
             self._apply_ai_worker_assistant_finished,
             queued,
@@ -84,19 +104,37 @@ class _AiChatControllerMixin:
         """Refresh the flyout conversation title for the active session."""
         if session is not None:
             self._right_sidebar.set_ai_session_title(session["title"])
+            self._right_sidebar.set_ai_session_title_rename_enabled(True)
             return
         session_id = self._active_ai_session_id
         if session_id is None:
             self._right_sidebar.set_ai_session_title("New chat")
+            self._right_sidebar.set_ai_session_title_rename_enabled(False)
             return
         session = AiChatSessionService.get_session(session_id)
         if session is None:
             self._right_sidebar.set_ai_session_title("New chat")
+            self._right_sidebar.set_ai_session_title_rename_enabled(False)
             return
         self._right_sidebar.set_ai_session_title(session["title"])
+        self._right_sidebar.set_ai_session_title_rename_enabled(True)
+
+    def _on_ai_session_title_renamed(self, title: str) -> None:
+        """Persist a user-edited session title from the flyout chrome."""
+        session_id = self._active_ai_session_id
+        if session_id is None:
+            return
+        cleaned = title.strip()
+        if not cleaned:
+            self._sync_ai_session_title()
+            return
+        AiChatSessionService.rename_session(session_id, cleaned)
+        self._manual_ai_session_titles.add(session_id)
+        self._sync_ai_session_title()
 
     def _on_ai_new_chat(self) -> None:
         """Clear transcript UI; next send creates a fresh session."""
+        self._cancel_active_chat_run()
         self._session_load_generation += 1
         self._session_loader.cancel()
         self._right_sidebar.ai_chat_panel.cancel_transcript_load()
@@ -127,6 +165,7 @@ class _AiChatControllerMixin:
         """Load *session_id* into the panel and persist it as the active chat."""
         if session_id == self._active_ai_session_id:
             return
+        self._cancel_active_chat_run()
         self._session_load_generation += 1
         generation = self._session_load_generation
         panel = self._right_sidebar.ai_chat_panel
@@ -246,6 +285,14 @@ class _AiChatControllerMixin:
 
         user_row = AiChatSessionService.record_user_message(session_id, text)
         panel.attach_last_user_message_id(user_row["id"])
+        self._chat_run_generation += 1
+        run_generation = self._chat_run_generation
+        self._active_run_context = _AiChatRunContext(
+            session_id=session_id,
+            user_message_id=user_row["id"],
+            user_text=text,
+            run_generation=run_generation,
+        )
         panel.set_run_busy(True)
         panel.begin_assistant_stream()
 
@@ -292,8 +339,14 @@ class _AiChatControllerMixin:
     @Slot(str, str)
     def _apply_ai_worker_assistant_finished(self, thinking: str, content: str) -> None:
         """Finalize assistant text on the GUI thread."""
+        panel = self._right_sidebar.ai_chat_panel
+        ctx = self._active_run_context
+        if ctx is not None and ctx.run_generation in self._stopped_generations:
+            panel.set_run_busy(False)
+            return
         session_id = self._active_ai_session_id
         if session_id is None:
+            panel.set_run_busy(False)
             return
         self._on_ai_assistant_finished(session_id, thinking, content)
 
@@ -309,9 +362,30 @@ class _AiChatControllerMixin:
     @Slot(str, str, str)
     def _apply_ai_worker_failed(self, message: str, thinking: str, content: str) -> None:
         """Show chat failure on the GUI thread."""
-        session_id = self._active_ai_session_id
-        if session_id is None:
+        panel = self._right_sidebar.ai_chat_panel
+        ctx = self._active_run_context
+        if ctx is None:
+            panel.set_run_busy(False)
             return
+
+        stopped = message.strip().lower() == "stopped"
+        stop_mode = self._stopped_generations.get(ctx.run_generation)
+        if stopped and stop_mode == "pre_stream":
+            panel.set_run_busy(False)
+            self._stopped_generations.pop(ctx.run_generation, None)
+            return
+
+        session_id = ctx.session_id
+        if self._active_ai_session_id != session_id:
+            panel.set_run_busy(False)
+            return
+
+        if stopped and stop_mode == "post_stream":
+            self._persist_stopped_assistant(session_id, thinking, content)
+            panel.set_run_busy(False)
+            self._stopped_generations.pop(ctx.run_generation, None)
+            return
+
         self._on_ai_chat_failed(session_id, message, thinking, content)
 
     def _on_ai_assistant_finished(
@@ -340,10 +414,86 @@ class _AiChatControllerMixin:
         self._pending_title_session_id = session_id
 
     def _on_ai_chat_stop(self) -> None:
-        """Interrupt the in-flight chat worker."""
+        """Interrupt the in-flight chat worker and reset UI immediately."""
+        self._handle_chat_stop()
+
+    def _handle_chat_stop(self) -> None:
+        """Optimistically finalize stop UI, then interrupt the worker."""
+        panel = self._right_sidebar.ai_chat_panel
+        ctx = self._active_run_context
+        if ctx is None:
+            panel.set_run_busy(False)
+            worker = self._ai_chat_worker
+            if worker is not None:
+                worker.cancel()
+            return
+
+        if panel.is_pre_stream_cancel():
+            self._rollback_pre_stream_stop(ctx)
+            self._mark_run_stopped(ctx.run_generation, pre_stream=True)
+        else:
+            self._finalize_stream_stop_optimistic(ctx)
+            self._mark_run_stopped(ctx.run_generation, pre_stream=False)
+
         worker = self._ai_chat_worker
         if worker is not None:
             worker.cancel()
+
+    def _mark_run_stopped(self, run_generation: int, *, pre_stream: bool) -> None:
+        """Record that *run_generation* was stopped so late worker signals no-op."""
+        mode: _StopMode = "pre_stream" if pre_stream else "post_stream"
+        self._stopped_generations[run_generation] = mode
+
+    def _rollback_pre_stream_stop(self, ctx: _AiChatRunContext) -> None:
+        """Rewind an activity-only send back into the composer."""
+        panel = self._right_sidebar.ai_chat_panel
+        panel.rollback_pre_stream_turn(ctx.user_text)
+        AiChatSessionService.delete_message(ctx.session_id, ctx.user_message_id)
+        panel.set_run_busy(False)
+
+    def _finalize_stream_stop_optimistic(self, ctx: _AiChatRunContext) -> None:
+        """Finalize partial assistant text with a Stopped footer on the GUI thread."""
+        _ = ctx
+        panel = self._right_sidebar.ai_chat_panel
+        thinking = panel.streaming_assistant_thinking()
+        body = panel.streaming_assistant_text()
+        display = self._compose_failure_transcript(body, "Stopped.")
+        panel.end_assistant_stream(display, thinking=thinking)
+        panel.set_run_busy(False)
+
+    def _persist_stopped_assistant(
+        self,
+        session_id: str,
+        thinking_partial: str,
+        content_partial: str,
+    ) -> None:
+        """Persist a user-stopped assistant row after optimistic UI finalize."""
+        panel = self._right_sidebar.ai_chat_panel
+        thinking = pick_richest_text(
+            thinking_partial.strip(),
+            panel.streaming_assistant_thinking().strip(),
+        )
+        body = pick_richest_text(
+            content_partial.strip(),
+            panel.streaming_assistant_text().strip(),
+        )
+        display = self._compose_failure_transcript(body, "Stopped.")
+        thinking_duration = panel.last_assistant_thinking_duration_seconds()
+        assistant_row = AiChatSessionService.record_assistant_message(
+            session_id,
+            display,
+            thinking=thinking,
+            thinking_duration_seconds=thinking_duration,
+        )
+        panel.attach_streaming_assistant_message_id(assistant_row["id"])
+
+    def _cancel_active_chat_run(self) -> None:
+        """Request stop on any in-flight worker without optimistic UI rollback."""
+        worker = getattr(self, "_ai_chat_worker", None)
+        if worker is not None:
+            worker.cancel()
+        panel = self._right_sidebar.ai_chat_panel
+        panel.set_run_busy(False)
 
     def _on_ai_chat_failed(
         self,
@@ -379,6 +529,11 @@ class _AiChatControllerMixin:
         )
         panel.attach_streaming_assistant_message_id(assistant_row["id"])
         panel.set_run_busy(False)
+        self._stopped_generations.pop(
+            self._active_run_context.run_generation if self._active_run_context else -1,
+            None,
+        )
+        self._pending_title_session_id = session_id
 
     @staticmethod
     def _compose_failure_transcript(assistant_text: str, footer: str) -> str:
@@ -451,6 +606,8 @@ class _AiChatControllerMixin:
     def _on_ai_title_ready(self, session_id: str, title: str) -> None:
         """Apply a generated title to the session row."""
         if session_id != self._active_ai_session_id:
+            return
+        if session_id in self._manual_ai_session_titles:
             return
         AiChatSessionService.rename_session(session_id, title)
         self._sync_ai_session_title()

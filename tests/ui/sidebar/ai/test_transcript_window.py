@@ -31,6 +31,7 @@ class _Host(_AiChatControllerMixin):
             SimpleNamespace(
                 ai_chat_panel=panel,
                 set_ai_session_title=lambda _title: None,
+                set_ai_session_title_rename_enabled=lambda _enabled: None,
             ),
         )
         self._active_ai_session_id = None
@@ -143,3 +144,76 @@ def test_scroll_up_requests_older_load(qapp: QApplication, qtbot) -> None:
     ):
         panel._maybe_prefetch_older_page()
     assert callback.called
+
+
+def test_scroll_top_prefetches_when_first_bubble_below_margin(qapp: QApplication, qtbot) -> None:
+    """Dragging the scrollbar to the top prefetches even outside the top margin."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    callback = MagicMock()
+    panel.set_window_load_callback(callback)
+    panel.begin_virtual_session(
+        "sess",
+        AiChatTranscriptPageDict(
+            messages=[],
+            has_older=True,
+            has_newer=False,
+            oldest_id=1,
+            newest_id=2,
+        ),
+    )
+    panel._has_older = True
+    panel._oldest_loaded_id = 1
+    dummy = panel.add_message("user", "anchor")
+    bar = panel._scroll.verticalScrollBar()
+    with (
+        patch.object(panel, "_first_loaded_bubble", return_value=dummy),
+        patch.object(panel, "_is_pinned_to_bottom", return_value=False),
+        patch.object(panel, "_widget_top_in_viewport", return_value=240),
+    ):
+        bar.setValue(0)
+        panel._maybe_prefetch_older_page()
+    assert callback.called
+
+
+def test_older_prefetch_shows_loading_row(qapp: QApplication, qtbot) -> None:
+    """Older prefetch shows an in-transcript fetching row until the page applies."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    callback = MagicMock()
+    panel.set_window_load_callback(callback)
+    panel.begin_virtual_session(
+        "sess",
+        AiChatTranscriptPageDict(
+            messages=[],
+            has_older=True,
+            has_newer=False,
+            oldest_id=1,
+            newest_id=2,
+        ),
+    )
+    panel._has_older = True
+    panel._oldest_loaded_id = 1
+    dummy = panel.add_message("user", "anchor")
+    with (
+        patch.object(panel, "_first_loaded_bubble", return_value=dummy),
+        patch.object(panel, "_is_pinned_to_bottom", return_value=False),
+        patch.object(panel, "_widget_top_in_viewport", return_value=20),
+    ):
+        panel._maybe_prefetch_older_page()
+    assert callback.called
+    row = panel._older_page_loading_row
+    assert row is not None
+    assert row.is_loading_visible()
+
+    panel.apply_older_page(
+        AiChatTranscriptPageDict(
+            messages=[],
+            has_older=False,
+            has_newer=False,
+            oldest_id=1,
+            newest_id=2,
+        ),
+        generation=panel._window_page_generation,
+    )
+    assert not row.is_loading_visible()

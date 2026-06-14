@@ -12,6 +12,7 @@ from ui.sidebar.ai.message_bubble.activity_row import AssistantActivityRow
 from ui.sidebar.ai.message_bubble.markdown_content import MarkdownContent
 from ui.sidebar.ai.message_bubble.thought_section import ThoughtSection
 from ui.sidebar.ai.message_bubble.user_message import UserMessageFooterRow, UserMessageSection
+from ui.sidebar.ai.message_bubble.user_message.footer import UserMessageFooterMode
 
 ChatRole = Literal["user", "assistant"]
 _QWIDGET_MAX_HEIGHT = 16777215
@@ -183,6 +184,18 @@ class ChatMessageBubble(QWidget):
         if self._user_section is None:
             return None
         return self._user_section.collapsed_cap_height()
+
+    def set_user_footer_mode(self, mode: UserMessageFooterMode) -> None:
+        """Switch the user footer between actions menu and turn-scoped stop."""
+        if self._user_footer is None:
+            return
+        self._user_footer.set_footer_mode(mode)
+
+    def user_footer_mode(self) -> UserMessageFooterMode:
+        """Return the user footer mode, or ``actions`` for non-user rows."""
+        if self._user_footer is None:
+            return "actions"
+        return self._user_footer.footer_mode()
 
     def begin_streaming(self) -> None:
         """Mark the answer body as receiving streamed markdown."""
