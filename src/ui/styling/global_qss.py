@@ -1640,6 +1640,40 @@ def build_global_qss(p: ThemePalette) -> str:
     QWidget[objectName="aiChatAssistantRow"] {{
         background: transparent;
     }}
+    QWidget[objectName="aiChatAssistantMessageFooter"] {{
+        background: transparent;
+        border: none;
+    }}
+    QLabel[objectName="aiChatAssistantUsageLabel"] {{
+        background: transparent;
+        border: none;
+        color: {p["text_muted"]};
+        font-size: 11px;
+    }}
+    QPushButton[objectName="aiChatAssistantMessageMenu"] {{
+        background: transparent;
+        border: none;
+        padding: 0;
+        color: {p["text_muted"]};
+    }}
+    QPushButton[objectName="aiChatAssistantMessageMenu"]:hover {{
+        background: {"rgba(255,255,255,0.08)" if p is DARK_PALETTE else "rgba(0,0,0,0.06)"};
+        color: {p["text"]};
+    }}
+    QFrame[objectName="aiAssistantMessageActionsPopup"] {{
+        background: {p["bg"]};
+        border: 1px solid {p["border"]};
+        border-radius: 8px;
+    }}
+    QWidget[objectName="aiAssistantMessageActionRow"] {{
+        background: transparent;
+    }}
+    QLabel[objectName="aiAssistantMessageActionLabel"] {{
+        color: {p["text"]};
+        font-size: 12px;
+        background: transparent;
+        padding: 6px 10px;
+    }}
     QWidget[objectName="aiChatActivityRow"] {{
         background: transparent;
     }}

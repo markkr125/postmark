@@ -274,6 +274,8 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
             self.attach_message_id(bubble, message_id)
         if role == "user" and bubble._user_footer is not None:
             bubble._user_footer.stop_requested.connect(self.stop_requested.emit)  # type: ignore[attr-defined]
+        if role == "assistant":
+            self._wire_assistant_bubble_actions(bubble)  # type: ignore[attr-defined]
         if not self._defer_transcript_hooks:
             self._invalidate_sticky_turn_pairs()  # type: ignore[attr-defined]
             if role == "assistant":

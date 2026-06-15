@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+import shutil
 import uuid
 from collections.abc import Callable
 from contextlib import contextmanager
@@ -28,10 +30,13 @@ from database.models.ai_chat.ai_chat_repository import (
     DEFAULT_AGENT_ID,
     append_message,
     archive_session,
+    bulk_append_messages,
     create_session,
     delete_message as repo_delete_message,
     delete_session,
+    get_last_assistant_usage_cumulative,
     list_messages,
+    list_messages_up_to,
     rename_session,
     touch_session,
 )
@@ -59,6 +64,7 @@ if TYPE_CHECKING:
     from openhands.sdk import BaseConversation
     from openhands.sdk.event.base import Event
     from openhands.sdk.llm.streaming import LLMStreamChunk
+    from services.ai.chat.context_usage import ContextUsageSdkMetrics
 
 # Attachments are explicitly deferred for v1.
 _ATTACHMENTS_DEFERRED = True
@@ -89,6 +95,10 @@ class AiChatMessageDict(TypedDict):
     content: str
     thinking: NotRequired[str]
     thinking_duration_seconds: NotRequired[int | None]
+    model_id: NotRequired[str | None]
+    prompt_tokens: NotRequired[int | None]
+    completion_tokens: NotRequired[int | None]
+    reasoning_tokens: NotRequired[int | None]
     created_at: str
 
 
@@ -430,18 +440,84 @@ class AiChatSessionService:
         *,
         thinking: str = "",
         thinking_duration_seconds: int | None = None,
+        model_id: str | None = None,
+        usage: ContextUsageSdkMetrics | None = None,
     ) -> AiChatMessageDict:
         """Persist an assistant message and touch the session preview."""
+        from services.ai.chat.message_usage import turn_usage_delta
+
         preview = (content or thinking).strip().replace("\n", " ")[:_TITLE_PREVIEW_LEN]
         touch_session(session_id, last_preview=preview)
+        turn_usage = None
+        if usage is not None:
+            previous = get_last_assistant_usage_cumulative(session_id)
+            turn_usage = turn_usage_delta(usage, previous)
         row = append_message(
             session_id=session_id,
             role="assistant",
             content=content,
             thinking=thinking,
             thinking_duration_seconds=thinking_duration_seconds,
+            model_id=model_id,
+            prompt_tokens=turn_usage.get("prompt_tokens") if turn_usage else None,
+            completion_tokens=turn_usage.get("completion_tokens") if turn_usage else None,
+            reasoning_tokens=turn_usage.get("reasoning_tokens") if turn_usage else None,
         )
         return AiChatSessionService._cast_message(row)
+
+    @staticmethod
+    def _rewrite_forked_disk_conversation_id(session_id: str) -> None:
+        """Point copied OpenHands ``base_state.json`` at the forked session id."""
+        disk = session_disk_dir(session_id)
+        base_path = disk / "base_state.json"
+        if not base_path.is_file():
+            return
+        try:
+            data = json.loads(base_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+        if not isinstance(data, dict):
+            return
+        data["id"] = str(uuid.UUID(session_id))
+        data["persistence_dir"] = str(disk)
+        base_path.write_text(json.dumps(data), encoding="utf-8")
+
+    @staticmethod
+    def fork_session_at_message(
+        source_session_id: str, message_id: int
+    ) -> AiChatSessionDict | None:
+        """Create a new session with messages up to *message_id* and copied SDK disk state."""
+        source = get_session_by_id(source_session_id)
+        if source is None:
+            return None
+        prefix = list_messages_up_to(source_session_id, message_id)
+        if not prefix:
+            return None
+        if prefix[-1]["id"] != message_id:
+            return None
+        new_session_id = str(uuid.uuid4())
+        source_title = str(source.get("title") or "Chat").strip() or "Chat"
+        fork_title = f"Fork of {source_title}"
+        if len(fork_title) > 255:
+            fork_title = fork_title[:252] + "…"
+        row = create_session(
+            session_id=new_session_id,
+            title=fork_title,
+            model_id=source.get("model_id"),
+            mode=str(source.get("mode") or "agent"),
+            agent_id=str(source.get("agent_id") or DEFAULT_AGENT_ID),
+        )
+        bulk_append_messages(new_session_id, prefix)
+        source_disk = session_disk_dir(source_session_id)
+        target_disk = session_disk_dir(new_session_id)
+        if source_disk.is_dir():
+            shutil.copytree(source_disk, target_disk)
+            AiChatSessionService._rewrite_forked_disk_conversation_id(new_session_id)
+        last = prefix[-1]
+        preview = (last.get("content") or last.get("thinking") or "").strip()
+        preview = preview.replace("\n", " ")[:_TITLE_PREVIEW_LEN]
+        touch_session(new_session_id, last_preview=preview or None)
+        return AiChatSessionService._cast_session(row)
 
     @staticmethod
     def extract_final_text(conversation: BaseConversation) -> str:
@@ -562,6 +638,10 @@ class AiChatSessionService:
             content=row["content"],
             thinking=str(row.get("thinking") or ""),
             thinking_duration_seconds=row.get("thinking_duration_seconds"),
+            model_id=row.get("model_id"),
+            prompt_tokens=row.get("prompt_tokens"),
+            completion_tokens=row.get("completion_tokens"),
+            reasoning_tokens=row.get("reasoning_tokens"),
             created_at=row["created_at"],
         )
 

@@ -218,6 +218,7 @@ src/
 │   │       ├── compaction.py      # CHAT_CONDENSER_MAX_* constants for LLMSummarizingCondenser
 │   │       ├── context_usage.py   # ContextUsageService + breakdown TypedDicts + SQLite fallback
 │   │       ├── context_usage_sdk.py # OpenHands SDK View token accounting + compaction diagnostics
+│   │       ├── message_usage.py   # Per-turn usage deltas + assistant footer cost formatting
 │   │       ├── transcript_window.py # Turn-aware tail/older/newer slice helpers + paging constants
 │   │       └── session_service.py # AiChatSessionService — SQLite index + SDK bridge
 │   ├── assertion_service.py       # AssertionService + AssertionDict — declarative tests CRUD + compile
@@ -372,6 +373,10 @@ src/
     │   │   │   ├── thought_section.py   # ThoughtSection collapsible block
     │   │   │   ├── activity_row.py      # AssistantActivityRow spinner row
     │   │   │   ├── wrapping_label.py    # _WrappingLabel — height-for-width QLabel
+    │   │   │   ├── assistant_message/   # Assistant footer + actions popup
+    │   │   │   │   ├── footer.py        # AssistantMessageFooterRow — model/cost + ⋯ menu
+    │   │   │   │   ├── actions_popup.py # AiAssistantMessageActionsPopup — Fork chat / Copy message
+    │   │   │   │   └── action_option_row.py # Shared ActionOptionRow hover rows
     │   │   │   └── user_message/        # UserMessageSection, footer, actions popup, sticky overlay
     │   │   │       ├── section.py
     │   │   │       ├── fade.py
@@ -623,6 +628,7 @@ tests/
 │       │   ├── test_ai_config.py
 │       │   ├── test_chat_session_service.py
 │       │   ├── test_context_usage.py
+│       │   ├── test_message_usage.py
 │       │   ├── test_session_transcript_window.py
 │       │   ├── test_postmark_agent_registry.py
 │       │   ├── test_model_metadata.py

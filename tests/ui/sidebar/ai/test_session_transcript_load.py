@@ -6,8 +6,10 @@ from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import patch
 
+from PySide6.QtCore import QPoint
 from PySide6.QtWidgets import QApplication
 
+from services.ai.ai_config import AiModelEntry
 from services.ai.chat.session_service import (
     AiChatMessageDict,
     AiChatSessionTailLoadDict,
@@ -240,4 +242,134 @@ def test_hidden_panel_defers_bottom_scroll_until_shown(qapp: QApplication, qtbot
     qapp.processEvents()
     bar = panel._scroll.verticalScrollBar()
     assert panel._is_pinned_to_bottom(), f"val={bar.value()} max={bar.maximum()}"
+    panel._end_post_load_bottom_settle()
     assert not panel._pending_transcript_bottom_scroll
+
+
+def test_startup_restore_show_event_pins_bottom(qapp: QApplication, qtbot) -> None:
+    """Deferred bottom pinning after a hidden startup load settles when the panel opens."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    messages = _long_messages(20)
+    panel.prepare_transcript_load(lazy_markdown=True)
+    panel.load_transcript_async(messages, generation=1, lazy_markdown=True)
+    panel.flush_transcript_load()
+    assert panel._pending_transcript_bottom_scroll
+    panel.show()
+    panel.resize(360, 240)
+    qtbot.waitExposed(panel)
+    for _ in range(8):
+        qapp.processEvents()
+    qtbot.wait(200)
+    bar = panel._scroll.verticalScrollBar()
+    assert bar.maximum() > 0
+    assert panel._is_pinned_to_bottom(), f"val={bar.value()} max={bar.maximum()}"
+
+
+def test_post_load_settle_repins_when_transcript_grows_below(qapp: QApplication, qtbot) -> None:
+    """Post-load settle re-pins when assistant rows grow before the settle window ends."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitExposed(panel)
+    panel.resize(360, 240)
+    messages = _long_messages(12)
+    load_transcript_sync(panel, messages, qtbot)
+    assert panel._post_load_bottom_settle_active
+    bar = panel._scroll.verticalScrollBar()
+    assert panel._is_pinned_to_bottom()
+    last = panel._last_assistant_bubble()
+    assert last is not None and last._markdown_body is not None
+    last._markdown_body.set_markdown(
+        last._markdown_body.document().toPlainText() + "\n\n```python\nprint('grow')\n```\n" * 6
+    )
+    panel._messages.updateGeometry()
+    panel._scroll.updateGeometry()
+    qapp.processEvents()
+    assert panel._is_pinned_to_bottom(), f"val={bar.value()} max={bar.maximum()}"
+
+
+def _assistant_tail_messages() -> list[AiChatMessageDict]:
+    """Build one assistant turn with a table and em-dash tail for footer geometry tests."""
+    tail = (
+        "| OS | Notes |\n| --- | --- |\n| macOS | Unix-like |\n| Linux | Free |\n\n"
+        + ("Wrap paragraph text. " * 30)
+        + "primary target platform—and the tail must stay visible."
+    )
+    return [
+        {
+            "id": 1,
+            "session_id": "s1",
+            "role": "user",
+            "content": "mac vs linux vs windows?",
+            "created_at": "2026-01-01T00:00:00+00:00",
+        },
+        {
+            "id": 2,
+            "session_id": "s1",
+            "role": "assistant",
+            "content": tail,
+            "created_at": "2026-01-01T00:00:01+00:00",
+            "model_id": "m1",
+            "prompt_tokens": 10,
+            "completion_tokens": 5,
+        },
+    ]
+
+
+def _entry() -> AiModelEntry:
+    return {
+        "id": "m1",
+        "provider": "openai",
+        "label": "GPT-4o",
+        "model": "openai/gpt-4o",
+        "base_url": "",
+        "api_version": "",
+        "auth_kind": "none",
+        "auth_ref": "",
+        "input_cost_per_token": 0.0000025,
+        "output_cost_per_token": 0.00001,
+    }
+
+
+def test_lazy_session_restore_footer_below_assistant_tail(qapp: QApplication, qtbot) -> None:
+    """Lazy session restore keeps the em-dash tail above the dashed footer separator."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitExposed(panel)
+    panel.resize(360, 500)
+    panel.set_models([_entry()])
+    messages = _assistant_tail_messages()
+    panel.prepare_transcript_load(lazy_markdown=True)
+    panel.load_transcript_async(messages, generation=1, lazy_markdown=True)
+    panel.flush_transcript_load()
+    panel._scroll.verticalScrollBar().setValue(panel._scroll.verticalScrollBar().maximum())
+    qapp.processEvents()
+    panel._render_visible_lazy_markdown(force=True)
+    qapp.processEvents()
+
+    assistant: ChatMessageBubble | None = None
+    for bubble in panel.findChildren(ChatMessageBubble):
+        if bubble.role == "assistant":
+            assistant = bubble
+    assert assistant is not None
+    body = assistant._markdown_body
+    footer = assistant._assistant_footer
+    assert body is not None
+    assert footer is not None
+    assert not body.is_render_deferred()
+    assert "tail must stay visible" in body.markdown()
+
+    doc_layout = body.document().documentLayout()
+    max_bottom = doc_layout.documentSize().height()
+    block = body.document().begin()
+    while block != body.document().end():
+        max_bottom = max(max_bottom, doc_layout.blockBoundingRect(block).bottom())
+        block = block.next()
+    assert body.height() >= int(max_bottom)
+
+    content_bottom = body.mapTo(assistant, QPoint(0, body._painted_content_height_px)).y()
+    footer_top = footer.mapTo(assistant, QPoint(0, 0)).y()
+    assert footer_top >= content_bottom
+    assert body._paint_footer_rule

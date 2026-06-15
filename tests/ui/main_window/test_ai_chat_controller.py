@@ -377,7 +377,7 @@ def test_handle_chat_stop_clears_busy_immediately_pre_stream(qapp: QApplication,
     panel.add_message("user", "hello")
     panel.set_run_busy(True)
     panel.begin_assistant_stream()
-    host._active_run_context = _AiChatRunContext("sess-1", 42, "hello", 1)
+    host._active_run_context = _AiChatRunContext("sess-1", 42, "hello", 1, "m1")
     host._chat_run_generation = 1
 
     with patch(
@@ -402,7 +402,7 @@ def test_handle_chat_stop_finalizes_partial_post_stream(qapp: QApplication, qtbo
     panel.begin_assistant_stream()
     panel.append_assistant_chunk("", "Partial")
     _flush_stream_chunks(qtbot)
-    host._active_run_context = _AiChatRunContext("sess-1", 7, "hello", 2)
+    host._active_run_context = _AiChatRunContext("sess-1", 7, "hello", 2, "m1")
     host._chat_run_generation = 2
 
     host._handle_chat_stop()
@@ -421,7 +421,7 @@ def test_apply_worker_failed_ignored_after_pre_stream_stop(qapp: QApplication, q
     panel.add_message("user", "hello")
     panel.set_run_busy(True)
     panel.begin_assistant_stream()
-    host._active_run_context = _AiChatRunContext("sess-1", 11, "hello", 3)
+    host._active_run_context = _AiChatRunContext("sess-1", 11, "hello", 3, "m1")
     with patch(
         "ui.main_window.ai_chat_controller.AiChatSessionService.delete_message",
         return_value=True,

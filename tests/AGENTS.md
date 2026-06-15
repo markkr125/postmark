@@ -234,6 +234,7 @@ tests/
 │       │   ├── test_chat_response_text.py
 │       │   ├── test_chat_session_service.py
 │       │   ├── test_context_usage.py
+│       │   ├── test_message_usage.py
 │       │   ├── test_session_transcript_window.py  # Tail/older turn slicing
 │       │   ├── test_llm_service.py
 │       │   ├── test_postmark_agent_registry.py
@@ -339,6 +340,8 @@ tests/
    │       ├── test_transcript_memory.py  # xdist_group transcript_memory; tail vs full RAM
    │       ├── test_chat_context_popup.py
    │       ├── test_context_ring_button.py
+   │       ├── test_assistant_message_footer.py
+   │       ├── test_assistant_message_actions.py
    │       ├── test_context_usage_integration.py
    │       ├── test_context_thread_safety.py
    │       └── test_context_usage_worker.py

@@ -212,3 +212,23 @@ def test_list_messages_tail_exact_length(session_id: str) -> None:
     tail, has_older = list_messages_tail(session_id, limit=4)
     assert len(tail) == 4
     assert not has_older
+
+
+def test_append_message_persists_usage_columns(session_id: str) -> None:
+    """Assistant usage metadata round-trips through append_message."""
+    create_session(session_id=session_id, title="Usage", model_id="m1", mode="agent")
+    row = append_message(
+        session_id=session_id,
+        role="assistant",
+        content="Hi",
+        model_id="m1",
+        prompt_tokens=100,
+        completion_tokens=20,
+        reasoning_tokens=5,
+    )
+    assert row["model_id"] == "m1"
+    assert row["prompt_tokens"] == 100
+    assert row["completion_tokens"] == 20
+    assert row["reasoning_tokens"] == 5
+    loaded = list_messages(session_id)
+    assert loaded[-1]["prompt_tokens"] == 100

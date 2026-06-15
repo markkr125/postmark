@@ -8,7 +8,10 @@ from typing import Literal, NamedTuple
 from PySide6.QtCore import QPoint, Qt, Signal
 from PySide6.QtWidgets import QFrame, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
+from services.ai.ai_config import AiModelEntry
+from services.ai.chat.message_usage import format_assistant_footer_label
 from ui.sidebar.ai.message_bubble.activity_row import AssistantActivityRow
+from ui.sidebar.ai.message_bubble.assistant_message.footer import AssistantMessageFooterRow
 from ui.sidebar.ai.message_bubble.markdown_content import MarkdownContent
 from ui.sidebar.ai.message_bubble.thought_section import ThoughtSection
 from ui.sidebar.ai.message_bubble.user_message import UserMessageFooterRow, UserMessageSection
@@ -36,6 +39,8 @@ class ChatMessageBubble(QWidget):
     """
 
     layout_height_changed = Signal()
+    fork_requested = Signal()
+    copy_requested = Signal()
 
     def __init__(
         self,
@@ -65,6 +70,13 @@ class ChatMessageBubble(QWidget):
         self._user_footer: UserMessageFooterRow | None = None
         self._sent_at: datetime | None = sent_at if role == "user" else None
         self._markdown_body: MarkdownContent | None = None
+        self._assistant_footer: AssistantMessageFooterRow | None = None
+        self._assistant_turn_complete = False
+        self._usage_model_id: str | None = None
+        self._usage_prompt_tokens: int | None = None
+        self._usage_completion_tokens: int | None = None
+        self._usage_reasoning_tokens: int | None = None
+        self._usage_entry: AiModelEntry | None = None
         self._answer_visible = bool(text.strip())
         self._answer_started = bool(text.strip())
         self._stream_row_floor_px = 0
@@ -116,6 +128,15 @@ class ChatMessageBubble(QWidget):
             if not self._answer_visible:
                 self._markdown_body.hide()
 
+            self._assistant_footer = AssistantMessageFooterRow(self)
+            self._assistant_footer.fork_requested.connect(self.fork_requested.emit)
+            self._assistant_footer.copy_requested.connect(self.copy_requested.emit)
+            outer.addWidget(self._assistant_footer)
+            if text.strip() or thinking.strip():
+                self._assistant_turn_complete = True
+            if self._assistant_turn_complete:
+                self._sync_assistant_footer_visibility()
+
     def _ensure_answer_visible(self) -> None:
         """Show the answer body once any non-thinking text exists."""
         if not self._answer_visible:
@@ -147,6 +168,8 @@ class ChatMessageBubble(QWidget):
     def set_message_id(self, message_id: int) -> None:
         """Bind this bubble to a persisted message row."""
         self._message_id = message_id
+        if self._assistant_footer is not None:
+            self._assistant_footer.set_fork_enabled(True)
 
     def text(self) -> str:
         """Return the answer text (markdown source for assistant rows)."""
@@ -200,13 +223,83 @@ class ChatMessageBubble(QWidget):
     def begin_streaming(self) -> None:
         """Mark the answer body as receiving streamed markdown."""
         self._stream_row_floor_px = 0
+        if self._role == "assistant":
+            self.set_assistant_turn_complete(False)
         if self._markdown_body is not None:
             self._markdown_body.begin_streaming()
+
+    def full_markdown_for_copy(self) -> str:
+        """Return the assistant answer markdown for clipboard copy."""
+        return self.text()
+
+    def set_usage_metadata(
+        self,
+        *,
+        model_id: str | None,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
+        reasoning_tokens: int | None = None,
+        entry: AiModelEntry | None = None,
+    ) -> None:
+        """Apply persisted or live usage metadata to the assistant footer."""
+        if self._role != "assistant" or self._assistant_footer is None:
+            return
+        self._usage_model_id = model_id
+        self._usage_prompt_tokens = prompt_tokens
+        self._usage_completion_tokens = completion_tokens
+        self._usage_reasoning_tokens = reasoning_tokens
+        if entry is not None:
+            self._usage_entry = entry
+        label = format_assistant_footer_label(
+            self._usage_entry,
+            model_id,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            reasoning_tokens=reasoning_tokens,
+        )
+        self._assistant_footer.set_usage_text(label)
+        self._assistant_footer.set_fork_enabled(self._message_id is not None)
+        self._sync_assistant_footer_visibility()
+
+    def set_assistant_turn_complete(self, complete: bool) -> None:
+        """Mark whether the assistant turn is finished (shows the footer)."""
+        if self._role != "assistant":
+            return
+        self._assistant_turn_complete = complete
+        self._sync_assistant_footer_visibility()
+
+    def is_turn_complete(self) -> bool:
+        """Return whether this assistant row may show the footer."""
+        if self._role != "assistant":
+            return False
+        if not self._assistant_turn_complete:
+            return False
+        if self.is_content_streaming():
+            return False
+        return not self.is_activity_visible()
+
+    def _sync_assistant_footer_visibility(self) -> None:
+        """Show or hide the assistant footer based on turn completion state."""
+        footer = self._assistant_footer
+        if footer is None:
+            return
+        body = self._markdown_body
+        complete = self.is_turn_complete()
+        if body is not None:
+            body.set_paint_footer_rule(complete)
+        if complete:
+            footer.show()
+        else:
+            footer.hide()
+        self.updateGeometry()
 
     def end_streaming(self, *, render: bool = True) -> None:
         """Mark streaming complete on the answer body."""
         if self._markdown_body is not None:
             self._markdown_body.end_streaming(render=render)
+        if self._role == "assistant":
+            self.clear_stream_layout_floor()
+            self.set_assistant_turn_complete(True)
 
     def is_content_streaming(self) -> bool:
         """Return whether the answer body is still receiving stream updates."""
@@ -247,6 +340,7 @@ class ChatMessageBubble(QWidget):
     def show_activity(self, message: str) -> None:
         """Show the waiting spinner and status caption (assistant only)."""
         if self._activity_row is not None:
+            self.set_assistant_turn_complete(False)
             self._activity_row.show_activity(message)
             self.updateGeometry()
             self._commit_stream_row_layout()

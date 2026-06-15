@@ -43,6 +43,7 @@ class _ChatPanelTranscriptLoadMixin:
     _transcript_load_index: int = 0
     _transcript_load_timer: QTimer
     _pending_transcript_bottom_scroll: bool = False
+    _post_load_bottom_settle_active: bool = False
 
     def _init_transcript_load_state(self) -> None:
         """Create the incremental load timer (call from panel streaming init)."""
@@ -55,6 +56,7 @@ class _ChatPanelTranscriptLoadMixin:
         self._transcript_load_generation = 0
         self._transcript_load_active_generation = 0
         self._pending_transcript_bottom_scroll = False
+        self._post_load_bottom_settle_active = False
 
     def _transcript_viewport_can_pin_bottom(self) -> bool:
         """Return whether the scroll viewport is large enough to pin the bottom."""
@@ -75,17 +77,29 @@ class _ChatPanelTranscriptLoadMixin:
         for _ in range(3):
             cast(Any, self)._scroll_to_bottom_settled()
             if cast(Any, self)._is_pinned_to_bottom():
-                self._pending_transcript_bottom_scroll = False
+                if not self._post_load_bottom_settle_active:
+                    self._pending_transcript_bottom_scroll = False
                 return
             QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
         self._pending_transcript_bottom_scroll = True
         self._schedule_pending_transcript_bottom_retries()
+
+    def _end_post_load_bottom_settle(self) -> None:
+        """Finish the post-load bottom settle window."""
+        self._post_load_bottom_settle_active = False
+        if cast(Any, self)._is_pinned_to_bottom():
+            self._pending_transcript_bottom_scroll = False
+            return
+        self._finish_transcript_bottom_scroll()
 
     def _maybe_flush_pending_transcript_bottom_scroll(self) -> None:
         """Scroll to the bottom once the transcript viewport has a real size."""
         if not self._pending_transcript_bottom_scroll:
             return
         if not self._transcript_ready_for_bottom_pin():
+            return
+        if not cast(Any, self)._scroll_lock_enabled:
+            self._pending_transcript_bottom_scroll = False
             return
         self._finish_transcript_bottom_scroll()
 
@@ -95,6 +109,15 @@ class _ChatPanelTranscriptLoadMixin:
             return
         for delay_ms in (0, 50, 150, 400):
             QTimer.singleShot(delay_ms, self._maybe_flush_pending_transcript_bottom_scroll)
+
+    def _schedule_transcript_bottom_settle(self) -> None:
+        """Keep pinning the bottom while post-load layout and lazy markdown settle."""
+        self._post_load_bottom_settle_active = True
+        self._pending_transcript_bottom_scroll = True
+        self._schedule_pending_transcript_bottom_retries()
+        for delay_ms in (80, 200, 500, 1200):
+            QTimer.singleShot(delay_ms, self._maybe_flush_pending_transcript_bottom_scroll)
+        QTimer.singleShot(1500, self._end_post_load_bottom_settle)
 
     def _show_transcript_loading(self) -> None:
         """Show the panel-level loading overlay while a session transcript loads."""
@@ -125,6 +148,7 @@ class _ChatPanelTranscriptLoadMixin:
         self._defer_transcript_hooks = False
         self._transcript_load_lazy_markdown = False
         self._pending_transcript_bottom_scroll = False
+        self._post_load_bottom_settle_active = False
         self._hide_transcript_loading()
 
     def is_transcript_load_active(self) -> bool:
@@ -155,7 +179,7 @@ class _ChatPanelTranscriptLoadMixin:
         duration_seconds = int(duration) if isinstance(duration, int) and duration > 0 else None
         sent_at = parse_message_sent_at(msg.get("created_at"))
         lazy = self._transcript_load_lazy_markdown and role == "assistant" and not force_render
-        return self.add_message(  # type: ignore[attr-defined,no-any-return]
+        bubble = self.add_message(  # type: ignore[attr-defined,no-any-return]
             role,
             msg["content"],
             thinking=thinking,
@@ -164,6 +188,16 @@ class _ChatPanelTranscriptLoadMixin:
             lazy_markdown=lazy,
             message_id=msg["id"],
         )
+        if role == "assistant":
+            entry = self.current_model_entry()  # type: ignore[attr-defined]
+            bubble.set_usage_metadata(
+                model_id=msg.get("model_id"),
+                prompt_tokens=msg.get("prompt_tokens"),
+                completion_tokens=msg.get("completion_tokens"),
+                reasoning_tokens=msg.get("reasoning_tokens"),
+                entry=entry,
+            )
+        return cast(ChatMessageBubble, bubble)
 
     def load_transcript_async(
         self,
@@ -247,6 +281,7 @@ class _ChatPanelTranscriptLoadMixin:
         self._finish_load_transcript_layout()  # type: ignore[attr-defined]
         self._hide_transcript_loading()
         cast(Any, self)._schedule_virtual_transcript_pass()
+        self._schedule_transcript_bottom_settle()
         self.transcript_load_finished.emit()  # type: ignore[attr-defined]
         refresh = getattr(self, "refresh_context_usage", None)
         if callable(refresh):

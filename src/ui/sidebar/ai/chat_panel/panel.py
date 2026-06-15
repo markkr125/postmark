@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from services.ai.ai_config import AiConfig, AiModelEntry, model_entry_enabled
+from services.ai.chat.session_service import AiChatMessageDict
 from services.ai.provider_catalog import effective_run_context_tokens, format_run_context_tokens
 from services.ai.reasoning_effort import clamp_effort, default_effort_for, format_reasoning_effort
 from ui.sidebar.ai.agent_mode_popup import AgentModeButton, AiAgentModePopup
@@ -44,6 +45,7 @@ class AiChatPanel(_ChatPanelStreamingMixin, _ChatPanelContextUsageMixin, QWidget
 
     message_submitted = Signal(str)
     stop_requested = Signal()
+    assistant_fork_requested = Signal(int)
     mode_changed = Signal(str)
     attachments_changed = Signal(list)
     manage_models_requested = Signal()
@@ -546,6 +548,50 @@ class AiChatPanel(_ChatPanelStreamingMixin, _ChatPanelContextUsageMixin, QWidget
         if getattr(self, "_pending_transcript_bottom_scroll", False):
             self._maybe_flush_pending_transcript_bottom_scroll()
             self._schedule_pending_transcript_bottom_retries()
+
+    def apply_assistant_usage_metadata(
+        self,
+        message: AiChatMessageDict,
+        *,
+        entry: AiModelEntry | None = None,
+    ) -> None:
+        """Apply persisted usage fields to the active or latest assistant bubble."""
+        bubble = self._streaming_bubble or self._last_assistant_bubble()
+        if bubble is None or bubble.role != "assistant":
+            return
+        bubble.set_usage_metadata(
+            model_id=message.get("model_id"),
+            prompt_tokens=message.get("prompt_tokens"),
+            completion_tokens=message.get("completion_tokens"),
+            reasoning_tokens=message.get("reasoning_tokens"),
+            entry=entry,
+        )
+
+    def _wire_assistant_bubble_actions(self, bubble: ChatMessageBubble) -> None:
+        """Connect fork/copy affordances for one assistant transcript row."""
+        bubble.fork_requested.connect(self._on_assistant_bubble_fork)
+        bubble.copy_requested.connect(self._on_assistant_bubble_copy)
+
+    def _on_assistant_bubble_fork(self) -> None:
+        """Emit a fork request for the assistant bubble that triggered the action."""
+        bubble = self.sender()
+        if not isinstance(bubble, ChatMessageBubble):
+            return
+        message_id = bubble.message_id
+        if message_id is None:
+            return
+        self.assistant_fork_requested.emit(message_id)
+
+    def _on_assistant_bubble_copy(self) -> None:
+        """Copy the assistant answer markdown for the triggering bubble."""
+        from PySide6.QtGui import QGuiApplication
+
+        bubble = self.sender()
+        if not isinstance(bubble, ChatMessageBubble):
+            return
+        clipboard = QGuiApplication.clipboard()
+        if clipboard is not None:
+            clipboard.setText(bubble.full_markdown_for_copy())
 
     def _on_send(self) -> None:
         """Send a message, or request stop while a run is in flight."""

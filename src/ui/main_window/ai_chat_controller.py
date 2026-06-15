@@ -38,6 +38,7 @@ class _AiChatRunContext(NamedTuple):
     user_message_id: int
     user_text: str
     run_generation: int
+    model_id: str
 
 
 class _AiChatControllerMixin:
@@ -89,6 +90,7 @@ class _AiChatControllerMixin:
         # returns so turn-boundary scroll sees both user and assistant bubbles.
         panel.message_submitted.connect(self._on_ai_message_submitted)
         panel.stop_requested.connect(self._on_ai_chat_stop)
+        panel.assistant_fork_requested.connect(self._on_assistant_fork_requested)
         self._right_sidebar.ai_new_chat_requested.connect(self._on_ai_new_chat)
         self._right_sidebar.ai_session_history_requested.connect(self._on_ai_session_history)
         self._right_sidebar.ai_session_title_renamed.connect(self._on_ai_session_title_renamed)
@@ -307,6 +309,7 @@ class _AiChatControllerMixin:
             user_message_id=user_row["id"],
             user_text=text,
             run_generation=run_generation,
+            model_id=str(entry["id"]),
         )
         panel.set_run_busy(True)
         panel.begin_assistant_stream()
@@ -426,16 +429,50 @@ class _AiChatControllerMixin:
         content = pick_richest_text(content, panel.streaming_assistant_text())
         panel.end_assistant_stream(content, thinking=thinking)
         thinking_duration = panel.last_assistant_thinking_duration_seconds()
-        assistant_row = AiChatSessionService.record_assistant_message(
+        self._persist_assistant_turn(
             session_id,
             content,
             thinking=thinking,
             thinking_duration_seconds=thinking_duration,
         )
-        panel.attach_streaming_assistant_message_id(assistant_row["id"])
         panel.set_run_busy(False)
         panel.refresh_context_usage()
         self._pending_title_session_id = session_id
+
+    def _persist_assistant_turn(
+        self,
+        session_id: str,
+        content: str,
+        *,
+        thinking: str = "",
+        thinking_duration_seconds: int | None = None,
+    ) -> None:
+        """Persist one assistant row with stashed SDK usage and update the bubble."""
+        panel = self._right_sidebar.ai_chat_panel
+        ctx = self._active_run_context
+        model_id = ctx.model_id if ctx is not None else panel.current_model_id()
+        usage = panel.take_pending_turn_sdk_metrics()
+        entry = panel.current_model_entry()
+        assistant_row = AiChatSessionService.record_assistant_message(
+            session_id,
+            content,
+            thinking=thinking,
+            thinking_duration_seconds=thinking_duration_seconds,
+            model_id=model_id,
+            usage=usage,
+        )
+        panel.apply_assistant_usage_metadata(assistant_row, entry=entry)
+        panel.attach_streaming_assistant_message_id(assistant_row["id"])
+
+    def _on_assistant_fork_requested(self, message_id: int) -> None:
+        """Fork the active session at *message_id* and switch to the new chat."""
+        session_id = self._active_ai_session_id
+        if session_id is None or message_id <= 0:
+            return
+        forked = AiChatSessionService.fork_session_at_message(session_id, message_id)
+        if forked is None:
+            return
+        self._activate_chat_session(forked["id"])
 
     def _on_ai_chat_stop(self) -> None:
         """Interrupt the in-flight chat worker and reset UI immediately."""
@@ -503,13 +540,12 @@ class _AiChatControllerMixin:
         )
         display = self._compose_failure_transcript(body, "Stopped.")
         thinking_duration = panel.last_assistant_thinking_duration_seconds()
-        assistant_row = AiChatSessionService.record_assistant_message(
+        self._persist_assistant_turn(
             session_id,
             display,
             thinking=thinking,
             thinking_duration_seconds=thinking_duration,
         )
-        panel.attach_streaming_assistant_message_id(assistant_row["id"])
 
     def _cancel_active_chat_run(self) -> None:
         """Request stop on any in-flight worker without optimistic UI rollback."""
@@ -545,13 +581,12 @@ class _AiChatControllerMixin:
             display = self._compose_failure_transcript(body, self._format_chat_error(message))
         panel.end_assistant_stream(display, thinking=thinking)
         thinking_duration = panel.last_assistant_thinking_duration_seconds()
-        assistant_row = AiChatSessionService.record_assistant_message(
+        self._persist_assistant_turn(
             session_id,
             display,
             thinking=thinking,
             thinking_duration_seconds=thinking_duration,
         )
-        panel.attach_streaming_assistant_message_id(assistant_row["id"])
         panel.set_run_busy(False)
         self._stopped_generations.pop(
             self._active_run_context.run_generation if self._active_run_context else -1,

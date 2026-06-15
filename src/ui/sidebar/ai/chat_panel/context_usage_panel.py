@@ -12,7 +12,7 @@ from services.ai.chat.agent_registry import DEFAULT_AGENT_ID
 from services.ai.chat.context_usage import ContextUsageBreakdown, ContextUsageSdkMetrics
 from services.ai.chat.session_service import AiChatMessageDict, AiChatSessionService
 from ui.sidebar.ai.chat_context_popup import AiChatContextUsagePopup
-from ui.sidebar.ai.workers.context_usage_worker import ContextUsageWorker
+from ui.sidebar.ai.workers.context_usage_worker import ContextUsageLoader
 
 _CONTEXT_REFRESH_DEBOUNCE_MS = 200
 
@@ -22,10 +22,10 @@ class _ChatPanelContextUsageMixin:  # type: ignore[misc]
 
     _context_breakdown: ContextUsageBreakdown | None
     _context_refresh_timer: QTimer
-    _context_usage_thread: QThread | None
-    _context_usage_worker: ContextUsageWorker | None
+    _context_usage_loader: ContextUsageLoader
     _context_session_id: str | None
     _context_sdk_metrics: ContextUsageSdkMetrics | None
+    _pending_turn_sdk_metrics: ContextUsageSdkMetrics | None
     _context_refresh_pending: bool
     _context_refresh_generation: int
     _summarized_notice_session_id: str | None
@@ -35,11 +35,13 @@ class _ChatPanelContextUsageMixin:  # type: ignore[misc]
         self._context_breakdown = None
         self._context_session_id = None
         self._context_sdk_metrics = None
+        self._pending_turn_sdk_metrics = None
         self._context_refresh_pending = False
         self._context_refresh_generation = 0
         self._summarized_notice_session_id = None
-        self._context_usage_thread = None
-        self._context_usage_worker = None
+        self._context_usage_loader = ContextUsageLoader(cast(QObject, self))
+        queued = Qt.ConnectionType.QueuedConnection
+        self._context_usage_loader.finished.connect(self._on_context_usage_loader_finished, queued)
         self._context_refresh_timer = QTimer(cast(QObject, self))
         self._context_refresh_timer.setSingleShot(True)
         self._context_refresh_timer.setInterval(_CONTEXT_REFRESH_DEBOUNCE_MS)
@@ -98,7 +100,15 @@ class _ChatPanelContextUsageMixin:  # type: ignore[misc]
 
     def _apply_context_usage_metrics(self, sdk_metrics: object) -> None:
         """Apply SDK metrics after delivery has reached the GUI thread."""
+        if isinstance(sdk_metrics, dict) and "categories" not in sdk_metrics:
+            self._pending_turn_sdk_metrics = cast(ContextUsageSdkMetrics, sdk_metrics)
         self.refresh_context_usage(sdk_metrics=sdk_metrics)
+
+    def take_pending_turn_sdk_metrics(self) -> ContextUsageSdkMetrics | None:
+        """Return and clear SDK metrics stashed for the active assistant turn."""
+        metrics = self._pending_turn_sdk_metrics
+        self._pending_turn_sdk_metrics = None
+        return metrics
 
     @Slot()
     def _apply_context_usage_refresh(self) -> None:
@@ -118,20 +128,13 @@ class _ChatPanelContextUsageMixin:  # type: ignore[misc]
         self._context_refresh_pending = True
         self._context_refresh_timer.start()
 
-    def _run_context_usage_refresh(self) -> None:
-        """Start a background worker to rebuild the usage breakdown."""
-        thread = self._context_usage_thread
-        if thread is not None:
-            if thread.isRunning():
-                self._context_refresh_pending = True
-                return
-            thread.wait(2000)
-        self._context_refresh_pending = False
+    def _context_usage_request_kwargs(self) -> dict[str, object] | None:
+        """Build worker parameters for the current panel state."""
         entry = self.current_model_entry()
         if entry is None:
             self._context_breakdown = None
             self._context_ring.set_usage(0, 0)
-            return
+            return None
         session_id = getattr(self, "_virtual_session_id", None) or self._context_session_id
         agent_id = DEFAULT_AGENT_ID
         messages: list[AiChatMessageDict] = []
@@ -140,39 +143,42 @@ class _ChatPanelContextUsageMixin:  # type: ignore[misc]
             if row is not None:
                 agent_id = row.get("agent_id", DEFAULT_AGENT_ID)
             messages = AiChatSessionService.get_messages(session_id)
-        worker = ContextUsageWorker()
-        worker.set_request(
-            session_id=session_id,
-            messages=messages,
-            entry=entry,
-            agent_id=agent_id,
-            draft_text=self._input.toPlainText(),
-            streaming_thinking=self.streaming_assistant_thinking()
+        return {
+            "session_id": session_id,
+            "messages": messages,
+            "entry": entry,
+            "agent_id": agent_id,
+            "draft_text": self._input.toPlainText(),
+            "streaming_thinking": self.streaming_assistant_thinking()
             if getattr(self, "_streaming_bubble", None)
             else "",
-            streaming_content=self.streaming_assistant_text()
+            "streaming_content": self.streaming_assistant_text()
             if getattr(self, "_streaming_bubble", None)
             else "",
-            sdk_metrics=self._context_sdk_metrics,
-        )
-        thread = QThread()
-        worker.moveToThread(thread)
+            "sdk_metrics": self._context_sdk_metrics,
+        }
+
+    def _run_context_usage_refresh(self) -> None:
+        """Start a background worker to rebuild the usage breakdown."""
+        if self._context_usage_loader.is_running():
+            self._context_refresh_pending = True
+            return
+        request = self._context_usage_request_kwargs()
+        if request is None:
+            self._context_refresh_pending = False
+            return
+        self._context_refresh_pending = False
         self._context_refresh_generation += 1
         generation = self._context_refresh_generation
-        thread.started.connect(worker.run)
-        queued = Qt.ConnectionType.QueuedConnection
-        worker.finished.connect(
-            lambda breakdown, g=generation: self._apply_context_usage_breakdown(breakdown, g),
-            queued,
-        )
-        worker.finished.connect(thread.quit, queued)
-        thread.finished.connect(
-            lambda t=thread, w=worker, g=generation: self._release_context_usage_thread(t, w, g),
-            queued,
-        )
-        self._context_usage_thread = thread
-        self._context_usage_worker = worker
-        thread.start()
+        self._context_usage_loader.run_breakdown(generation, **request)
+
+    @Slot(int, object)
+    def _on_context_usage_loader_finished(self, generation: int, breakdown: object) -> None:
+        """Apply worker breakdown and replay a pending refresh when needed."""
+        self._apply_context_usage_breakdown(breakdown, generation)
+        if self._context_refresh_pending:
+            self._context_refresh_pending = False
+            QTimer.singleShot(0, self._run_context_usage_refresh)
 
     @Slot(object, int)
     def _apply_context_usage_breakdown(self, breakdown: object, generation: int) -> None:
@@ -183,45 +189,13 @@ class _ChatPanelContextUsageMixin:  # type: ignore[misc]
             return
         self.set_context_breakdown(cast(ContextUsageBreakdown, breakdown))
 
-    def _release_context_usage_thread(
-        self,
-        thread: QThread,
-        worker: ContextUsageWorker,
-        generation: int,
-    ) -> None:
-        """Release one context-usage worker/thread pair after ``finished``."""
-        if generation != self._context_refresh_generation:
-            return
-        if self._context_usage_thread is not thread:
-            return
-        if self._context_usage_worker is worker:
-            worker.deleteLater()
-        thread.wait(2000)
-        thread.deleteLater()
-        self._context_usage_worker = None
-        self._context_usage_thread = None
-        if self._context_refresh_pending:
-            # Replay on the next event-loop tick so the prior QThread is fully stopped.
-            QTimer.singleShot(0, self._run_context_usage_refresh)
-
     def _shutdown_context_usage_worker(self) -> None:
         """Stop any in-flight context usage worker."""
         self._context_refresh_pending = False
         self._context_refresh_generation += 1
         if self._context_refresh_timer.isActive():
             self._context_refresh_timer.stop()
-        thread = self._context_usage_thread
-        if thread is not None and thread.isRunning():
-            thread.quit()
-            thread.wait(2000)
-        worker = self._context_usage_worker
-        if worker is not None:
-            worker.deleteLater()
-        if thread is not None:
-            thread.wait(100)
-            thread.deleteLater()
-        self._context_usage_worker = None
-        self._context_usage_thread = None
+        self._context_usage_loader.shutdown()
 
     def _hide_context_popup(self) -> None:
         """Dismiss the context usage popover."""

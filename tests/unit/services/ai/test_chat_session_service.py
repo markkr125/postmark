@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 
+from database.data_paths import session_disk_dir
 from database.models.ai_chat.ai_chat_repository import create_session, delete_session
 
 from services.ai.ai_config import AiConfig, AiModelEntry
@@ -368,3 +369,72 @@ def test_resolve_restore_session_id_falls_back_when_deleted() -> None:
     delete_session(deleted_id)
     AiConfig.set_chat_session_id(deleted_id)
     assert AiChatSessionService.resolve_restore_session_id() == kept_id
+
+
+def test_record_assistant_message_persists_turn_usage_delta() -> None:
+    """Assistant rows store per-turn token deltas derived from SDK cumulative usage."""
+    session_id = str(uuid.uuid4())
+    create_session(session_id=session_id, title="Usage", model_id="m1", mode="agent")
+    AiChatSessionService.record_user_message(session_id, "Hi")
+    first = AiChatSessionService.record_assistant_message(
+        session_id,
+        "Hello",
+        model_id="m1",
+        usage={"prompt_tokens": 100, "completion_tokens": 40, "reasoning_tokens": 0},
+    )
+    assert first["prompt_tokens"] == 100
+    assert first["completion_tokens"] == 40
+    second = AiChatSessionService.record_assistant_message(
+        session_id,
+        "Again",
+        model_id="m1",
+        usage={"prompt_tokens": 250, "completion_tokens": 90, "reasoning_tokens": 10},
+    )
+    assert second["prompt_tokens"] == 150
+    assert second["completion_tokens"] == 50
+    assert second["reasoning_tokens"] == 10
+
+
+def test_fork_session_at_message_copies_prefix() -> None:
+    """Forking creates a new session with messages up to the fork point."""
+    source_id = str(uuid.uuid4())
+    create_session(session_id=source_id, title="Source", model_id="m1", mode="agent")
+    AiChatSessionService.record_user_message(source_id, "One")
+    assistant = AiChatSessionService.record_assistant_message(source_id, "A1", model_id="m1")
+    AiChatSessionService.record_user_message(source_id, "Two")
+    forked = AiChatSessionService.fork_session_at_message(source_id, assistant["id"])
+    assert forked is not None
+    assert forked["id"] != source_id
+    assert forked["title"].startswith("Fork of Source")
+    messages = AiChatSessionService.get_messages(forked["id"])
+    assert len(messages) == 2
+    assert messages[-1]["content"] == "A1"
+
+
+def test_fork_session_rewrites_sdk_conversation_id(tmp_path, monkeypatch) -> None:
+    """Copied SDK disk state must use the fork session id when resumed."""
+    import json
+
+    from database import data_paths
+
+    monkeypatch.setattr(data_paths, "user_ai_conversations_root", lambda: tmp_path)
+
+    source_id = str(uuid.uuid4())
+    create_session(session_id=source_id, title="Source", model_id="m1", mode="agent")
+    AiChatSessionService.record_user_message(source_id, "One")
+    assistant = AiChatSessionService.record_assistant_message(source_id, "A1", model_id="m1")
+
+    source_disk = session_disk_dir(source_id)
+    source_disk.mkdir(parents=True, exist_ok=True)
+    (source_disk / "base_state.json").write_text(
+        json.dumps({"id": source_id, "persistence_dir": str(source_disk)}),
+        encoding="utf-8",
+    )
+
+    forked = AiChatSessionService.fork_session_at_message(source_id, assistant["id"])
+    assert forked is not None
+
+    fork_disk = session_disk_dir(forked["id"])
+    data = json.loads((fork_disk / "base_state.json").read_text(encoding="utf-8"))
+    assert data["id"] == forked["id"]
+    assert data["persistence_dir"] == str(fork_disk)

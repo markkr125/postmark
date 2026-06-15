@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import math
 import weakref
 
-from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QEvent, QPointF, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import (
     QAbstractTextDocumentLayout,
+    QColor,
     QCursor,
     QDesktopServices,
     QEnterEvent,
@@ -16,6 +18,7 @@ from PySide6.QtGui import (
     QMouseEvent,
     QPainter,
     QPalette,
+    QPen,
     QTextCursor,
     QTextDocument,
     QTextTable,
@@ -35,12 +38,16 @@ from ui.sidebar.ai.markdown.highlight_code import (
 from ui.sidebar.ai.markdown.render import render_chat_markdown_html
 from ui.sidebar.ai.markdown.streaming_render import StreamingMarkdownCache
 from ui.sidebar.ai.message_bubble.wrapping_label import forward_wheel_to_ancestor_scroll_area
+from ui.styling.theme import COLOR_ASSISTANT_FOOTER_SEPARATOR
 from ui.styling.theme_manager import ThemeManager
 
 _markdown_bodies: weakref.WeakSet[MarkdownContent] = weakref.WeakSet()
 _theme_hook_installed = False
 _SELECTION_DRAG_THRESHOLD_PX = 4
 _COPY_CONFIRM_MS = 2000
+_FOOTER_RULE_GAP_PX = 10
+_FOOTER_RULE_DASH_PX = 5
+_FOOTER_RULE_DASH_GAP_PX = 4
 
 
 def rerender_all_markdown_browsers() -> None:
@@ -103,6 +110,8 @@ class MarkdownContent(QWidget):
         self._reflow_deferred = False
         self._reflow_flush_pending = False
         self._last_sync_width = -1
+        self._paint_footer_rule = False
+        self._painted_content_height_px = 0
         self._selection_anchor: int | None = None
         self._selection_cursor: int | None = None
         self._press_position: QPointF | None = None
@@ -144,6 +153,19 @@ class MarkdownContent(QWidget):
             return
         self._render_deferred = False
         self._render_markdown()
+
+    def set_paint_footer_rule(self, paint: bool) -> None:
+        """Paint a dashed rule below the answer when the turn footer is shown."""
+        self._paint_footer_rule = paint
+        self.resync_height_for_footer()
+        self.update()
+
+    def resync_height_for_footer(self) -> None:
+        """Re-measure after deferred reflow or before footer chrome appears."""
+        self._reflow_deferred = False
+        self._reflow_flush_pending = False
+        self._invalidate_measured_height()
+        self._sync_height(force=True)
 
     def set_markdown_lazy(self, text: str) -> None:
         """Store markdown source and defer the expensive HTML pipeline."""
@@ -206,9 +228,7 @@ class MarkdownContent(QWidget):
 
     def _refresh_copy_chrome(self) -> None:
         """Re-render copy-link labels without disturbing text selection."""
-        text_width = self._document.textWidth()
-        if text_width <= 0:
-            text_width = float(self._content_width())
+        text_width = max(1, self._content_width())
         if self._streaming:
             html = self._stream_cache.render_document_html(
                 self._markdown,
@@ -217,8 +237,8 @@ class MarkdownContent(QWidget):
         else:
             html = render_chat_markdown_html(self._markdown, copy_chrome=self._copy_chrome())
         self._set_document_html(html, preserve_selection=True)
-        if text_width > 0:
-            self._document.setTextWidth(text_width)
+        self._document.setTextWidth(text_width)
+        self._sync_height(force=True)
         if self.underMouse():
             self._sync_hover_cursor(QPointF(self.mapFromGlobal(QCursor.pos())))
 
@@ -287,23 +307,36 @@ class MarkdownContent(QWidget):
         self._last_sync_width = -1
 
     def _measure_height_for_text_width(self, text_width: int) -> float:
-        """Measure wrapped document height at *text_width*."""
+        """Measure wrapped document height at *text_width* (always live)."""
         self._document.setTextWidth(text_width)
-        return self._document.documentLayout().documentSize().height()
+        layout = self._document.documentLayout()
+        max_bottom = layout.documentSize().height()
+        block = self._document.begin()
+        while block != self._document.end():
+            max_bottom = max(max_bottom, layout.blockBoundingRect(block).bottom())
+            block = block.next()
+        return max_bottom
 
-    def _cached_height_for_text_width(self, text_width: int) -> int:
-        """Return wrap height for *text_width*, reusing the last measure when unchanged."""
-        if self._should_defer_reflow():
+    def _layout_height_for_text_width(self, text_width: int, *, force: bool = False) -> int:
+        """Return wrapped document height for *text_width*, reusing the cache when possible."""
+        if not force and self._should_defer_reflow():
             if self._cached_measured_height >= 0:
                 return self._cached_measured_height
-            return max(1, self.height())
-        if self._cached_text_width == text_width and self._cached_measured_height >= 0:
+            return max(1, self._painted_content_height_px or self.height())
+        if (
+            not force
+            and self._cached_text_width == text_width
+            and self._cached_measured_height >= 0
+        ):
             return self._cached_measured_height
-        doc_h = self._measure_height_for_text_width(text_width)
-        height = max(1, int(doc_h))
+        height = max(1, math.ceil(self._measure_height_for_text_width(text_width)))
         self._cached_text_width = text_width
         self._cached_measured_height = height
         return height
+
+    def _cached_height_for_text_width(self, text_width: int) -> int:
+        """Return wrap height for *text_width*, reusing the last measure when unchanged."""
+        return self._layout_height_for_text_width(text_width)
 
     def set_reflow_deferred(self, deferred: bool) -> None:
         """Skip expensive height sync while the chat pane width is changing."""
@@ -320,7 +353,7 @@ class MarkdownContent(QWidget):
         self._reflow_deferred = False
         self._reflow_flush_pending = False
         self._invalidate_measured_height()
-        self._sync_height()
+        self._sync_height(force=True)
 
     def _ancestor_resize_coalescing(self) -> bool:
         """Return whether an ancestor chat panel is coalescing pane resize."""
@@ -341,7 +374,7 @@ class MarkdownContent(QWidget):
         self._set_document_html(
             render_chat_markdown_html(self._markdown, copy_chrome=self._copy_chrome())
         )
-        self._sync_height()
+        self._sync_height(force=True)
 
     def _render_markdown_streaming(self) -> None:
         """Incrementally render stored markdown while a stream is open."""
@@ -404,25 +437,30 @@ class MarkdownContent(QWidget):
             parent = parent.parentWidget()
         return True
 
-    def _sync_height(self, *_args: object) -> None:
+    def _sync_height(self, *_args: object, force: bool = False) -> None:
         """Resize the widget to the wrapped document height."""
-        if self._should_defer_reflow():
+        if not force and self._should_defer_reflow():
             self._reflow_flush_pending = True
             return
-        width = self._content_width()
-        if not self._streaming and width == self._last_sync_width and self.height() > 0:
-            return
+        width = max(1, self._content_width())
+        text_width_px = int(self._document.textWidth())
+        if force or text_width_px != width:
+            self._invalidate_measured_height()
+            self._document.setTextWidth(width)
         self._last_sync_width = width
-        doc_h = self._cached_height_for_text_width(width)
+        doc_h = self._layout_height_for_text_width(width, force=force)
+        self._painted_content_height_px = doc_h
         margins = self.contentsMargins()
         chrome = margins.top() + margins.bottom()
-        target = max(1, int(doc_h) + chrome)
+        target = max(
+            1, doc_h + chrome + (self._footer_rule_gap_px() if self._paint_footer_rule else 0)
+        )
 
         if self._streaming:
             target = max(target, self._stream_layout_floor_px)
             self._stream_layout_floor_px = target
 
-        if self.height() == target:
+        if not force and self.height() == target and int(self._document.textWidth()) == width:
             return
         self.setFixedHeight(target)
         self.updateGeometry()
@@ -493,16 +531,59 @@ class MarkdownContent(QWidget):
         doc_h = self._cached_height_for_text_width(text_width)
         return int(doc_h) + margins.top() + margins.bottom()
 
+    def _footer_rule_gap_px(self) -> int:
+        """Return vertical space reserved below the document for the painted rule."""
+        return _FOOTER_RULE_GAP_PX if self._paint_footer_rule else 0
+
+    def _paint_footer_rule_line(self, painter: QPainter) -> None:
+        """Draw the dashed separator immediately below the document."""
+        y = self._painted_content_height_px + self._footer_rule_gap_px() // 2
+        pen = QPen(QColor(COLOR_ASSISTANT_FOOTER_SEPARATOR))
+        pen.setCosmetic(True)
+        pen.setWidthF(1.0)
+        pen.setStyle(Qt.PenStyle.CustomDashLine)
+        pen.setDashPattern([float(_FOOTER_RULE_DASH_PX), float(_FOOTER_RULE_DASH_GAP_PX)])
+        painter.setPen(pen)
+        painter.drawLine(0, y, self.width(), y)
+
     def paintEvent(self, event) -> None:
         """Paint the owned ``QTextDocument`` and any active text selection."""
-        painter = QPainter(self)
+        del event
+        width = max(1, self.width())
+        if int(self._document.textWidth()) != width:
+            self._document.setTextWidth(width)
         layout = self._document.documentLayout()
+        content_h = max(1, math.ceil(layout.documentSize().height()))
+        if content_h != self._painted_content_height_px:
+            self._painted_content_height_px = content_h
+            chrome = self.contentsMargins().top() + self.contentsMargins().bottom()
+            target = content_h + chrome + self._footer_rule_gap_px()
+            if self.height() != target:
+                QTimer.singleShot(0, self._repair_height_from_paint)
+        painter = QPainter(self)
         ctx = QAbstractTextDocumentLayout.PaintContext()
-        ctx.clip = QRectF(event.rect())
         selection = self._selection_paint_context()
         if selection is not None:
             ctx.selections = [selection]
         layout.draw(painter, ctx)
+        if self._paint_footer_rule:
+            self._paint_footer_rule_line(painter)
+        painter.end()
+
+    def _repair_height_from_paint(self) -> None:
+        """Correct the widget height when paint found a width/height mismatch."""
+        if not isValid(self):
+            return
+        content_h = self._painted_content_height_px
+        chrome = self.contentsMargins().top() + self.contentsMargins().bottom()
+        target = max(1, content_h + chrome + self._footer_rule_gap_px())
+        if self.height() == target:
+            return
+        self._cached_text_width = max(1, self.width())
+        self._cached_measured_height = content_h
+        self.setFixedHeight(target)
+        self.updateGeometry()
+        self.height_changed.emit()
 
     def _cursor_position_at(self, pos: QPointF) -> int:
         """Map a widget-local point to a character index in the document."""

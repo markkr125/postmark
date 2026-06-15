@@ -114,6 +114,7 @@ class ThemePalette(TypedDict):
 
     # AI chat fenced-code blocks
     chat_code_bg: str
+    assistant_footer_separator: str
 
     # Diff viewer
     diff_removed_bg: str
@@ -205,6 +206,7 @@ LIGHT_PALETTE: ThemePalette = {
     "editor_debug_gutter_arrow": "#f39c12",
     "editor_inline_log_text": "#7f8c8d",
     "chat_code_bg": "#fdfdfd",
+    "assistant_footer_separator": "#888888",
     "diff_removed_bg": "#fce4e4",
     "diff_added_bg": "#d4edda",
     "diff_removed_inline": "#f5c6c6",
@@ -294,6 +296,7 @@ DARK_PALETTE: ThemePalette = {
     "editor_debug_gutter_arrow": "#f39c12",
     "editor_inline_log_text": "#8b949e",
     "chat_code_bg": "#2a2a2b",
+    "assistant_footer_separator": "#666666",
     "diff_removed_bg": "#4a2020",
     "diff_added_bg": "#1a3a2a",
     "diff_removed_inline": "#6b3030",
@@ -342,6 +345,7 @@ COLOR_CONSOLE_BG: str = _active["console_bg"]
 COLOR_CONSOLE_TEXT: str = _active["console_text"]
 
 COLOR_BREADCRUMB_SEP: str = _active["breadcrumb_sep"]
+COLOR_ASSISTANT_FOOTER_SEPARATOR: str = _active["assistant_footer_separator"]
 COLOR_STATUS_BAR_BG: str = _active["status_bar_bg"]
 
 COLOR_DROP_ZONE_BORDER: str = _active["drop_zone_border"]
@@ -419,7 +423,7 @@ def set_active_palette(palette: ThemePalette) -> None:
     global COLOR_HOVER_BG, COLOR_HOVER_TREE_BG, COLOR_SELECTED_BG
     global COLOR_SENDING
     global COLOR_CONSOLE_BG, COLOR_CONSOLE_TEXT
-    global COLOR_BREADCRUMB_SEP, COLOR_STATUS_BAR_BG
+    global COLOR_BREADCRUMB_SEP, COLOR_ASSISTANT_FOOTER_SEPARATOR, COLOR_STATUS_BAR_BG
     global COLOR_DROP_ZONE_BORDER, COLOR_DROP_ZONE_BG
     global COLOR_DROP_ZONE_ACTIVE_BG
     global COLOR_IMPORT_SUCCESS, COLOR_IMPORT_ERROR, COLOR_IMPORT_WARN
@@ -480,6 +484,7 @@ def set_active_palette(palette: ThemePalette) -> None:
     COLOR_CONSOLE_TEXT = palette["console_text"]
 
     COLOR_BREADCRUMB_SEP = palette["breadcrumb_sep"]
+    COLOR_ASSISTANT_FOOTER_SEPARATOR = palette["assistant_footer_separator"]
     COLOR_STATUS_BAR_BG = palette["status_bar_bg"]
 
     COLOR_DROP_ZONE_BORDER = palette["drop_zone_border"]

@@ -53,6 +53,10 @@ def _message_to_dict(row: AiChatMessageModel) -> dict[str, Any]:
         "content": row.content,
         "thinking": row.thinking or "",
         "thinking_duration_seconds": row.thinking_duration_seconds,
+        "model_id": row.model_id,
+        "prompt_tokens": row.prompt_tokens,
+        "completion_tokens": row.completion_tokens,
+        "reasoning_tokens": row.reasoning_tokens,
         "created_at": created.isoformat(),
     }
 
@@ -151,6 +155,10 @@ def append_message(
     content: str,
     thinking: str = "",
     thinking_duration_seconds: int | None = None,
+    model_id: str | None = None,
+    prompt_tokens: int | None = None,
+    completion_tokens: int | None = None,
+    reasoning_tokens: int | None = None,
 ) -> dict[str, Any]:
     """Append a message row to a session."""
     now = datetime.now(tz=UTC)
@@ -161,6 +169,10 @@ def append_message(
             content=content,
             thinking=thinking,
             thinking_duration_seconds=thinking_duration_seconds,
+            model_id=model_id,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            reasoning_tokens=reasoning_tokens,
             created_at=now,
         )
         session.add(row)
@@ -200,3 +212,88 @@ def list_messages(session_id: str) -> list[dict[str, Any]]:
         )
         rows = session.scalars(stmt).all()
         return [_message_to_dict(r) for r in rows]
+
+
+def get_last_assistant_usage_cumulative(session_id: str) -> dict[str, int] | None:
+    """Return summed turn usage across assistant rows, or ``None`` when empty."""
+    with get_session() as session:
+        stmt = (
+            select(AiChatMessageModel)
+            .where(
+                AiChatMessageModel.session_id == session_id,
+                AiChatMessageModel.role == "assistant",
+            )
+            .order_by(AiChatMessageModel.id.asc())
+        )
+        rows = session.scalars(stmt).all()
+        if not rows:
+            return None
+        prompt = 0
+        completion = 0
+        reasoning = 0
+        has_usage = False
+        for row in rows:
+            if row.prompt_tokens is not None:
+                prompt += int(row.prompt_tokens)
+                has_usage = True
+            if row.completion_tokens is not None:
+                completion += int(row.completion_tokens)
+                has_usage = True
+            if row.reasoning_tokens is not None:
+                reasoning += int(row.reasoning_tokens)
+                has_usage = True
+        if not has_usage:
+            return None
+        return {
+            "prompt_tokens": prompt,
+            "completion_tokens": completion,
+            "reasoning_tokens": reasoning,
+        }
+
+
+def list_messages_up_to(session_id: str, message_id: int) -> list[dict[str, Any]]:
+    """Return messages with ``id <= message_id`` ordered by creation time."""
+    with get_session() as session:
+        stmt = (
+            select(AiChatMessageModel)
+            .where(
+                AiChatMessageModel.session_id == session_id,
+                AiChatMessageModel.id <= message_id,
+            )
+            .order_by(AiChatMessageModel.created_at.asc(), AiChatMessageModel.id.asc())
+        )
+        rows = session.scalars(stmt).all()
+        return [_message_to_dict(r) for r in rows]
+
+
+def bulk_append_messages(
+    session_id: str,
+    messages: list[dict[str, Any]],
+) -> None:
+    """Insert copied message rows preserving content and usage fields."""
+    if not messages:
+        return
+    now = datetime.now(tz=UTC)
+    with get_session() as session:
+        for msg in messages:
+            created_raw = msg.get("created_at")
+            created_at = now
+            if isinstance(created_raw, str) and created_raw.strip():
+                try:
+                    created_at = datetime.fromisoformat(created_raw.replace("Z", "+00:00"))
+                except ValueError:
+                    created_at = now
+            row = AiChatMessageModel(
+                session_id=session_id,
+                role=str(msg["role"]),
+                content=str(msg.get("content") or ""),
+                thinking=str(msg.get("thinking") or ""),
+                thinking_duration_seconds=msg.get("thinking_duration_seconds"),
+                model_id=msg.get("model_id"),
+                prompt_tokens=msg.get("prompt_tokens"),
+                completion_tokens=msg.get("completion_tokens"),
+                reasoning_tokens=msg.get("reasoning_tokens"),
+                created_at=created_at,
+            )
+            session.add(row)
+        session.commit()

@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 
 import pytest
-from PySide6.QtCore import QThread, qInstallMessageHandler
+from PySide6.QtCore import qInstallMessageHandler
 from PySide6.QtWidgets import QApplication
 
 from ui.sidebar.ai.chat_panel.panel import AiChatPanel
@@ -67,32 +67,26 @@ def test_refresh_from_worker_thread_marshals_to_gui(
         _panel._shutdown_context_usage_worker()
 
 
-def test_stale_context_thread_finished_is_ignored(
-    qapp: QApplication, qtbot, _panel: AiChatPanel, monkeypatch: pytest.MonkeyPatch
+def test_stale_context_loader_finished_is_ignored(
+    qapp: QApplication, qtbot, _panel: AiChatPanel
 ) -> None:
-    """A late ``finished`` from an older context worker cannot delete the active thread."""
-    from ui.sidebar.ai.workers.context_usage_worker import ContextUsageWorker
-
-    old_thread = QThread()
-    old_worker = ContextUsageWorker()
-    old_worker.moveToThread(old_thread)
-    _panel._context_usage_thread = old_thread
-    _panel._context_usage_worker = old_worker
-    _panel._context_refresh_generation = 1
-
-    new_thread = QThread()
-    new_worker = ContextUsageWorker()
-    new_worker.moveToThread(new_thread)
-    _panel._context_usage_thread = new_thread
-    _panel._context_usage_worker = new_worker
+    """A late loader result from an outdated generation does not replace the ring."""
+    current: dict[str, object] = {
+        "used_tokens": 50,
+        "total_tokens": 128_000,
+        "categories": [],
+        "has_summarized": False,
+        "is_estimated": True,
+    }
+    _panel._context_breakdown = current  # type: ignore[assignment]
     _panel._context_refresh_generation = 2
-
-    _panel._release_context_usage_thread(old_thread, old_worker, generation=1)
-    assert _panel._context_usage_thread is new_thread
-    assert _panel._context_usage_worker is new_worker
-
-    new_thread.quit()
-    new_thread.wait(2000)
-    old_thread.quit()
-    old_thread.wait(2000)
+    stale: dict[str, object] = {
+        "used_tokens": 1,
+        "total_tokens": 128_000,
+        "categories": [],
+        "has_summarized": False,
+        "is_estimated": True,
+    }
+    _panel._apply_context_usage_breakdown(stale, generation=1)
+    assert _panel._context_breakdown == current
     _panel._shutdown_context_usage_worker()

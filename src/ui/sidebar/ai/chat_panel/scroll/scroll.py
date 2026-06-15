@@ -270,7 +270,8 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
         """Follow bottom on content growth while streaming and scroll-lock is on."""
         if self._programmatic_scroll:
             return
-        if _max_val < self._last_scroll_maximum:
+        prev_max = self._last_scroll_maximum
+        if _max_val < prev_max:
             self._scroll_range_shrunk_recent = True
         self._last_scroll_maximum = _max_val
         if self._turn_scroll_pending:
@@ -279,6 +280,9 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
             getattr(self, "is_transcript_load_active", lambda: False)()
             and self._scroll_lock_enabled
         ):
+            self._pin_transcript_to_bottom()
+            return
+        if getattr(self, "_pending_transcript_bottom_scroll", False) and self._scroll_lock_enabled:
             self._pin_transcript_to_bottom()
             return
         if self._open_stream_generation > 0 and self._scroll_lock_enabled:
@@ -557,3 +561,5 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
                 continue
             if self.markdown_body_intersects_viewport(body):
                 body.ensure_rendered()
+                if widget.is_turn_complete():
+                    widget._sync_assistant_footer_visibility()

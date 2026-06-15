@@ -122,7 +122,8 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   token estimates remain the fallback before SDK context is available or when
   SDK token counting fails. After a run,
   `AiChatWorker.usage_updated` delivers SDK `conversation_stats` metrics to the
-  panel; high-usage runs also log compaction diagnostics comparing SQLite rows,
+  panel (stashed as per-turn usage for `record_assistant_message` and the context
+  ring); high-usage runs also log compaction diagnostics comparing SQLite rows,
   SDK events/tokens, condenser thresholds, and condensation reasons. OpenHands
   compaction tuning lives in `services/ai/chat/compaction.py`;
   `build_conversation()` attaches `LLMSummarizingCondenser` with
