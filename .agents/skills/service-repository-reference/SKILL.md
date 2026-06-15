@@ -307,7 +307,7 @@ OpenHands SDK disk state under `session_disk_dir(id)`. Worker thread builds
 | `resolve_assistant_parts(conversation, thinking_buffer, content_buffer)` | Merge current-turn event extraction with per-run stream buffers |
 | `message_display_parts(message)` / `chunk_parts_from_stream(chunk)` | Split SDK message or stream chunk into thinking + answer |
 | `record_assistant_message(session_id, content, *, thinking="", thinking_duration_seconds=None, model_id=None, usage=None)` | Persist answer + optional thinking, frozen duration, per-turn usage deltas (`model_id`, `prompt_tokens`, `completion_tokens`, `reasoning_tokens`), and touch preview |
-| `fork_session_at_message(source_session_id, message_id)` | New session with SQLite prefix through *message_id* + copied SDK disk dir (`base_state.json` id/persistence_dir rewritten) |
+| `fork_session_at_message(source_session_id, message_id)` | New session with SQLite prefix through *message_id* + copied SDK disk dir (`base_state.json` id/persistence_dir rewritten); title ``{base} (N)`` via `allocate_fork_session_title` |
 
 TypedDicts: `AiChatSessionDict`, `AiChatMessageDict` (optional `model_id`, `prompt_tokens`, `completion_tokens`, `reasoning_tokens` on assistant rows). Agent/tool registries:
 `PostmarkAgentDef`, `DEFAULT_AGENT_ID` (`postmark-assistant`, no tools in v1).

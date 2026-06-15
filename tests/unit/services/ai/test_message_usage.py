@@ -5,8 +5,11 @@ from __future__ import annotations
 from services.ai.ai_config import AiModelEntry
 from services.ai.chat.context_usage import ContextUsageSdkMetrics
 from services.ai.chat.message_usage import (
+    effective_assistant_model_id,
+    entry_for_model_id,
     format_assistant_footer_label,
     message_turn_cost_usd,
+    resolve_model_display_name,
     turn_usage_delta,
 )
 
@@ -64,6 +67,44 @@ def test_format_assistant_footer_label_includes_cost_when_priced() -> None:
         reasoning_tokens=0,
     )
     assert text.startswith("GPT-4o · $")
+
+
+def test_resolve_model_display_name_prefers_message_model_id(monkeypatch) -> None:
+    """Footer labels follow the persisted message model, not a stale entry."""
+    oss = _entry(id="oss", label="gpt-oss")
+    mini = _entry(id="mini", label="gpt-5.4-mini")
+
+    monkeypatch.setattr(
+        "services.ai.chat.message_usage.AiConfig.get_models",
+        lambda: [oss, mini],
+    )
+
+    assert resolve_model_display_name("mini", oss) == "gpt-5.4-mini"
+    assert entry_for_model_id("mini") == mini
+
+
+def test_effective_assistant_model_id_falls_back_to_session() -> None:
+    """Rows without per-message model ids use the session default."""
+    assert effective_assistant_model_id(None, "sess-model") == "sess-model"
+    assert effective_assistant_model_id("msg-model", "sess-model") == "msg-model"
+
+
+def test_resolve_model_display_name_uses_raw_id_when_entry_missing() -> None:
+    """Orphan model ids still show a label instead of Unknown model."""
+    assert resolve_model_display_name("deleted-model-id", None) == "deleted-model-id"
+
+
+def test_format_assistant_footer_label_uses_persisted_model_label() -> None:
+    """Persisted model labels win over stale entry lookups."""
+    text = format_assistant_footer_label(
+        _entry(id="wrong", label="wrong"),
+        "m1",
+        model_label="gpt-oss",
+        prompt_tokens=0,
+        completion_tokens=0,
+        reasoning_tokens=0,
+    )
+    assert text == "gpt-oss"
 
 
 def test_format_assistant_footer_label_without_pricing_omits_cost() -> None:

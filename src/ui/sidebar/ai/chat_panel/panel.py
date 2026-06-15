@@ -556,15 +556,30 @@ class AiChatPanel(_ChatPanelStreamingMixin, _ChatPanelContextUsageMixin, QWidget
         entry: AiModelEntry | None = None,
     ) -> None:
         """Apply persisted usage fields to the active or latest assistant bubble."""
+        from services.ai.chat.message_usage import (
+            effective_assistant_model_id,
+            entry_for_model_id,
+            model_display_name_from_entry,
+        )
+
         bubble = self._streaming_bubble or self._last_assistant_bubble()
         if bubble is None or bubble.role != "assistant":
             return
+        session_model_id = getattr(self, "_transcript_session_model_id", None)
+        model_id = effective_assistant_model_id(message.get("model_id"), session_model_id)
+        model_label = message.get("model_label")
+        if entry is None:
+            entry = entry_for_model_id(model_id, extra_entries=self._models)
+        if not model_label:
+            model_label = model_display_name_from_entry(entry)
         bubble.set_usage_metadata(
-            model_id=message.get("model_id"),
+            model_id=model_id,
+            model_label=model_label,
             prompt_tokens=message.get("prompt_tokens"),
             completion_tokens=message.get("completion_tokens"),
             reasoning_tokens=message.get("reasoning_tokens"),
             entry=entry,
+            extra_entries=self._models,
         )
 
     def _wire_assistant_bubble_actions(self, bubble: ChatMessageBubble) -> None:

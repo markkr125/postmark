@@ -251,7 +251,7 @@ class _AiChatControllerMixin:
         self._active_ai_session_id = session["id"]
         AiConfig.set_chat_session_id(session["id"])
         self._apply_session_chrome(session)
-        panel.begin_virtual_session(session["id"], page)
+        panel.begin_virtual_session(session["id"], page, session_model_id=session.get("model_id"))
         panel.load_transcript_async(
             page["messages"],
             generation=generation,
@@ -298,6 +298,7 @@ class _AiChatControllerMixin:
                     oldest_id=None,
                     newest_id=None,
                 ),
+                session_model_id=str(entry["id"]),
             )
 
         user_row = AiChatSessionService.record_user_message(session_id, text)
@@ -448,17 +449,24 @@ class _AiChatControllerMixin:
         thinking_duration_seconds: int | None = None,
     ) -> None:
         """Persist one assistant row with stashed SDK usage and update the bubble."""
+        from services.ai.chat.message_usage import (
+            entry_for_model_id,
+            model_display_name_from_entry,
+        )
+
         panel = self._right_sidebar.ai_chat_panel
         ctx = self._active_run_context
         model_id = ctx.model_id if ctx is not None else panel.current_model_id()
         usage = panel.take_pending_turn_sdk_metrics()
-        entry = panel.current_model_entry()
+        entry = entry_for_model_id(model_id, extra_entries=panel._models) or panel.current_model_entry()
+        model_label = model_display_name_from_entry(entry)
         assistant_row = AiChatSessionService.record_assistant_message(
             session_id,
             content,
             thinking=thinking,
             thinking_duration_seconds=thinking_duration_seconds,
             model_id=model_id,
+            model_label=model_label,
             usage=usage,
         )
         panel.apply_assistant_usage_metadata(assistant_row, entry=entry)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from sqlalchemy import select
@@ -11,6 +12,51 @@ from database.database import get_session as db_session
 from .ai_chat_repository import _session_to_dict
 from .model.ai_chat_message_model import AiChatMessageModel
 from .model.ai_chat_session_model import AiChatSessionModel
+
+_FORK_SUFFIX_RE = re.compile(r"^(.+) \((\d+)\)$")
+_SESSION_TITLE_MAX_LEN = 255
+
+
+def fork_base_title(title: str) -> str:
+    """Return the root title without a trailing `` (N)`` fork suffix."""
+    cleaned = (title or "Chat").strip() or "Chat"
+    match = _FORK_SUFFIX_RE.fullmatch(cleaned)
+    return match.group(1) if match else cleaned
+
+
+def is_fork_family_title(title: str, base_title: str) -> bool:
+    """Return whether *title* is *base_title* or ``base_title (N)``."""
+    if title == base_title:
+        return True
+    match = _FORK_SUFFIX_RE.fullmatch(title)
+    return match is not None and match.group(1) == base_title
+
+
+def count_fork_family_sessions(
+    base_title: str,
+    *,
+    exclude_session_id: str | None = None,
+) -> int:
+    """Count non-archived sessions whose title matches the fork family for *base_title*."""
+    with db_session() as session:
+        stmt = select(AiChatSessionModel.id, AiChatSessionModel.title).where(
+            AiChatSessionModel.archived.is_(False)
+        )
+        if exclude_session_id is not None:
+            stmt = stmt.where(AiChatSessionModel.id != exclude_session_id)
+        rows = session.execute(stmt).all()
+    return sum(1 for _sid, title in rows if is_fork_family_title(title, base_title))
+
+
+def allocate_fork_session_title(source_session_id: str, source_title: str) -> str:
+    """Allocate ``{base title} (N)`` where *N* is the family size in the index + 1."""
+    base = fork_base_title(source_title)
+    count = count_fork_family_sessions(base, exclude_session_id=source_session_id) + 1
+    suffix = f" ({count})"
+    if len(base) + len(suffix) > _SESSION_TITLE_MAX_LEN:
+        trim = _SESSION_TITLE_MAX_LEN - len(suffix) - 1
+        base = base[:trim] + "…"
+    return f"{base}{suffix}"
 
 
 def list_sessions(

@@ -150,6 +150,7 @@ def test_end_assistant_stream_clears_activity_without_chunks(qapp: QApplication,
     bubble = panel.findChildren(ChatMessageBubble)[0]
     panel.end_assistant_stream("Error: No response from model", thinking="")
     assert not bubble.is_activity_visible()
+    assert bubble.is_turn_complete()
 
 
 def test_load_transcript_does_not_show_activity(qapp: QApplication, qtbot) -> None:

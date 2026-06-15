@@ -395,6 +395,22 @@ def test_record_assistant_message_persists_turn_usage_delta() -> None:
     assert second["reasoning_tokens"] == 10
 
 
+def test_record_assistant_message_persists_model_label() -> None:
+    """Assistant rows store the human-readable model label at send time."""
+    session_id = str(uuid.uuid4())
+    create_session(session_id=session_id, title="Label", model_id="m1", mode="agent")
+    row = AiChatSessionService.record_assistant_message(
+        session_id,
+        "Hi",
+        model_id="m1",
+        model_label="GPT-4o",
+    )
+    assert row["model_id"] == "m1"
+    assert row["model_label"] == "GPT-4o"
+    loaded = AiChatSessionService.get_messages(session_id)[0]
+    assert loaded["model_label"] == "GPT-4o"
+
+
 def test_fork_session_at_message_copies_prefix() -> None:
     """Forking creates a new session with messages up to the fork point."""
     source_id = str(uuid.uuid4())
@@ -405,7 +421,7 @@ def test_fork_session_at_message_copies_prefix() -> None:
     forked = AiChatSessionService.fork_session_at_message(source_id, assistant["id"])
     assert forked is not None
     assert forked["id"] != source_id
-    assert forked["title"].startswith("Fork of Source")
+    assert forked["title"] == "Source (1)"
     messages = AiChatSessionService.get_messages(forked["id"])
     assert len(messages) == 2
     assert messages[-1]["content"] == "A1"
@@ -438,3 +454,27 @@ def test_fork_session_rewrites_sdk_conversation_id(tmp_path, monkeypatch) -> Non
     data = json.loads((fork_disk / "base_state.json").read_text(encoding="utf-8"))
     assert data["id"] == forked["id"]
     assert data["persistence_dir"] == str(fork_disk)
+
+
+def test_fork_session_title_increments_for_same_family() -> None:
+    """Each fork from the same title family gets the next ``(N)`` suffix."""
+    source_id = str(uuid.uuid4())
+    create_session(session_id=source_id, title="Planning", model_id="m1", mode="agent")
+    AiChatSessionService.record_user_message(source_id, "One")
+    assistant = AiChatSessionService.record_assistant_message(source_id, "A1", model_id="m1")
+
+    first = AiChatSessionService.fork_session_at_message(source_id, assistant["id"])
+    assert first is not None
+    assert first["title"] == "Planning (1)"
+
+    second = AiChatSessionService.fork_session_at_message(source_id, assistant["id"])
+    assert second is not None
+    assert second["title"] == "Planning (2)"
+
+    first_messages = AiChatSessionService.get_messages(first["id"])
+    third = AiChatSessionService.fork_session_at_message(
+        first["id"],
+        first_messages[-1]["id"],
+    )
+    assert third is not None
+    assert third["title"] == "Planning (3)"

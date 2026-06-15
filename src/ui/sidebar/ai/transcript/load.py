@@ -189,13 +189,24 @@ class _ChatPanelTranscriptLoadMixin:
             message_id=msg["id"],
         )
         if role == "assistant":
-            entry = self.current_model_entry()  # type: ignore[attr-defined]
+            from services.ai.chat.message_usage import (
+                effective_assistant_model_id,
+                entry_for_model_id,
+                model_display_name_from_entry,
+            )
+
+            session_model_id = getattr(self, "_transcript_session_model_id", None)
+            model_id = effective_assistant_model_id(msg.get("model_id"), session_model_id)
+            entry = entry_for_model_id(model_id, extra_entries=self._models)  # type: ignore[attr-defined]
+            model_label = msg.get("model_label") or model_display_name_from_entry(entry)
             bubble.set_usage_metadata(
-                model_id=msg.get("model_id"),
+                model_id=model_id,
+                model_label=model_label,
                 prompt_tokens=msg.get("prompt_tokens"),
                 completion_tokens=msg.get("completion_tokens"),
                 reasoning_tokens=msg.get("reasoning_tokens"),
                 entry=entry,
+                extra_entries=self._models,  # type: ignore[attr-defined]
             )
         return cast(ChatMessageBubble, bubble)
 

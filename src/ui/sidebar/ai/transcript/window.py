@@ -55,6 +55,7 @@ class _ChatPanelTranscriptWindowMixin(_ChatPanelTranscriptLoadMixin):
     _open_stream_generation: int
     _turn_scroll_anchor: ChatMessageBubble | None
     _virtual_session_id: str | None = None
+    _transcript_session_model_id: str | None = None
     _oldest_loaded_id: int | None = None
     _newest_loaded_id: int | None = None
     _has_older: bool = False
@@ -76,6 +77,7 @@ class _ChatPanelTranscriptWindowMixin(_ChatPanelTranscriptLoadMixin):
         self._bubble_height_by_id = {}
         self._evicted_turn_users = {}
         self._virtual_session_id = None
+        self._transcript_session_model_id = None
         self._oldest_loaded_id = None
         self._newest_loaded_id = None
         self._has_older = False
@@ -153,9 +155,16 @@ class _ChatPanelTranscriptWindowMixin(_ChatPanelTranscriptLoadMixin):
         if messages:
             self._empty_label.hide()
 
-    def begin_virtual_session(self, session_id: str, page: AiChatTranscriptPageDict) -> None:
+    def begin_virtual_session(
+        self,
+        session_id: str,
+        page: AiChatTranscriptPageDict,
+        *,
+        session_model_id: str | None = None,
+    ) -> None:
         """Bind *session_id* and initial tail page before incremental widget build."""
         self._virtual_session_id = session_id
+        self._transcript_session_model_id = session_model_id
         set_context_session_id = getattr(self, "set_context_session_id", None)
         if callable(set_context_session_id):
             set_context_session_id(session_id)
@@ -611,6 +620,7 @@ class _ChatPanelTranscriptWindowMixin(_ChatPanelTranscriptLoadMixin):
         self._bubble_by_message_id.clear()
         self._bubble_height_by_id.clear()
         self._virtual_session_id = None
+        self._transcript_session_model_id = None
         self._oldest_loaded_id = None
         self._newest_loaded_id = None
         self._has_older = False

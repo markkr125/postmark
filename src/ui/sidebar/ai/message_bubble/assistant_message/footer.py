@@ -9,10 +9,10 @@ from ui.sidebar.ai.message_bubble.assistant_message.actions_popup import (
     AiAssistantMessageActionsPopup,
 )
 from ui.styling.icons import phi
-from ui.styling.theme import COLOR_TEXT_MUTED
+from ui.styling.theme import COLOR_TEXT
 
 _MENU_BTN_SIZE = 20
-_MENU_ICON_SIZE = 15
+_MENU_ICON_SIZE = 17
 
 
 class AssistantMessageFooterRow(QWidget):
@@ -42,7 +42,7 @@ class AssistantMessageFooterRow(QWidget):
         self._menu_btn.setIconSize(QSize(_MENU_ICON_SIZE, _MENU_ICON_SIZE))
         self._menu_btn.setFixedSize(_MENU_BTN_SIZE, _MENU_BTN_SIZE)
         self._menu_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._menu_btn.setIcon(phi("dots-three", color=COLOR_TEXT_MUTED, size=_MENU_ICON_SIZE))
+        self._menu_btn.setIcon(phi("dots-three-bold", color=COLOR_TEXT, size=_MENU_ICON_SIZE))
         self._menu_btn.setToolTip("Message actions")
         self._menu_btn.clicked.connect(self._on_menu_clicked)
         row.addWidget(self._menu_btn, 0, Qt.AlignmentFlag.AlignRight)

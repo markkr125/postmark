@@ -1654,7 +1654,7 @@ def build_global_qss(p: ThemePalette) -> str:
         background: transparent;
         border: none;
         padding: 0;
-        color: {p["text_muted"]};
+        color: {p["text"]};
     }}
     QPushButton[objectName="aiChatAssistantMessageMenu"]:hover {{
         background: {"rgba(255,255,255,0.08)" if p is DARK_PALETTE else "rgba(0,0,0,0.06)"};

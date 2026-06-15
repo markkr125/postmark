@@ -493,13 +493,17 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
 
         bubble = self._resolve_streaming_bubble()
 
-        if thinking is not None or content is not None:
-            self.apply_assistant_final(
-                content if content is not None else "",
-                thinking=thinking if thinking is not None else "",
-            )
-        elif bubble is not None and bubble.is_content_streaming():
-            bubble.end_streaming(render=True)
+        if bubble is not None:
+            if thinking is not None or content is not None:
+                self.apply_assistant_final(
+                    content if content is not None else "",
+                    thinking=thinking if thinking is not None else "",
+                )
+                bubble.end_streaming(render=True)
+            elif bubble.is_content_streaming():
+                bubble.end_streaming(render=True)
+            else:
+                bubble.set_assistant_turn_complete(True)
 
         self._cancel_activity_timer()
         self._hide_stream_activity()

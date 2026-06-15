@@ -373,3 +373,58 @@ def test_lazy_session_restore_footer_below_assistant_tail(qapp: QApplication, qt
     footer_top = footer.mapTo(assistant, QPoint(0, 0)).y()
     assert footer_top >= content_bottom
     assert body._paint_footer_rule
+
+
+def test_transcript_legacy_assistant_uses_session_model_for_footer(
+    qapp: QApplication,
+    qtbot,
+    monkeypatch,
+) -> None:
+    """Assistant rows saved before per-message model ids use the session model."""
+    entry: AiModelEntry = {
+        "id": "gpt-test",
+        "provider": "openai",
+        "label": "GPT-4o",
+        "model": "openai/gpt-4o",
+        "base_url": "",
+        "api_version": "",
+        "auth_kind": "none",
+        "auth_ref": "",
+    }
+    monkeypatch.setattr(
+        "services.ai.chat.message_usage.AiConfig.get_models",
+        lambda: [entry],
+    )
+
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.set_models([entry])
+    messages: list[AiChatMessageDict] = [
+        {
+            "id": 1,
+            "session_id": "s1",
+            "role": "assistant",
+            "content": "Legacy answer",
+            "created_at": "2026-01-01T00:00:00+00:00",
+        },
+    ]
+    panel.prepare_transcript_load(lazy_markdown=False)
+    panel.begin_virtual_session(
+        "s1",
+        AiChatTranscriptPageDict(
+            messages=messages,
+            has_older=False,
+            has_newer=False,
+            oldest_id=1,
+            newest_id=1,
+        ),
+        session_model_id="gpt-test",
+    )
+    panel.load_transcript_async(messages, generation=1, lazy_markdown=False)
+    panel.flush_transcript_load()
+    qtbot.wait(10)
+
+    assistant = panel.findChildren(ChatMessageBubble)[0]
+    footer = assistant._assistant_footer
+    assert footer is not None
+    assert footer._usage_label.text() == "GPT-4o"

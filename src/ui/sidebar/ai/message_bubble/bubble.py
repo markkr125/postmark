@@ -236,10 +236,12 @@ class ChatMessageBubble(QWidget):
         self,
         *,
         model_id: str | None,
+        model_label: str | None = None,
         prompt_tokens: int | None = None,
         completion_tokens: int | None = None,
         reasoning_tokens: int | None = None,
         entry: AiModelEntry | None = None,
+        extra_entries: list[AiModelEntry] | None = None,
     ) -> None:
         """Apply persisted or live usage metadata to the assistant footer."""
         if self._role != "assistant" or self._assistant_footer is None:
@@ -251,11 +253,13 @@ class ChatMessageBubble(QWidget):
         if entry is not None:
             self._usage_entry = entry
         label = format_assistant_footer_label(
-            self._usage_entry,
+            entry if entry is not None else self._usage_entry,
             model_id,
+            model_label=model_label,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             reasoning_tokens=reasoning_tokens,
+            extra_entries=extra_entries,
         )
         self._assistant_footer.set_usage_text(label)
         self._assistant_footer.set_fork_enabled(self._message_id is not None)

@@ -11,7 +11,10 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, NotRequired, TypedDict, cast
 
 from database.data_paths import session_disk_dir, user_ai_conversations_root
-from database.models.ai_chat.ai_chat_query_repository import get_session_by_id
+from database.models.ai_chat.ai_chat_query_repository import (
+    allocate_fork_session_title,
+    get_session_by_id,
+)
 from database.models.ai_chat.ai_chat_query_repository import (
     get_session_with_messages as repo_get_session_with_messages,
 )
@@ -96,6 +99,7 @@ class AiChatMessageDict(TypedDict):
     thinking: NotRequired[str]
     thinking_duration_seconds: NotRequired[int | None]
     model_id: NotRequired[str | None]
+    model_label: NotRequired[str | None]
     prompt_tokens: NotRequired[int | None]
     completion_tokens: NotRequired[int | None]
     reasoning_tokens: NotRequired[int | None]
@@ -441,10 +445,18 @@ class AiChatSessionService:
         thinking: str = "",
         thinking_duration_seconds: int | None = None,
         model_id: str | None = None,
+        model_label: str | None = None,
         usage: ContextUsageSdkMetrics | None = None,
     ) -> AiChatMessageDict:
         """Persist an assistant message and touch the session preview."""
-        from services.ai.chat.message_usage import turn_usage_delta
+        from services.ai.chat.message_usage import (
+            entry_for_model_id,
+            model_display_name_from_entry,
+            turn_usage_delta,
+        )
+
+        if model_label is None and model_id is not None:
+            model_label = model_display_name_from_entry(entry_for_model_id(model_id))
 
         preview = (content or thinking).strip().replace("\n", " ")[:_TITLE_PREVIEW_LEN]
         touch_session(session_id, last_preview=preview)
@@ -459,6 +471,7 @@ class AiChatSessionService:
             thinking=thinking,
             thinking_duration_seconds=thinking_duration_seconds,
             model_id=model_id,
+            model_label=model_label,
             prompt_tokens=turn_usage.get("prompt_tokens") if turn_usage else None,
             completion_tokens=turn_usage.get("completion_tokens") if turn_usage else None,
             reasoning_tokens=turn_usage.get("reasoning_tokens") if turn_usage else None,
@@ -497,9 +510,7 @@ class AiChatSessionService:
             return None
         new_session_id = str(uuid.uuid4())
         source_title = str(source.get("title") or "Chat").strip() or "Chat"
-        fork_title = f"Fork of {source_title}"
-        if len(fork_title) > 255:
-            fork_title = fork_title[:252] + "…"
+        fork_title = allocate_fork_session_title(source_session_id, source_title)
         row = create_session(
             session_id=new_session_id,
             title=fork_title,
@@ -639,6 +650,7 @@ class AiChatSessionService:
             thinking=str(row.get("thinking") or ""),
             thinking_duration_seconds=row.get("thinking_duration_seconds"),
             model_id=row.get("model_id"),
+            model_label=row.get("model_label"),
             prompt_tokens=row.get("prompt_tokens"),
             completion_tokens=row.get("completion_tokens"),
             reasoning_tokens=row.get("reasoning_tokens"),

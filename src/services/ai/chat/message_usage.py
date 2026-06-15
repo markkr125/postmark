@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from services.ai.ai_config import AiConfig, AiModelEntry
 from services.ai.chat.context_usage import ContextUsageSdkMetrics
 from services.ai.provider_catalog import cost_per_token_for_entry
@@ -75,45 +77,102 @@ def _format_usd_amount(usd: float) -> str:
     return f"${text.rstrip('0').rstrip('.')}"
 
 
-def resolve_model_display_name(model_id: str | None, entry: AiModelEntry | None) -> str:
+def effective_assistant_model_id(
+    message_model_id: str | None,
+    session_model_id: str | None = None,
+) -> str | None:
+    """Return the model id to display for an assistant row."""
+    if message_model_id:
+        return message_model_id
+    return session_model_id
+
+
+def entry_for_model_id(
+    model_id: str | None,
+    *,
+    extra_entries: Iterable[AiModelEntry] | None = None,
+) -> AiModelEntry | None:
+    """Return the configured model entry for *model_id*, if present."""
+    if not model_id:
+        return None
+    seen: set[str] = set()
+    for candidate in (*tuple(extra_entries or ()), *AiConfig.get_models()):
+        row_id = str(candidate.get("id") or "")
+        if not row_id or row_id in seen:
+            continue
+        seen.add(row_id)
+        if row_id == model_id:
+            return candidate
+    return None
+
+
+def model_display_name_from_entry(entry: AiModelEntry | None) -> str | None:
+    """Return the human-readable model label from a model entry."""
+    if entry is None:
+        return None
+    label = str(entry.get("label") or "").strip()
+    if label:
+        return label
+    model = str(entry.get("model") or "").strip()
+    return model or None
+
+
+def resolve_model_display_name(
+    model_id: str | None,
+    entry: AiModelEntry | None,
+    *,
+    extra_entries: Iterable[AiModelEntry] | None = None,
+) -> str:
     """Return a human-readable model label for footer display."""
-    if entry is not None:
-        label = str(entry.get("label") or "").strip()
-        if label:
-            return label
-        model = str(entry.get("model") or "").strip()
-        if model:
-            return model
+    resolved = entry_for_model_id(model_id, extra_entries=extra_entries) or entry
+    if resolved is not None:
+        name = model_display_name_from_entry(resolved)
+        if name:
+            return name
     if model_id:
-        for candidate in AiConfig.get_models():
-            if candidate.get("id") == model_id:
-                label = str(candidate.get("label") or "").strip()
-                if label:
-                    return label
-                model = str(candidate.get("model") or "").strip()
-                if model:
-                    return model
-                break
+        return model_id
     return "Unknown model"
+
+
+def resolve_assistant_footer_name(
+    *,
+    model_label: str | None,
+    model_id: str | None,
+    entry: AiModelEntry | None = None,
+    extra_entries: Iterable[AiModelEntry] | None = None,
+) -> str:
+    """Resolve footer model text from persisted label and/or model id."""
+    stored = str(model_label or "").strip()
+    if stored:
+        return stored
+    return resolve_model_display_name(model_id, entry, extra_entries=extra_entries)
 
 
 def format_assistant_footer_label(
     entry: AiModelEntry | None,
     model_id: str | None,
     *,
+    model_label: str | None = None,
     prompt_tokens: int | None,
     completion_tokens: int | None,
     reasoning_tokens: int | None,
+    extra_entries: Iterable[AiModelEntry] | None = None,
 ) -> str:
     """Build footer text: model name plus turn cost when pricing is known."""
-    name = resolve_model_display_name(model_id, entry)
+    resolved_entry = entry_for_model_id(model_id, extra_entries=extra_entries) or entry
+    name = resolve_assistant_footer_name(
+        model_label=model_label,
+        model_id=model_id,
+        entry=resolved_entry,
+        extra_entries=extra_entries,
+    )
     prompt = int(prompt_tokens or 0)
     completion = int(completion_tokens or 0)
     reasoning = int(reasoning_tokens or 0)
     if prompt <= 0 and completion <= 0 and reasoning <= 0:
         return name
     cost = message_turn_cost_usd(
-        entry,
+        resolved_entry,
         prompt_tokens=prompt,
         completion_tokens=completion,
         reasoning_tokens=reasoning,
@@ -124,8 +183,12 @@ def format_assistant_footer_label(
 
 
 __all__ = [
+    "effective_assistant_model_id",
+    "entry_for_model_id",
     "format_assistant_footer_label",
     "message_turn_cost_usd",
+    "model_display_name_from_entry",
+    "resolve_assistant_footer_name",
     "resolve_model_display_name",
     "turn_usage_delta",
 ]

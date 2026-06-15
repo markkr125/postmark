@@ -223,7 +223,7 @@ Core ORM models, all inheriting from `Base`:
 | `RequestAssertionModel` | `request_assertions` | `database/models/request_assertions/model/request_assertion_model.py` |
 | `RequestHistoryEntryModel` | `request_history_entries` | `database/models/request_history/model/request_history_entry_model.py` — includes `was_persisted_request` (required on disk in some DBs) |
 | `AiChatSessionModel` | `ai_chat_sessions` | `database/models/ai_chat/model/ai_chat_session_model.py` — searchable session index (`agent_id` defaults to `postmark-assistant`) |
-| `AiChatMessageModel` | `ai_chat_messages` | `database/models/ai_chat/model/ai_chat_message_model.py` — transcript rows (`content` answer, `thinking` internal trace, `thinking_duration_seconds` for restored “Thought for Ns” header; optional `model_id`, `prompt_tokens`, `completion_tokens`, `reasoning_tokens` per assistant turn) for search/repaint |
+| `AiChatMessageModel` | `ai_chat_messages` | `database/models/ai_chat/model/ai_chat_message_model.py` — transcript rows (`content` answer, `thinking` internal trace, `thinking_duration_seconds` for restored “Thought for Ns” header; optional `model_id`, `model_label`, `prompt_tokens`, `completion_tokens`, `reasoning_tokens` per assistant turn) for search/repaint |
 
 ### Path helpers (`data_paths.py`)
 
@@ -242,7 +242,8 @@ AI chat stores **searchable metadata** in the project SQLite (`ai_chat_sessions`
 under `session_disk_dir(id)`. Repositories: `ai_chat_repository.py` (mutations,
 including explicit message-row delete + `shutil.rmtree` of the hex dir);
 `ai_chat_query_repository.py` (read-only `list_sessions`, `search_messages`,
-`list_messages_tail`, `list_messages_before`, `list_messages_after`).
+`list_messages_tail`, `list_messages_before`, `list_messages_after`,
+`allocate_fork_session_title`, `count_fork_family_sessions`).
 
 ### Request send history — metadata vs files
 
