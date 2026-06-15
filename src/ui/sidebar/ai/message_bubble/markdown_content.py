@@ -84,6 +84,7 @@ class MarkdownContent(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
         self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
         self.setMouseTracking(True)
+        self.setCursor(Qt.CursorShape.IBeamCursor)
         self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -218,10 +219,27 @@ class MarkdownContent(QWidget):
         self._set_document_html(html, preserve_selection=True)
         if text_width > 0:
             self._document.setTextWidth(text_width)
-        if self._copy_hover_index is not None:
+        if self.underMouse():
+            self._sync_hover_cursor(QPointF(self.mapFromGlobal(QCursor.pos())))
+
+    def _interactive_anchor_at(self, pos: QPointF) -> str | None:
+        """Return the anchor href under *pos* when it should show a hand cursor."""
+        anchor = self._document.documentLayout().anchorAt(pos)
+        if not anchor:
+            return None
+        if parse_code_copy_block_index(anchor) is not None:
+            return anchor
+        url = QUrl(anchor)
+        if url.isValid():
+            return anchor
+        return None
+
+    def _sync_hover_cursor(self, pos: QPointF) -> None:
+        """Use a text cursor over prose and a hand over links and Copy controls."""
+        if self._copy_hover_index is not None or self._interactive_anchor_at(pos) is not None:
             self.setCursor(Qt.CursorShape.PointingHandCursor)
-        elif self.underMouse():
-            self._update_copy_hover(QPointF(self.mapFromGlobal(QCursor.pos())))
+        else:
+            self.setCursor(Qt.CursorShape.IBeamCursor)
 
     def _copy_block_index_at(self, pos: QPointF) -> int | None:
         """Return the fenced-code Copy index under widget-local *pos*, if any."""
@@ -248,7 +266,7 @@ class MarkdownContent(QWidget):
             if self._copy_hover_index is not None:
                 self._copy_hover_index = None
                 self._refresh_copy_chrome()
-            self.unsetCursor()
+            self.setCursor(Qt.CursorShape.IBeamCursor)
             return
         self._update_copy_hover(local)
 
@@ -256,17 +274,11 @@ class MarkdownContent(QWidget):
         """Track hover over fenced-code Copy links for cursor and label styling."""
         hover_index = self._copy_block_index_at(pos)
         if hover_index == self._copy_hover_index:
-            if hover_index is not None:
-                self.setCursor(Qt.CursorShape.PointingHandCursor)
-            else:
-                self.unsetCursor()
+            self._sync_hover_cursor(pos)
             return
         self._copy_hover_index = hover_index
         self._refresh_copy_chrome()
-        if hover_index is not None:
-            self.setCursor(Qt.CursorShape.PointingHandCursor)
-        else:
-            self.unsetCursor()
+        self._sync_hover_cursor(pos)
 
     def _invalidate_measured_height(self) -> None:
         """Drop cached wrap height so the next measure recomputes."""
@@ -643,7 +655,7 @@ class MarkdownContent(QWidget):
         if self._copy_hover_index is not None:
             self._copy_hover_index = None
             self._refresh_copy_chrome()
-        self.unsetCursor()
+        self.setCursor(Qt.CursorShape.IBeamCursor)
         super().leaveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:

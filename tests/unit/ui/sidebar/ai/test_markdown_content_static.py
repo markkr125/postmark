@@ -137,6 +137,63 @@ def test_markdown_content_enables_mouse_tracking(qapp: QApplication, qtbot) -> N
     assert body.hasMouseTracking()
 
 
+def test_markdown_content_default_cursor_is_ibeam(qapp: QApplication, qtbot) -> None:
+    """Assistant markdown bodies default to a text-selection cursor."""
+    body = MarkdownContent("Plain assistant answer text.")
+    qtbot.addWidget(body)
+    assert body.cursor().shape() == Qt.CursorShape.IBeamCursor
+
+
+def test_plain_text_hover_uses_ibeam_cursor(qapp: QApplication, qtbot) -> None:
+    """Hovering prose keeps the text cursor."""
+    body = MarkdownContent("Plain assistant answer text.")
+    qtbot.addWidget(body)
+    body.resize(360, 120)
+    body.show()
+    qtbot.waitExposed(body)
+
+    local = QPointF(body.width() / 2, body.height() / 2)
+    with patch.object(body._document.documentLayout(), "anchorAt", return_value=""):
+        move = QMouseEvent(
+            QMouseEvent.Type.MouseMove,
+            local,
+            local,
+            Qt.MouseButton.NoButton,
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        body.mouseMoveEvent(move)
+
+    assert body.cursor().shape() == Qt.CursorShape.IBeamCursor
+
+
+def test_markdown_link_hover_uses_pointing_hand_cursor(qapp: QApplication, qtbot) -> None:
+    """Hovering a markdown link shows a pointing-hand cursor."""
+    body = MarkdownContent("[Example](https://example.com/test)")
+    qtbot.addWidget(body)
+    body.resize(360, 120)
+    body.show()
+    qtbot.waitExposed(body)
+
+    local = QPointF(24, 12)
+    with patch.object(
+        body._document.documentLayout(),
+        "anchorAt",
+        return_value="https://example.com/test",
+    ):
+        move = QMouseEvent(
+            QMouseEvent.Type.MouseMove,
+            local,
+            local,
+            Qt.MouseButton.NoButton,
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        body.mouseMoveEvent(move)
+
+    assert body.cursor().shape() == Qt.CursorShape.PointingHandCursor
+
+
 def test_copy_link_hover_sets_pointing_hand_cursor(qapp: QApplication, qtbot) -> None:
     """Hovering a Copy link shows a pointing-hand cursor."""
     body = MarkdownContent("```python\nprint(1)\n```")
