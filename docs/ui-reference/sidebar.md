@@ -237,12 +237,12 @@ GUI thread (~50ms) before updating the active bubble. Rich markdown stays live
 during streaming via an incremental segment renderer: stable prose and closed code
 blocks are reused; only the changed tail is re-rendered. Open (unclosed) fenced
 code uses a cheap provisional monospace block; full Pygments highlighting applies
-when the fence closes or the stream finalizes. Pipe-table blocks render as
-stable plain text while streaming so incomplete table syntax cannot blow up Qt
-table layout; finalised rows use the normal full markdown renderer. The
+when the fence closes or the stream finalizes. Complete pipe-table blocks render
+as Qt tables during streaming; incomplete table blocks stay as stable plain text
+until enough rows arrive or the stream finalizes. The
 transcript scroll area
 (``aiChatScroll``) uses **smooth wheel scrolling** via ``SmoothScroller``
-(``chat_panel/smooth_scroll.py``): a viewport event filter intercepts wheel input
+(``chat_panel/scroll/smooth_scroll.py``): a viewport event filter intercepts wheel input
 forwarded from message rows, accumulates a target scrollbar offset, and animates
 ``verticalScrollBar`` movement at ~60Hz with a time-based OutCubic ease;
 mouse ``angleDelta`` uses browser-like notch distance, while trackpad ``pixelDelta``
@@ -311,7 +311,7 @@ The clone copies the anchor user prompt and ``sent_at`` timestamp, compacts row
 margins to pin flush to the viewport top, keeps at least 3px inset from the
 viewport right edge, and sits up to 4px further left than the in-transcript
 user bubble.
-Sticky overlay logic lives in ``chat_panel/sticky_prompt.py``
+Sticky overlay logic lives in ``chat_panel/scroll/sticky_prompt.py``
 (``_ChatPanelStickyPromptMixin``). Turn pairs are cached in ``_sticky_turn_pairs`` with
 a dirty flag; scroll-independent Y extents per pair live in ``_sticky_turn_extents``
 (indexed by turn identity) with user top/bottom and assistant top/bottom in
@@ -442,9 +442,16 @@ The manage control emits
 ``AiChatPanel.manage_models_requested`` → ``MainWindow`` opens Settings → AI →
 **Models** and refreshes the picker.
 
-A **chart-pie-slice** icon button (shared ``iconButton`` styling) shows context
-usage in its tooltip via ``set_context_usage()``; clicking emits
-``context_requested`` (not wired yet).
+A **context usage ring** (``ContextUsageRingButton``, ``objectName="aiChatContextRing"``) shows fill level for the active model's context window. Clicking opens ``AiChatContextUsagePopup`` (``objectName="aiChatContextPopup"``) with a Cursor-style eight-bucket breakdown, a stacked bar whose colored fill spans only the used share of the window (remaining track is empty headroom), and an **Estimated** label when counts are heuristic. ``set_context_breakdown`` / ``refresh_context_usage`` drive the ring; ``ContextUsageWorker`` rebuilds counts off-thread via ``ContextUsageService`` (``context_usage.py``), preferring persisted OpenHands SDK ``View`` token counts from ``context_usage_sdk.measure_sdk_view`` when SDK events exist and falling back to full SQLite transcript estimates before the model context is available. When usage is ≥70% and counts are still estimated, the popup shows honesty hints (provisional ring until SDK context loads; optional line when the saved transcript is larger than the SDK-loaded context). After OpenHands compaction, a muted ``aiChatSummarizedNotice`` row may appear in the transcript.
+
+| Method / signal | Description |
+|-----------------|-------------|
+| ``context_requested`` | Ring clicked — toggles the breakdown popup (mutually exclusive with model/mode/history popups) |
+| ``set_context_breakdown(breakdown)`` | Apply ``ContextUsageBreakdown`` to ring + open popup |
+| ``refresh_context_usage(sdk_metrics=…)`` | Debounced recompute (200 ms); optional SDK metrics after a run |
+| ``on_context_compacted()`` | Insert summarized-context notice after first compaction |
+
+``AiChatWorker`` also emits ``usage_updated`` (SDK metrics) and ``context_compacted``; the controller connects these to ``refresh_context_usage`` / ``on_context_compacted``. Compaction uses ``LLMSummarizingCondenser`` (see ``compaction.py`` constants) and surfaces **Summarizing earlier messages…** via ``status_changed``. When ring usage is high, the worker logs ``[postmark.ai]`` diagnostics comparing SQLite rows/tokens, SDK event/token counts, condenser thresholds, and condensation reasons.
 
 ### Key Attributes
 

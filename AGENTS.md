@@ -215,6 +215,9 @@ src/
 │   │       ├── agent_registry.py  # PostmarkAgentDef + DEFAULT_AGENT_ID
 │   │       ├── tool_registry.py   # register_postmark_tool / resolve_tools
 │   │       ├── response_text.py   # Turn-scoped thinking/answer extraction from SDK messages + stream chunks
+│   │       ├── compaction.py      # CHAT_CONDENSER_MAX_* constants for LLMSummarizingCondenser
+│   │       ├── context_usage.py   # ContextUsageService + breakdown TypedDicts + SQLite fallback
+│   │       ├── context_usage_sdk.py # OpenHands SDK View token accounting + compaction diagnostics
 │   │       ├── transcript_window.py # Turn-aware tail/older/newer slice helpers + paging constants
 │   │       └── session_service.py # AiChatSessionService — SQLite index + SDK bridge
 │   ├── assertion_service.py       # AssertionService + AssertionDict — declarative tests CRUD + compile
@@ -330,15 +333,22 @@ src/
     │   ├── sidebar_widget.py      # RightSidebar (icon rail) + _FlyoutPanel
     │   ├── ai/                    # AI assistant chat panel
     │   │   ├── agent_mode_popup.py  # AgentModeButton + AiAgentModePopup (Agent / Ask / Plan)
-    │   │   ├── chat_panel/        # AiChatPanel sub-package (panel, composer, scroll, smooth_scroll, sticky_prompt)
+    │   │   ├── chat_panel/        # AiChatPanel sub-package (panel, composer, context ring, scroll/)
     │   │   │   ├── panel.py       # AiChatPanel — transcript + composer
     │   │   │   ├── composer.py    # _ComposerInput + ModelPickerButton
-    │   │   │   └── scroll.py      # _ChatPanelScrollMixin — direction-based scroll-lock, turn-start anchor, viewport spacer, queued follow passes
+    │   │   │   ├── context_ring_button.py  # ContextUsageRingButton (aiChatContextRing)
+    │   │   │   ├── context_usage_panel.py  # _ChatPanelContextUsageMixin — debounced refresh + popup
+    │   │   │   └── scroll/        # Scroll-lock, smooth wheel, sticky prompt overlay
+    │   │   │       ├── scroll.py  # _ChatPanelScrollMixin — direction-based scroll-lock, turn-start anchor, viewport spacer, queued follow passes
+    │   │   │       ├── smooth_scroll.py  # SmoothScroller — animated viewport wheel
+    │   │   │       └── sticky_prompt.py  # _ChatPanelStickyPromptMixin — viewport sticky user prompt
+    │   │   ├── chat_context_popup.py  # AiChatContextUsagePopup — Cursor-style breakdown flyout
     │   │   ├── chat_panel_streaming.py  # _ChatPanelStreamingMixin — stream orchestration + activity timer
     │   │   ├── chat_transcript_load.py  # Re-export shim → transcript.load
     │   │   ├── transcript/  # Virtualized transcript mixins
     │   │   │   ├── load.py  # _ChatPanelTranscriptLoadMixin — incremental session transcript load
     │   │   │   ├── older_loading_row.py  # TranscriptOlderLoadingRow — top-row older-page spinner
+    │   │   │   ├── summarized_notice.py  # aiChatSummarizedNotice row after compaction
     │   │   │   └── window.py  # _ChatPanelTranscriptWindowMixin — tail paging, eviction, virtual spacers
     │   │   ├── chat_transcript_loading_row.py  # ChatTranscriptLoadingOverlay — viewport line animation during session load
     │   │   ├── chat_sessions/     # Session history popover + time formatting
@@ -347,13 +357,15 @@ src/
     │   │   │   └── time_format.py
     │   │   ├── workers/           # AiChatWorker + AiChatTitleWorker (QThread)
     │   │   │   ├── chat_worker.py
+    │   │   │   ├── context_usage_worker.py
     │   │   │   ├── session_load_worker.py
     │   │   │   └── title_worker.py
     │   │   ├── markdown/          # Custom assistant markdown HTML (fence split + Pygments code blocks)
     │   │   │   ├── fence_split.py
     │   │   │   ├── highlight_code.py
     │   │   │   ├── render.py
-    │   │   │   └── streaming_render.py  # StreamingMarkdownCache — incremental segment reuse
+    │   │   │   ├── streaming_render.py  # StreamingMarkdownCache — incremental segment reuse
+    │   │   │   └── streaming_table.py   # StreamingTableRenderer — row-by-row GFM tables + inline cell markdown during stream
     │   │   ├── message_bubble/    # ChatMessageBubble sub-package (bubble, markdown body, thought, activity)
     │   │   │   ├── bubble.py      # ChatMessageBubble — user bubble + assistant row; UserMessageStickyMetrics
     │   │   │   ├── markdown_content.py  # MarkdownContent + theme re-render registry
@@ -582,6 +594,7 @@ tests/
 │   │       ├── test_chat_markdown_render.py
 │   │       ├── test_chat_markdown_streaming.py
 │   │       ├── test_chat_markdown_streaming_render.py
+│   │       ├── test_streaming_table.py
 │   │       ├── test_markdown_content_height.py
 │   │       └── test_bubble_stream_row_height.py
 │   └── services/                  # Service layer tests
@@ -609,6 +622,7 @@ tests/
 │       ├── ai/                    # AI config + LLM service tests
 │       │   ├── test_ai_config.py
 │       │   ├── test_chat_session_service.py
+│       │   ├── test_context_usage.py
 │       │   ├── test_session_transcript_window.py
 │       │   ├── test_postmark_agent_registry.py
 │       │   ├── test_model_metadata.py
@@ -735,7 +749,8 @@ poetry run mypy src/ tests/                # type checker clean
 
 > **CRITICAL — Do not disable pytest parallelism for full-suite runs.**
 > Use plain `poetry run pytest` so `pyproject.toml` addopts apply (`-n auto`,
-> `--dist loadfile`, `--timeout=120`, `--max-worker-restart=8`). That finishes
+> `--dist loadfile`, `--timeout=120`, `--max-worker-restart=8`). Worker count is
+> capped at 8 via ``pytest_xdist_auto_num_workers`` in ``tests/conftest.py``.
 > in about **2–3 minutes**.
 > **Never** run the full suite with `-n0` or `--numprocesses=0` for routine
 > validation — single-process runs take **~10+ minutes** and feel hung.

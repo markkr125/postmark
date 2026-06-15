@@ -14,7 +14,16 @@ from services.ai.chat.response_text import (
     merge_stream_text,
     resolve_assistant_parts,
 )
+from services.ai.chat.compaction import (
+    CHAT_CONDENSER_DIAGNOSTIC_USAGE_FRACTION,
+    log_compaction_diagnostics,
+)
+from services.ai.chat.context_usage import (
+    ContextUsageService,
+    metrics_from_conversation,
+)
 from services.ai.chat.session_service import AiChatSessionService, ComposerRunContext
+from services.ai.provider_catalog import effective_run_context_tokens
 
 if TYPE_CHECKING:
     from openhands.sdk import BaseConversation
@@ -24,6 +33,33 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _STOPPED_MESSAGE = "Stopped"
+_SUMMARIZING_STATUS = "Summarizing earlier messages…"
+_COMPACTION_EVENT_NAMES = frozenset(
+    {"Condensation", "CondensationRequest", "CondensationSummaryEvent"}
+)
+
+try:
+    from openhands.sdk.event.condenser import Condensation as _SdkCondensation
+    from openhands.sdk.event.condenser import CondensationRequest as _SdkCondensationRequest
+except ImportError:
+    _SdkCondensation = None  # type: ignore[misc, assignment]
+    _SdkCondensationRequest = None  # type: ignore[misc, assignment]
+
+
+def _is_compaction_event(event: object) -> bool:
+    """Return whether *event* is an OpenHands condensation lifecycle event."""
+    if _SdkCondensation is not None and isinstance(event, _SdkCondensation):
+        return True
+    if _SdkCondensationRequest is not None and isinstance(event, _SdkCondensationRequest):
+        return True
+    return type(event).__name__ in _COMPACTION_EVENT_NAMES
+
+
+def _is_compaction_request_event(event: object) -> bool:
+    """Return whether *event* is the pre-condensation request signal."""
+    if _SdkCondensationRequest is not None and isinstance(event, _SdkCondensationRequest):
+        return True
+    return type(event).__name__ == "CondensationRequest"
 
 
 def _safe_close(conv: BaseConversation | None) -> None:
@@ -48,6 +84,8 @@ class AiChatWorker(QObject):
     assistant_finished = Signal(str, str)
     failed = Signal(str, str, str)
     status_changed = Signal(str)
+    context_compacted = Signal()
+    usage_updated = Signal(object)
 
     def __init__(self) -> None:
         """Initialise with empty run parameters."""
@@ -61,6 +99,7 @@ class AiChatWorker(QObject):
         self._stop_requested = False
         self._thinking_buffer = ""
         self._content_buffer = ""
+        self._compaction_status_emitted = False
 
     def set_run(
         self,
@@ -81,6 +120,7 @@ class AiChatWorker(QObject):
         self._stop_requested = False
         self._thinking_buffer = ""
         self._content_buffer = ""
+        self._compaction_status_emitted = False
 
     def cancel(self) -> None:
         """Request interruption of the in-flight conversation run.
@@ -133,9 +173,24 @@ class AiChatWorker(QObject):
                     self.chunk_received.emit(thinking_delta, content_delta)
 
             def event_cb(event: Event) -> None:
+                if _is_compaction_request_event(event):
+                    if not self._compaction_status_emitted:
+                        self.status_changed.emit(_SUMMARIZING_STATUS)
+                        self._compaction_status_emitted = True
+                    return
+                if _is_compaction_event(event):
+                    if not self._compaction_status_emitted:
+                        self.status_changed.emit(_SUMMARIZING_STATUS)
+                    self._compaction_status_emitted = True
+                    self.context_compacted.emit()
+                    return
                 status = getattr(event, "status", None)
                 if status is not None:
-                    self.status_changed.emit(str(status))
+                    text = str(status)
+                    if "summariz" in text.lower():
+                        self.status_changed.emit(_SUMMARIZING_STATUS)
+                    else:
+                        self.status_changed.emit(text)
 
             conv = AiChatSessionService.build_conversation(
                 self._session_id,
@@ -149,6 +204,33 @@ class AiChatWorker(QObject):
             if self._stop_requested:
                 self._emit_failure(conv, _STOPPED_MESSAGE)
                 return
+
+            run_context = int(
+                (self._composer or {}).get("run_context_tokens")
+                or effective_run_context_tokens(entry)
+                or 0
+            )
+            messages = AiChatSessionService.get_messages(self._session_id)
+            agent = getattr(conv, "agent", None)
+            diagnostics = ContextUsageService.collect_compaction_diagnostics(
+                session_id=self._session_id,
+                messages=messages,
+                entry=entry,
+                agent_id=self._agent_id,
+                condenser=getattr(agent, "condenser", None),
+                agent_llm=getattr(agent, "llm", None),
+                run_context_tokens=run_context,
+            )
+            ring_total = int(diagnostics.get("ring_total_tokens", 0) or 0)
+            ring_used = int(diagnostics.get("ring_used_tokens", 0) or 0)
+            if (
+                ring_total > 0
+                and ring_used / ring_total >= CHAT_CONDENSER_DIAGNOSTIC_USAGE_FRACTION
+            ):
+                log_compaction_diagnostics(
+                    session_id=self._session_id,
+                    diagnostics=diagnostics,
+                )
 
             conv.send_message(self._text)
             if self._stop_requested:
@@ -168,6 +250,18 @@ class AiChatWorker(QObject):
                 self.chunk_received.emit(think_tail, content_tail)
             self._thinking_buffer = final.thinking
             self._content_buffer = final.content
+            sdk_metrics = metrics_from_conversation(conv, self._session_id)
+            if sdk_metrics is not None:
+                self.usage_updated.emit(sdk_metrics)
+            if (
+                ring_total > 0
+                and ring_used / ring_total >= CHAT_CONDENSER_DIAGNOSTIC_USAGE_FRACTION
+            ):
+                log_compaction_diagnostics(
+                    session_id=self._session_id,
+                    diagnostics=diagnostics,
+                    condensation_occurred=self._compaction_status_emitted,
+                )
             _safe_close(conv)
             conv = None
             self._conv = None

@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread, Signal, Slot, QSize
-from PySide6.QtGui import QResizeEvent, QShowEvent
+from PySide6.QtGui import QHideEvent, QResizeEvent, QShowEvent
 from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
@@ -23,6 +23,8 @@ from services.ai.provider_catalog import effective_run_context_tokens, format_ru
 from services.ai.reasoning_effort import clamp_effort, default_effort_for, format_reasoning_effort
 from ui.sidebar.ai.agent_mode_popup import AgentModeButton, AiAgentModePopup
 from ui.sidebar.ai.chat_panel.composer import ModelPickerButton, _ComposerInput
+from ui.sidebar.ai.chat_panel.context_ring_button import ContextUsageRingButton
+from ui.sidebar.ai.chat_panel.context_usage_panel import _ChatPanelContextUsageMixin
 from ui.sidebar.ai.chat_panel_streaming import _ChatPanelStreamingMixin
 from ui.sidebar.ai.chat_transcript_loading_row import ChatTranscriptLoadingOverlay
 from ui.sidebar.ai.message_bubble import ChatMessageBubble
@@ -37,7 +39,7 @@ _CHAT_SCROLL_PADDING_RIGHT = 8
 _CHAT_COMPOSER_MARGIN_H = 8
 
 
-class AiChatPanel(_ChatPanelStreamingMixin, QWidget):  # type: ignore[misc]
+class AiChatPanel(_ChatPanelStreamingMixin, _ChatPanelContextUsageMixin, QWidget):  # type: ignore[misc]
     """Right-sidebar AI chat skeleton (transcript + composer)."""
 
     message_submitted = Signal(str)
@@ -50,6 +52,9 @@ class AiChatPanel(_ChatPanelStreamingMixin, QWidget):  # type: ignore[misc]
     transcript_load_finished = Signal()
     _assistant_chunk_delivery_requested = Signal(str, str)
     _activity_status_delivery_requested = Signal(str)
+    _context_usage_metrics_delivery_requested = Signal(object)
+    _context_usage_refresh_delivery_requested = Signal()
+    _context_usage_schedule_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Build the transcript scroll area and the composer."""
@@ -174,14 +179,8 @@ class AiChatPanel(_ChatPanelStreamingMixin, QWidget):  # type: ignore[misc]
         controls.addWidget(self._model_btn, 0)
         controls.addStretch(1)
 
-        self._context_btn = QPushButton()
-        self._context_btn.setObjectName("iconButton")
-        self._context_btn.setIcon(phi("chart-pie-slice", size=16))
-        self._context_btn.setFixedSize(28, 28)
-        self._context_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._context_btn.setToolTip("Context: —")
-        self._context_btn.clicked.connect(self.context_requested.emit)
-        controls.addWidget(self._context_btn)
+        self._context_ring = ContextUsageRingButton()
+        controls.addWidget(self._context_ring)
 
         self._upload_btn = QPushButton()
         self._upload_btn.setObjectName("iconButton")
@@ -205,12 +204,31 @@ class AiChatPanel(_ChatPanelStreamingMixin, QWidget):  # type: ignore[misc]
         root.addWidget(composer)
 
         self._init_chat_streaming_state()
+        self._init_context_usage_state()
         queued = Qt.ConnectionType.QueuedConnection
         self._assistant_chunk_delivery_requested.connect(self._apply_assistant_chunk, queued)
         self._activity_status_delivery_requested.connect(self._apply_activity_status, queued)
+        self._context_usage_metrics_delivery_requested.connect(
+            self._apply_context_usage_metrics,
+            queued,
+        )
+        self._context_usage_refresh_delivery_requested.connect(
+            self._apply_context_usage_refresh,
+            queued,
+        )
+        self._context_usage_schedule_requested.connect(
+            self._schedule_context_usage_refresh_on_gui,
+            queued,
+        )
 
         self.set_models([])
-        self.set_context_usage(0, 0)
+        self._reset_context_usage_chrome()
+
+    def hideEvent(self, event: QHideEvent) -> None:
+        """Dismiss context popover when the panel is hidden."""
+        self._hide_context_popup()
+        self._shutdown_context_usage_worker()
+        super().hideEvent(event)
 
     @Slot(str, str)
     def deliver_assistant_chunk(self, thinking_delta: str, content_delta: str) -> None:
@@ -253,7 +271,8 @@ class AiChatPanel(_ChatPanelStreamingMixin, QWidget):  # type: ignore[misc]
         self._refresh_model_button()
         entry = self._entry_by_id(self._current_model_id) if self._current_model_id else None
         total = effective_run_context_tokens(entry) if entry is not None else 0
-        self.set_context_usage(0, total)
+        self._context_ring.set_usage(0, total)
+        self.refresh_context_usage()
 
     def _entry_by_id(self, model_id: str) -> AiModelEntry | None:
         """Return the model entry with *model_id*, if present."""
@@ -363,17 +382,13 @@ class AiChatPanel(_ChatPanelStreamingMixin, QWidget):  # type: ignore[misc]
         return list(self._attachments)
 
     def set_context_usage(self, used_tokens: int, total_tokens: int) -> None:
-        """Update the context button tooltip. ``total_tokens <= 0`` shows a dash."""
-        if total_tokens <= 0:
-            self._context_btn.setToolTip("Context: —")
-            return
-        pct = min(100, round(100 * used_tokens / total_tokens))
-        used = format_run_context_tokens(used_tokens)
-        total = format_run_context_tokens(total_tokens)
-        self._context_btn.setToolTip(f"Context: {pct}% ({used}/{total})")
+        """Update the context ring tooltip. ``total_tokens <= 0`` shows a dash."""
+        self._context_ring.set_usage(used_tokens, total_tokens)
 
     def clear(self) -> None:
         """Remove all message bubbles and restore the empty state."""
+        self._hide_context_popup()
+        self._reset_context_usage_chrome()
         self.clear_streaming_transcript()
 
     # ------------------------------------------------------------------
@@ -415,6 +430,7 @@ class AiChatPanel(_ChatPanelStreamingMixin, QWidget):  # type: ignore[misc]
 
     def _open_model_picker(self) -> None:
         """Open or close the model picker (toggle when already visible)."""
+        self._hide_context_popup()
         if not self._models:
             return
         if self._picker_popup.isVisible():
@@ -444,7 +460,8 @@ class AiChatPanel(_ChatPanelStreamingMixin, QWidget):  # type: ignore[misc]
         self._refresh_model_button()
         entry = self._entry_by_id(model_id)
         if entry is not None:
-            self.set_context_usage(0, effective_run_context_tokens(entry))
+            self._context_ring.set_usage(0, effective_run_context_tokens(entry))
+            self.refresh_context_usage()
 
     def _on_model_settings_changed(self, model_id: str) -> None:
         """Reload persisted settings for *model_id* and refresh the composer."""
@@ -459,7 +476,8 @@ class AiChatPanel(_ChatPanelStreamingMixin, QWidget):  # type: ignore[misc]
             self._refresh_model_button()
             entry = self._entry_by_id(model_id)
             if entry is not None:
-                self.set_context_usage(0, effective_run_context_tokens(entry))
+                self._context_ring.set_usage(0, effective_run_context_tokens(entry))
+                self.refresh_context_usage()
         self.effort_changed.emit(model_id, self._reasoning_effort or "")
 
     def _on_manage_models(self) -> None:
@@ -472,6 +490,7 @@ class AiChatPanel(_ChatPanelStreamingMixin, QWidget):  # type: ignore[misc]
         if popup.isVisible():
             popup.hide_popup()
             return
+        self._hide_context_popup()
 
         def on_pick(mode: str) -> None:
             self._mode_btn.set_mode(mode)

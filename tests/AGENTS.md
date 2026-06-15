@@ -38,7 +38,9 @@
    in ``test_code_editor_memory.py`` use ``pytest.mark.xdist_group("code_editor_memory")``
    (serialized under xdist); ``test_transcript_memory.py`` uses
    ``pytest.mark.xdist_group("transcript_memory")`` — run ``-n0`` when debugging.
-   so they run serially on one worker.
+   RestrictedPython subprocess tests use ``pytest.mark.xdist_group("restricted_python_sandbox")``
+   and ``tests/conftest.py`` caps xdist workers at 8, reaps child zombies after
+   each test, and tears down sandbox subprocesses via detached process groups.
 6. **The `_no_fetch` fixture is autouse in `tests/ui/`** — it prevents
    `CollectionWidget` from spawning a background thread.  You do not need
    to apply it manually.
@@ -179,6 +181,7 @@ tests/
 │   │   │   ├── test_chat_markdown_render.py
 │   │   │   ├── test_chat_markdown_streaming.py
 │   │   │   ├── test_chat_markdown_streaming_render.py
+│   │   │   ├── test_streaming_table.py
 │   │   │   ├── test_markdown_content_height.py
 │   │   │   ├── test_markdown_content_static.py
 │   │   │   ├── test_chat_time_format.py
@@ -202,13 +205,14 @@ tests/
 │       ├── test_console_source_line.py
 │       ├── test_dynamic_variables.py
 │       ├── test_pm_parity_deno_pyodide.py
+│       ├── test_pm_python_parity.py  # xdist_group restricted_python_sandbox
 │       ├── test_script_engine.py
 │       ├── test_script_output_tab_prefs.py
 │       ├── test_pm_api_schema_drift.py  # pm_api_schema paths resolve in Deno JS
 │       ├── test_pyodide_runtime.py
 │       ├── test_debug_script_metadata.py
 │       ├── test_debug_metadata_persist_host.py
-│       ├── test_script_sandbox.py
+│       ├── test_script_sandbox.py  # xdist_group restricted_python_sandbox
 │       ├── test_script_service.py
 │       ├── test_script_vendor.py
 │       ├── test_script_vendor_libs.py
@@ -229,6 +233,7 @@ tests/
 │       │   ├── test_provider_display_name.py
 │       │   ├── test_chat_response_text.py
 │       │   ├── test_chat_session_service.py
+│       │   ├── test_context_usage.py
 │       │   ├── test_session_transcript_window.py  # Tail/older turn slicing
 │       │   ├── test_llm_service.py
 │       │   ├── test_postmark_agent_registry.py
@@ -331,7 +336,12 @@ tests/
    │       ├── test_transcript_window.py  # Virtual tail/prepend paging + spacers
    │       ├── test_transcript_integration.py  # Real SQLite tail load + prefetch guards
    │       ├── test_sticky_prompt_virtual_transcript.py  # Sticky overlay with virtual tail + evicted user rows
-   │       └── test_transcript_memory.py  # xdist_group transcript_memory; tail vs full RAM
+   │       ├── test_transcript_memory.py  # xdist_group transcript_memory; tail vs full RAM
+   │       ├── test_chat_context_popup.py
+   │       ├── test_context_ring_button.py
+   │       ├── test_context_usage_integration.py
+   │       ├── test_context_thread_safety.py
+   │       └── test_context_usage_worker.py
    │   ├── test_sidebar.py
    │   ├── test_left_sidebar.py
    │   ├── test_variables_panel.py

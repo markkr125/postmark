@@ -48,7 +48,11 @@ def log(message: str) -> None:
     configure_ai_logging()
     logging.getLogger(_LOGGER_NAME).info("%s", message)
     if _UI_SINK is not None and _on_gui_thread():
-        _UI_SINK(message)
+        try:
+            _UI_SINK(message)
+        except RuntimeError:
+            # Tests may delete the settings dialog while async AI setup still logs.
+            set_ui_log_sink(None)
 
 
 __all__ = ["configure_ai_logging", "log", "set_ui_log_sink"]

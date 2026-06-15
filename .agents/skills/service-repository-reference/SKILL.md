@@ -311,6 +311,31 @@ OpenHands SDK disk state under `session_disk_dir(id)`. Worker thread builds
 TypedDicts: `AiChatSessionDict`, `AiChatMessageDict`. Agent/tool registries:
 `PostmarkAgentDef`, `DEFAULT_AGENT_ID` (`postmark-assistant`, no tools in v1).
 
+### ContextUsageService (`services/ai/chat/context_usage.py`, SDK helpers in `context_usage_sdk.py`)
+
+Static helpers that power the composer context ring and breakdown popup.
+
+| Method | Purpose |
+|--------|---------|
+| `estimate_text_tokens(text, model)` | Tokenize one text payload using LiteLLM `token_counter`, with `len(text) // 4` fallback |
+| `count_system_and_tools(agent_id, model)` | Count agent system prompt + serialized tool schema tokens |
+| `count_transcript_messages(messages, model)` | Count all SQLite transcript `content` + `thinking` rows |
+| `count_summarized_events(session_id, model)` | Read OpenHands `Condensation` summaries from `session_disk_dir(id)/events/` |
+| `measure_sdk_view(session_id, entry)` | Build OpenHands SDK `View` from persisted events and count the actual LLM-view tokens |
+| `collect_compaction_diagnostics(...)` | Compare SQLite transcript estimates, SDK event/token counts, and condenser thresholds/reasons |
+| `build_breakdown(...)` | Assemble the 8 Cursor-style buckets and totals, preferring SDK `View` tokens when SDK events exist and using SQLite as fallback |
+| `build_breakdown_for_session(session_id, ...)` | Load the full SQLite session transcript, then call `build_breakdown` |
+| `metrics_from_conversation(conv, session_id)` | Read `conversation_stats.get_metrics_for_usage("postmark-chat-<id>")` after `arun()` |
+
+`services/ai/chat/compaction.py` also defines:
+
+| Constant | Value | Purpose |
+|----------|-------|---------|
+| `CHAT_CONDENSER_MAX_EVENTS` | `45` | Proactive event-count threshold for `LLMSummarizingCondenser` |
+| `CHAT_CONDENSER_MAX_TOKEN_FRACTION` | `0.72` | Proactive token-budget threshold (72% of effective run context) |
+| `CHAT_CONDENSER_MINIMUM_PROGRESS` | `0.05` | Minimum fraction of events that soft condensation must forget |
+| `CHAT_CONDENSER_DIAGNOSTIC_USAGE_FRACTION` | `0.70` | Ring usage fraction that triggers `[postmark.ai]` compaction diagnostics |
+
 ### LocalScriptService (`services/local_script_service.py`)
 
 All methods are `@staticmethod`.  UI must use this module, not `database/`.
@@ -571,6 +596,38 @@ class LocalOverride(TypedDict):
     value: str                # overridden value
     original_source: str      # "collection" or "environment"
     original_source_id: int   # PK of the original source
+```
+
+### AI chat context TypedDicts (`services/ai/chat/context_usage.py`)
+
+```python
+class ContextUsageCategory(TypedDict):
+    id: str
+    label: str
+    tokens: int
+
+class ContextUsageBreakdown(TypedDict):
+    used_tokens: int
+    total_tokens: int
+    categories: list[ContextUsageCategory]
+    has_summarized: bool
+    is_estimated: bool
+    sqlite_message_count: NotRequired[int]
+    sqlite_transcript_tokens: NotRequired[int]
+    sdk_event_count: NotRequired[int]
+    sdk_view_tokens: NotRequired[int]
+    transcript_larger_than_sdk: NotRequired[bool]
+    used_sqlite_fallback: NotRequired[bool]
+    condenser_max_size: NotRequired[int]
+    condenser_max_tokens: NotRequired[int | None]
+    condenser_minimum_progress: NotRequired[float]
+    condensation_reasons: NotRequired[list[str]]
+
+class ContextUsageSdkMetrics(TypedDict, total=False):
+    prompt_tokens: int
+    completion_tokens: int
+    reasoning_tokens: int
+    per_turn_token: int
 ```
 
 ### GraphQLSchemaService TypedDicts (`services/http/graphql_schema_service.py`)

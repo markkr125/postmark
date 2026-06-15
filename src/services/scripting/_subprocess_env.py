@@ -14,7 +14,10 @@ toolchain needs to run — never the parent's secrets.  Postman-style variables
 
 from __future__ import annotations
 
+import contextlib
 import os
+import signal
+import subprocess
 
 # Operational variables the Deno / Pyodide / npm toolchain needs to start and
 # resolve packages.  Compared case-insensitively so Windows' mixed-case names
@@ -76,3 +79,27 @@ def safe_subprocess_env(extra: dict[str, str] | None = None) -> dict[str, str]:
     if extra:
         env.update(extra)
     return env
+
+
+def terminate_process_tree(proc: subprocess.Popen[bytes]) -> None:
+    """Terminate *proc* and any process group started with ``start_new_session``."""
+    if proc.poll() is not None:
+        return
+    with contextlib.suppress(ProcessLookupError, OSError):
+        if hasattr(os, "getpgid") and hasattr(os, "killpg"):
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        else:
+            proc.kill()
+
+
+def reap_zombie_children() -> None:
+    """Reap defunct child processes owned by this interpreter."""
+    if not hasattr(os, "waitpid"):
+        return
+    while True:
+        try:
+            pid, _ = os.waitpid(-1, os.WNOHANG)
+        except ChildProcessError:
+            break
+        if pid <= 0:
+            break

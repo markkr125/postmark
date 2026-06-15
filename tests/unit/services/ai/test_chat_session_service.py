@@ -13,6 +13,11 @@ from database.models.ai_chat.ai_chat_repository import create_session, delete_se
 
 from services.ai.ai_config import AiConfig, AiModelEntry
 from services.ai.chat.agent_registry import DEFAULT_AGENT_ID
+from services.ai.chat.compaction import (
+    CHAT_CONDENSER_MAX_EVENTS,
+    CHAT_CONDENSER_MINIMUM_PROGRESS,
+    condenser_max_tokens,
+)
 from services.ai.chat.session_service import AiChatSessionService
 
 
@@ -70,6 +75,9 @@ def _install_fake_sdk(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
             merged = {**self.kw, **update}
             return _LLM(**merged)
 
+        def reset_metrics(self) -> None:
+            captured["llm_reset"] = True
+
     class _Agent:
         def __init__(self, **kw: object) -> None:
             captured["agent_kw"] = kw
@@ -96,6 +104,23 @@ def _install_fake_sdk(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
 
     workspace_mod = types.ModuleType("openhands.sdk.workspace")
     workspace_mod.LocalWorkspace = _LocalWorkspace  # type: ignore[attr-defined]
+    context_pkg = types.ModuleType("openhands.sdk.context")
+
+    condenser_mod = types.ModuleType("openhands.sdk.context.condenser")
+
+    class _LLMSummarizingCondenser:
+        def __init__(self, **kw: object) -> None:
+            self.llm = kw["llm"]
+            self.max_size = kw["max_size"]
+            self.max_tokens = kw["max_tokens"]
+            self.minimum_progress = kw.get("minimum_progress", 0.1)
+
+        def get_condensation_reasons(
+            self, view: object, *, agent_llm: object | None = None
+        ) -> set[str]:
+            return set()
+
+    condenser_mod.LLMSummarizingCondenser = _LLMSummarizingCondenser  # type: ignore[attr-defined]
 
     class _ActionEvent:
         """Stub action event for ``_fold_agent_event`` isinstance checks."""
@@ -113,6 +138,8 @@ def _install_fake_sdk(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     monkeypatch.setitem(sys.modules, "openhands", types.ModuleType("openhands"))
     monkeypatch.setitem(sys.modules, "openhands.sdk", mod)
     monkeypatch.setitem(sys.modules, "openhands.sdk.workspace", workspace_mod)
+    monkeypatch.setitem(sys.modules, "openhands.sdk.context", context_pkg)
+    monkeypatch.setitem(sys.modules, "openhands.sdk.context.condenser", condenser_mod)
     monkeypatch.setitem(sys.modules, "openhands.sdk.event", event_pkg)
     monkeypatch.setitem(sys.modules, "openhands.sdk.event.llm_convertible", llm_conv_pkg)
     monkeypatch.setitem(sys.modules, "openhands.sdk.event.llm_convertible.message", message_mod)
@@ -271,8 +298,51 @@ def test_build_conversation_passes_sdk_contract(
     assert agent_kw["tools"] == []
     assert agent_kw["system_prompt"]
     assert agent_kw["include_default_tools"] == []
+    assert agent_kw["condenser"] is not None
+    assert agent_kw["condenser"].max_size == CHAT_CONDENSER_MAX_EVENTS
+    assert agent_kw["condenser"].max_tokens == condenser_max_tokens(128_000)
+    assert agent_kw["condenser"].minimum_progress == CHAT_CONDENSER_MINIMUM_PROGRESS
     assert agent_kw["llm"].stream is True
+    assert agent_kw["condenser"].llm.stream is False
+    assert kw["max_iteration_per_run"] == 3
     assert conv is not None
+
+
+def test_build_conversation_uses_model_context_for_condenser(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    """Condenser max_tokens follows the effective run context window."""
+    captured = _install_fake_sdk(monkeypatch)
+    monkeypatch.setattr(
+        "database.data_paths.postmark_user_data_dir",
+        lambda: tmp_path / "postmark",
+    )
+
+    import services.ai.llm_service as llm_svc
+
+    class _Store:
+        backend_id = "noop"
+
+        def put(self, r: str, s: str) -> None: ...
+
+        def get(self, r: str) -> str | None:
+            return None
+
+        def delete(self, r: str) -> None: ...
+
+    monkeypatch.setattr(llm_svc, "get_default_store", lambda: _Store())
+
+    session_id = str(uuid.uuid4())
+    AiChatSessionService.build_conversation(
+        session_id,
+        _entry(context=32_000, context_limit=24_000),
+        DEFAULT_AGENT_ID,
+    )
+
+    condenser = captured["agent_kw"]["condenser"]
+    assert condenser.max_tokens == condenser_max_tokens(24_000)
+    assert condenser.minimum_progress == CHAT_CONDENSER_MINIMUM_PROGRESS
 
 
 def test_resolve_restore_session_id_returns_none_when_unset() -> None:

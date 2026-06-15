@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import atexit
+import os
 import tempfile
 from collections.abc import Generator
 from pathlib import Path
@@ -12,6 +14,7 @@ from PySide6.QtWidgets import QApplication
 
 from database.database import init_db
 from qt_app_init import configure_before_qapplication
+from services.scripting._subprocess_env import reap_zombie_children
 
 configure_before_qapplication()
 
@@ -24,6 +27,40 @@ configure_before_qapplication()
 _settings_tmp = tempfile.mkdtemp(prefix="postmark_test_settings_")
 QSettings.setPath(QSettings.Format.NativeFormat, QSettings.Scope.UserScope, _settings_tmp)
 QSettings.setPath(QSettings.Format.IniFormat, QSettings.Scope.UserScope, _settings_tmp)
+
+
+def _cleanup_test_process_leaks() -> None:
+    """Drop stale GUI log sinks and reap sandbox child zombies."""
+    from services.ai.ai_logging import set_ui_log_sink
+
+    set_ui_log_sink(None)
+    reap_zombie_children()
+
+
+atexit.register(_cleanup_test_process_leaks)
+
+
+def pytest_xdist_auto_num_workers(config: pytest.Config) -> int:
+    """Cap parallel workers so sandbox subprocess tests do not OOM the desktop."""
+    _ = config
+    cpu = os.cpu_count() or 4
+    return max(1, min(cpu, 8))
+
+
+@pytest.fixture(autouse=True)
+def _reset_ai_ui_log_sink() -> Generator[None, None, None]:
+    """Prevent deleted settings dialogs from staying registered as AI log sinks."""
+    yield
+    from services.ai.ai_logging import set_ui_log_sink
+
+    set_ui_log_sink(None)
+
+
+@pytest.fixture(autouse=True)
+def _reap_child_processes() -> Generator[None, None, None]:
+    """Reap sandbox and worker child zombies so repeated runs do not accumulate."""
+    yield
+    reap_zombie_children()
 
 
 # ------------------------------------------------------------------
@@ -45,6 +82,7 @@ def qapp() -> Generator[QApplication, None, None]:
     from tests.qt_popup_cleanup import dismiss_all_top_level_test_widgets
 
     dismiss_all_top_level_test_widgets(app)
+    _cleanup_test_process_leaks()
 
 
 # ------------------------------------------------------------------

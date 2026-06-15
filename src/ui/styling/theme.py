@@ -630,6 +630,21 @@ def ai_capability_color(kind: str) -> tuple[str, str]:
     return mapping.get(kind, (p["bg_alt"], p["text"]))
 
 
+def context_usage_category_color(category_id: str) -> str:
+    """Return bar/legend colour for a context-usage bucket."""
+    mapping: dict[str, str] = {
+        "system_prompt": COLOR_ACCENT,
+        "tools": COLOR_TIMING_DNS,
+        "rules": COLOR_TIMING_TCP,
+        "skills": COLOR_TIMING_TLS,
+        "mcp": COLOR_TIMING_TTFB,
+        "subagents": COLOR_TIMING_DOWNLOAD,
+        "summarized_conversation": COLOR_WARNING,
+        "conversation": COLOR_TIMING_PROCESS,
+    }
+    return mapping.get(category_id, COLOR_MUTED)
+
+
 def method_color(method: str) -> str:
     """Return the theme colour for a given HTTP method."""
     return METHOD_COLORS.get(method.upper(), DEFAULT_METHOD_COLOR)

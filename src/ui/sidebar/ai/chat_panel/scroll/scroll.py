@@ -16,8 +16,8 @@ from PySide6.QtWidgets import (
 )
 from shiboken6 import isValid
 
-from ui.sidebar.ai.chat_panel.smooth_scroll import SmoothScroller
-from ui.sidebar.ai.chat_panel.sticky_prompt import _ChatPanelStickyPromptMixin
+from ui.sidebar.ai.chat_panel.scroll.smooth_scroll import SmoothScroller
+from ui.sidebar.ai.chat_panel.scroll.sticky_prompt import _ChatPanelStickyPromptMixin
 from ui.sidebar.ai.message_bubble import ChatMessageBubble
 
 _FOLLOW_THRESHOLD_PX = 2
@@ -70,11 +70,13 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
         self._last_scroll_value = bar.value()
         self._last_scroll_maximum = bar.maximum()
         bar.valueChanged.connect(self._on_scrollbar_value_changed)
+        bar.sliderPressed.connect(self._on_scrollbar_slider_pressed)
         bar.sliderReleased.connect(self._on_scrollbar_slider_released)
         bar.rangeChanged.connect(self._on_scrollbar_range_changed)
         bar.valueChanged.connect(self._on_transcript_scroll_for_lazy_markdown)
         self._smooth_scroller = SmoothScroller(
             self._scroll,
+            on_wheel_delta=self._on_smooth_wheel_delta,
             on_animation_started=self._on_smooth_scroll_started,
             on_animation_finished=self._on_smooth_scroll_finished,
             parent=self,  # type: ignore[arg-type]
@@ -88,6 +90,22 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
         """Flush deferred sticky sync after smooth scrolling settles."""
         self._smooth_scroll_active = False
         self._schedule_sticky_sync()
+
+    def _detach_stream_follow_for_user_scroll(self) -> None:
+        """Disable streaming auto-follow after explicit user scroll input."""
+        if self._open_stream_generation == 0:
+            return
+        self._scroll_lock_enabled = False
+        self._stream_follow_dirty = False
+        self._stream_follow_frame_pending = False
+        self._stream_follow_retry_pending = False
+        self._scroll_range_shrunk_recent = False
+        self._update_scroll_down_button_visibility()
+
+    def _on_smooth_wheel_delta(self, delta_px: int) -> None:
+        """Detach follow immediately when wheel input moves upward during a stream."""
+        if delta_px < 0:
+            self._detach_stream_follow_for_user_scroll()
 
     def _set_bar_value(self, bar: QScrollBar, value: int) -> None:
         """Programmatically set scrollbar value without updating scroll-lock state."""
@@ -209,6 +227,12 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
             timer.stop()
         if hasattr(self, "_run_virtual_transcript_pass"):
             self._run_virtual_transcript_pass()
+
+    def _on_scrollbar_slider_pressed(self) -> None:
+        """Detach streaming follow when the user grabs the scrollbar."""
+        if self._programmatic_scroll:
+            return
+        self._detach_stream_follow_for_user_scroll()
 
     def _on_scrollbar_value_changed(self, value: int) -> None:
         """Update scroll-lock from user-driven scrollbar movement."""

@@ -1,0 +1,192 @@
+"""Tests for the AI chat context breakdown popup."""
+
+from __future__ import annotations
+
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+from PySide6.QtGui import QMouseEvent
+from PySide6.QtWidgets import QApplication
+
+from services.ai.chat.context_usage import ContextUsageBreakdown
+from ui.sidebar.ai.chat_context_popup import AiChatContextUsagePopup, compute_bar_segments
+from ui.sidebar.ai.chat_panel.context_ring_button import ContextUsageRingButton
+
+
+def _breakdown(*, estimated: bool = True) -> ContextUsageBreakdown:
+    return {
+        "used_tokens": 42_000,
+        "total_tokens": 128_000,
+        "has_summarized": True,
+        "is_estimated": estimated,
+        "categories": [
+            {"id": "system_prompt", "label": "System prompt", "tokens": 4000},
+            {"id": "tools", "label": "Tools", "tokens": 2000},
+            {"id": "rules", "label": "Rules", "tokens": 0},
+            {"id": "skills", "label": "Skills", "tokens": 0},
+            {"id": "mcp", "label": "MCP", "tokens": 0},
+            {"id": "subagents", "label": "Subagents", "tokens": 0},
+            {"id": "summarized_conversation", "label": "Summarized conversation", "tokens": 6000},
+            {"id": "conversation", "label": "Conversation", "tokens": 30_000},
+        ],
+    }
+
+
+def test_context_bar_fill_matches_used_fraction_of_total() -> None:
+    """Stacked segments occupy only the used share of the context window."""
+    categories = [
+        {"id": "system_prompt", "label": "System prompt", "tokens": 29},
+        {"id": "tools", "label": "Tools", "tokens": 0},
+        {"id": "rules", "label": "Rules", "tokens": 0},
+        {"id": "skills", "label": "Skills", "tokens": 0},
+        {"id": "mcp", "label": "MCP", "tokens": 0},
+        {"id": "subagents", "label": "Subagents", "tokens": 0},
+        {"id": "summarized_conversation", "label": "Summarized conversation", "tokens": 0},
+        {"id": "conversation", "label": "Conversation", "tokens": 14_100},
+    ]
+    segments = compute_bar_segments(
+        bar_width=200,
+        used_tokens=14_129,
+        total_tokens=32_000,
+        categories=categories,  # type: ignore[arg-type]
+    )
+    filled = segments[-1][1] + segments[-1][2]
+    assert filled == round(200 * 14_129 / 32_000)
+    assert filled < 200
+
+
+def test_context_popup_bar_uses_window_fraction(qapp: QApplication, qtbot) -> None:
+    """The popup bar leaves empty track when usage is below the model window."""
+    popup = AiChatContextUsagePopup.instance()
+    popup.hide_popup()
+    qtbot.addWidget(popup)
+    breakdown = _breakdown(estimated=False)
+    breakdown["used_tokens"] = 14_129
+    breakdown["total_tokens"] = 32_000
+    breakdown["categories"] = [
+        {"id": "system_prompt", "label": "System prompt", "tokens": 29},
+        {"id": "tools", "label": "Tools", "tokens": 0},
+        {"id": "rules", "label": "Rules", "tokens": 0},
+        {"id": "skills", "label": "Skills", "tokens": 0},
+        {"id": "mcp", "label": "MCP", "tokens": 0},
+        {"id": "subagents", "label": "Subagents", "tokens": 0},
+        {"id": "summarized_conversation", "label": "Summarized conversation", "tokens": 0},
+        {"id": "conversation", "label": "Conversation", "tokens": 14_100},
+    ]
+    popup.set_breakdown(breakdown)
+    assert popup._bar.fill_width() < popup._bar.width()
+
+
+def test_context_popup_shows_summary_and_all_rows(qapp: QApplication, qtbot) -> None:
+    """Popup renders the summary line and all 8 Cursor category rows."""
+    popup = AiChatContextUsagePopup.instance()
+    popup.hide_popup()
+    qtbot.addWidget(popup)
+    anchor = ContextUsageRingButton()
+    qtbot.addWidget(anchor)
+    anchor.show()
+
+    popup.show_for(anchor, _breakdown())
+
+    assert popup.isVisible()
+    assert "33%" in popup._summary_left.text()
+    assert "Estimated" in popup._summary_left.text()
+    assert "42k" in popup._summary_right.text()
+    assert len(popup._rows) == 8
+    assert popup._rows[0]._label.text() == "System prompt"
+    assert popup._rows[-1]._label.text() == "Conversation"
+    assert popup._hint.isVisible()
+    popup.hide_popup()
+
+
+def test_context_popup_anchor_click_does_not_auto_close(qapp: QApplication, qtbot) -> None:
+    """The click-away filter ignores clicks on the ring anchor itself."""
+    popup = AiChatContextUsagePopup.instance()
+    popup.hide_popup()
+    qtbot.addWidget(popup)
+    anchor = ContextUsageRingButton()
+    qtbot.addWidget(anchor)
+    anchor.show()
+
+    popup.show_for(anchor, _breakdown(estimated=False))
+    popup._opened_at_ms = 0
+    qtbot.mouseClick(anchor, Qt.MouseButton.LeftButton)
+
+    assert popup.isVisible()
+    popup.hide_popup()
+
+
+def test_context_popup_outside_click_closes_after_grace(qapp: QApplication, qtbot) -> None:
+    """Clicks outside the popup close it once the grace window has elapsed."""
+    popup = AiChatContextUsagePopup.instance()
+    popup.hide_popup()
+    qtbot.addWidget(popup)
+    anchor = ContextUsageRingButton()
+    qtbot.addWidget(anchor)
+    anchor.show()
+
+    popup.show_for(anchor, _breakdown())
+    popup._opened_at_ms = 0
+    outside = popup.geometry().bottomRight() + QPoint(20, 20)
+    press = QMouseEvent(
+        QEvent.Type.MouseButtonPress,
+        QPointF(0, 0),
+        QPointF(outside),
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    popup.eventFilter(qapp, press)
+
+    assert not popup.isVisible()
+
+
+def test_context_popup_close_button_hides(qapp: QApplication, qtbot) -> None:
+    """The popup's close button dismisses it."""
+    popup = AiChatContextUsagePopup.instance()
+    popup.hide_popup()
+    qtbot.addWidget(popup)
+    anchor = ContextUsageRingButton()
+    qtbot.addWidget(anchor)
+    anchor.show()
+
+    popup.show_for(anchor, _breakdown())
+    qtbot.mouseClick(popup._close_btn, Qt.MouseButton.LeftButton)
+
+    assert not popup.isVisible()
+
+
+def test_context_popup_shows_estimation_hint_when_ring_high(qapp: QApplication, qtbot) -> None:
+    """Estimated breakdowns above 70% explain that the ring is provisional."""
+    popup = AiChatContextUsagePopup.instance()
+    popup.hide_popup()
+    qtbot.addWidget(popup)
+    anchor = ContextUsageRingButton()
+    qtbot.addWidget(anchor)
+    anchor.show()
+
+    breakdown = _breakdown(estimated=True)
+    breakdown["used_tokens"] = 90_000
+    breakdown["total_tokens"] = 128_000
+    popup.show_for(anchor, breakdown)
+
+    assert "estimated until the model context is available" in popup._hint.text().lower()
+    popup.hide_popup()
+
+
+def test_context_popup_shows_divergence_hint(qapp: QApplication, qtbot) -> None:
+    """High usage plus transcript/SDK mismatch surfaces an extra honesty line."""
+    popup = AiChatContextUsagePopup.instance()
+    popup.hide_popup()
+    qtbot.addWidget(popup)
+    anchor = ContextUsageRingButton()
+    qtbot.addWidget(anchor)
+    anchor.show()
+
+    breakdown = _breakdown(estimated=True)
+    breakdown["used_tokens"] = 95_000
+    breakdown["total_tokens"] = 128_000
+    breakdown["transcript_larger_than_sdk"] = True
+    popup.show_for(anchor, breakdown)
+
+    hint = popup._hint.text().lower()
+    assert "saved transcript is larger" in hint
+    popup.hide_popup()

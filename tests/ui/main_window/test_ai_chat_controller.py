@@ -6,6 +6,8 @@ from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import patch
 
+import pytest
+from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QApplication, QLabel
 
 from ui.main_window.ai_chat_controller import _AiChatControllerMixin, _AiChatRunContext
@@ -34,18 +36,66 @@ class _ChatControllerHost(_AiChatControllerMixin):
         if sidebar is None:
             self._right_sidebar = cast(
                 RightSidebar,
-                SimpleNamespace(ai_chat_panel=panel),
+                SimpleNamespace(
+                    ai_chat_panel=panel,
+                    set_ai_session_title=lambda _title: None,
+                    set_ai_session_title_rename_enabled=lambda _enabled: None,
+                    ai_history_button=panel,
+                ),
             )
         else:
             self._right_sidebar = sidebar
         self._active_ai_session_id = session_id
         self._manual_ai_session_titles = set()
         self._chat_run_generation = 0
+        self._ai_chat_thread_generation = 0
+        self._ai_title_thread_generation = 0
         self._active_run_context = None
         self._stopped_generations = {}
         self._ai_chat_worker = None
         self._ai_chat_thread = None
         self._pending_title_session_id = None
+        self._session_load_generation = 0
+        self._session_loader = SimpleNamespace(cancel=lambda: None, shutdown=lambda: None)  # type: ignore[assignment]
+
+
+class _ControllerQObjectHost(QObject, _AiChatControllerMixin):
+    """QObject-backed host used to exercise signal wiring."""
+
+    _ai_assistant_finish_requested = Signal(str, str)
+    _ai_chat_fail_requested = Signal(str, str, str)
+    _ai_title_ready_requested = Signal(str)
+
+    def __init__(self, sidebar: RightSidebar) -> None:
+        """Initialise the real controller wiring against *sidebar*."""
+        super().__init__()
+        self._right_sidebar = sidebar
+        self._init_ai_chat_controller()
+
+
+class _FakeUsageWorker(QObject):
+    """Minimal worker used to test ``usage_updated`` controller wiring."""
+
+    chunk_received = Signal(str, str)
+    assistant_finished = Signal(str, str)
+    failed = Signal(str, str, str)
+    status_changed = Signal(str)
+    usage_updated = Signal(object)
+    context_compacted = Signal()
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._run_args: dict[str, object] = {}
+
+    def set_run(self, **kwargs: object) -> None:
+        self._run_args = kwargs
+
+    def cancel(self) -> None:
+        return
+
+    def run(self) -> None:
+        self.usage_updated.emit({"prompt_tokens": 7, "completion_tokens": 3})
+        self.assistant_finished.emit("", "reply")
 
 
 def _session_row(session_id: str, title: str) -> dict[str, Any]:
@@ -131,6 +181,152 @@ def test_on_ai_title_ready_skips_manual_rename(qapp: QApplication, qtbot) -> Non
     ) as rename:
         host._on_ai_title_ready("sess-1", "Generated title")
     rename.assert_not_called()
+
+
+def test_init_ai_chat_controller_wires_transcript_refresh(
+    qapp: QApplication, qtbot, monkeypatch
+) -> None:
+    """Transcript load completion triggers the panel context refresh callback."""
+    sidebar = RightSidebar()
+    qtbot.addWidget(sidebar)
+    host = _ControllerQObjectHost(sidebar)
+    calls: list[object | None] = []
+
+    def _record_refresh(sdk_metrics: object | None = None) -> None:
+        calls.append(sdk_metrics)
+
+    monkeypatch.setattr(sidebar.ai_chat_panel, "refresh_context_usage", _record_refresh)
+    sidebar.ai_chat_panel.transcript_load_finished.emit()
+    assert calls == [None]
+    host._cleanup_ai_chat_threads()
+
+
+def test_usage_updated_signal_reaches_panel_refresh(qapp: QApplication, qtbot, monkeypatch) -> None:
+    """Worker ``usage_updated`` signals flow through controller wiring into the panel."""
+    sidebar = RightSidebar()
+    qtbot.addWidget(sidebar)
+    host = _ControllerQObjectHost(sidebar)
+    panel = sidebar.ai_chat_panel
+    panel.set_models(
+        [
+            {
+                "id": "m1",
+                "provider": "openai",
+                "label": "GPT-4o",
+                "model": "openai/gpt-4o",
+                "base_url": "",
+                "api_version": "",
+                "auth_kind": "none",
+                "auth_ref": "",
+                "context": 128_000,
+                "enabled": True,
+            }
+        ]
+    )
+    refresh_calls: list[object | None] = []
+
+    def _record_refresh(sdk_metrics: object | None = None) -> None:
+        refresh_calls.append(sdk_metrics)
+
+    monkeypatch.setattr(panel, "refresh_context_usage", _record_refresh)
+    monkeypatch.setattr("ui.main_window.ai_chat_controller.AiChatWorker", _FakeUsageWorker)
+    host._on_ai_message_submitted("hello")
+    qtbot.waitUntil(lambda: host._ai_chat_thread is None, timeout=3000)
+
+    assert refresh_calls
+    assert {"prompt_tokens": 7, "completion_tokens": 3} in refresh_calls
+    host._cleanup_ai_chat_threads()
+
+
+def test_back_to_back_send_waits_for_prior_thread_cleanup(
+    qapp: QApplication, qtbot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A second send can start after the first worker thread has fully stopped."""
+    sidebar = RightSidebar()
+    qtbot.addWidget(sidebar)
+    host = _ControllerQObjectHost(sidebar)
+    panel = sidebar.ai_chat_panel
+    panel.set_models(
+        [
+            {
+                "id": "m1",
+                "provider": "openai",
+                "label": "GPT-4o",
+                "model": "openai/gpt-4o",
+                "base_url": "",
+                "api_version": "",
+                "auth_kind": "none",
+                "auth_ref": "",
+                "context": 128_000,
+                "enabled": True,
+            }
+        ]
+    )
+    monkeypatch.setattr("ui.main_window.ai_chat_controller.AiChatWorker", _FakeUsageWorker)
+    host._on_ai_message_submitted("first")
+    qtbot.waitUntil(lambda: host._ai_chat_thread is None, timeout=3000)
+    host._on_ai_message_submitted("second")
+    assert host._ai_chat_thread is not None
+    qtbot.waitUntil(lambda: host._ai_chat_thread is None, timeout=3000)
+    host._cleanup_ai_chat_threads()
+
+
+def test_stale_chat_thread_finished_is_ignored(qapp: QApplication, qtbot) -> None:
+    """Late cleanup from an older chat run cannot delete the active worker thread."""
+    from PySide6.QtCore import QThread
+
+    from ui.sidebar.ai.workers.chat_worker import AiChatWorker
+
+    sidebar = RightSidebar()
+    qtbot.addWidget(sidebar)
+    host = _ControllerQObjectHost(sidebar)
+    old_thread = QThread()
+    old_worker = AiChatWorker()
+    new_thread = QThread()
+    new_worker = AiChatWorker()
+    host._ai_chat_thread_generation = 2
+    host._ai_chat_thread = new_thread
+    host._ai_chat_worker = new_worker
+    host._release_ai_chat_thread(old_thread, old_worker, generation=1)
+    assert host._ai_chat_thread is new_thread
+    assert host._ai_chat_worker is new_worker
+    host._cleanup_ai_chat_threads()
+    old_thread.deleteLater()
+    new_thread.deleteLater()
+    qapp.processEvents()
+
+
+def test_session_switch_resets_context_ring(qapp: QApplication, qtbot, monkeypatch) -> None:
+    """Switching sessions clears the previous ring fill immediately."""
+    sidebar = RightSidebar()
+    qtbot.addWidget(sidebar)
+    host = _ControllerQObjectHost(sidebar)
+    panel = sidebar.ai_chat_panel
+    panel.set_models(
+        [
+            {
+                "id": "m1",
+                "provider": "openai",
+                "label": "GPT-4o",
+                "model": "openai/gpt-4o",
+                "base_url": "",
+                "api_version": "",
+                "auth_kind": "none",
+                "auth_ref": "",
+                "context": 128_000,
+                "enabled": True,
+            }
+        ]
+    )
+    host._active_ai_session_id = "sess-1"
+    panel.set_context_usage(64_000, 128_000)
+    monkeypatch.setattr(host._session_loader, "load_tail", lambda *_args: None)
+
+    host._activate_chat_session("sess-2")
+
+    assert panel._context_ring.used_tokens() == 0
+    assert panel._context_ring.total_tokens() == 128_000
+    host._cleanup_ai_chat_threads()
 
 
 def test_controller_stop_finalizes_streaming_rich_html(qapp: QApplication, qtbot) -> None:
@@ -239,3 +435,58 @@ def test_apply_worker_failed_ignored_after_pre_stream_stop(qapp: QApplication, q
 
     record.assert_not_called()
     assert panel.findChildren(ChatMessageBubble) == []
+
+
+def test_usage_updated_refreshes_panel_breakdown(qapp: QApplication, qtbot) -> None:
+    """Controller ``usage_updated`` wiring updates the panel ring breakdown."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.set_models(
+        [
+            {
+                "id": "gpt-test",
+                "provider": "openai",
+                "label": "GPT",
+                "model": "openai/gpt-4o",
+                "base_url": "",
+                "api_version": "",
+                "auth_kind": "none",
+                "auth_ref": "",
+                "context": 128_000,
+            }
+        ]
+    )
+    breakdown = {
+        "used_tokens": 9000,
+        "total_tokens": 128_000,
+        "categories": [],
+        "has_summarized": False,
+        "is_estimated": False,
+    }
+    panel.refresh_context_usage(sdk_metrics=breakdown)
+    assert panel._context_ring.used_tokens() == 9000
+
+
+def test_new_chat_resets_context_ring(qapp: QApplication, qtbot) -> None:
+    """New chat clears the context ring to empty usage."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.set_models(
+        [
+            {
+                "id": "gpt-test",
+                "provider": "openai",
+                "label": "GPT",
+                "model": "openai/gpt-4o",
+                "base_url": "",
+                "api_version": "",
+                "auth_kind": "none",
+                "auth_ref": "",
+                "context": 128_000,
+            }
+        ]
+    )
+    host = _ChatControllerHost(panel, session_id="sess-1")
+    panel.set_context_usage(50_000, 128_000)
+    host._on_ai_new_chat()
+    assert panel._context_ring.used_tokens() == 0

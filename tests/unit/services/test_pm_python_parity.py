@@ -18,8 +18,12 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from services.scripting import ScriptInput, ScriptOutput, TestResult as _ScriptTestResult
 from services.scripting.py_runtime import PyRuntime
+
+pytestmark = pytest.mark.xdist_group("restricted_python_sandbox")
 
 
 def _ctx(response: dict | None = None, **extra: Any) -> ScriptInput:

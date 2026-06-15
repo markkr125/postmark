@@ -12,6 +12,12 @@ from ui.sidebar.ai.markdown.fence_split import (
     split_fenced_blocks,
 )
 from ui.sidebar.ai.markdown.render import render_segment_html
+from ui.sidebar.ai.markdown.streaming_table import (
+    StreamingTableRenderer,
+    is_complete_markdown_table,
+    is_table_separator_line,
+    markdown_table_cells,
+)
 from ui.styling.theme import ThemePalette, current_palette
 
 
@@ -56,32 +62,24 @@ def _looks_like_markdown_table_block(lines: list[str]) -> bool:
     pipe_rows = [line for line in lines if "|" in line]
     if len(pipe_rows) < 2:
         return False
-    return any(set(line.strip().replace("|", "").replace(":", "")) <= {"-"} for line in lines)
-
-
-def _streaming_table_block_to_html(block: str, *, palette: ThemePalette) -> str:
-    """Render an in-progress markdown table as stable plain text."""
-    border = html_escape(palette["border"])
-    bg = html_escape(palette["bg_alt"])
-    text = html_escape(palette["text"])
-    return (
-        f'<pre style="white-space:pre-wrap;margin:0 0 8px 0;padding:6px 8px;'
-        f"border:1px solid {border};background:{bg};color:{text};"
-        'font-family:monospace;">'
-        f"{html_escape(block.rstrip())}</pre>"
-    )
+    return any(is_table_separator_line(line) for line in lines)
 
 
 def _render_streaming_prose_html(text: str, *, palette: ThemePalette) -> str:
-    """Render prose for an open stream, shielding Qt from incomplete tables."""
+    """Render prose for an open stream with incremental pipe-table rows."""
     if "|" not in text:
         return render_segment_html(ProseSegment(text), palette=palette)
     blocks = text.split("\n\n")
     parts: list[str] = []
+    table_renderer = StreamingTableRenderer()
     for block in blocks:
         lines = [line for line in block.splitlines() if line.strip()]
         if _looks_like_markdown_table_block(lines):
-            parts.append(_streaming_table_block_to_html(block, palette=palette))
+            table_html = table_renderer.render_html(block, palette=palette)
+            if table_html:
+                parts.append(table_html)
+            else:
+                parts.append(StreamingTableRenderer._fallback_pre(block, palette=palette))
         else:
             parts.append(render_segment_html(ProseSegment(block), palette=palette))
     return "".join(parts)
@@ -146,3 +144,13 @@ class StreamingMarkdownCache:
     def segment_count(self) -> int:
         """Return the number of cached rendered segments."""
         return len(self._segment_html)
+
+
+__all__ = [
+    "StreamingMarkdownCache",
+    "first_changed_segment_index",
+    "is_complete_markdown_table",
+    "markdown_table_cells",
+    "segment_identity",
+    "wrap_markdown_body_html",
+]

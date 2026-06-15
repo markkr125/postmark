@@ -156,10 +156,19 @@ class _ChatPanelTranscriptWindowMixin(_ChatPanelTranscriptLoadMixin):
     def begin_virtual_session(self, session_id: str, page: AiChatTranscriptPageDict) -> None:
         """Bind *session_id* and initial tail page before incremental widget build."""
         self._virtual_session_id = session_id
+        set_context_session_id = getattr(self, "set_context_session_id", None)
+        if callable(set_context_session_id):
+            set_context_session_id(session_id)
         self._bubble_by_message_id.clear()
         self._bubble_height_by_id.clear()
         self._reset_virtual_spacers()
         self._apply_virtual_page_state(page)
+        refresh = getattr(self, "refresh_context_usage", None)
+        if callable(refresh):
+            refresh()
+        setter = getattr(self, "set_context_session_id", None)
+        if callable(setter):
+            setter(session_id)
 
     def attach_message_id(self, bubble: ChatMessageBubble, message_id: int) -> None:
         """Associate a rendered bubble with its SQLite row id."""

@@ -22,8 +22,8 @@ from PySide6.QtWidgets import (
 from services.ai.chat.session_service import AiChatMessageDict
 from tests.ui.sidebar.ai.conftest import load_transcript_sync
 from ui.sidebar.ai import AiChatPanel
-from ui.sidebar.ai.chat_panel.scroll import _FOLLOW_THRESHOLD_PX
-from ui.sidebar.ai.chat_panel.sticky_prompt import (
+from ui.sidebar.ai.chat_panel.scroll import (
+    _FOLLOW_THRESHOLD_PX,
     _STICKY_PROMPT_LEFT_SHIFT_PX,
     _STICKY_PROMPT_VIEWPORT_INSET_PX,
 )
@@ -353,11 +353,11 @@ def test_end_assistant_stream_flushes_pending_chunks(qapp: QApplication, qtbot) 
     assert not bubble.is_content_streaming()
 
 
-def test_streaming_markdown_table_does_not_create_live_qt_table(
+def test_streaming_markdown_table_finalizes_to_qt_table(
     qapp: QApplication,
     qtbot,
 ) -> None:
-    """Incomplete streamed pipe tables remain plain until final render."""
+    """Incomplete streamed pipe tables render incrementally and finalize to rich tables."""
     panel = AiChatPanel()
     qtbot.addWidget(panel)
     panel.show()
@@ -374,7 +374,7 @@ def test_streaming_markdown_table_does_not_create_live_qt_table(
         " Feature-heavy dashboard UI. |\n",
         "| Request building | One-window form. | Menu-driven panels. |\n",
     ]
-    for chunk in chunks:
+    for chunk in chunks[:4]:
         panel.append_assistant_chunk("", chunk)
         _flush_stream_chunks(qtbot)
 
@@ -385,8 +385,17 @@ def test_streaming_markdown_table_does_not_create_live_qt_table(
     body = assistant_bubbles[0].findChild(MarkdownContent, "aiChatAssistantText")
     assert body is not None
     assert body.is_streaming()
-    assert _document_table_count(body) == 0
+    assert _document_table_count(body) >= 1
     assert "Minimalist, tab-based" in body.document().toPlainText()
+
+    for chunk in chunks[4:]:
+        panel.append_assistant_chunk("", chunk)
+        _flush_stream_chunks(qtbot)
+    panel.end_assistant_stream("".join(chunks))
+
+    assert not body.is_streaming()
+    assert _document_table_count(body) >= 1
+    assert "Request building" in body.document().toPlainText()
 
 
 def test_messages_layout_has_min_and_max_size_constraint(qapp: QApplication, qtbot) -> None:
@@ -1118,6 +1127,50 @@ def test_wheel_up_from_pinned_bottom_unlocks_and_survives_many_flushes(
         _drain_follow_passes(qtbot, qapp)
         assert panel._scroll_lock_enabled is False
         assert bar.value() == position_after_scroll
+
+
+def test_wheel_up_over_streaming_table_detaches_follow(qapp: QApplication, qtbot) -> None:
+    """Wheel-up over a relayouting streaming table stays detached from auto-follow."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitExposed(panel)
+    panel.resize(360, 160)
+    for index in range(20):
+        panel.add_message("user", f"fill {index} " * 10)
+    panel.add_message("user", "question")
+    panel.begin_assistant_stream()
+    qapp.processEvents()
+    qapp.processEvents()
+
+    table = "| Browser | Notes |\n|---|---|\n"
+    table += "".join(f"| **Opera {index}** | Fast `GET` row {index} |\n" for index in range(16))
+    panel.append_assistant_chunk("", table)
+    _flush_stream_chunks(qtbot)
+    _drain_follow_passes(qtbot, qapp)
+
+    bubble = panel._streaming_bubble
+    assert bubble is not None
+    body = bubble.findChild(MarkdownContent, "aiChatAssistantText")
+    assert body is not None
+    bar = panel._scroll.verticalScrollBar()
+    if bar.maximum() <= 0:
+        pytest.skip("no scroll range in test environment")
+    assert panel._scroll_lock_enabled is True
+
+    _wheel_on_widget(body, delta_y=120)
+    _drain_smooth_scroll(panel, qapp, qtbot)
+    assert panel._scroll_lock_enabled is False
+    position_after_scroll = bar.value()
+
+    panel.append_assistant_chunk(
+        "",
+        "".join(f"| **Vivaldi {index}** | More streaming row {index} |\n" for index in range(8)),
+    )
+    _flush_stream_chunks(qtbot)
+    _drain_follow_passes(qtbot, qapp)
+    assert panel._scroll_lock_enabled is False
+    assert bar.value() == position_after_scroll
 
 
 def test_wheel_up_short_turn_dead_zone_unlocks(qapp: QApplication, qtbot) -> None:

@@ -55,6 +55,8 @@ class _AiChatControllerMixin:
     _session_loader: AiChatSessionLoader
     _manual_ai_session_titles: set[str]
     _chat_run_generation: int
+    _ai_chat_thread_generation: int
+    _ai_title_thread_generation: int
     _active_run_context: _AiChatRunContext | None
     _stopped_generations: dict[int, _StopMode]
 
@@ -70,6 +72,8 @@ class _AiChatControllerMixin:
         self._session_load_generation = 0
         self._manual_ai_session_titles = set()
         self._chat_run_generation = 0
+        self._ai_chat_thread_generation = 0
+        self._ai_title_thread_generation = 0
         self._active_run_context = None
         self._stopped_generations = {}
 
@@ -80,6 +84,7 @@ class _AiChatControllerMixin:
 
         panel = self._right_sidebar.ai_chat_panel
         panel.set_window_load_callback(self._on_transcript_window_load_requested)
+        panel.transcript_load_finished.connect(self._on_ai_transcript_load_finished)
         # Synchronous on the GUI thread: begin_assistant_stream runs before _on_send
         # returns so turn-boundary scroll sees both user and assistant bubbles.
         panel.message_submitted.connect(self._on_ai_message_submitted)
@@ -132,6 +137,10 @@ class _AiChatControllerMixin:
         self._manual_ai_session_titles.add(session_id)
         self._sync_ai_session_title()
 
+    def _on_ai_transcript_load_finished(self) -> None:
+        """Refresh context usage after transcript materialisation."""
+        self._right_sidebar.ai_chat_panel.refresh_context_usage()
+
     def _on_ai_new_chat(self) -> None:
         """Clear transcript UI; next send creates a fresh session."""
         self._cancel_active_chat_run()
@@ -141,6 +150,7 @@ class _AiChatControllerMixin:
         self._active_ai_session_id = None
         AiConfig.set_chat_session_id("")
         self._right_sidebar.ai_chat_panel.clear()
+        self._right_sidebar.ai_chat_panel._reset_context_usage_chrome()
         self._sync_ai_session_title()
 
     def _on_ai_session_history(self) -> None:
@@ -149,6 +159,7 @@ class _AiChatControllerMixin:
         if popup.isVisible():
             popup.hide_popup()
             return
+        self._right_sidebar.ai_chat_panel._hide_context_popup()
         sessions = AiChatSessionService.list_sessions()
         popup.show_for(
             self._right_sidebar.ai_history_button,
@@ -169,6 +180,7 @@ class _AiChatControllerMixin:
         self._session_load_generation += 1
         generation = self._session_load_generation
         panel = self._right_sidebar.ai_chat_panel
+        panel._reset_context_usage_chrome()
         panel.prepare_transcript_load(lazy_markdown=True)
         self._session_loader.load_tail(session_id, generation)
 
@@ -254,8 +266,11 @@ class _AiChatControllerMixin:
 
     def _on_ai_message_submitted(self, text: str) -> None:
         """Handle a user message: persist, stream assistant reply."""
-        if self._ai_chat_thread is not None and self._ai_chat_thread.isRunning():
-            return
+        thread = self._ai_chat_thread
+        if thread is not None:
+            if thread.isRunning():
+                return
+            thread.wait(100)
 
         panel = self._right_sidebar.ai_chat_panel
         entry = panel.current_model_entry()
@@ -311,17 +326,25 @@ class _AiChatControllerMixin:
             text=text,
             composer=composer,
         )
-        thread = QThread(cast(QObject, self))
+        thread = QThread()
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         queued = Qt.ConnectionType.QueuedConnection
         worker.chunk_received.connect(panel.deliver_assistant_chunk, queued)
         worker.status_changed.connect(panel.deliver_activity_status, queued)
+        worker.usage_updated.connect(panel.deliver_context_usage_metrics, queued)
+        worker.context_compacted.connect(panel.on_context_compacted, queued)
+        worker.context_compacted.connect(panel.deliver_context_usage_refresh, queued)
         worker.assistant_finished.connect(self._deliver_ai_worker_assistant_finished, queued)
         worker.failed.connect(self._deliver_ai_worker_failed, queued)
         worker.assistant_finished.connect(thread.quit, queued)
         worker.failed.connect(thread.quit, queued)
-        thread.finished.connect(self._on_ai_chat_thread_finished)
+        self._ai_chat_thread_generation += 1
+        chat_generation = self._ai_chat_thread_generation
+        thread.finished.connect(
+            lambda t=thread, w=worker, g=chat_generation: self._release_ai_chat_thread(t, w, g),
+            queued,
+        )
 
         self._ai_chat_thread = thread
         self._ai_chat_worker = worker
@@ -411,6 +434,7 @@ class _AiChatControllerMixin:
         )
         panel.attach_streaming_assistant_message_id(assistant_row["id"])
         panel.set_run_busy(False)
+        panel.refresh_context_usage()
         self._pending_title_session_id = session_id
 
     def _on_ai_chat_stop(self) -> None:
@@ -573,14 +597,19 @@ class _AiChatControllerMixin:
             entry=entry,
             agent_id=session["agent_id"],
         )
-        thread = QThread(cast(QObject, self))
+        thread = QThread()
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         queued = Qt.ConnectionType.QueuedConnection
         worker.title_ready.connect(self._deliver_ai_title_worker_ready, queued)
         worker.title_ready.connect(thread.quit, queued)
         worker.failed.connect(thread.quit, queued)
-        thread.finished.connect(self._on_ai_title_thread_finished)
+        self._ai_title_thread_generation += 1
+        title_generation = self._ai_title_thread_generation
+        thread.finished.connect(
+            lambda t=thread, w=worker, g=title_generation: self._release_ai_title_thread(t, w, g),
+            queued,
+        )
 
         self._ai_title_thread = thread
         self._ai_title_worker = worker
@@ -612,18 +641,28 @@ class _AiChatControllerMixin:
         AiChatSessionService.rename_session(session_id, title)
         self._sync_ai_session_title()
 
-    def _on_ai_chat_thread_finished(self) -> None:
-        """Release chat worker/thread after the QThread has fully stopped."""
-        worker = self._ai_chat_worker
-        thread = self._ai_chat_thread
+    def _release_ai_chat_thread(
+        self,
+        thread: QThread,
+        worker: AiChatWorker,
+        generation: int,
+    ) -> None:
+        """Release one chat worker/thread pair after ``finished``."""
+        if generation != self._ai_chat_thread_generation:
+            return
+        if self._ai_chat_thread is not thread:
+            return
         panel = self._right_sidebar.ai_chat_panel
-        if worker is not None:
+        if worker is self._ai_chat_worker:
             with contextlib.suppress(TypeError, RuntimeError):
                 worker.chunk_received.disconnect(panel.deliver_assistant_chunk)
                 worker.status_changed.disconnect(panel.deliver_activity_status)
+                worker.usage_updated.disconnect(panel.deliver_context_usage_metrics)
+                worker.context_compacted.disconnect(panel.on_context_compacted)
+                worker.context_compacted.disconnect(panel.deliver_context_usage_refresh)
             worker.deleteLater()
-        if thread is not None:
-            thread.deleteLater()
+        thread.wait(100)
+        thread.deleteLater()
         self._ai_chat_thread = None
         self._ai_chat_worker = None
         pending = self._pending_title_session_id
@@ -631,17 +670,40 @@ class _AiChatControllerMixin:
         if pending:
             self._maybe_generate_session_title(pending)
 
-    def _on_ai_title_thread_finished(self) -> None:
-        """Release title worker/thread after the QThread has fully stopped."""
-        worker = self._ai_title_worker
-        thread = self._ai_title_thread
-        if worker is not None:
+    def _release_ai_title_thread(
+        self,
+        thread: QThread,
+        worker: AiChatTitleWorker,
+        generation: int,
+    ) -> None:
+        """Release one title worker/thread pair after ``finished``."""
+        if generation != self._ai_title_thread_generation:
+            return
+        if self._ai_title_thread is not thread:
+            return
+        if self._ai_title_worker is worker:
             worker.deleteLater()
-        if thread is not None:
-            thread.deleteLater()
+        thread.wait(100)
+        thread.deleteLater()
         self._ai_title_thread = None
         self._ai_title_worker = None
         self._title_run_session_id = None
+
+    def _on_ai_chat_thread_finished(self) -> None:
+        """Legacy hook retained for tests; prefer :meth:`_release_ai_chat_thread`."""
+        thread = self._ai_chat_thread
+        worker = self._ai_chat_worker
+        if thread is None or worker is None:
+            return
+        self._release_ai_chat_thread(thread, worker, self._ai_chat_thread_generation)
+
+    def _on_ai_title_thread_finished(self) -> None:
+        """Legacy hook retained for tests; prefer :meth:`_release_ai_title_thread`."""
+        thread = self._ai_title_thread
+        worker = self._ai_title_worker
+        if thread is None or worker is None:
+            return
+        self._release_ai_title_thread(thread, worker, self._ai_title_thread_generation)
 
     def _cleanup_ai_chat_threads(self) -> None:
         """Stop AI chat/title worker threads during window teardown."""

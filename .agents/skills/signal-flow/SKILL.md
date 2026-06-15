@@ -372,7 +372,9 @@ AiChatPanel._on_send (or Enter)
   → UserMessageFooterRow.stop_requested (active turn bubble + sticky clone) → stop_requested.emit()
   → _handle_chat_stop: activity-only (`is_pre_stream_cancel`) → rollback_pre_stream_turn + delete_message + restore composer; else optimistic end_assistant_stream + Stopped footer; then worker.cancel()
   → _on_ai_message_submitted: new_session on first message; record_user_message; set_run_busy(True)
-  → AiChatWorker on QThread (``asyncio.run(conv.arun())``, stream=True LLM, token_callbacks)
+  → AiChatWorker on QThread (``asyncio.run(conv.arun())``, stream=True LLM, token_callbacks, LLMSummarizingCondenser)
+  → ``status_changed`` includes **Summarizing earlier messages…** on OpenHands ``Condensation``; ``context_compacted`` + ``usage_updated`` (SDK metrics) after run
+  → ``refresh_context_usage`` / ``set_context_breakdown`` on panel (``ContextUsageWorker`` off-thread via ``ContextUsageService``; ``measure_sdk_view`` in ``context_usage_sdk.py`` is the ring source of truth when SDK events exist, else SQLite transcript estimate; ``AiChatContextUsagePopup`` shows ≥70% honesty hints when ``is_estimated`` or ``transcript_larger_than_sdk``; high usage logs ``collect_compaction_diagnostics``)
   → begin_assistant_stream → activity row (`Thinking…` + braille spinner) + ``_apply_streaming_viewport_spacer`` (dynamic sibling spacer: ``max(0, viewport_h - turn_extent)``) + ``_request_turn_bottom_scroll`` (turn-start anchor to last user bubble, scroll-lock re-arm; spacer recomputed after layout in ``_flush_turn_bottom_scroll``); chunk_received(thinking, content) → ``deliver_assistant_chunk`` → coalesced ``append_assistant_chunk`` (~50ms GUI batch; incremental rich markdown via ``StreamingMarkdownCache``; spacer recompute + ``rangeChanged`` / chunk flush / post-flush ``layout_height_changed`` → ``_queue_stream_follow_passes`` (one coalesced 0ms frame pass; 16ms retry only when still off-target or range grew after frame; in-flush layout hook suppressed; chunk flush batches deferred markdown/bubble height) + streaming scroll-lock (upward user movement detaches; range-shrink clamp ignored; real bottom re-arms) — ``_stream_follow_target()`` / ``min(maximum, turn_start)`` while turn fits in one viewport else ``maximum``; scroll/resize/layout → ``_schedule_sticky_sync`` → ``_sync_sticky_turn_prompt`` (cached ``_sticky_turn_pairs`` + ``_sticky_turn_extents`` with dirty invalidation; viewport selection via arithmetic; skips overlay mutation when applied anchor/geom/cap unchanged; read-only ``aiChatStickyTurnPrompt`` for closest eligible turn via ``_sticky_turn_anchor``; tall prompts clamped with ``aiChatUserMessageFade``; ``_turn_scroll_anchor`` kept for streaming turn-start scroll; ``load_transcript`` rebuilds cache/extents and hooks all assistant ``layout_height_changed``; ``aiChatAssistantText`` / ``aiChatUserMessageText`` / ``aiChatThoughtText`` forward wheel to transcript scroll); **QueuedConnection**); status_changed → ``deliver_activity_status`` (QueuedConnection, only while activity visible); assistant_finished / failed → ``MainWindow`` ``@Slot`` handlers (QueuedConnection, not lambdas) → end_assistant_stream (flush pending chunks, rich HTML finalize, clears activity, keeps ``_turn_scroll_anchor``); record_assistant_message; set_run_busy(False)
   → chat QThread finished → optional AiChatTitleWorker (deferred; avoids SDK session races)
 
@@ -666,7 +668,9 @@ All other signals in the flow diagrams above are fully wired.
 | `AiChatPanel` | `mode_changed` | `Signal(str)` |
 | `AiChatPanel` | `attachments_changed` | `Signal(list)` |
 | `AiChatPanel` | `manage_models_requested` | `Signal()` |
-| `AiChatPanel` | `context_requested` | `Signal()` |
+| `AiChatPanel` | `context_requested` | `Signal()` — ring click toggles ``AiChatContextUsagePopup`` |
+| `AiChatWorker` | `usage_updated` | `Signal(object)` — post-run SDK metrics → ``refresh_context_usage`` |
+| `AiChatWorker` | `context_compacted` | `Signal()` — OpenHands condensation → ``on_context_compacted`` + refresh |
 | `AiModelPickerPopup` | `model_picked` | `Signal(str)` |
 | `AiModelPickerPopup` | `manage_requested` | `Signal()` |
 | `AiModelPickerPopup` | `effort_changed` | `Signal(str, str)` — model id, effort |

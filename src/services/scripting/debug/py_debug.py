@@ -77,6 +77,8 @@ def debug_execute(
     env["PYTHONPATH"] = src_root
 
     try:
+        from services.scripting._subprocess_env import terminate_process_tree
+
         proc = subprocess.Popen(
             [sys.executable, _SANDBOX_SCRIPT],
             stdin=subprocess.PIPE,
@@ -84,6 +86,7 @@ def debug_execute(
             stderr=subprocess.PIPE,
             env=env,
             cwd=src_root,
+            start_new_session=True,
         )
     except OSError as exc:
         output["test_results"].append(
@@ -152,7 +155,7 @@ def debug_execute(
         with contextlib.suppress(subprocess.TimeoutExpired):
             proc.wait(timeout=5)
         if proc.poll() is None:
-            proc.kill()
+            terminate_process_tree(proc)
 
     return output
 
@@ -324,5 +327,6 @@ def _debug_ipc_loop(
 
 def _kill_proc(proc: subprocess.Popen[bytes]) -> None:
     """Kill the subprocess (called from the timer thread)."""
-    with contextlib.suppress(OSError):
-        proc.kill()
+    from services.scripting._subprocess_env import terminate_process_tree
+
+    terminate_process_tree(proc)

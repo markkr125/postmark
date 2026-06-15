@@ -24,6 +24,7 @@ class SmoothScroller(QObject):
         scroll_area: QScrollArea,
         *,
         pixels_per_notch: int = _DEFAULT_PIXELS_PER_NOTCH,
+        on_wheel_delta: Callable[[int], None] | None = None,
         on_animation_started: Callable[[], None] | None = None,
         on_animation_finished: Callable[[], None] | None = None,
         parent: QObject | None = None,
@@ -34,6 +35,7 @@ class SmoothScroller(QObject):
         self._viewport = scroll_area.viewport()
         self._bar = scroll_area.verticalScrollBar()
         self._pixels_per_notch = pixels_per_notch
+        self._on_wheel_delta = on_wheel_delta
         self._on_animation_started = on_animation_started
         self._on_animation_finished = on_animation_finished
         self._start_value = 0
@@ -80,6 +82,8 @@ class SmoothScroller(QObject):
         delta_px = self._wheel_delta_pixels(wheel)
         if delta_px == 0:
             return True
+        if self._on_wheel_delta is not None:
+            self._on_wheel_delta(delta_px)
         self._apply_wheel_delta(delta_px)
         return True
 

@@ -503,6 +503,134 @@ def test_worker_failure_emits_partial_text(
     assert captured["closed"] is True
 
 
+def test_worker_emits_usage_updated_after_arun(
+    qapp: QApplication, qtbot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Successful runs emit SDK usage metrics after ``arun()`` completes."""
+
+    class _Conv:
+        def __init__(self, **kw: object) -> None:
+            self._kw = kw
+            self.state = types.SimpleNamespace(events=[])
+
+        def send_message(self, _text: str) -> None:
+            pass
+
+        async def arun(self) -> None:
+            return
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(
+        "ui.sidebar.ai.workers.chat_worker.AiChatSessionService.build_conversation",
+        lambda *a, **k: _Conv(**k),
+    )
+    monkeypatch.setattr(
+        "ui.sidebar.ai.workers.chat_worker.resolve_assistant_parts",
+        lambda _conv, _think, _content: AssistantParts("", "Full reply"),
+    )
+    monkeypatch.setattr(
+        "ui.sidebar.ai.workers.chat_worker.metrics_from_conversation",
+        lambda _conv, _session_id: {
+            "prompt_tokens": 10,
+            "completion_tokens": 5,
+            "reasoning_tokens": 2,
+        },
+    )
+
+    updates: list[object] = []
+    worker = AiChatWorker()
+    worker.set_run(
+        session_id="00000000-0000-4000-8000-000000000001",
+        entry=_entry(),
+        agent_id="postmark-assistant",
+        text="Hello",
+    )
+    worker.usage_updated.connect(updates.append)
+
+    thread = QThread()
+    worker.moveToThread(thread)
+    thread.started.connect(worker.run)
+    worker.assistant_finished.connect(thread.quit)
+    with qtbot.waitSignal(worker.assistant_finished, timeout=5000):
+        thread.start()
+    thread.wait(5000)
+
+    assert updates == [{"prompt_tokens": 10, "completion_tokens": 5, "reasoning_tokens": 2}]
+
+
+def test_worker_emits_summarizing_status_and_context_compacted(
+    qapp: QApplication, qtbot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Condenser events show the mandatory status label and compaction signal."""
+    from openhands.sdk.event.condenser import Condensation, CondensationRequest
+
+    captured: dict[str, object] = {}
+
+    class _Conv:
+        def __init__(self, **kw: object) -> None:
+            captured["kw"] = kw
+            self.state = types.SimpleNamespace(events=[])
+
+        def send_message(self, _text: str) -> None:
+            pass
+
+        async def arun(self) -> None:
+            kw = captured.get("kw")
+            event_cbs = kw.get("callbacks", []) if isinstance(kw, dict) else []
+            if isinstance(event_cbs, list):
+                for cb in event_cbs:
+                    cb(CondensationRequest())
+                    cb(
+                        Condensation(
+                            forgotten_event_ids={"a"},
+                            summary="summary",
+                            summary_offset=1,
+                            llm_response_id="resp-1",
+                        )
+                    )
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(
+        "ui.sidebar.ai.workers.chat_worker.AiChatSessionService.build_conversation",
+        lambda *a, **k: _Conv(**k),
+    )
+    monkeypatch.setattr(
+        "ui.sidebar.ai.workers.chat_worker.resolve_assistant_parts",
+        lambda _conv, _think, _content: AssistantParts("", "Full reply"),
+    )
+    monkeypatch.setattr(
+        "ui.sidebar.ai.workers.chat_worker.metrics_from_conversation",
+        lambda _conv, _session_id: None,
+    )
+
+    statuses: list[str] = []
+    compacted: list[bool] = []
+    worker = AiChatWorker()
+    worker.set_run(
+        session_id="00000000-0000-4000-8000-000000000001",
+        entry=_entry(),
+        agent_id="postmark-assistant",
+        text="Hello",
+    )
+    worker.status_changed.connect(statuses.append)
+    worker.context_compacted.connect(lambda: compacted.append(True))
+
+    thread = QThread()
+    worker.moveToThread(thread)
+    thread.started.connect(worker.run)
+    worker.assistant_finished.connect(thread.quit)
+    with qtbot.waitSignal(worker.assistant_finished, timeout=5000):
+        thread.start()
+    thread.wait(5000)
+
+    assert "Summarizing earlier messages…" in statuses
+    assert compacted == [True]
+
+
 def test_worker_cancel_before_build_emits_stopped(
     qapp: QApplication, monkeypatch: pytest.MonkeyPatch
 ) -> None:

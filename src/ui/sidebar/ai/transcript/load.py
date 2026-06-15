@@ -248,6 +248,9 @@ class _ChatPanelTranscriptLoadMixin:
         self._hide_transcript_loading()
         cast(Any, self)._schedule_virtual_transcript_pass()
         self.transcript_load_finished.emit()  # type: ignore[attr-defined]
+        refresh = getattr(self, "refresh_context_usage", None)
+        if callable(refresh):
+            refresh()
 
     def load_transcript(self, messages: list[AiChatMessageDict]) -> None:
         """Replace the transcript with persisted *messages* (async chunked build)."""

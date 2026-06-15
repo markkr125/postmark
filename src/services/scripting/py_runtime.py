@@ -197,6 +197,8 @@ def _run_restricted_subprocess(script: str, context: ScriptInput) -> ScriptOutpu
     env["PM_DYNVAR_JSON"] = dynvar_json_for_subprocess()
 
     try:
+        from services.scripting._subprocess_env import terminate_process_tree
+
         proc = subprocess.Popen(
             [sys.executable, _SANDBOX_SCRIPT],
             stdin=subprocess.PIPE,
@@ -204,6 +206,7 @@ def _run_restricted_subprocess(script: str, context: ScriptInput) -> ScriptOutpu
             stderr=subprocess.PIPE,
             env=env,
             cwd=src_root,
+            start_new_session=True,
         )
     except OSError as exc:
         output["test_results"].append(
@@ -267,7 +270,7 @@ def _run_restricted_subprocess(script: str, context: ScriptInput) -> ScriptOutpu
         with contextlib.suppress(subprocess.TimeoutExpired):
             proc.wait(timeout=5)
         if proc.poll() is None:
-            proc.kill()
+            terminate_process_tree(proc)
 
     return output
 
@@ -329,8 +332,9 @@ def _ipc_loop(proc: subprocess.Popen[bytes]) -> dict[str, Any] | None:
 
 def _kill_proc(proc: subprocess.Popen[bytes]) -> None:
     """Kill the subprocess (called from the timer thread)."""
-    with contextlib.suppress(OSError):
-        proc.kill()
+    from services.scripting._subprocess_env import terminate_process_tree
+
+    terminate_process_tree(proc)
 
 
 def _apply_result(data: dict[str, Any], output: ScriptOutput) -> None:

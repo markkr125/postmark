@@ -113,8 +113,24 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   `get_session_with_messages` for one-shot full reads) and builds OpenHands `Conversation`
   on worker threads (`AiChatWorker`). SDK state persists under
   `session_disk_dir(id)`; searchable metadata in `ai_chat_sessions` /
-  `ai_chat_messages`. Postmark agent/tool registries (`agent_registry.py`,
-  `tool_registry.py`) ship `DEFAULT_AGENT_ID` with no custom tools in v1.
+  `ai_chat_messages`. Context accounting lives in
+  `services/ai/chat/context_usage.py` (`ContextUsageService`,
+  `ContextUsageBreakdown`, `ContextUsageSdkMetrics`) and uses the persisted
+  OpenHands SDK `View` token count as the ring/popup source of truth when SDK
+  events exist (`services/ai/chat/context_usage_sdk.py` — `measure_sdk_view`,
+  `collect_compaction_diagnostics`, `SdkViewSnapshot`). SQLite full-transcript
+  token estimates remain the fallback before SDK context is available or when
+  SDK token counting fails. After a run,
+  `AiChatWorker.usage_updated` delivers SDK `conversation_stats` metrics to the
+  panel; high-usage runs also log compaction diagnostics comparing SQLite rows,
+  SDK events/tokens, condenser thresholds, and condensation reasons. OpenHands
+  compaction tuning lives in `services/ai/chat/compaction.py`;
+  `build_conversation()` attaches `LLMSummarizingCondenser` with
+  `CHAT_CONDENSER_MAX_EVENTS = 45`, `CHAT_CONDENSER_MAX_TOKEN_FRACTION = 0.72`,
+  `CHAT_CONDENSER_MINIMUM_PROGRESS = 0.05`, and `max_iteration_per_run >= 3`
+  so summarize-then-reply completes in one send. Postmark agent/tool registries
+  (`agent_registry.py`, `tool_registry.py`) ship `DEFAULT_AGENT_ID` with no
+  custom tools in v1.
   MainWindow wiring: `_AiChatControllerMixin` (`ai_chat_controller.py`).
   Settings UI: tree branch **AI** (overview) → **Models** child;
   `ui/dialogs/settings/ai_page.py` + `AiProviderDialog` (per-provider credentials,

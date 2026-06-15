@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Any
 
 from PySide6.QtCore import QEventLoop, Qt, QTimer, Slot
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QWidget
 
 from ui.sidebar.ai.chat_panel.scroll import _ChatPanelScrollMixin
 from ui.sidebar.ai.transcript.window import _ChatPanelTranscriptWindowMixin
@@ -278,6 +278,9 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
             self._invalidate_sticky_turn_pairs()  # type: ignore[attr-defined]
             if role == "assistant":
                 self._ensure_assistant_layout_hook(bubble)
+            schedule = getattr(self, "_schedule_context_usage_refresh", None)
+            if callable(schedule):
+                schedule()
         return bubble
 
     def last_assistant_thinking_duration_seconds(self) -> int | None:
@@ -308,6 +311,9 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
             widget = item.widget() if item is not None else None
             if isinstance(widget, ChatMessageBubble):
                 widget.end_streaming(render=False)
+                widget.setParent(None)
+                widget.deleteLater()
+            elif isinstance(widget, QWidget) and widget.objectName() == "aiChatSummarizedNotice":
                 widget.setParent(None)
                 widget.deleteLater()
         self._empty_label.show()
@@ -395,6 +401,9 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
             self._queue_stream_follow_passes()  # type: ignore[attr-defined]
         self._invalidate_sticky_extents()  # type: ignore[attr-defined]
         self._sync_sticky_turn_prompt()  # type: ignore[attr-defined]
+        schedule = getattr(self, "_schedule_context_usage_refresh", None)
+        if callable(schedule):
+            schedule()
 
     def streaming_assistant_thinking(self) -> str:
         """Return thinking text accumulated in the active assistant bubble."""
@@ -518,6 +527,9 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
                 QTimer.singleShot(0, lambda: self._scroll_to_bottom(force=True))
             else:
                 QTimer.singleShot(0, lambda: self._scroll_to_turn_start(force=True))
+        refresh = getattr(self, "refresh_context_usage", None)
+        if callable(refresh):
+            refresh()
 
     @Slot()
     def _on_activity_long_wait(self) -> None:

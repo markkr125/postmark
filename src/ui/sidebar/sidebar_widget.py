@@ -651,6 +651,7 @@ class RightSidebar(QWidget):
         self._snippet_panel.hide()
         self._saved_responses_panel.hide()
         self._request_history_panel.hide()
+        self._ai_chat_panel._hide_context_popup()
         self._ai_chat_panel.hide()
         self._var_btn.setChecked(False)
         self._snippet_btn.setChecked(False)

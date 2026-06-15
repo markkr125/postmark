@@ -322,6 +322,9 @@ standard object names:
 | `aiAgentModePopup` | `QFrame` | Agent mode flyout (above mode pill; click-away + Escape) |
 | `aiAgentModeOption` | `QWidget` | Selectable row in the mode flyout |
 | `aiChatModelButton` | `QWidget` | `ModelPickerButton` — compact pill (`bg_alt`); opens model picker |
+| `aiChatContextRing` | `QWidget` | `ContextUsageRingButton` — circular context fill; opens breakdown popup |
+| `aiChatContextPopup` | `QFrame` | `AiChatContextUsagePopup` — stacked bar + eight category rows |
+| `aiChatSummarizedNotice` | `QWidget` | Muted one-line transcript notice after OpenHands compaction |
 | `aiChatModelButtonPart` | `QLabel` | Model name and ``·`` separators inside `aiChatModelButton` |
 | `aiModelPickerContext` | `QLabel` | Context tag inside model button and picker rows (muted 10px) |
 | `aiModelPickerEffort` | `QLabel` | Reasoning tag inside model button and picker rows (muted 10px) |

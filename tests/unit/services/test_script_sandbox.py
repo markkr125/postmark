@@ -16,6 +16,10 @@ import pytest
 from services.scripting import ScriptInput
 from services.scripting.py_runtime import PyRuntime
 
+# RestrictedPython subprocess tests contend for memory when many xdist workers
+# spawn sandboxes in parallel during the full suite.
+pytestmark = pytest.mark.xdist_group("restricted_python_sandbox")
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

@@ -798,20 +798,73 @@ class TestRightSidebar:
         assert panel.current_mode() == "plan"
 
     def test_ai_context_usage_tooltip(self, qapp: QApplication, qtbot) -> None:
-        """Context button tooltip shows a dash for unknown total, percent otherwise."""
+        """Context ring tooltip shows a dash for unknown total, percent otherwise."""
         panel = AiChatPanel()
         qtbot.addWidget(panel)
         panel.set_context_usage(0, 0)
-        assert "—" in panel._context_btn.toolTip()
+        assert "—" in panel._context_ring.toolTip()
         panel.set_context_usage(64000, 128000)
-        assert "50%" in panel._context_btn.toolTip()
+        assert "50%" in panel._context_ring.toolTip()
+
+    def test_ai_set_context_breakdown_updates_ring(self, qapp: QApplication, qtbot) -> None:
+        """Full breakdowns drive the ring fill and tooltip state."""
+        panel = AiChatPanel()
+        qtbot.addWidget(panel)
+        panel.set_context_breakdown(
+            {
+                "used_tokens": 32_000,
+                "total_tokens": 128_000,
+                "categories": [],
+                "has_summarized": False,
+                "is_estimated": True,
+            }
+        )
+        assert panel._context_ring.used_tokens() == 32_000
+        assert "25%" in panel._context_ring.toolTip()
 
     def test_ai_context_button_emits(self, qapp: QApplication, qtbot) -> None:
-        """Context icon button emits context_requested for future wiring."""
+        """Context ring emits context_requested for wiring/tests."""
         panel = AiChatPanel()
         qtbot.addWidget(panel)
         with qtbot.waitSignal(panel.context_requested, timeout=1000):
-            panel._context_btn.click()
+            panel._context_ring.click()
+
+    def test_set_context_breakdown_drives_ring(self, qapp: QApplication, qtbot) -> None:
+        """``set_context_breakdown`` updates ring fill state."""
+        from services.ai.chat.context_usage import build_breakdown
+        from services.ai.chat.agent_registry import DEFAULT_AGENT_ID
+        from services.ai.ai_config import AiModelEntry
+
+        panel = AiChatPanel()
+        qtbot.addWidget(panel)
+        entry: AiModelEntry = {
+            "id": "id1",
+            "provider": "openai",
+            "label": "L",
+            "model": "openai/gpt-4o",
+            "base_url": "",
+            "api_version": "",
+            "auth_kind": "none",
+            "auth_ref": "",
+            "context": 128_000,
+        }
+        panel.set_models([entry])
+        breakdown = build_breakdown(
+            session_id=None,
+            messages=[
+                {
+                    "id": 1,
+                    "session_id": "s",
+                    "role": "user",
+                    "content": "x" * 400,
+                    "created_at": "t",
+                }
+            ],
+            entry=entry,
+            agent_id=DEFAULT_AGENT_ID,
+        )
+        panel.set_context_breakdown(breakdown)
+        assert panel._context_ring.used_tokens() == breakdown["used_tokens"]
 
     def test_ai_attachments_add_and_remove(self, qapp: QApplication, qtbot) -> None:
         """Adding a chip tracks the path and shows the row; removing clears it."""

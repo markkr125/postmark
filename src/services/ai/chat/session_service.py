@@ -38,6 +38,11 @@ from database.models.ai_chat.ai_chat_repository import (
 from services.ai.ai_config import AiConfig, AiModelEntry
 from services.ai.ai_logging import log as ai_log
 from services.ai.chat.agent_registry import DEFAULT_MAX_ITERATIONS, get_agent_def
+from services.ai.chat.compaction import (
+    CHAT_CONDENSER_MAX_EVENTS,
+    CHAT_CONDENSER_MINIMUM_PROGRESS,
+    condenser_max_tokens,
+)
 from services.ai.chat.response_text import extract_final_text as _extract_final_text
 from services.ai.chat.tool_registry import resolve_tools
 from services.ai.chat.transcript_window import (
@@ -47,6 +52,7 @@ from services.ai.chat.transcript_window import (
     message_limit_for_turns,
 )
 from services.ai.llm_service import AiLlmService, resolve_llm_base_url
+from services.ai.provider_catalog import effective_run_context_tokens
 from services.ai.reasoning_effort import _is_ollama_model
 
 if TYPE_CHECKING:
@@ -462,6 +468,7 @@ class AiChatSessionService:
             pass
 
         from openhands.sdk import Agent, Conversation
+        from openhands.sdk.context.condenser import LLMSummarizingCondenser
         from openhands.sdk.workspace import LocalWorkspace
 
         def_ = get_agent_def(agent_id)
@@ -471,6 +478,8 @@ class AiChatSessionService:
         reasoning_effort = composer.get("reasoning_effort") if composer else None
         thinking_enabled = composer.get("thinking_enabled") if composer else None
         run_context_tokens = composer.get("run_context_tokens") if composer else None
+        if run_context_tokens is None:
+            run_context_tokens = effective_run_context_tokens(entry)
         base = resolve_llm_base_url(entry) or "(default)"
         usage_id = f"postmark-chat-{session_id}"
         with _allow_short_context_when_needed(entry):
@@ -488,14 +497,31 @@ class AiChatSessionService:
             f"extra_body={llm.litellm_extra_body!r} num_retries={llm.num_retries}"
         )
 
+        # Separate condenser LLM — OpenHands persists summaries in the SDK event log.
+        # UI transcript virtualization is display-only; condensation shrinks LLM context.
+        # Condenser summaries use non-streaming completion(); stream=True crashes
+        # without an on_token callback (OpenHands SDK ValueError).
+        condenser_llm = llm.model_copy(
+            update={"usage_id": f"condenser-{session_id}", "stream": False},
+        )
+        condenser_llm.reset_metrics()
+        max_tokens = condenser_max_tokens(int(run_context_tokens or 0))
+        condenser = LLMSummarizingCondenser(
+            llm=condenser_llm,
+            max_size=CHAT_CONDENSER_MAX_EVENTS,
+            max_tokens=max_tokens,
+            minimum_progress=CHAT_CONDENSER_MINIMUM_PROGRESS,
+        )
+
         agent = Agent(
             llm=llm,
             tools=resolve_tools(def_.tool_names),
             system_prompt=def_.system_prompt,
             include_default_tools=list(def_.include_default_tools),
+            condenser=condenser,
         )
         workspace = LocalWorkspace(working_dir=str(disk))
-        max_iter = def_.max_iteration_per_run or DEFAULT_MAX_ITERATIONS
+        max_iter = max(def_.max_iteration_per_run or DEFAULT_MAX_ITERATIONS, 3)
 
         return cast(
             "BaseConversation",

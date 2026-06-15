@@ -1740,6 +1740,22 @@ def build_global_qss(p: ThemePalette) -> str:
         font-size: 12px;
         background: transparent;
     }}
+    QWidget[objectName="aiChatContextRing"] {{
+        background: transparent;
+        border: none;
+    }}
+    QFrame[objectName="aiChatContextPopup"] {{
+        background: {p["bg"]};
+        border: 1px solid {p["border"]};
+        border-radius: 8px;
+    }}
+    QScrollArea[objectName="aiChatContextUsageScroll"] {{
+        background: transparent;
+        border: none;
+    }}
+    QWidget[objectName="aiChatSummarizedNotice"] {{
+        background: transparent;
+    }}
     QFrame[objectName="aiAgentModePopup"] {{
         background: {p["bg"]};
         border: 1px solid {p["border"]};
@@ -1761,6 +1777,23 @@ def build_global_qss(p: ThemePalette) -> str:
     }}
     QWidget[objectName="aiChatModelButton"]:disabled QLabel[objectName="aiChatModelButtonPart"] {{
         color: {p["text_muted"]};
+    }}
+    QWidget[objectName="aiChatContextRing"] {{
+        background: transparent;
+        border: none;
+    }}
+    QWidget[objectName="aiChatContextRing"]:hover {{
+        background: {"rgba(255,255,255,0.06)" if p is DARK_PALETTE else "rgba(0,0,0,0.04)"};
+        border-radius: 14px;
+    }}
+    QFrame[objectName="aiChatContextPopup"] {{
+        background: {p["bg"]};
+        border: 1px solid {p["border"]};
+        border-radius: 8px;
+    }}
+    QWidget[objectName="aiChatSummarizedNotice"] {{
+        background: transparent;
+        border: none;
     }}
     /* ---- AI model picker popover -------------------------------- */
     QFrame[objectName="aiModelPickerPopup"] {{

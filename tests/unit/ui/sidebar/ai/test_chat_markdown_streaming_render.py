@@ -5,7 +5,10 @@ from __future__ import annotations
 import pytest
 from PySide6.QtWidgets import QApplication
 
-from ui.sidebar.ai.markdown.streaming_render import StreamingMarkdownCache
+from ui.sidebar.ai.markdown.streaming_render import (
+    StreamingMarkdownCache,
+    is_complete_markdown_table,
+)
 from ui.sidebar.ai.message_bubble import _MarkdownContent
 from ui.styling.theme import DARK_PALETTE
 
@@ -91,8 +94,8 @@ class TestStreamingMarkdownCache:
         assert not highlight_calls
         assert "<provisional>" in html
 
-    def test_streaming_tables_render_as_plain_text_until_finalize(self) -> None:
-        """Pipe tables stay stable while incomplete rows are still streaming."""
+    def test_incomplete_streaming_tables_render_incrementally(self) -> None:
+        """Pipe tables render header and provisional rows while data is still streaming."""
         cache = StreamingMarkdownCache()
         markdown = (
             "## Core Strengths\n\n"
@@ -101,9 +104,57 @@ class TestStreamingMarkdownCache:
             "| UI & UX | Minimalist, tab-based, dark-theme-friendly. |"
         )
         html = cache.render_document_html(markdown, palette=DARK_PALETTE).lower()
-        assert "<pre" in html
-        assert "<td" not in html
+        assert "<table" in html
+        assert "<thead" in html
+        assert "<td" in html
+        assert "<pre" not in html
         assert "minimalist, tab-based" in html
+
+    def test_streaming_tables_gain_rows_before_stream_ends(self) -> None:
+        """Committed table rows appear before the final row newline arrives."""
+        cache = StreamingMarkdownCache()
+        partial = (
+            "| Phase | What happens |\n"
+            "|---|---|\n"
+            "| **ClientHello** | Client lists supported TLS versions |"
+        )
+        html_partial = cache.render_document_html(partial, palette=DARK_PALETTE).lower()
+        assert html_partial.count("<tr>") >= 2
+
+        complete = partial + "\n| **ServerHello** | Server picks cipher suite |\n"
+        html_complete = cache.render_document_html(complete, palette=DARK_PALETTE).lower()
+        assert html_complete.count("<tr>") >= 3
+
+    def test_streaming_table_cells_render_inline_bold_before_final(self) -> None:
+        """Partial streaming tables render inline bold in cells before end_streaming."""
+        cache = StreamingMarkdownCache()
+        partial = "| Browser | Notes |\n|---|---|\n| **Opera** | Fast and lightweight |"
+        html = cache.render_document_html(partial, palette=DARK_PALETTE).lower()
+        assert "<table" in html
+        assert "<strong>opera</strong>" in html
+        assert "**opera**" not in html
+
+    def test_complete_streaming_tables_render_as_qt_tables(self) -> None:
+        """Complete pipe tables render as tables during an open stream."""
+        cache = StreamingMarkdownCache()
+        markdown = (
+            "## Core Strengths\n\n"
+            "| Feature | Insomnia | Postman |\n"
+            "|---------|----------|---------|\n"
+            "| UI & UX | Minimalist. | Feature-heavy. |\n"
+            "| Requests | One-window form. | Menu panels. |\n"
+        )
+        html = cache.render_document_html(markdown, palette=DARK_PALETTE).lower()
+        assert "<table" in html
+        assert "<td" in html
+        assert "<pre" not in html
+
+    def test_markdown_table_completeness_requires_clean_data_rows(self) -> None:
+        """Only tables with complete data rows are upgraded during streaming."""
+        complete = "| Feature | Postmark |\n|---------|----------|\n| Streaming | Complete |\n"
+        incomplete = "| Feature | Postmark |\n|---------|----------|\n| Streaming |"
+        assert is_complete_markdown_table(complete)
+        assert not is_complete_markdown_table(incomplete)
 
 
 class TestMarkdownContentStreamingIncremental:
