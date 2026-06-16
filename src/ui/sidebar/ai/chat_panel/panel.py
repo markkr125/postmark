@@ -3,13 +3,10 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from pathlib import Path
 
-from PySide6.QtCore import Qt, QThread, Signal, Slot, QSize
+from PySide6.QtCore import Qt, QThread, Signal, Slot
 from PySide6.QtGui import QHideEvent, QResizeEvent, QShowEvent
 from PySide6.QtWidgets import (
-    QFileDialog,
-    QHBoxLayout,
     QLabel,
     QLayout,
     QPushButton,
@@ -18,35 +15,37 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from services.ai.ai_config import AiConfig, AiModelEntry, model_entry_enabled
+from services.ai.ai_config import AiModelEntry, model_entry_enabled
 from services.ai.chat.session_service import AiChatMessageDict
-from services.ai.provider_catalog import effective_run_context_tokens, format_run_context_tokens
-from services.ai.reasoning_effort import clamp_effort, default_effort_for, format_reasoning_effort
-from ui.sidebar.ai.agent_mode_popup import AgentModeButton, AiAgentModePopup
-from ui.sidebar.ai.chat_panel.composer import ModelPickerButton, _ComposerInput
-from ui.sidebar.ai.chat_panel.context_ring_button import ContextUsageRingButton
+from ui.sidebar.ai.agent_mode_popup import AiAgentModePopup
+from ui.sidebar.ai.chat_panel.composer import AiChatComposer
 from ui.sidebar.ai.chat_panel.context_usage_panel import _ChatPanelContextUsageMixin
+from ui.sidebar.ai.chat_panel.inline_edit import _ChatPanelInlineEditMixin
 from ui.sidebar.ai.chat_panel_streaming import _ChatPanelStreamingMixin
 from ui.sidebar.ai.chat_transcript_loading_row import ChatTranscriptLoadingOverlay
 from ui.sidebar.ai.message_bubble import ChatMessageBubble
-from ui.sidebar.ai.model_picker_edit import reasoning_levels_for_entry, thinking_enabled_for_entry
 from ui.sidebar.ai.model_picker_popup import AiModelPickerPopup
-from ui.styling.icons import CHAT_STOP_ICON_SIZE, chat_stop_icon, phi
+from ui.styling.icons import phi
 
 _EMPTY_STATE_TEXT = "Ask anything about your API requests."
-_NO_MODELS_TEXT = "No models configured"
 _CHAT_SCROLL_PADDING_LEFT = 8
 _CHAT_SCROLL_PADDING_RIGHT = 8
-_CHAT_COMPOSER_MARGIN_H = 8
 
 
-class AiChatPanel(_ChatPanelStreamingMixin, _ChatPanelContextUsageMixin, QWidget):  # type: ignore[misc]
+class AiChatPanel(
+    _ChatPanelInlineEditMixin,
+    _ChatPanelStreamingMixin,
+    _ChatPanelContextUsageMixin,
+    QWidget,
+):  # type: ignore[misc]
     """Right-sidebar AI chat skeleton (transcript + composer)."""
 
     message_submitted = Signal(str)
     stop_requested = Signal()
     assistant_fork_requested = Signal(int)
     user_fork_requested = Signal(int)
+    user_edit_requested = Signal(int)
+    user_edit_submitted = Signal(int, str)
     mode_changed = Signal(str)
     attachments_changed = Signal(list)
     manage_models_requested = Signal()
@@ -65,8 +64,6 @@ class AiChatPanel(_ChatPanelStreamingMixin, _ChatPanelContextUsageMixin, QWidget
         self.setObjectName("aiChatPanel")
         self._attachments: list[str] = []
         self._models: list[AiModelEntry] = []
-        self._current_model_id: str | None = None
-        self._reasoning_effort: str | None = None
         self._streaming_bubble: ChatMessageBubble | None = None
         self._stream_generation = 0
         self._open_stream_generation = 0
@@ -143,69 +140,17 @@ class AiChatPanel(_ChatPanelStreamingMixin, _ChatPanelContextUsageMixin, QWidget
 
         root.addWidget(self._scroll, 1)
 
-        # --- Composer --------------------------------------------------
-        composer = QWidget()
-        composer.setObjectName("aiChatComposer")
-        composer.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        composer_layout = QVBoxLayout(composer)
-        composer_layout.setContentsMargins(_CHAT_COMPOSER_MARGIN_H, 8, _CHAT_COMPOSER_MARGIN_H, 8)
-        composer_layout.setSpacing(6)
+        self._docked_composer = AiChatComposer(self)
+        self._docked_composer.submit_requested.connect(self._on_docked_send)
+        self._docked_composer.stop_requested.connect(self.stop_requested.emit)
+        self._docked_composer.mode_changed.connect(self.mode_changed.emit)
+        self._docked_composer.model_changed.connect(self._on_composer_model_changed)
+        self._docked_composer.attachments_changed.connect(self._on_composer_attachments_changed)
+        self._docked_composer.model_picker_requested.connect(self._open_model_picker)
+        self._docked_composer.mode_picker_requested.connect(self._open_mode_picker)
+        root.addWidget(self._docked_composer)
 
-        # Attachment chips (row hidden until a file is added)
-        self._attachments_row = QWidget()
-        self._attachments_row.setObjectName("aiChatAttachments")
-        self._attachments_layout = QHBoxLayout(self._attachments_row)
-        self._attachments_layout.setContentsMargins(0, 0, 0, 0)
-        self._attachments_layout.setSpacing(4)
-        self._attachments_layout.addStretch(1)
-        self._attachments_row.hide()
-        composer_layout.addWidget(self._attachments_row)
-
-        self._input = _ComposerInput()
-        self._input.setObjectName("aiChatInput")
-        self._input.setPlaceholderText("Message the assistant...  (Enter to send)")
-        self._input.submit_requested.connect(self._on_send)
-        composer_layout.addWidget(self._input)
-
-        # Control strip, left to right: mode, model, context, upload, Send.
-        controls = QHBoxLayout()
-        controls.setContentsMargins(0, 0, 0, 0)
-        controls.setSpacing(6)
-
-        self._mode_btn = AgentModeButton()
-        self._mode_btn.clicked.connect(self._open_mode_picker)
-        controls.addWidget(self._mode_btn)
-
-        self._model_btn = ModelPickerButton()
-        self._model_btn.setToolTip("Select model")
-        self._model_btn.clicked.connect(self._open_model_picker)
-        controls.addWidget(self._model_btn, 0)
-        controls.addStretch(1)
-
-        self._context_ring = ContextUsageRingButton()
-        controls.addWidget(self._context_ring)
-
-        self._upload_btn = QPushButton()
-        self._upload_btn.setObjectName("iconButton")
-        self._upload_btn.setIcon(phi("paperclip", size=16))
-        self._upload_btn.setFixedSize(28, 28)
-        self._upload_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._upload_btn.setToolTip("Attach file")
-        self._upload_btn.clicked.connect(self._on_attach)
-        controls.addWidget(self._upload_btn)
-
-        self._send_btn = QPushButton()
-        self._send_btn.setObjectName("smallPrimaryButton")
-        self._send_btn.setIcon(phi("paper-plane-right", color="#ffffff"))
-        self._send_btn.setFixedSize(28, 28)
-        self._send_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._send_btn.setToolTip("Send (Enter)")
-        self._send_btn.clicked.connect(self._on_send)
-        controls.addWidget(self._send_btn)
-
-        composer_layout.addLayout(controls)
-        root.addWidget(composer)
-
+        self._init_inline_edit_state()
         self._init_chat_streaming_state()
         self._init_context_usage_state()
         queued = Qt.ConnectionType.QueuedConnection
@@ -229,9 +174,55 @@ class AiChatPanel(_ChatPanelStreamingMixin, _ChatPanelContextUsageMixin, QWidget
 
     def hideEvent(self, event: QHideEvent) -> None:
         """Dismiss context popover when the panel is hidden."""
+        self._cancel_inline_edit_if_active()
         self._hide_context_popup()
         self._shutdown_context_usage_worker()
         super().hideEvent(event)
+
+    @property
+    def _input(self):
+        """Backward-compatible accessor for the docked prompt input."""
+        return self._docked_composer.input_widget()
+
+    @property
+    def _model_btn(self):
+        """Backward-compatible accessor for the docked model pill."""
+        return self._docked_composer.model_button()
+
+    @property
+    def _mode_btn(self):
+        """Backward-compatible accessor for the docked mode pill."""
+        return self._docked_composer.mode_button()
+
+    @property
+    def _send_btn(self):
+        """Backward-compatible accessor for the docked send button."""
+        return self._docked_composer.send_button()
+
+    @property
+    def _context_ring(self):
+        """Backward-compatible accessor for the docked context ring."""
+        return self._docked_composer.context_ring()
+
+    @property
+    def _attachments_row(self):
+        """Backward-compatible accessor for the docked attachments row."""
+        return self._docked_composer.findChild(QWidget, "aiChatAttachments")
+
+    def _on_send(self) -> None:
+        """Backward-compatible alias for docked composer send."""
+        self._on_docked_send()
+
+    def _add_attachment_chip(self, path: str) -> None:
+        """Backward-compatible shim — add a chip on the docked composer."""
+        composer = self._docked_composer
+        if path not in composer._attachments:
+            composer._attachments.append(path)
+        composer._add_attachment_chip(path)
+
+    def _remove_attachment(self, path: str, chip: QWidget) -> None:
+        """Backward-compatible shim — remove a chip from the docked composer."""
+        self._docked_composer._remove_attachment(path, chip)  # type: ignore[arg-type]
 
     @Slot(str, str)
     def deliver_assistant_chunk(self, thinking_delta: str, content_delta: str) -> None:
@@ -265,223 +256,126 @@ class AiChatPanel(_ChatPanelStreamingMixin, _ChatPanelContextUsageMixin, QWidget
     def set_models(self, entries: list[AiModelEntry]) -> None:
         """Store enabled models, keep/refresh the selection, and toggle Send."""
         self._models = [e for e in entries if model_entry_enabled(e)]
-        ids = {e["id"] for e in self._models}
-        self._current_model_id = self._pick_model_id(ids)
-        self._sync_model_state(self._current_model_id)
-        has_models = bool(self._models)
-        self._model_btn.setEnabled(has_models)
-        self._send_btn.setEnabled(has_models)
-        self._refresh_model_button()
-        entry = self._entry_by_id(self._current_model_id) if self._current_model_id else None
-        total = effective_run_context_tokens(entry) if entry is not None else 0
-        self._context_ring.set_usage(0, total)
+        self._docked_composer.set_models(self._models)
+        if self._inline_edit is not None:
+            self._inline_edit.composer.set_models(self._models)
         self.refresh_context_usage()
-
-    def _entry_by_id(self, model_id: str) -> AiModelEntry | None:
-        """Return the model entry with *model_id*, if present."""
-        for entry in self._models:
-            if entry["id"] == model_id:
-                return entry
-        return None
-
-    def _pick_model_id(self, ids: set[str]) -> str | None:
-        """Keep the in-memory, persisted, or first enabled model selection."""
-        if self._current_model_id in ids:
-            return self._current_model_id
-        stored = AiConfig.get_chat_model_id()
-        if stored in ids:
-            return stored
-        return self._models[0]["id"] if self._models else None
-
-    def _effective_effort(self, entry: AiModelEntry) -> str | None:
-        """Return persisted leveled reasoning effort, if the model supports it."""
-        efforts = reasoning_levels_for_entry(entry)
-        if not efforts:
-            return None
-        stored = entry.get("reasoning_effort")
-        if isinstance(stored, str) and stored.strip():
-            return clamp_effort(
-                stored.strip().lower(), efforts, str(entry.get("reasoning_default", ""))
-            )
-        default = str(entry.get("reasoning_default", ""))
-        if default:
-            return clamp_effort(default, efforts, default)
-        return default_effort_for(efforts)
-
-    def _sync_model_state(self, model_id: str | None) -> None:
-        """Refresh derived state for *model_id* from the in-memory model list."""
-        self._reasoning_effort = None
-        if not model_id:
-            return
-        entry = self._entry_by_id(model_id)
-        if entry is None:
-            return
-        self._reasoning_effort = self._effective_effort(entry)
 
     def current_model_id(self) -> str | None:
         """Return the selected model id, or ``None`` when no model is set."""
-        return self._current_model_id
+        return self._docked_composer.current_model_id()
 
     def current_model_entry(self) -> AiModelEntry | None:
         """Return the selected model entry, if any."""
-        if self._current_model_id is None:
-            return None
-        return self._entry_by_id(self._current_model_id)
+        return self._docked_composer.current_model_entry()
 
     def set_run_busy(self, busy: bool) -> None:
         """Toggle send vs stop while a chat run is in flight."""
         self._run_busy = busy
-        if busy:
-            self._send_btn.setIconSize(QSize(CHAT_STOP_ICON_SIZE, CHAT_STOP_ICON_SIZE))
-            self._send_btn.setIcon(chat_stop_icon())
-            self._send_btn.setToolTip("Stop")
-            self._send_btn.setEnabled(True)
-        else:
+        self._docked_composer.set_run_busy(busy)
+        if self._inline_edit is not None:
+            self._inline_edit.composer.set_run_busy(busy)
+        if not busy:
             self._deactivate_streaming_turn_user_footer()
-            self._send_btn.setIcon(phi("paper-plane-right", color="#ffffff"))
-            self._send_btn.setToolTip("Send (Enter)")
-            self._send_btn.setEnabled(bool(self._models))
 
     def restore_composer_text(self, text: str) -> None:
         """Put unsent prompt text back into the composer input."""
-        self._input.setPlainText(text)
-        self._input.setFocus()
+        self._docked_composer.restore_text(text)
 
     def set_send_enabled(self, enabled: bool) -> None:
         """Enable or disable send when idle (no-op while a run is busy)."""
-        if self._run_busy:
-            return
-        self._send_btn.setEnabled(enabled and bool(self._models))
+        self._docked_composer.set_send_enabled(enabled)
 
     def current_reasoning_effort(self) -> str | None:
         """Return the selected reasoning effort for the current model, if any."""
-        return self._reasoning_effort
+        return self._docked_composer.current_reasoning_effort()
 
     def current_run_context_tokens(self) -> int:
         """Return the effective run context window for the current model."""
-        entry = self._entry_by_id(self._current_model_id) if self._current_model_id else None
-        return effective_run_context_tokens(entry) if entry is not None else 0
+        return self._docked_composer.current_run_context_tokens()
 
     def current_thinking_enabled(self) -> str | None:
         """Return ``on``/``off`` when the model supports thinking, else ``None``."""
-        entry = self._entry_by_id(self._current_model_id) if self._current_model_id else None
-        if entry is None or not entry.get("thinking"):
-            return None
-        return thinking_enabled_for_entry(entry)
+        return self._docked_composer.current_thinking_enabled()
 
     def current_mode(self) -> str:
         """Return the selected agent mode (``"agent"`` / ``"ask"`` / ``"plan"``)."""
-        return self._mode_btn.mode()
+        return self._docked_composer.current_mode()
 
     def set_mode(self, mode: str) -> None:
         """Set agent mode without opening the picker (for tests and persistence)."""
-        if self.current_mode() == mode:
-            return
-        self._mode_btn.set_mode(mode)
-        self.mode_changed.emit(mode)
+        self._docked_composer.set_mode(mode)
 
     def attachments(self) -> list[str]:
         """Return the list of attached file paths."""
-        return list(self._attachments)
+        return self._docked_composer.attachments()
 
     def set_context_usage(self, used_tokens: int, total_tokens: int) -> None:
         """Update the context ring tooltip. ``total_tokens <= 0`` shows a dash."""
-        self._context_ring.set_usage(used_tokens, total_tokens)
+        self._docked_composer.set_context_usage(used_tokens, total_tokens)
 
     def clear(self) -> None:
         """Remove all message bubbles and restore the empty state."""
+        self._cancel_inline_edit_if_active()
         self._hide_context_popup()
         self._reset_context_usage_chrome()
         self.clear_streaming_transcript()
 
-    # ------------------------------------------------------------------
-    # Internal
-    # ------------------------------------------------------------------
-    def _model_button_parts(self) -> tuple[str, str | None, str | None] | None:
-        """Return ``(name, context tag, effort tag)`` or ``None`` for the empty state."""
-        if not self._models or self._current_model_id is None:
-            return None
-        entry = self._entry_by_id(self._current_model_id)
-        if entry is None:
-            return None
-        name = entry.get("label") or entry["model"]
-        ctx_val: str | None = None
-        ctx_tokens = effective_run_context_tokens(entry)
-        if ctx_tokens > 0:
-            ctx_val = format_run_context_tokens(ctx_tokens)
-        effort_val: str | None = None
-        effort = self._reasoning_effort or self._effective_effort(entry)
-        if effort:
-            effort_val = format_reasoning_effort(effort)
-        return (name, ctx_val, effort_val)
-
     def _model_button_label(self) -> str:
         """Plain-text model button label (name · context · effort) for tests."""
-        parts = self._model_button_parts()
-        if parts is None:
-            return _NO_MODELS_TEXT
-        bits = [parts[0]]
-        if parts[1]:
-            bits.append(parts[1])
-        if parts[2]:
-            bits.append(parts[2])
-        return "  ·  ".join(bits)
+        return self._docked_composer.model_button_label()
 
-    def _refresh_model_button(self) -> None:
-        """Update the model pill from the current selection."""
-        self._model_btn.set_parts(self._model_button_parts())
+    def _on_composer_model_changed(self, model_id: str) -> None:
+        """Refresh context usage after model selection changes."""
+        self.refresh_context_usage()
+        self.effort_changed.emit(model_id, self.current_reasoning_effort() or "")
+
+    def _on_composer_attachments_changed(self, paths: list) -> None:
+        """Forward attachment list updates from the docked composer."""
+        self._attachments = list(paths)
+        self.attachments_changed.emit(self.attachments())
 
     def _open_model_picker(self) -> None:
         """Open or close the model picker (toggle when already visible)."""
         self._hide_context_popup()
+        composer = self._active_composer()
         if not self._models:
             return
         if self._picker_popup.isVisible():
             self._picker_popup.hidePopup()
             return
+
+        def on_pick(model_id: str) -> None:
+            composer.apply_model_pick(model_id)
+            if composer is self._docked_composer:
+                self._on_composer_model_changed(model_id)
+            else:
+                self.refresh_context_usage()
+
         self._picker_popup.show_for(
-            self._model_btn,
+            composer.model_button(),
             self._models,
-            self._current_model_id,
-            self._on_model_picked,
+            composer.current_model_id(),
+            on_pick,
             self._on_manage_models,
             on_settings_changed=self._on_model_settings_changed,
         )
 
     def select_model_if_available(self, model_id: str) -> bool:
         """Select *model_id* when it is in the enabled model list."""
-        if model_id not in {entry["id"] for entry in self._models}:
-            return False
-        self._on_model_picked(model_id)
-        return True
+        return self._docked_composer.select_model_if_available(model_id)
 
     def _on_model_picked(self, model_id: str) -> None:
-        """Store the picked model id and refresh the button label."""
-        self._current_model_id = model_id
-        AiConfig.set_chat_model_id(model_id)
-        self._sync_model_state(model_id)
-        self._refresh_model_button()
-        entry = self._entry_by_id(model_id)
-        if entry is not None:
-            self._context_ring.set_usage(0, effective_run_context_tokens(entry))
-            self.refresh_context_usage()
+        """Backward-compatible shim for tests and callers."""
+        self._docked_composer.apply_model_pick(model_id)
+        self._on_composer_model_changed(model_id)
 
     def _on_model_settings_changed(self, model_id: str) -> None:
         """Reload persisted settings for *model_id* and refresh the composer."""
-        persisted = {e["id"]: e for e in AiConfig.get_models()}
-        if model_id in persisted:
-            for i, row in enumerate(self._models):
-                if row["id"] == model_id:
-                    self._models[i] = persisted[model_id]
-                    break
-        if self._current_model_id == model_id:
-            self._sync_model_state(model_id)
-            self._refresh_model_button()
-            entry = self._entry_by_id(model_id)
-            if entry is not None:
-                self._context_ring.set_usage(0, effective_run_context_tokens(entry))
-                self.refresh_context_usage()
-        self.effort_changed.emit(model_id, self._reasoning_effort or "")
+        self._docked_composer.sync_model_settings(model_id)
+        if self._inline_edit is not None:
+            self._inline_edit.composer.sync_model_settings(model_id)
+        self.refresh_context_usage()
 
     def _on_manage_models(self) -> None:
         """Bubble up a request to open Settings -> AI -> Models."""
@@ -494,41 +388,24 @@ class AiChatPanel(_ChatPanelStreamingMixin, _ChatPanelContextUsageMixin, QWidget
             popup.hide_popup()
             return
         self._hide_context_popup()
+        composer = self._active_composer()
 
         def on_pick(mode: str) -> None:
-            self._mode_btn.set_mode(mode)
-            self.mode_changed.emit(mode)
+            composer.set_mode(mode)
 
-        popup.show_for(self._mode_btn, self._mode_btn.mode(), on_pick)
+        popup.show_for(composer.mode_button(), composer.current_mode(), on_pick)
 
-    def _on_attach(self) -> None:
-        paths, _ = QFileDialog.getOpenFileNames(self, "Attach file")
-        added = False
-        for path in paths:
-            if path and path not in self._attachments:
-                self._attachments.append(path)
-                self._add_attachment_chip(path)
-                added = True
-        if added:
-            self._attachments_row.setVisible(bool(self._attachments))
-            self.attachments_changed.emit(self.attachments())
-
-    def _add_attachment_chip(self, path: str) -> None:
-        chip = QPushButton(f"{Path(path).name}  x")
-        chip.setObjectName("aiChatAttachmentChip")
-        chip.setCursor(Qt.CursorShape.PointingHandCursor)
-        chip.setToolTip(f"Remove {path}")
-        chip.clicked.connect(lambda: self._remove_attachment(path, chip))
-        # Insert before the trailing stretch so chips pack left.
-        self._attachments_layout.insertWidget(self._attachments_layout.count() - 1, chip)
-
-    def _remove_attachment(self, path: str, chip: QPushButton) -> None:
-        if path in self._attachments:
-            self._attachments.remove(path)
-        chip.setParent(None)
-        chip.deleteLater()
-        self._attachments_row.setVisible(bool(self._attachments))
-        self.attachments_changed.emit(self.attachments())
+    def _on_docked_send(self) -> None:
+        """Send from the docked composer."""
+        if self._run_busy:
+            self.stop_requested.emit()
+            return
+        text = self._docked_composer.plain_text()
+        if not text:
+            return
+        self.add_message("user", text, sent_at=datetime.now(tz=UTC))
+        self._docked_composer.clear_input()
+        self.message_submitted.emit(text)
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         """Coalesce transcript reflow during continuous pane resize."""
@@ -589,8 +466,26 @@ class AiChatPanel(_ChatPanelStreamingMixin, _ChatPanelContextUsageMixin, QWidget
         bubble.copy_requested.connect(self._on_assistant_bubble_copy)
 
     def _wire_user_bubble_actions(self, bubble: ChatMessageBubble) -> None:
-        """Connect fork affordance for one user transcript row."""
+        """Connect fork/edit affordances for one user transcript row."""
         bubble.user_fork_requested.connect(self._on_user_bubble_fork)
+        bubble.user_edit_requested.connect(self._on_user_bubble_edit)
+
+    def _edit_sticky_prompt(self, anchor: ChatMessageBubble) -> None:
+        """Begin inline edit for the user row mirrored by the sticky overlay."""
+        message_id = anchor.message_id
+        if message_id is None:
+            return
+        self.user_edit_requested.emit(message_id)
+
+    def _on_user_bubble_edit(self) -> None:
+        """Emit an edit request for the user bubble that triggered the action."""
+        bubble = self.sender()
+        if not isinstance(bubble, ChatMessageBubble):
+            return
+        message_id = bubble.message_id
+        if message_id is None:
+            return
+        self.user_edit_requested.emit(message_id)
 
     def _fork_sticky_prompt(self, anchor: ChatMessageBubble) -> None:
         """Fork from the transcript user row mirrored by the sticky overlay."""
@@ -629,21 +524,3 @@ class AiChatPanel(_ChatPanelStreamingMixin, _ChatPanelContextUsageMixin, QWidget
         clipboard = QGuiApplication.clipboard()
         if clipboard is not None:
             clipboard.setText(bubble.full_markdown_for_copy())
-
-    def _on_send(self) -> None:
-        """Send a message, or request stop while a run is in flight."""
-        if self._run_busy:
-            self.stop_requested.emit()
-            return
-        if not self._send_btn.isEnabled():
-            return
-        text = self._input.toPlainText().strip()
-        if not text:
-            return
-        self.add_message("user", text, sent_at=datetime.now(tz=UTC))
-        self._input.clear()
-        # TODO: build LLM via AiLlmService.build_llm(entry) using current_model_id(),
-        # current_mode(), current_run_context_tokens(), current_thinking_enabled(),
-        # current_reasoning_effort(), attachments();
-        # stream the reply into add_message("assistant", ...).
-        self.message_submitted.emit(text)

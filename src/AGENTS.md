@@ -129,7 +129,13 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   `build_conversation()` attaches `LLMSummarizingCondenser` with
   `CHAT_CONDENSER_MAX_EVENTS = 45`, `CHAT_CONDENSER_MAX_TOKEN_FRACTION = 0.72`,
   `CHAT_CONDENSER_MINIMUM_PROGRESS = 0.05`, and `max_iteration_per_run >= 3`
-  so summarize-then-reply completes in one send. Postmark agent/tool registries
+  so summarize-then-reply completes in one send. Per-user-message send settings
+  (`UserMessageSendSnapshot`, nullable `send_*` columns on `ai_chat_messages`)
+  are persisted on `record_user_message` and restored for inline edit via
+  `send_snapshot_from_message` / `infer_send_snapshot_fallback`.
+  `edit_user_message_and_rewind` updates the user row, deletes later messages,
+  and rewinds SDK disk state before the controller resubmits on the same bubble.
+  Postmark agent/tool registries
   (`agent_registry.py`, `tool_registry.py`) ship `DEFAULT_AGENT_ID` with no
   custom tools in v1.
   MainWindow wiring: `_AiChatControllerMixin` (`ai_chat_controller.py`).

@@ -19,12 +19,15 @@ from database.models.ai_chat.ai_chat_query_repository import (
 from database.models.ai_chat.ai_chat_repository import (
     append_message,
     archive_session,
+    count_messages_after,
     create_session,
     delete_message,
+    delete_messages_after,
     delete_session,
     list_messages,
     rename_session,
     touch_session,
+    update_user_message,
 )
 
 
@@ -232,3 +235,38 @@ def test_append_message_persists_usage_columns(session_id: str) -> None:
     assert row["reasoning_tokens"] == 5
     loaded = list_messages(session_id)
     assert loaded[-1]["prompt_tokens"] == 100
+
+
+def test_count_and_delete_messages_after(session_id: str) -> None:
+    """``count_messages_after`` and ``delete_messages_after`` truncate the tail."""
+    create_session(session_id=session_id, title="T", model_id=None, mode="agent")
+    u1 = append_message(session_id=session_id, role="user", content="One")
+    a1 = append_message(session_id=session_id, role="assistant", content="A1")
+    u2 = append_message(session_id=session_id, role="user", content="Two")
+    a2 = append_message(session_id=session_id, role="assistant", content="A2")
+    assert count_messages_after(session_id, u1["id"]) == 3
+    deleted = delete_messages_after(session_id, u1["id"])
+    assert deleted == [a1["id"], u2["id"], a2["id"]]
+    remaining = list_messages(session_id)
+    assert len(remaining) == 1
+    assert remaining[0]["content"] == "One"
+
+
+def test_update_user_message_persists_send_snapshot(session_id: str) -> None:
+    """``update_user_message`` updates content and per-send fields."""
+    create_session(session_id=session_id, title="T", model_id=None, mode="agent")
+    row = append_message(session_id=session_id, role="user", content="Hi")
+    updated = update_user_message(
+        row["id"],
+        content="Edited",
+        send_model_id="m1",
+        send_mode="plan",
+        send_agent_id="postmark-assistant",
+        send_reasoning_effort="medium",
+        send_thinking_enabled="1",
+        send_run_context_tokens=128_000,
+    )
+    assert updated is not None
+    assert updated["content"] == "Edited"
+    assert updated["send_model_id"] == "m1"
+    assert updated["send_mode"] == "plan"

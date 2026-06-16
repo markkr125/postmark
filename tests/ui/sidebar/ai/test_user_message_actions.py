@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QApplication, QPushButton
 
 from ui.sidebar.ai.message_bubble.user_message.actions_popup import AiUserMessageActionsPopup
 
+
 def test_actions_popup_fork_callback_runs(qapp: QApplication) -> None:
     """Fork row invokes the callback supplied when the popup opens."""
     popup = AiUserMessageActionsPopup.instance()
@@ -16,6 +17,18 @@ def test_actions_popup_fork_callback_runs(qapp: QApplication) -> None:
     popup._on_fork()
     popup.hide_popup()
     assert fired == ["fork"]
+
+
+def test_actions_popup_edit_callback_runs(qapp: QApplication) -> None:
+    """Edit row invokes the callback supplied when the popup opens."""
+    popup = AiUserMessageActionsPopup.instance()
+    anchor = QPushButton()
+    anchor.show()
+    fired: list[str] = []
+    popup.show_for(anchor, on_edit=lambda: fired.append("edit"))
+    popup._on_edit()
+    popup.hide_popup()
+    assert fired == ["edit"]
 
 
 def test_actions_popup_follows_transcript_scroll(qapp: QApplication, qtbot) -> None:
@@ -59,10 +72,10 @@ def test_actions_popup_coalesces_scroll_reposition(qapp: QApplication, qtbot) ->
     moves: list[object] = []
     popup.move = lambda *args, **kwargs: moves.append(args)  # type: ignore[method-assign, assignment]
     popup.show_for(anchor)
-    qtbot.wait(10)
-    baseline = len(moves)
+    qtbot.wait(50)
+    moves.clear()
     for _ in range(8):
         popup._sync_popup_position_to_anchor()
-    qtbot.wait(10)
-    assert len(moves) - baseline == 1
+    qtbot.wait(50)
+    assert len(moves) == 1
     popup.hide_popup()

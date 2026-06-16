@@ -58,6 +58,12 @@ def _message_to_dict(row: AiChatMessageModel) -> dict[str, Any]:
         "prompt_tokens": row.prompt_tokens,
         "completion_tokens": row.completion_tokens,
         "reasoning_tokens": row.reasoning_tokens,
+        "send_model_id": row.send_model_id,
+        "send_mode": row.send_mode,
+        "send_agent_id": row.send_agent_id,
+        "send_reasoning_effort": row.send_reasoning_effort,
+        "send_thinking_enabled": row.send_thinking_enabled,
+        "send_run_context_tokens": row.send_run_context_tokens,
         "created_at": created.isoformat(),
     }
 
@@ -161,6 +167,12 @@ def append_message(
     prompt_tokens: int | None = None,
     completion_tokens: int | None = None,
     reasoning_tokens: int | None = None,
+    send_model_id: str | None = None,
+    send_mode: str | None = None,
+    send_agent_id: str | None = None,
+    send_reasoning_effort: str | None = None,
+    send_thinking_enabled: str | None = None,
+    send_run_context_tokens: int | None = None,
 ) -> dict[str, Any]:
     """Append a message row to a session."""
     now = datetime.now(tz=UTC)
@@ -176,6 +188,12 @@ def append_message(
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             reasoning_tokens=reasoning_tokens,
+            send_model_id=send_model_id,
+            send_mode=send_mode,
+            send_agent_id=send_agent_id,
+            send_reasoning_effort=send_reasoning_effort,
+            send_thinking_enabled=send_thinking_enabled,
+            send_run_context_tokens=send_run_context_tokens,
             created_at=now,
         )
         session.add(row)
@@ -194,6 +212,119 @@ def delete_message(message_id: int) -> str | None:
         session.delete(row)
         session.commit()
         return session_id
+
+
+def count_messages_after(session_id: str, after_message_id: int) -> int:
+    """Return how many messages exist strictly after *after_message_id*."""
+    with get_session() as session:
+        anchor = session.get(AiChatMessageModel, after_message_id)
+        if anchor is None or anchor.session_id != session_id:
+            return 0
+        stmt = (
+            select(AiChatMessageModel)
+            .where(AiChatMessageModel.session_id == session_id)
+            .where(
+                (AiChatMessageModel.created_at > anchor.created_at)
+                | (
+                    (AiChatMessageModel.created_at == anchor.created_at)
+                    & (AiChatMessageModel.id > anchor.id)
+                )
+            )
+        )
+        rows = session.scalars(stmt).all()
+        return len(rows)
+
+
+def delete_messages_after(session_id: str, after_message_id: int) -> list[int]:
+    """Delete all messages after *after_message_id*; return deleted ids."""
+    with get_session() as session:
+        anchor = session.get(AiChatMessageModel, after_message_id)
+        if anchor is None or anchor.session_id != session_id:
+            return []
+        stmt = (
+            select(AiChatMessageModel)
+            .where(AiChatMessageModel.session_id == session_id)
+            .where(
+                (AiChatMessageModel.created_at > anchor.created_at)
+                | (
+                    (AiChatMessageModel.created_at == anchor.created_at)
+                    & (AiChatMessageModel.id > anchor.id)
+                )
+            )
+            .order_by(AiChatMessageModel.id.asc())
+        )
+        rows = list(session.scalars(stmt).all())
+        deleted_ids = [int(row.id) for row in rows]
+        for row in rows:
+            session.delete(row)
+        session.commit()
+        return deleted_ids
+
+
+def update_user_message(
+    message_id: int,
+    *,
+    content: str,
+    send_model_id: str | None = None,
+    send_mode: str | None = None,
+    send_agent_id: str | None = None,
+    send_reasoning_effort: str | None = None,
+    send_thinking_enabled: str | None = None,
+    send_run_context_tokens: int | None = None,
+) -> dict[str, Any] | None:
+    """Update a user message row and its per-send snapshot fields."""
+    with get_session() as session:
+        row = session.get(AiChatMessageModel, message_id)
+        if row is None or row.role != "user":
+            return None
+        row.content = content
+        row.send_model_id = send_model_id
+        row.send_mode = send_mode
+        row.send_agent_id = send_agent_id
+        row.send_reasoning_effort = send_reasoning_effort
+        row.send_thinking_enabled = send_thinking_enabled
+        row.send_run_context_tokens = send_run_context_tokens
+        session.commit()
+        session.refresh(row)
+        return _message_to_dict(row)
+
+
+def delete_session_index(session_id: str) -> bool:
+    """Delete session and message rows only; leave SDK disk directory intact."""
+    with get_session() as session:
+        row = session.get(AiChatSessionModel, session_id)
+        if row is None:
+            return False
+        session.execute(
+            delete(AiChatMessageModel).where(AiChatMessageModel.session_id == session_id)
+        )
+        session.delete(row)
+        session.commit()
+    return True
+
+
+def update_session_composer_settings(
+    session_id: str,
+    *,
+    model_id: str | None = None,
+    mode: str | None = None,
+    agent_id: str | None = None,
+) -> dict[str, Any] | None:
+    """Update session-level model/mode/agent after an edit resubmit."""
+    with get_session() as session:
+        row = session.get(AiChatSessionModel, session_id)
+        if row is None:
+            return None
+        if model_id is not None:
+            row.model_id = model_id
+        if mode is not None:
+            row.mode = mode
+        if agent_id is not None:
+            row.agent_id = agent_id
+        row.updated_at = datetime.now(tz=UTC)
+        session.commit()
+        session.refresh(row)
+        return _session_to_dict(row)
 
 
 def get_session_row(session_id: str) -> dict[str, Any] | None:
@@ -297,6 +428,12 @@ def bulk_append_messages(
                 prompt_tokens=msg.get("prompt_tokens"),
                 completion_tokens=msg.get("completion_tokens"),
                 reasoning_tokens=msg.get("reasoning_tokens"),
+                send_model_id=msg.get("send_model_id"),
+                send_mode=msg.get("send_mode"),
+                send_agent_id=msg.get("send_agent_id"),
+                send_reasoning_effort=msg.get("send_reasoning_effort"),
+                send_thinking_enabled=msg.get("send_thinking_enabled"),
+                send_run_context_tokens=msg.get("send_run_context_tokens"),
                 created_at=created_at,
             )
             session.add(row)

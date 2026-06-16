@@ -153,8 +153,9 @@ picker when the dialog closes.
 
 #### AI composer input (auto-grow)
 
-Source: ``ui/sidebar/ai/chat_panel/composer.py`` — class ``_ComposerInput`` (``QPlainTextEdit``),
-``objectName="aiChatInput"``, styled in ``global_qss.py``.
+Source: ``ui/sidebar/ai/chat_panel/composer/`` — ``ComposerInput`` (``QPlainTextEdit``,
+``objectName="aiChatInput"``) inside reusable ``AiChatComposer`` (docked at panel
+bottom or inline inside a user bubble during edit), styled in ``global_qss.py``.
 
 **Problem solved.** The prompt used to call ``setFixedHeight(72)`` (~3 visible lines).
 Long messages scrolled inside a tiny box. The fixed height was removed; height is
@@ -168,7 +169,8 @@ recomputed from content instead.
 | Typing or wrapping | Grows line-by-line with content (word wrap at widget width). |
 | More than 15 visual lines | Height stops at **15 lines**; vertical scrollbar appears; content still scrolls inside. |
 | Delete text / send | Shrinks back down (``clear()`` after send triggers the same resize path). |
-| Submit | **Enter** emits ``submit_requested`` → ``AiChatPanel._on_send`` (Shift+Enter inserts a newline). |
+| Submit | **Enter** emits ``submit_requested`` → docked ``AiChatPanel._on_docked_send`` or inline ``_on_inline_edit_submit`` (Shift+Enter inserts a newline). |
+| Inline edit | **Escape** or **Cancel** (`aiChatEditCancel`) ends edit without saving; docked composer hidden while inline composer is active. |
 
 #### User messages
 
@@ -178,7 +180,11 @@ text in ``aiChatUserMessageText``. A muted ``aiChatUserMessageTime`` label
 inside the bubble below the prompt shows when the message was sent (local date and
 clock, e.g. ``Jun 7, 2:39 PM``). New sends pass ``sent_at=datetime.now(UTC)``;
 ``load_transcript`` / session switches restore user rows from persisted
-``created_at``. The footer ``aiChatUserMessageConfig`` button opens message actions
+``created_at``. **Edit message** (actions menu, first row) opens an inline
+``AiChatComposer`` on the bubble with per-send settings restored from
+``send_*`` columns (legacy sessions use ``infer_send_snapshot_fallback``).
+Resubmit truncates later transcript rows and regenerates the assistant reply.
+The footer ``aiChatUserMessageConfig`` button opens message actions
 (Edit message, Fork chat) when idle; during an active run it becomes a
 turn-scoped **stop** control on the user bubble that started the stream (and on
 the sticky clone when pinned), emitting the same ``stop_requested`` signal as

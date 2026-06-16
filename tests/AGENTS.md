@@ -187,6 +187,7 @@ tests/
 │   │   │   ├── test_chat_time_format.py
 │   │   │   ├── test_thought_collapse_height.py
 │   │   │   ├── test_bubble_stream_row_height.py
+│   │   │   ├── test_chat_composer.py
 │   │   │   └── test_user_message_collapse.py
 │   │   └── widgets/
 │   │       ├── test_text_format_helpers.py
@@ -343,6 +344,7 @@ tests/
    │       ├── test_assistant_message_footer.py
    │       ├── test_assistant_message_actions.py
    │       ├── test_user_message_actions.py
+   │       ├── test_inline_edit_message.py
    │       ├── test_context_usage_integration.py
    │       ├── test_context_thread_safety.py
    │       └── test_context_usage_worker.py

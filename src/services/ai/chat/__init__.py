@@ -24,6 +24,7 @@ from services.ai.chat.session_service import (
     AiChatSessionDict,
     AiChatSessionService,
     ComposerRunContext,
+    UserMessageSendSnapshot,
 )
 from services.ai.chat.tool_registry import register_postmark_tool, resolve_tools
 
@@ -42,6 +43,7 @@ __all__ = [
     "ContextUsageSdkMetrics",
     "ContextUsageService",
     "PostmarkAgentDef",
+    "UserMessageSendSnapshot",
     "get_agent_def",
     "list_agent_defs",
     "register_postmark_agent",

@@ -533,3 +533,70 @@ def test_new_chat_resets_context_ring(qapp: QApplication, qtbot) -> None:
     panel.set_context_usage(50_000, 128_000)
     host._on_ai_new_chat()
     assert panel._context_ring.used_tokens() == 0
+
+
+def test_user_edit_submitted_truncates_and_resubmits(
+    qapp: QApplication, qtbot, monkeypatch
+) -> None:
+    """Edit submit rewinds DB, truncates transcript, and starts a worker on the same user row."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.set_models(
+        [
+            {
+                "id": "gpt-test",
+                "provider": "openai",
+                "label": "GPT",
+                "model": "openai/gpt-4o",
+                "base_url": "",
+                "api_version": "",
+                "auth_kind": "none",
+                "auth_ref": "",
+                "context": 128_000,
+                "enabled": True,
+            }
+        ]
+    )
+    panel.resize(400, 600)
+    panel.show()
+    host = _ChatControllerHost(panel, session_id="sess-edit")
+    panel.add_message("user", "old", message_id=10)
+    panel.add_message("assistant", "reply", message_id=11)
+    assert panel.begin_inline_edit(10) is True
+    state = panel._inline_edit
+    assert state is not None
+    state.composer.restore_text("new")
+
+    rewind_calls: list[tuple] = []
+    monkeypatch.setattr(
+        "ui.main_window.ai_chat_controller.AiChatSessionService.count_messages_after",
+        lambda _sid, _mid: 0,
+    )
+
+    def _rewind(session_id: str, message_id: int, text: str, snapshot: object) -> bool:
+        rewind_calls.append((session_id, message_id, text))
+        return True
+
+    monkeypatch.setattr(
+        "ui.main_window.ai_chat_controller.AiChatSessionService.edit_user_message_and_rewind",
+        _rewind,
+    )
+
+    class _FakeEditWorker(_FakeUsageWorker):
+        """Worker stub that does not auto-finish (avoids QObject delivery in this test)."""
+
+        def run(self) -> None:
+            return
+
+    monkeypatch.setattr("ui.main_window.ai_chat_controller.AiChatWorker", _FakeEditWorker)
+    monkeypatch.setattr(
+        "ui.main_window.ai_chat_controller.QThread.start",
+        lambda self: None,
+    )
+
+    host._on_user_edit_submitted(10, "new")
+    assert rewind_calls == [("sess-edit", 10, "new")]
+    assert panel._inline_edit is None
+    assert panel._bubble_by_message_id.get(11) is None
+    assert panel._bubble_by_message_id.get(10) is not None
+    assert panel._run_busy is True

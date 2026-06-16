@@ -299,7 +299,10 @@ OpenHands SDK disk state under `session_disk_dir(id)`. Worker thread builds
 | `list_sessions(search=None)` | List non-archived sessions by `updated_at` desc |
 | `resolve_restore_session_id()` | Startup restore: persisted id when valid, else most recent if stored id was deleted; `None` when unset (**New chat**) |
 | `get_messages(session_id)` | Transcript for repaint |
-| `record_user_message` / `record_assistant_message` | Append SQLite rows + touch preview |
+| `record_user_message` / `record_assistant_message` | Append SQLite rows + touch preview; user rows accept optional `send_snapshot` (`UserMessageSendSnapshot`) persisted as `send_*` columns |
+| `count_messages_after(session_id, after_message_id)` | Count rows after a message (confirm dialog before edit) |
+| `send_snapshot_from_message` / `infer_send_snapshot_fallback` | Restore per-send model/mode/agent for inline edit |
+| `edit_user_message_and_rewind(session_id, user_message_id, new_content, send_snapshot)` | Update user row, delete later messages, rewind SDK disk prefix, sync session composer settings |
 | `delete_message` | Delete one message row and recompute session `last_preview` |
 | `build_conversation(session_id, entry, agent_id, *, callbacks, token_callbacks, composer=None, stream=True)` | OpenHands `Conversation` (worker only); title worker passes `stream=False` |
 | `extract_final_parts(conversation)` / `extract_final_text(conversation)` | Current turn's agent message split into thinking + answer (text = answer only) |
@@ -310,7 +313,7 @@ OpenHands SDK disk state under `session_disk_dir(id)`. Worker thread builds
 | `fork_session_at_message(source_session_id, message_id)` | New session with SQLite prefix through *message_id* + copied SDK disk dir (`base_state.json` id/persistence_dir rewritten); title ``{base} (N)`` via `allocate_fork_session_title` |
 | `fork_session_at_user_message(source_session_id, user_message_id)` | New session with prefix **before** the user row (empty + no disk copy when first message); returns ``AiChatUserForkResult`` with ``composer_draft`` = user message text |
 
-TypedDicts: `AiChatSessionDict`, `AiChatMessageDict` (optional `model_id`, `prompt_tokens`, `completion_tokens`, `reasoning_tokens` on assistant rows), `AiChatUserForkResult` (`session`, `composer_draft`). Agent/tool registries:
+TypedDicts: `AiChatSessionDict`, `AiChatMessageDict` (optional `model_id`, `prompt_tokens`, `completion_tokens`, `reasoning_tokens` on assistant rows; optional `send_*` fields on user rows), `UserMessageSendSnapshot`, `AiChatUserForkResult` (`session`, `composer_draft`). Agent/tool registries:
 `PostmarkAgentDef`, `DEFAULT_AGENT_ID` (`postmark-assistant`, no tools in v1).
 
 ### ContextUsageService (`services/ai/chat/context_usage.py`, SDK helpers in `context_usage_sdk.py`)

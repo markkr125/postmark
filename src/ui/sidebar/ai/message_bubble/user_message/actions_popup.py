@@ -50,27 +50,39 @@ class AiUserMessageActionsPopup(AnchorFollowingActionsPopupMixin, QFrame):
         self._init_anchor_popup_tracking_state()
         self._opened_at_ms = 0
         self._fork_enabled = True
+        self._edit_enabled = True
         self._fork_callback: Callable[[], None] | None = None
+        self._edit_callback: Callable[[], None] | None = None
 
     def toggle_for(
         self,
         anchor: QWidget,
         *,
         fork_enabled: bool = True,
+        edit_enabled: bool = True,
         on_fork: Callable[[], None] | None = None,
+        on_edit: Callable[[], None] | None = None,
     ) -> None:
         """Hide when already open for *anchor*; otherwise show."""
         if self.isVisible() and self._anchor is anchor:
             self.hide_popup()
             return
-        self.show_for(anchor, fork_enabled=fork_enabled, on_fork=on_fork)
+        self.show_for(
+            anchor,
+            fork_enabled=fork_enabled,
+            edit_enabled=edit_enabled,
+            on_fork=on_fork,
+            on_edit=on_edit,
+        )
 
     def show_for(
         self,
         anchor: QWidget,
         *,
         fork_enabled: bool = True,
+        edit_enabled: bool = True,
         on_fork: Callable[[], None] | None = None,
+        on_edit: Callable[[], None] | None = None,
     ) -> None:
         """Populate rows and position near *anchor*."""
         if not Shiboken.isValid(anchor):
@@ -80,7 +92,9 @@ class AiUserMessageActionsPopup(AnchorFollowingActionsPopupMixin, QFrame):
             app.removeEventFilter(self)
         self._anchor = anchor
         self._fork_enabled = fork_enabled
+        self._edit_enabled = edit_enabled
         self._fork_callback = on_fork
+        self._edit_callback = on_edit
         self._rebuild()
         self.adjustSize()
         self._position_near_anchor(anchor)
@@ -102,6 +116,7 @@ class AiUserMessageActionsPopup(AnchorFollowingActionsPopupMixin, QFrame):
         self.hide()
         self._anchor = None
         self._fork_callback = None
+        self._edit_callback = None
         self.hidden.emit()
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
@@ -142,7 +157,7 @@ class AiUserMessageActionsPopup(AnchorFollowingActionsPopupMixin, QFrame):
         return anchor.rect().contains(local)
 
     def _rebuild(self) -> None:
-        """Fill the flyout with edit (display-only) and fork action rows."""
+        """Fill the flyout with edit and fork action rows."""
         while self._layout.count():
             item = self._layout.takeAt(0)
             if item is None:
@@ -156,8 +171,9 @@ class AiUserMessageActionsPopup(AnchorFollowingActionsPopupMixin, QFrame):
             row_object_name="aiUserMessageActionRow",
             label_object_name="aiUserMessageActionLabel",
             parent=self,
-            clickable=False,
         )
+        edit_row.setEnabled(self._edit_enabled)
+        edit_row.clicked.connect(self._on_edit)
         self._layout.addWidget(edit_row)
         fork_row = ActionOptionRow(
             "Fork chat",
@@ -168,6 +184,13 @@ class AiUserMessageActionsPopup(AnchorFollowingActionsPopupMixin, QFrame):
         fork_row.setEnabled(self._fork_enabled)
         fork_row.clicked.connect(self._on_fork)
         self._layout.addWidget(fork_row)
+
+    def _on_edit(self) -> None:
+        """Run the edit callback and dismiss."""
+        callback = self._edit_callback
+        self.hide_popup()
+        if callback is not None:
+            callback()
 
     def _on_fork(self) -> None:
         """Run the fork callback and dismiss."""

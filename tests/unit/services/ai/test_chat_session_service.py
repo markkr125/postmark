@@ -19,7 +19,7 @@ from services.ai.chat.compaction import (
     CHAT_CONDENSER_MINIMUM_PROGRESS,
     condenser_max_tokens,
 )
-from services.ai.chat.session_service import AiChatSessionService
+from services.ai.chat.session_service import AiChatSessionService, UserMessageSendSnapshot
 
 
 def _entry(**kw: object) -> AiModelEntry:
@@ -507,3 +507,34 @@ def test_fork_session_at_user_message_first_message_empty_transcript() -> None:
     assert result["composer_draft"] == "Hello"
     messages = AiChatSessionService.get_messages(result["session"]["id"])
     assert messages == []
+
+
+def test_edit_user_message_and_rewind_truncates_tail() -> None:
+    """Editing a user message removes later rows and updates content in place."""
+    source_id = str(uuid.uuid4())
+    create_session(session_id=source_id, title="Source", model_id="m1", mode="agent")
+    user_one = AiChatSessionService.record_user_message(source_id, "One")
+    AiChatSessionService.record_assistant_message(source_id, "A1", model_id="m1")
+    AiChatSessionService.record_user_message(source_id, "Two")
+    snapshot: UserMessageSendSnapshot = {
+        "send_model_id": "m1",
+        "send_mode": "plan",
+        "send_agent_id": "postmark-assistant",
+        "send_reasoning_effort": None,
+        "send_thinking_enabled": None,
+        "send_run_context_tokens": None,
+    }
+    ok = AiChatSessionService.edit_user_message_and_rewind(
+        source_id,
+        user_one["id"],
+        "One edited",
+        snapshot,
+    )
+    assert ok is True
+    messages = AiChatSessionService.get_messages(source_id)
+    assert len(messages) == 1
+    assert messages[0]["content"] == "One edited"
+    assert messages[0]["send_mode"] == "plan"
+    session = AiChatSessionService.get_session(source_id)
+    assert session is not None
+    assert session["mode"] == "plan"

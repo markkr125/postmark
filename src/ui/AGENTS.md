@@ -321,7 +321,10 @@ standard object names:
 | `aiChatVirtualSpacer` | `QWidget` | Invisible fixed-height placeholder for evicted transcript rows (top/bottom virtual window); evicted user rows cache prompt metadata in `_evicted_turn_users` for sticky overlay |
 | `aiChatTranscriptLoadingBar` | `QWidget` | Sliding accent segment on the session-load track |
 | `aiChatTranscriptLoadingLabel` | `QLabel` | Muted caption under the session-load line (`Loading conversation…`) and on `aiChatOlderLoadingRow` |
-| `aiChatComposer` | `QWidget` | AI chat bottom composer (attachments + input + controls); `WA_StyledBackground` + `composer_bg` (darker than transcript `bg`, lighter than `aiChatModeButton` `composer_pill_dark_bg`); input uses `input_bg` |
+| `aiChatComposer` | `QWidget` | AI chat bottom composer (attachments + input + controls); `WA_StyledBackground` + `composer_bg` (darker than transcript `bg`, lighter than `aiChatModeButton` `composer_pill_dark_bg`); input uses `input_bg`; shared by docked panel and inline edit (`AiChatComposer`) |
+| `aiChatComposerInline` | `QWidget` | Embedded inline-edit composer inside `aiChatMessageUser` — transparent, no outer border |
+| `aiChatInputInline` | `QPlainTextEdit` | Borderless prompt editor when embedded in a user bubble |
+| `aiChatEditCancel` | `QPushButton` | Cancel control in inline edit mode (`AiChatComposer.set_edit_mode`) — pill with border |
 | `aiChatInput` | `QPlainTextEdit` | AI chat prompt (`_ComposerInput`); auto-grows 3..15 lines then scrolls; Enter send, Shift+Enter newline |
 | `aiChatModeButton` | `QFrame` | Agent / Ask / Plan pill; `WA_StyledBackground` + `composer_pill_dark_bg`; opens `aiAgentModePopup` |
 | `aiChatModeButtonLabel` | `QLabel` | Mode label inside the mode pill |

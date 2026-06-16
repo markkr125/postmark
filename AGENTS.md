@@ -336,7 +336,11 @@ src/
     │   │   ├── agent_mode_popup.py  # AgentModeButton + AiAgentModePopup (Agent / Ask / Plan)
     │   │   ├── chat_panel/        # AiChatPanel sub-package (panel, composer, context ring, scroll/)
     │   │   │   ├── panel.py       # AiChatPanel — transcript + composer
-    │   │   │   ├── composer.py    # _ComposerInput + ModelPickerButton
+    │   │   │   ├── inline_edit.py # _ChatPanelInlineEditMixin — inline user-message edit
+    │   │   │   ├── composer/      # AiChatComposer sub-package (docked + inline edit)
+    │   │   │   │   ├── widget.py  # AiChatComposer — attachments, input, mode/model, send/stop
+    │   │   │   │   ├── input.py   # ComposerInput — prompt editor (Escape → cancel in edit mode)
+    │   │   │   │   └── model_picker_button.py  # ModelPickerButton
     │   │   │   ├── context_ring_button.py  # ContextUsageRingButton (aiChatContextRing)
     │   │   │   ├── context_usage_panel.py  # _ChatPanelContextUsageMixin — debounced refresh + popup
     │   │   │   └── scroll/        # Scroll-lock, smooth wheel, sticky prompt overlay
@@ -379,6 +383,8 @@ src/
     │   │   │   │   └── action_option_row.py # Shared ActionOptionRow hover rows
     │   │   │   └── user_message/        # UserMessageSection, footer, actions popup, sticky overlay
     │   │   │       ├── section.py
+    │   │   │       ├── footer.py
+    │   │   │       ├── actions_popup.py  # Edit message + Fork chat
     │   │   │       ├── fade.py
     │   │   │       └── overlay.py       # StickyUserPromptOverlay — viewport sticky clone
     │   │   ├── model_picker_edit.py  # AiModelPickerEditPanel flyout (context / thinking / reasoning)

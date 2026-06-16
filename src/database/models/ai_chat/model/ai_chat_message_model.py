@@ -26,6 +26,12 @@ class AiChatMessageModel(Base):
     prompt_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     completion_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     reasoning_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    send_model_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    send_mode: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    send_agent_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    send_reasoning_effort: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    send_thinking_enabled: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    send_run_context_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         index=True,

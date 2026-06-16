@@ -54,6 +54,8 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
     _resize_settle_generation: int = 0
     _resize_settle_due_generation: int = 0
     _sticky_sync_deferred_during_resize: bool = False
+    _edit_scroll_pending: bool = False
+    _pending_edit_scroll_bubble: ChatMessageBubble | None = None
 
     def _init_scroll_controller(self) -> None:
         """Connect scrollbar signals for scroll-lock follow (call from panel ``__init__``)."""
@@ -61,6 +63,8 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
         self._resize_settle_generation = 0
         self._resize_settle_due_generation = 0
         self._sticky_sync_deferred_during_resize = False
+        self._edit_scroll_pending = False
+        self._pending_edit_scroll_bubble = None
         self._resize_settle_timer = QTimer(self)  # type: ignore[arg-type]
         self._resize_settle_timer.setSingleShot(True)
         self._resize_settle_timer.setTimerType(Qt.TimerType.CoarseTimer)
@@ -136,6 +140,45 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
             return bar.maximum()
         y = anchor.mapTo(self._messages, QPoint(0, 0)).y()
         return max(0, min(y - _TURN_SCROLL_MARGIN_PX, bar.maximum()))
+
+    def _scroll_value_for_bubble_top(self, bubble: ChatMessageBubble) -> int:
+        """Return scroll offset that places *bubble* near the viewport top."""
+        bar = self._scroll.verticalScrollBar()
+        anchor = bubble.user_message_host() or bubble
+        y = anchor.mapTo(self._messages, QPoint(0, 0)).y()
+        return max(0, min(y - _TURN_SCROLL_MARGIN_PX, bar.maximum()))
+
+    def _scroll_to_user_bubble(self, bubble: ChatMessageBubble) -> None:
+        """Scroll so *bubble* is near the top of the transcript viewport."""
+        bar = self._scroll.verticalScrollBar()
+        target = self._scroll_value_for_bubble_top(bubble)
+        self._set_bar_value(bar, target)
+
+    def _request_scroll_to_user_bubble(self, bubble: ChatMessageBubble) -> None:
+        """Defer scroll until inline-edit layout and docked composer hide have settled."""
+        self._pending_edit_scroll_bubble = bubble
+        if self._edit_scroll_pending:
+            return
+        self._edit_scroll_pending = True
+        QTimer.singleShot(0, self._flush_scroll_to_user_bubble)
+
+    def _flush_scroll_to_user_bubble(self) -> None:
+        """Scroll to the user row after geometry updates from inline edit."""
+        bubble = getattr(self, "_pending_edit_scroll_bubble", None)
+        self._edit_scroll_pending = False
+        if bubble is None or not isValid(bubble):
+            return
+        self._messages.updateGeometry()
+        self._scroll.updateGeometry()
+        for _ in range(2):
+            QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
+        bar = self._scroll.verticalScrollBar()
+        target = self._scroll_value_for_bubble_top(bubble)
+        self._set_bar_value(bar, target)
+        if target == 0 and bar.maximum() > 100:
+            QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
+            target = self._scroll_value_for_bubble_top(bubble)
+            self._set_bar_value(bar, target)
 
     def _streaming_turn_extent_px(self) -> int:
         """Return height from the turn anchor top to the bottom of the assistant row."""

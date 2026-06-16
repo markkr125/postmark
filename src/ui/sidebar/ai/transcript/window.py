@@ -467,7 +467,60 @@ class _ChatPanelTranscriptWindowMixin(_ChatPanelTranscriptLoadMixin):
             pending_user = None
         buffer_turns = self._buffer_turn_ids(EVICTION_BUFFER_TURNS)
         protected.update(buffer_turns)
+        inline = getattr(self, "_inline_edit", None)
+        if inline is not None:
+            protected.add(inline.message_id)
         return protected
+
+    def ensure_message_bubble_loaded(self, message_id: int) -> bool:
+        """Ensure a bubble for *message_id* exists in the transcript layout."""
+        if message_id in self._bubble_by_message_id:
+            return True
+        session_id = self._virtual_session_id
+        if session_id is None:
+            return False
+        from services.ai.chat.session_service import AiChatSessionService
+
+        msg = next(
+            (m for m in AiChatSessionService.get_messages(session_id) if m["id"] == message_id),
+            None,
+        )
+        if msg is None:
+            return False
+        bubble = cast(Any, self)._message_from_dict(msg, force_render=True)
+        if bubble.message_id != message_id:
+            return False
+        self._insert_bubble_in_message_order(bubble, message_id)
+        return message_id in self._bubble_by_message_id
+
+    def _insert_bubble_in_message_order(self, bubble: ChatMessageBubble, message_id: int) -> None:
+        """Move *bubble* to the chronological position for *message_id*."""
+        self._messages_layout.removeWidget(bubble)
+        insert_idx = self._first_bubble_layout_index()
+        for index in range(self._first_bubble_layout_index(), self._messages_layout.count()):
+            item = self._messages_layout.itemAt(index)
+            widget = item.widget() if item is not None else None
+            if widget is self._bottom_virtual_spacer:
+                insert_idx = index
+                break
+            if isinstance(widget, ChatMessageBubble) and widget.message_id is not None:
+                if widget.message_id > message_id:
+                    insert_idx = index
+                    break
+                insert_idx = index + 1
+        self._messages_layout.insertWidget(insert_idx, bubble)
+
+    def _recompute_transcript_bounds_after_truncation(self, keep_through_id: int) -> None:
+        """Refresh virtualization bounds after messages are deleted past *keep_through_id*."""
+        if self._newest_loaded_id is None or self._newest_loaded_id > keep_through_id:
+            self._newest_loaded_id = keep_through_id
+        stale_assistant_ids = [
+            assistant_id
+            for assistant_id, evicted in self._evicted_turn_users.items()
+            if evicted.message_id is not None and evicted.message_id > keep_through_id
+        ]
+        for assistant_id in stale_assistant_ids:
+            self._evicted_turn_users.pop(assistant_id, None)
 
     def _previous_user_bubble(self) -> ChatMessageBubble | None:
         """Return the user bubble immediately before the active turn anchor."""

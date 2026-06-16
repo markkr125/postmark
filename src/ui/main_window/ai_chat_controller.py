@@ -17,6 +17,7 @@ from services.ai.chat.session_service import (
     AiChatSessionTailLoadDict,
     AiChatTranscriptPageDict,
     ComposerRunContext,
+    UserMessageSendSnapshot,
 )
 from ui.sidebar.ai.chat_sessions.history_popup import AiSessionHistoryPopup
 from ui.sidebar.ai.workers.chat_worker import AiChatWorker
@@ -94,6 +95,8 @@ class _AiChatControllerMixin:
         panel.stop_requested.connect(self._on_ai_chat_stop)
         panel.assistant_fork_requested.connect(self._on_assistant_fork_requested)
         panel.user_fork_requested.connect(self._on_user_fork_requested)
+        panel.user_edit_requested.connect(self._on_user_edit_requested)
+        panel.user_edit_submitted.connect(self._on_user_edit_submitted)
         self._right_sidebar.ai_new_chat_requested.connect(self._on_ai_new_chat)
         self._right_sidebar.ai_session_history_requested.connect(self._on_ai_session_history)
         self._right_sidebar.ai_session_title_renamed.connect(self._on_ai_session_title_renamed)
@@ -156,7 +159,9 @@ class _AiChatControllerMixin:
         self._cancel_active_chat_run()
         self._session_load_generation += 1
         self._session_loader.cancel()
-        self._right_sidebar.ai_chat_panel.cancel_transcript_load()
+        panel = self._right_sidebar.ai_chat_panel
+        panel._cancel_inline_edit_if_active()
+        panel.cancel_transcript_load()
         self._active_ai_session_id = None
         AiConfig.set_chat_session_id("")
         self._right_sidebar.ai_chat_panel.clear()
@@ -190,6 +195,7 @@ class _AiChatControllerMixin:
         self._session_load_generation += 1
         generation = self._session_load_generation
         panel = self._right_sidebar.ai_chat_panel
+        panel._cancel_inline_edit_if_active()
         panel._reset_context_usage_chrome()
         panel.prepare_transcript_load(lazy_markdown=True)
         self._session_loader.load_tail(session_id, generation)
@@ -309,7 +315,11 @@ class _AiChatControllerMixin:
                 session_model_id=str(entry["id"]),
             )
 
-        user_row = AiChatSessionService.record_user_message(session_id, text)
+        user_row = AiChatSessionService.record_user_message(
+            session_id,
+            text,
+            send_snapshot=self._send_snapshot_from_panel(panel),
+        )
         panel.attach_last_user_message_id(user_row["id"])
         self._chat_run_generation += 1
         run_generation = self._chat_run_generation
@@ -358,6 +368,135 @@ class _AiChatControllerMixin:
             queued,
         )
 
+        self._ai_chat_thread = thread
+        self._ai_chat_worker = worker
+        thread.start()
+
+    def _send_snapshot_from_panel(self, panel) -> UserMessageSendSnapshot:
+        """Build a per-send snapshot from the docked composer and session agent."""
+        snapshot = panel._docked_composer.read_send_snapshot()
+        session_id = self._active_ai_session_id
+        if session_id:
+            session_row = AiChatSessionService.get_session(session_id)
+            if session_row is not None:
+                snapshot["send_agent_id"] = str(session_row.get("agent_id") or DEFAULT_AGENT_ID)
+        return cast(UserMessageSendSnapshot, snapshot)
+
+    @Slot(int)
+    def _on_user_edit_requested(self, message_id: int) -> None:
+        """Begin inline edit when the panel signals a user-message edit."""
+        panel = self._right_sidebar.ai_chat_panel
+        if panel._run_busy:
+            return
+        panel.begin_inline_edit(message_id)
+
+    @Slot(int, str)
+    def _on_user_edit_submitted(self, message_id: int, text: str) -> None:
+        """Confirm truncate, persist edit, and resubmit the assistant turn."""
+        from PySide6.QtWidgets import QMessageBox
+
+        thread = self._ai_chat_thread
+        if thread is not None and thread.isRunning():
+            return
+
+        panel = self._right_sidebar.ai_chat_panel
+        session_id = self._active_ai_session_id
+        if session_id is None:
+            return
+
+        later_count = AiChatSessionService.count_messages_after(session_id, message_id)
+        if later_count > 0:
+            box = QMessageBox(self._right_sidebar)
+            box.setIcon(QMessageBox.Icon.Warning)
+            box.setWindowTitle("Edit message")
+            noun = "message" if later_count == 1 else "messages"
+            box.setText(
+                f"Editing will delete {later_count} later {noun} "
+                "and regenerate the assistant reply."
+            )
+            box.setStandardButtons(
+                QMessageBox.StandardButton.Cancel | QMessageBox.StandardButton.Ok
+            )
+            box.button(QMessageBox.StandardButton.Ok).setText("Continue")
+            if box.exec() != QMessageBox.StandardButton.Ok:
+                return
+
+        inline = panel._inline_edit
+        composer = inline.composer if inline is not None else panel._docked_composer
+        send_snapshot = composer.read_send_snapshot()
+        session_row = AiChatSessionService.get_session(session_id)
+        if session_row is not None:
+            send_snapshot["send_agent_id"] = str(session_row.get("agent_id") or DEFAULT_AGENT_ID)
+
+        if not AiChatSessionService.edit_user_message_and_rewind(
+            session_id,
+            message_id,
+            text,
+            send_snapshot,
+        ):
+            return
+
+        panel.truncate_transcript_after(message_id)
+        panel._docked_composer.apply_send_snapshot(send_snapshot)
+        panel.select_model_if_available(str(send_snapshot.get("send_model_id") or ""))
+        mode = send_snapshot.get("send_mode")
+        if isinstance(mode, str) and mode.strip():
+            panel.set_mode(mode.strip())
+
+        entry = composer.current_model_entry() or panel.current_model_entry()
+        if entry is None:
+            return
+
+        user_bubble = panel._bubble_by_message_id.get(message_id)
+        if user_bubble is not None:
+            panel._turn_scroll_anchor = user_bubble
+            panel._streaming_turn_user_bubble = user_bubble
+
+        self._chat_run_generation += 1
+        run_generation = self._chat_run_generation
+        self._active_run_context = _AiChatRunContext(
+            session_id=session_id,
+            user_message_id=message_id,
+            user_text=text,
+            run_generation=run_generation,
+            model_id=str(entry["id"]),
+        )
+        panel.set_run_busy(True)
+        panel.begin_assistant_stream()
+
+        composer_ctx = ComposerRunContext(
+            reasoning_effort=composer.current_reasoning_effort(),
+            thinking_enabled=composer.current_thinking_enabled(),
+            run_context_tokens=composer.current_run_context_tokens(),
+        )
+        agent_id = str(send_snapshot.get("send_agent_id") or DEFAULT_AGENT_ID)
+        worker = AiChatWorker()
+        worker.set_run(
+            session_id=session_id,
+            entry=entry,
+            agent_id=agent_id,
+            text=text,
+            composer=composer_ctx,
+        )
+        thread = QThread()
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        queued = Qt.ConnectionType.QueuedConnection
+        worker.chunk_received.connect(panel.deliver_assistant_chunk, queued)
+        worker.status_changed.connect(panel.deliver_activity_status, queued)
+        worker.usage_updated.connect(panel.deliver_context_usage_metrics, queued)
+        worker.context_compacted.connect(panel.on_context_compacted, queued)
+        worker.context_compacted.connect(panel.deliver_context_usage_refresh, queued)
+        worker.assistant_finished.connect(self._deliver_ai_worker_assistant_finished, queued)
+        worker.failed.connect(self._deliver_ai_worker_failed, queued)
+        worker.assistant_finished.connect(thread.quit, queued)
+        worker.failed.connect(thread.quit, queued)
+        self._ai_chat_thread_generation += 1
+        chat_generation = self._ai_chat_thread_generation
+        thread.finished.connect(
+            lambda t=thread, w=worker, g=chat_generation: self._release_ai_chat_thread(t, w, g),
+            queued,
+        )
         self._ai_chat_thread = thread
         self._ai_chat_worker = worker
         thread.start()

@@ -1731,12 +1731,37 @@ def build_global_qss(p: ThemePalette) -> str:
         border-top: 1px solid {p["border"]};
         border-right: 1px solid {p["border"]};
     }}
+    QWidget[objectName="aiChatComposerInline"] {{
+        background: transparent;
+        border: none;
+    }}
     QPlainTextEdit[objectName="aiChatInput"] {{
         background: {p["input_bg"]};
         border: 1px solid {p["border"]};
         border-radius: 6px;
         color: {p["text"]};
         padding: 6px;
+    }}
+    QPlainTextEdit[objectName="aiChatInputInline"] {{
+        background: transparent;
+        border: none;
+        border-radius: 0;
+        color: {p["text"]};
+        padding: 0;
+    }}
+    QPushButton[objectName="aiChatEditCancel"] {{
+        background: {p["bg_alt"]};
+        border: 1px solid {p["border"]};
+        border-radius: 6px;
+        color: {p["text"]};
+        font-size: 12px;
+        padding: 4px 10px;
+        min-height: 24px;
+    }}
+    QPushButton[objectName="aiChatEditCancel"]:hover {{
+        background: {p["hover_bg"]};
+        border-color: {p["accent"]};
+        color: {p["text"]};
     }}
     QWidget[objectName="aiChatAttachments"] {{
         background: transparent;

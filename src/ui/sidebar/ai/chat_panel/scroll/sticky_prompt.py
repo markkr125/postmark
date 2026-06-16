@@ -306,8 +306,12 @@ class _ChatPanelStickyPromptMixin:  # type: ignore[misc]
         sticky._footer.stop_requested.connect(self.stop_requested.emit)  # type: ignore[attr-defined]
         if anchor is not None:
             sticky._footer.set_fork_enabled(anchor.message_id is not None)
+            sticky._footer.set_edit_enabled(anchor.message_id is not None and not self._run_busy)  # type: ignore[attr-defined]
             sticky._footer.fork_requested.connect(
                 lambda a=anchor: self._fork_sticky_prompt(a)  # type: ignore[attr-defined]
+            )
+            sticky._footer.edit_requested.connect(
+                lambda a=anchor: self._edit_sticky_prompt(a)  # type: ignore[attr-defined]
             )
         if anchor is not None:
             sticky.sync_expanded_from_anchor(anchor)
@@ -339,6 +343,10 @@ class _ChatPanelStickyPromptMixin:  # type: ignore[misc]
     def _sync_sticky_turn_prompt(self) -> None:
         """Show, hide, position, and clamp the sticky user prompt overlay."""
         if not isValid(self._scroll):
+            return
+
+        if getattr(self, "_sticky_edit_suppressed", False):
+            self._hide_sticky_unless_already_hidden()
             return
 
         viewport = self._scroll.viewport()

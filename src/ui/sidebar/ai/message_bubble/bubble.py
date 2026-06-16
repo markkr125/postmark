@@ -42,6 +42,7 @@ class ChatMessageBubble(QWidget):
     fork_requested = Signal()
     copy_requested = Signal()
     user_fork_requested = Signal()
+    user_edit_requested = Signal()
 
     def __init__(
         self,
@@ -69,6 +70,7 @@ class ChatMessageBubble(QWidget):
         self._user_frame: QFrame | None = None
         self._user_section: UserMessageSection | None = None
         self._user_footer: UserMessageFooterRow | None = None
+        self._inline_composer: QWidget | None = None
         self._sent_at: datetime | None = sent_at if role == "user" else None
         self._markdown_body: MarkdownContent | None = None
         self._assistant_footer: AssistantMessageFooterRow | None = None
@@ -103,6 +105,7 @@ class ChatMessageBubble(QWidget):
             self._user_footer = UserMessageFooterRow(frame)
             self._user_footer.set_sent_at(sent_at)
             self._user_footer.fork_requested.connect(self.user_fork_requested.emit)
+            self._user_footer.edit_requested.connect(self.user_edit_requested.emit)
             frame_layout.addWidget(self._user_footer)
             self._user_frame = frame
             outer.addWidget(frame)
@@ -174,6 +177,7 @@ class ChatMessageBubble(QWidget):
             self._assistant_footer.set_fork_enabled(True)
         if self._user_footer is not None:
             self._user_footer.set_fork_enabled(True)
+            self._user_footer.set_edit_enabled(True)
 
     def text(self) -> str:
         """Return the answer text (markdown source for assistant rows)."""
@@ -189,6 +193,53 @@ class ChatMessageBubble(QWidget):
         if self._user_footer is None:
             return None
         return self._user_footer.timestamp_label()
+
+    def user_message_text(self) -> str:
+        """Return the user prompt text."""
+        if self._user_section is None:
+            return ""
+        return self._user_section.text()
+
+    def set_user_message_text(self, text: str) -> None:
+        """Replace user prompt text in the read-only section."""
+        if self._user_section is None:
+            return
+        self._user_section.set_text(text)
+
+    def user_message_host(self) -> QFrame | None:
+        """Return the user message frame for inline composer embedding."""
+        return self._user_frame
+
+    def begin_inline_composer(self, composer: QWidget) -> bool:
+        """Hide read-only body and embed *composer* in the user frame."""
+        if self._user_frame is None or self._user_section is None or self._user_footer is None:
+            return False
+        self._user_section.hide()
+        self._user_footer.hide()
+        frame_layout = self._user_frame.layout()
+        if frame_layout is None:
+            return False
+        frame_layout.addWidget(composer)
+        self._inline_composer = composer
+        self.layout_height_changed.emit()
+        return True
+
+    def end_inline_composer(self, *, restore_text: str | None) -> None:
+        """Remove inline composer and restore the read-only user section."""
+        if self._user_frame is None or self._user_section is None or self._user_footer is None:
+            return
+        composer = self._inline_composer
+        if composer is not None:
+            frame_layout = self._user_frame.layout()
+            if frame_layout is not None:
+                frame_layout.removeWidget(composer)
+            composer.setParent(None)
+            self._inline_composer = None
+        if restore_text is not None:
+            self._user_section.set_text(restore_text)
+        self._user_section.show()
+        self._user_footer.show()
+        self.layout_height_changed.emit()
 
     def sent_at(self) -> datetime | None:
         """Return the user-message send time, if any."""

@@ -34,14 +34,19 @@ from database.models.ai_chat.ai_chat_repository import (
     append_message,
     archive_session,
     bulk_append_messages,
+    count_messages_after as repo_count_messages_after,
     create_session,
     delete_message as repo_delete_message,
+    delete_messages_after as repo_delete_messages_after,
     delete_session,
+    delete_session_index,
     get_last_assistant_usage_cumulative,
     list_messages,
     list_messages_up_to,
     rename_session,
     touch_session,
+    update_session_composer_settings,
+    update_user_message as repo_update_user_message,
 )
 from services.ai.ai_config import AiConfig, AiModelEntry
 from services.ai.ai_logging import log as ai_log
@@ -103,7 +108,24 @@ class AiChatMessageDict(TypedDict):
     prompt_tokens: NotRequired[int | None]
     completion_tokens: NotRequired[int | None]
     reasoning_tokens: NotRequired[int | None]
+    send_model_id: NotRequired[str | None]
+    send_mode: NotRequired[str | None]
+    send_agent_id: NotRequired[str | None]
+    send_reasoning_effort: NotRequired[str | None]
+    send_thinking_enabled: NotRequired[str | None]
+    send_run_context_tokens: NotRequired[int | None]
     created_at: str
+
+
+class UserMessageSendSnapshot(TypedDict, total=False):
+    """Per-send composer settings stored on user message rows."""
+
+    send_model_id: str | None
+    send_mode: str
+    send_agent_id: str
+    send_reasoning_effort: str | None
+    send_thinking_enabled: str | None
+    send_run_context_tokens: int | None
 
 
 class ComposerRunContext(TypedDict, total=False):
@@ -421,12 +443,166 @@ class AiChatSessionService:
         return AiChatSessionService._cast_session(row)
 
     @staticmethod
-    def record_user_message(session_id: str, content: str) -> AiChatMessageDict:
+    def count_messages_after(session_id: str, message_id: int) -> int:
+        """Return how many transcript rows exist after *message_id*."""
+        return repo_count_messages_after(session_id, message_id)
+
+    @staticmethod
+    def infer_send_snapshot_fallback(
+        session_id: str,
+        user_message_id: int,
+        *,
+        extra_entries: list[AiModelEntry] | None = None,
+    ) -> UserMessageSendSnapshot:
+        """Build a send snapshot for legacy user rows missing per-send columns."""
+        messages = list_messages(session_id)
+        user_row = next((m for m in messages if m["id"] == user_message_id), None)
+        if user_row is not None:
+            stored = AiChatSessionService.send_snapshot_from_message(
+                AiChatSessionService._cast_message(user_row)
+            )
+            if stored.get("send_model_id") or stored.get("send_mode"):
+                return stored
+        session_row = get_session_by_id(session_id)
+        send_model_id: str | None = None
+        for msg in messages:
+            if msg["id"] > user_message_id and msg.get("role") == "assistant":
+                mid = msg.get("model_id")
+                if isinstance(mid, str) and mid:
+                    send_model_id = mid
+                break
+        if not send_model_id and session_row is not None:
+            mid = session_row.get("model_id")
+            if isinstance(mid, str) and mid:
+                send_model_id = mid
+        mode = "agent"
+        agent_id = DEFAULT_AGENT_ID
+        if session_row is not None:
+            mode = str(session_row.get("mode") or "agent")
+            agent_id = str(session_row.get("agent_id") or DEFAULT_AGENT_ID)
+        thinking: str | None = None
+        models = extra_entries if extra_entries is not None else AiConfig.get_models()
+        if send_model_id:
+            for entry in models:
+                if entry["id"] == send_model_id and entry.get("thinking"):
+                    stored_thinking = entry.get("thinking_enabled")
+                    if isinstance(stored_thinking, str) and stored_thinking.strip().lower() in (
+                        "on",
+                        "off",
+                    ):
+                        thinking = stored_thinking.strip().lower()
+                    else:
+                        thinking = "on"
+                    break
+        return UserMessageSendSnapshot(
+            send_model_id=send_model_id,
+            send_mode=mode,
+            send_agent_id=agent_id,
+            send_reasoning_effort=None,
+            send_thinking_enabled=thinking,
+            send_run_context_tokens=None,
+        )
+
+    @staticmethod
+    def send_snapshot_from_message(row: AiChatMessageDict) -> UserMessageSendSnapshot:
+        """Return stored send snapshot from a user message dict."""
+        if row.get("send_model_id") or row.get("send_mode"):
+            return UserMessageSendSnapshot(
+                send_model_id=row.get("send_model_id"),
+                send_mode=str(row.get("send_mode") or "agent"),
+                send_agent_id=str(row.get("send_agent_id") or DEFAULT_AGENT_ID),
+                send_reasoning_effort=row.get("send_reasoning_effort"),
+                send_thinking_enabled=row.get("send_thinking_enabled"),
+                send_run_context_tokens=row.get("send_run_context_tokens"),
+            )
+        return UserMessageSendSnapshot()
+
+    @staticmethod
+    def record_user_message(
+        session_id: str,
+        content: str,
+        *,
+        send_snapshot: UserMessageSendSnapshot | None = None,
+    ) -> AiChatMessageDict:
         """Persist a user message and touch the session preview."""
         preview = content.strip().replace("\n", " ")[:_TITLE_PREVIEW_LEN]
         touch_session(session_id, last_preview=preview)
-        row = append_message(session_id=session_id, role="user", content=content)
+        snap = send_snapshot or {}
+        row = append_message(
+            session_id=session_id,
+            role="user",
+            content=content,
+            send_model_id=snap.get("send_model_id"),
+            send_mode=snap.get("send_mode"),
+            send_agent_id=snap.get("send_agent_id"),
+            send_reasoning_effort=snap.get("send_reasoning_effort"),
+            send_thinking_enabled=snap.get("send_thinking_enabled"),
+            send_run_context_tokens=snap.get("send_run_context_tokens"),
+        )
         return AiChatSessionService._cast_message(row)
+
+    @staticmethod
+    def _rewind_session_disk(source_session_id: str, prefix_last_message_id: int | None) -> None:
+        """Replace SDK disk state with the prefix through *prefix_last_message_id*."""
+        target_disk = session_disk_dir(source_session_id)
+        if prefix_last_message_id is None:
+            if target_disk.is_dir():
+                shutil.rmtree(target_disk)
+            return
+        forked = AiChatSessionService.fork_session_at_message(
+            source_session_id,
+            prefix_last_message_id,
+        )
+        if forked is None:
+            return
+        forked_id = forked["id"]
+        forked_disk = session_disk_dir(forked_id)
+        if target_disk.is_dir():
+            shutil.rmtree(target_disk)
+        if forked_disk.is_dir():
+            shutil.copytree(forked_disk, target_disk)
+            AiChatSessionService._rewrite_forked_disk_conversation_id(source_session_id)
+        delete_session_index(forked_id)
+        if forked_disk.is_dir():
+            shutil.rmtree(forked_disk, ignore_errors=True)
+
+    @staticmethod
+    def edit_user_message_and_rewind(
+        session_id: str,
+        user_message_id: int,
+        new_content: str,
+        send_snapshot: UserMessageSendSnapshot,
+    ) -> bool:
+        """Update a user row, truncate later messages, and rewind SDK disk."""
+        messages = list_messages(session_id)
+        user_row = next((m for m in messages if m["id"] == user_message_id), None)
+        if user_row is None or user_row.get("role") != "user":
+            return False
+        prior = [m for m in messages if m["id"] < user_message_id]
+        prefix_last_id = prior[-1]["id"] if prior else None
+        updated = repo_update_user_message(
+            user_message_id,
+            content=new_content,
+            send_model_id=send_snapshot.get("send_model_id"),
+            send_mode=send_snapshot.get("send_mode"),
+            send_agent_id=send_snapshot.get("send_agent_id"),
+            send_reasoning_effort=send_snapshot.get("send_reasoning_effort"),
+            send_thinking_enabled=send_snapshot.get("send_thinking_enabled"),
+            send_run_context_tokens=send_snapshot.get("send_run_context_tokens"),
+        )
+        if updated is None:
+            return False
+        repo_delete_messages_after(session_id, user_message_id)
+        AiChatSessionService._rewind_session_disk(session_id, prefix_last_id)
+        preview = new_content.strip().replace("\n", " ")[:_TITLE_PREVIEW_LEN]
+        touch_session(session_id, last_preview=preview or None)
+        update_session_composer_settings(
+            session_id,
+            model_id=send_snapshot.get("send_model_id"),
+            mode=send_snapshot.get("send_mode"),
+            agent_id=send_snapshot.get("send_agent_id"),
+        )
+        return True
 
     @staticmethod
     def delete_message(session_id: str, message_id: int) -> bool:
@@ -704,6 +880,12 @@ class AiChatSessionService:
             prompt_tokens=row.get("prompt_tokens"),
             completion_tokens=row.get("completion_tokens"),
             reasoning_tokens=row.get("reasoning_tokens"),
+            send_model_id=row.get("send_model_id"),
+            send_mode=row.get("send_mode"),
+            send_agent_id=row.get("send_agent_id"),
+            send_reasoning_effort=row.get("send_reasoning_effort"),
+            send_thinking_enabled=row.get("send_thinking_enabled"),
+            send_run_context_tokens=row.get("send_run_context_tokens"),
             created_at=row["created_at"],
         )
 
@@ -714,4 +896,5 @@ __all__ = [
     "AiChatSessionLoadDict",
     "AiChatSessionService",
     "ComposerRunContext",
+    "UserMessageSendSnapshot",
 ]
