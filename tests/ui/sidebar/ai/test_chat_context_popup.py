@@ -190,3 +190,112 @@ def test_context_popup_shows_divergence_hint(qapp: QApplication, qtbot) -> None:
     hint = popup._hint.text().lower()
     assert "saved transcript is larger" in hint
     popup.hide_popup()
+
+
+def _spend_breakdown() -> dict[str, object]:
+    return {
+        "total_usd": 0.042,
+        "known_usd": 0.042,
+        "assistant_turns": 3,
+        "priced_turns": 3,
+        "partial": False,
+        "models": [
+            {
+                "model_id": "m-openai",
+                "model_label": "gpt-5.4-mini",
+                "provider_label": "OpenAI (work)",
+                "prompt_tokens": 18_000,
+                "completion_tokens": 400,
+                "reasoning_tokens": 0,
+                "cost_usd": 0.038,
+                "turn_count": 2,
+            },
+            {
+                "model_id": "m-claude",
+                "model_label": "claude-3-5-sonnet",
+                "provider_label": "Anthropic",
+                "prompt_tokens": 1_000,
+                "completion_tokens": 200,
+                "reasoning_tokens": 0,
+                "cost_usd": 0.004,
+                "turn_count": 1,
+            },
+            {
+                "model_id": "m-ollama",
+                "model_label": "llama3.2",
+                "provider_label": "Ollama",
+                "prompt_tokens": 5_000,
+                "completion_tokens": 300,
+                "reasoning_tokens": 0,
+                "cost_usd": None,
+                "turn_count": 1,
+            },
+        ],
+    }
+
+
+def test_spend_popup_shows_model_rows(qapp: QApplication, qtbot) -> None:
+    """Spend tab lists per-model token and cost rows."""
+    popup = AiChatContextUsagePopup.instance()
+    popup.hide_popup()
+    qtbot.addWidget(popup)
+    anchor = ContextUsageRingButton()
+    qtbot.addWidget(anchor)
+    anchor.show()
+
+    popup.show_for(anchor, _breakdown(estimated=False), spend_breakdown=_spend_breakdown())  # type: ignore[arg-type]
+    popup.set_mode("spend")
+
+    assert popup.isVisible()
+    assert popup._mode == "spend"
+    assert popup._cost_pill.text() == "Spend $0.042"
+    assert "assistant turns" in popup._spend_summary.text().lower()
+    assert popup._spend_rows[0].isVisible()
+    assert popup._spend_rows[0]._model.text() == "gpt-5.4-mini"
+    assert popup._spend_rows[0]._provider.text() == "OpenAI (work)"
+    assert popup._spend_rows[2]._model.text() == "llama3.2"
+    assert popup._spend_rows[2]._cost.text() == "—"
+    popup.hide_popup()
+
+
+def test_spend_popup_height_is_clamped(qapp: QApplication, qtbot) -> None:
+    """Spend tab keeps a stable min height and scrolls when many models are listed."""
+    popup = AiChatContextUsagePopup.instance()
+    popup.hide_popup()
+    qtbot.addWidget(popup)
+    anchor = ContextUsageRingButton()
+    qtbot.addWidget(anchor)
+    anchor.show()
+
+    popup.show_for(anchor, _breakdown(estimated=False), spend_breakdown=_spend_breakdown())  # type: ignore[arg-type]
+    popup.set_mode("spend")
+
+    assert popup.minimumHeight() == 300
+    assert popup.maximumHeight() == 420
+    assert popup._spend_scroll.minimumHeight() == 140
+    assert popup._spend_scroll.maximumHeight() == 260
+    assert popup.height() >= 300
+    popup.hide_popup()
+
+
+def test_popup_mode_pills_switch_in_place(qapp: QApplication, qtbot) -> None:
+    """Context and Spend pills inside the flyout swap body without closing."""
+    popup = AiChatContextUsagePopup.instance()
+    popup.hide_popup()
+    qtbot.addWidget(popup)
+    ring = ContextUsageRingButton()
+    qtbot.addWidget(ring)
+    ring.show()
+
+    popup.show_for(ring, _breakdown(estimated=False), spend_breakdown=_spend_breakdown())  # type: ignore[arg-type]
+    assert popup._mode == "context"
+    assert popup._context_body.isVisible()
+    assert not popup._spend_body.isVisible()
+
+    popup.set_mode("spend")
+    assert popup.isVisible()
+    assert popup._mode == "spend"
+    assert popup._anchor is ring
+    assert popup._spend_body.isVisible()
+    assert not popup._context_body.isVisible()
+    popup.hide_popup()

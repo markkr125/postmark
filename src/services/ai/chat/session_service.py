@@ -73,6 +73,7 @@ if TYPE_CHECKING:
     from openhands.sdk.event.base import Event
     from openhands.sdk.llm.streaming import LLMStreamChunk
     from services.ai.chat.context_usage import ContextUsageSdkMetrics
+    from services.ai.chat.message_usage import SessionSpendBreakdown
 
 # Attachments are explicitly deferred for v1.
 _ATTACHMENTS_DEFERRED = True
@@ -239,6 +240,24 @@ class AiChatSessionService:
     def get_messages(session_id: str) -> list[AiChatMessageDict]:
         """Return transcript messages for repaint."""
         return [AiChatSessionService._cast_message(m) for m in list_messages(session_id)]
+
+    @staticmethod
+    def session_spend_breakdown(
+        session_id: str,
+        *,
+        models: list[AiModelEntry] | None = None,
+    ) -> SessionSpendBreakdown:
+        """Return per-provider session spend rollup from stored assistant turns."""
+        from services.ai.chat.message_usage import session_spend_breakdown
+
+        session_row = AiChatSessionService.get_session(session_id)
+        session_model_id = session_row.get("model_id") if session_row is not None else None
+        messages = AiChatSessionService.get_messages(session_id)
+        return session_spend_breakdown(
+            messages,
+            session_model_id=session_model_id,
+            models=models,
+        )
 
     @staticmethod
     def get_session_with_messages(session_id: str) -> AiChatSessionLoadDict | None:

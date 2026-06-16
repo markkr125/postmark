@@ -454,12 +454,12 @@ The manage control emits
 ``AiChatPanel.manage_models_requested`` → ``MainWindow`` opens Settings → AI →
 **Models** and refreshes the picker.
 
-A **context usage ring** (``ContextUsageRingButton``, ``objectName="aiChatContextRing"``) shows fill level for the active model's context window. Clicking opens ``AiChatContextUsagePopup`` (``objectName="aiChatContextPopup"``) with a Cursor-style eight-bucket breakdown, a stacked bar whose colored fill spans only the used share of the window (remaining track is empty headroom), and an **Estimated** label when counts are heuristic. ``set_context_breakdown`` / ``refresh_context_usage`` drive the ring; ``ContextUsageLoader`` schedules ``ContextUsageWorker`` on one persistent background thread to rebuild counts off-thread via ``ContextUsageService`` (``context_usage.py``), preferring persisted OpenHands SDK ``View`` token counts from ``context_usage_sdk.measure_sdk_view`` when SDK events exist and falling back to full SQLite transcript estimates before the model context is available. When usage is ≥70% and counts are still estimated, the popup shows honesty hints (provisional ring until SDK context loads; optional line when the saved transcript is larger than the SDK-loaded context). After OpenHands compaction, a muted ``aiChatSummarizedNotice`` row may appear in the transcript.
+A **context usage ring** (``ContextUsageRingButton``, ``objectName="aiChatContextRing"``) shows fill level for the active model's context window. The composer bar is unchanged — no extra cost controls beside the ring. Clicking the ring opens ``AiChatContextUsagePopup`` (``objectName="aiChatContextPopup"``) with **Context** and **Spend** pills in the flyout header. **Context** (default) shows the Cursor-style eight-bucket breakdown, stacked bar, and estimation hints. **Spend** shows session USD in the pill label when priced (e.g. ``Spend $0.042``) and per-model rows (model name, provider, tokens, cost) in the body; unrated models such as Ollama still list token totals with cost ``—``. The Spend body is clamped to a minimum height and scrolls when many models are listed. ``set_context_breakdown`` / ``refresh_context_usage`` drive the ring; session spend is computed on read in ``message_usage.session_spend_breakdown`` when the flyout opens or refreshes.
 
 | Method / signal | Description |
 |-----------------|-------------|
-| ``context_requested`` | Ring clicked — toggles the breakdown popup (mutually exclusive with model/mode/history popups) |
-| ``set_context_breakdown(breakdown)`` | Apply ``ContextUsageBreakdown`` to ring + open popup |
+| ``context_requested`` | Ring clicked — toggles the flyout (Context tab by default) |
+| ``set_context_breakdown(breakdown)`` | Apply ``ContextUsageBreakdown`` to ring + refresh flyout when open |
 | ``refresh_context_usage(sdk_metrics=…)`` | Debounced recompute (200 ms); optional SDK metrics after a run |
 | ``on_context_compacted()`` | Insert summarized-context notice after first compaction |
 

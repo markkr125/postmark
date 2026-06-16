@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from services.ai.ai_budget_config import AiBudgetConfig
 from services.ai.ai_config import AiConfig, AiModelEntry, model_entry_enabled
 from services.ai.provider_catalog import (
     ModelSpec,
@@ -453,6 +454,7 @@ class AiPageController:
                 store.delete(ref)
         removed_ids = {e["id"] for e in removed}
         self.models = [e for e in self.models if e["id"] not in removed_ids]
+        AiBudgetConfig.prune_orphaned(self.models)
         self._reload_tree()
         self._status.setText(f"Removed provider ({len(removed)} model(s)).")
         self._persist()

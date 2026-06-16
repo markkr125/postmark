@@ -58,10 +58,11 @@ def test_actions_popup_follows_transcript_scroll(qapp: QApplication, qtbot) -> N
     bar = scroll.verticalScrollBar()
     assert bar.maximum() > 0
     bar.setValue(bar.maximum() // 2)
-    qtbot.wait(30)
-
     assert popup.isVisible()
-    assert popup.frameGeometry().topLeft() != global_before
+    qtbot.waitUntil(
+        lambda: popup.frameGeometry().topLeft() != global_before,
+        timeout=2000,
+    )
 
 
 def test_actions_popup_coalesces_scroll_reposition(qapp: QApplication, qtbot) -> None:

@@ -139,10 +139,14 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   (`agent_registry.py`, `tool_registry.py`) ship `DEFAULT_AGENT_ID` with no
   custom tools in v1.
   MainWindow wiring: `_AiChatControllerMixin` (`ai_chat_controller.py`).
-  Settings UI: tree branch **AI** (overview) → **Models** child;
+  Settings UI: tree branch **AI** (overview) → **Models** and **Budgets** children;
   `ui/dialogs/settings/ai_page.py` + `AiProviderDialog` (per-provider credentials,
-  in-dialog Test connection, live model list); Apply calls
-  `AiPageController.apply()`.
+  in-dialog Test connection, live model list); **Budgets** in
+  `ui/dialogs/settings/ai_budget/` with `AiBudgetConfig` (`ai/provider_budgets`).
+  Session USD spend is computed on read in `message_usage.session_spend_breakdown`
+  (per-model rows) and shown on the **Spend** tab inside `AiChatContextUsagePopup`
+  (composer ring unchanged).
+  Apply calls `AiPageController.apply()`.
 - `RunHistoryService` follows the same `@staticmethod` pattern.  It wraps
   `run_history_repository` for run history CRUD (create, finish, add result,
   query runs/results, delete).

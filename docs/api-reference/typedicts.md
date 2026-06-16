@@ -95,6 +95,51 @@ with `secret_store`.
 | `context_tiers` | `list[int]` | LiteLLM pricing breakpoints (e.g. `272000`); picker offers only tier caps vs model max |
 | `tiers_checked` | `bool` | When true, LiteLLM tier backfill has run for this row; avoids re-importing `litellm` on startup |
 
+### ProviderBudgetEntry
+
+**Module:** `services/ai/ai_budget_config.py`
+
+Optional per-provider-connection spend limits (Settings → AI → Budgets). Persisted in QSettings `ai/provider_budgets` as JSON `{"schema": 1, "entries": [...]}`. Rows with no enabled soft/hard limits are omitted.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `connection_key` | `str` | `provider_connection_key()` for the connection |
+| `period` | `"none" \| "daily" \| "weekly" \| "monthly" \| "yearly"` | Reset period (enforcement deferred) |
+| `soft_limit_usd` | `float \| None` | Warn threshold when enabled (min $0.01) |
+| `hard_limit_usd` | `float \| None` | Block threshold when enabled (min $0.01) |
+
+### SessionSpendBreakdown
+
+**Module:** `services/ai/chat/message_usage.py`
+
+Session-level USD rollup from stored assistant-turn token deltas and model rates (computed on read).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `total_usd` | `float \| None` | Sum when all turns are priced; `None` when partial or empty |
+| `known_usd` | `float` | Sum of priced turns only |
+| `assistant_turns` | `int` | Assistant rows with token usage |
+| `priced_turns` | `int` | Turns with known model rates |
+| `partial` | `bool` | Some turns lack pricing while `known_usd` > 0 |
+| `models` | `list[ModelSpendRow]` | Per-model token and cost rows |
+
+### ModelSpendRow
+
+**Module:** `services/ai/chat/message_usage.py`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `model_id` | `str` | Configured model id (or synthetic key when unknown) |
+| `model_label` | `str` | Human-readable model name |
+| `provider_label` | `str` | `provider_group_label` for the model's connection |
+| `prompt_tokens` | `int` | Rolled-up prompt tokens |
+| `completion_tokens` | `int` | Rolled-up completion tokens |
+| `reasoning_tokens` | `int` | Rolled-up reasoning tokens |
+| `cost_usd` | `float \| None` | USD total when all turns for this model are priced; `None` for unrated (e.g. Ollama) |
+| `turn_count` | `int` | Assistant turns attributed to this model |
+
+`ProviderSpendRow` is a backward-compatible alias for `ModelSpendRow`.
+
 ### VariableDetail
 
 **Module:** `services/environment_service.py`

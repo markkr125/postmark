@@ -437,6 +437,8 @@ class _AiChatControllerMixin:
             return
 
         panel.truncate_transcript_after(message_id)
+        panel._refresh_session_spend_breakdown()
+        panel.refresh_context_usage()
         panel._docked_composer.apply_send_snapshot(send_snapshot)
         panel.select_model_if_available(str(send_snapshot.get("send_model_id") or ""))
         mode = send_snapshot.get("send_mode")

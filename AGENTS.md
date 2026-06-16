@@ -206,6 +206,7 @@ src/
 │   ├── ai/                        # AI / LLM provider configuration (OpenHands SDK)
 │   │   ├── provider_catalog.py    # Static provider/model catalog (display defaults)
 │   │   ├── reasoning_effort.py    # Reasoning-effort vocabulary + Ollama/LiteLLM helpers
+│   │   ├── ai_budget_config.py    # ProviderBudgetEntry + AiBudgetConfig (QSettings ai/provider_budgets)
 │   │   ├── ai_config.py           # AiConfig + AiModelEntry — QSettings ai/models, ai/chat_model_id, ai/chat_session_id
 │   │   ├── sdk_env.py             # ensure_openhands_env + connection timeouts
 │   │   ├── ai_logging.py          # [postmark.ai] stderr log during provider setup
@@ -218,7 +219,7 @@ src/
 │   │       ├── compaction.py      # CHAT_CONDENSER_MAX_* constants for LLMSummarizingCondenser
 │   │       ├── context_usage.py   # ContextUsageService + breakdown TypedDicts + SQLite fallback
 │   │       ├── context_usage_sdk.py # OpenHands SDK View token accounting + compaction diagnostics
-│   │       ├── message_usage.py   # Per-turn usage deltas + assistant footer cost formatting
+│   │       ├── message_usage.py   # Per-turn usage deltas, session spend rollups, assistant footer cost formatting
 │   │       ├── transcript_window.py # Turn-aware tail/older/newer slice helpers + paging constants
 │   │       └── session_service.py # AiChatSessionService — SQLite index + SDK bridge
 │   ├── assertion_service.py       # AssertionService + AssertionDict — declarative tests CRUD + compile
@@ -342,6 +343,7 @@ src/
     │   │   │   │   ├── input.py   # ComposerInput — prompt editor (Escape → cancel in edit mode)
     │   │   │   │   └── model_picker_button.py  # ModelPickerButton
     │   │   │   ├── context_ring_button.py  # ContextUsageRingButton (aiChatContextRing)
+    │   │   │   ├── context_popup_mode_pill.py  # ContextPopupModePill (aiChatContextPopupMode)
     │   │   │   ├── context_usage_panel.py  # _ChatPanelContextUsageMixin — debounced refresh + popup
     │   │   │   └── scroll/        # Scroll-lock, smooth wheel, sticky prompt overlay
     │   │   │       ├── scroll.py  # _ChatPanelScrollMixin — direction-based scroll-lock, turn-start anchor, viewport spacer, queued follow passes
@@ -498,6 +500,7 @@ src/
     │   │   ├── history_page.py    # Settings → History page (retention, bodies, storage path)
     │   │   ├── ai_provider_dialog.py # Add/edit provider credentials + model (in-dialog Test connection)
     │   │   ├── ai_provider_workers.py # Setup worker + AiRefreshUiBridge (GUI-thread refresh slot)
+    │   │   ├── ai_budget/         # Settings → AI → Budgets page (ai_budget_page)
     │   │   ├── ai_page.py         # Settings → AI → Models tree; refresh updates children only
     │   │   └── ai_page_actions.py # Provider actions + resizable tree header (QSettings)
     │   ├── collection_runner/
@@ -632,6 +635,7 @@ tests/
 │       ├── test_runtime_settings.py
 │       ├── test_request_history_service.py
 │       ├── ai/                    # AI config + LLM service tests
+│       │   ├── test_ai_budget_config.py
 │       │   ├── test_ai_config.py
 │       │   ├── test_chat_session_service.py
 │       │   ├── test_context_usage.py
@@ -707,6 +711,7 @@ tests/
     │   └── test_new_local_script_popup.py
     ├── dialogs/                   # Dialog tests
     │   ├── test_collection_runner.py
+    │   ├── test_ai_budget_page.py
     │   ├── test_ai_page.py
     │   ├── test_import_dialog.py
     │   ├── test_save_request_dialog.py

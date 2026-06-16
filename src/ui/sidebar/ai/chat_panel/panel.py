@@ -6,14 +6,7 @@ from datetime import UTC, datetime
 
 from PySide6.QtCore import Qt, QThread, Signal, Slot
 from PySide6.QtGui import QHideEvent, QResizeEvent, QShowEvent
-from PySide6.QtWidgets import (
-    QLabel,
-    QLayout,
-    QPushButton,
-    QScrollArea,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QLabel, QLayout, QPushButton, QScrollArea, QVBoxLayout, QWidget
 
 from services.ai.ai_config import AiModelEntry, model_entry_enabled
 from services.ai.chat.session_service import AiChatMessageDict

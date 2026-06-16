@@ -9,12 +9,14 @@ discover the full public API from a single file read::
 from __future__ import annotations
 
 from services.ai import (
+    AiBudgetConfig,
     AiChatMessageDict,
     AiChatSessionDict,
     AiChatSessionService,
     AiConfig,
     AiLlmService,
     AiModelEntry,
+    ProviderBudgetEntry,
 )
 from services.collection_service import CollectionService, RequestLoadDict
 from services.environment_service import EnvironmentService, LocalOverride, VariableDetail
@@ -37,6 +39,7 @@ from services.scripting import (
 )
 
 __all__ = [
+    "AiBudgetConfig",
     "AiChatMessageDict",
     "AiChatSessionDict",
     "AiChatSessionService",
@@ -48,6 +51,7 @@ __all__ = [
     "EnvironmentService",
     "ImportService",
     "LocalOverride",
+    "ProviderBudgetEntry",
     "RequestHistoryEntryDict",
     "RequestHistoryService",
     "RequestLoadDict",

@@ -10,6 +10,7 @@ from PySide6.QtCore import QObject, QThread, QTimer, Qt, Slot
 
 from services.ai.chat.agent_registry import DEFAULT_AGENT_ID
 from services.ai.chat.context_usage import ContextUsageBreakdown, ContextUsageSdkMetrics
+from services.ai.chat.message_usage import SessionSpendBreakdown
 from services.ai.chat.session_service import AiChatMessageDict, AiChatSessionService
 from ui.sidebar.ai.chat_context_popup import AiChatContextUsagePopup
 from ui.sidebar.ai.workers.context_usage_worker import ContextUsageLoader
@@ -21,6 +22,7 @@ class _ChatPanelContextUsageMixin:  # type: ignore[misc]
     """Debounced context-usage refresh and popover toggle."""
 
     _context_breakdown: ContextUsageBreakdown | None
+    _session_spend_breakdown: SessionSpendBreakdown | None
     _context_refresh_timer: QTimer
     _context_usage_loader: ContextUsageLoader
     _context_session_id: str | None
@@ -33,6 +35,7 @@ class _ChatPanelContextUsageMixin:  # type: ignore[misc]
     def _init_context_usage_state(self) -> None:
         """Initialise context ring worker state (call from ``__init__``)."""
         self._context_breakdown = None
+        self._session_spend_breakdown = None
         self._context_session_id = None
         self._context_sdk_metrics = None
         self._pending_turn_sdk_metrics = None
@@ -59,11 +62,14 @@ class _ChatPanelContextUsageMixin:  # type: ignore[misc]
         popup = AiChatContextUsagePopup.instance()
         if popup.isVisible():
             popup.set_breakdown(breakdown)
-            self._context_ring.setToolTip("")
+            if popup._mode == "context":
+                self._context_ring.setToolTip("")
+        self._refresh_session_spend_breakdown()
 
     def set_context_session_id(self, session_id: str | None) -> None:
         """Set the session used for full-transcript usage accounting."""
         self._context_session_id = session_id
+        self._refresh_session_spend_breakdown()
 
     def set_context_usage(self, used_tokens: int, total_tokens: int) -> None:
         """Thin wrapper updating the ring tooltip only."""
@@ -201,13 +207,42 @@ class _ChatPanelContextUsageMixin:  # type: ignore[misc]
         """Dismiss the context usage popover."""
         AiChatContextUsagePopup.instance().hide_popup()
 
+    def _refresh_session_spend_breakdown(self) -> None:
+        """Reload session spend for the Cost tab inside the context flyout."""
+        session_id = getattr(self, "_virtual_session_id", None) or self._context_session_id
+        if not session_id:
+            self._session_spend_breakdown = None
+            popup = AiChatContextUsagePopup.instance()
+            if popup.isVisible():
+                popup.set_spend_breakdown(
+                    {
+                        "total_usd": None,
+                        "known_usd": 0.0,
+                        "assistant_turns": 0,
+                        "priced_turns": 0,
+                        "partial": False,
+                        "models": [],
+                    }
+                )
+            return
+        breakdown = AiChatSessionService.session_spend_breakdown(
+            session_id,
+            models=getattr(self, "_models", None),
+        )
+        self._session_spend_breakdown = breakdown
+        popup = AiChatContextUsagePopup.instance()
+        if popup.isVisible():
+            popup.set_spend_breakdown(breakdown)
+
     def _restore_context_ring_tooltip(self) -> None:
         """Restore the ring tooltip after the popup closes."""
         breakdown = self._context_breakdown
         if breakdown is not None:
             self._context_ring.set_usage(breakdown["used_tokens"], breakdown["total_tokens"])
             return
-        self._context_ring.set_usage(0, self.current_run_context_tokens())
+        entry = self.current_model_entry()
+        total = self.current_run_context_tokens() if entry is not None else 0
+        self._context_ring.set_usage(self._context_ring.used_tokens(), total)
 
     def _hide_peer_ai_popups_for_context(self) -> None:
         """Close model/mode/history popups before opening the context tray."""
@@ -218,10 +253,10 @@ class _ChatPanelContextUsageMixin:  # type: ignore[misc]
         AiSessionHistoryPopup.instance().hide_popup()
 
     def _toggle_context_popup(self) -> None:
-        """Toggle the context breakdown popover above the ring."""
+        """Toggle the context flyout above the ring."""
         self.context_requested.emit()
         popup = AiChatContextUsagePopup.instance()
-        if popup.isVisible():
+        if popup.isVisible() and popup._anchor is self._context_ring:
             popup.hide_popup()
             return
         self._hide_peer_ai_popups_for_context()
@@ -229,13 +264,19 @@ class _ChatPanelContextUsageMixin:  # type: ignore[misc]
         if breakdown is None:
             self.refresh_context_usage()
             breakdown = self._context_breakdown
-        popup.show_for(self._context_ring, breakdown)
+        self._refresh_session_spend_breakdown()
+        popup.show_for(
+            self._context_ring,
+            breakdown,
+            spend_breakdown=self._session_spend_breakdown,
+        )
         self._context_ring.setToolTip("")
 
     def _reset_context_usage_chrome(self) -> None:
         """Clear ring state on session switch or new chat."""
         self._hide_context_popup()
         self._context_breakdown = None
+        self._session_spend_breakdown = None
         self._context_session_id = None
         self._context_sdk_metrics = None
         self._context_refresh_pending = False

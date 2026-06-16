@@ -228,6 +228,7 @@ tests/
 │       ├── test_runtime_settings.py
 │       ├── test_request_history_service.py
 │       ├── ai/
+│       │   ├── test_ai_budget_config.py
 │       │   ├── test_ai_config.py
 │       │   ├── test_model_metadata.py
 │       │   ├── test_run_context_choices.py
@@ -378,6 +379,7 @@ tests/
     │   ├── test_new_item_popup.py
     │   └── test_new_local_script_popup.py
     ├── dialogs/                   # Dialog tests
+    │   ├── test_ai_budget_page.py
     │   ├── test_ai_page.py
     │   ├── test_ai_provider_dialog.py
     │   ├── test_collection_runner.py

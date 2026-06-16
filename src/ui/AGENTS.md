@@ -332,7 +332,11 @@ standard object names:
 | `aiAgentModeOption` | `QWidget` | Selectable row in the mode flyout |
 | `aiChatModelButton` | `QWidget` | `ModelPickerButton` — compact pill (`bg_alt`); opens model picker |
 | `aiChatContextRing` | `QWidget` | `ContextUsageRingButton` — circular context fill; opens breakdown popup |
-| `aiChatContextPopup` | `QFrame` | `AiChatContextUsagePopup` — stacked bar + eight category rows |
+| `aiChatContextPopupMode` | `QPushButton` | Context / Spend mode pills inside the context flyout |
+| `aiChatContextPopup` | `QFrame` | `AiChatContextUsagePopup` — context breakdown or session spend (Spend tab) |
+| `aiProviderBudgetsTree` | `QTableWidget` | Settings → AI → Budgets provider rows |
+| `aiBudgetStatusLabel` | `QLabel` | Budget validation error line |
+| `aiBudgetEmptyLabel` | `QLabel` | Budgets page empty state |
 | `aiChatSummarizedNotice` | `QWidget` | Muted one-line transcript notice after OpenHands compaction |
 | `aiChatModelButtonPart` | `QLabel` | Model name and ``·`` separators inside `aiChatModelButton` |
 | `aiModelPickerContext` | `QLabel` | Context tag inside model button and picker rows (muted 10px) |

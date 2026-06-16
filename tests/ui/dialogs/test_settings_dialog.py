@@ -109,7 +109,7 @@ class TestSettingsDialogConstruction:
         ]
 
     def test_ai_has_models_child(self, qapp: QApplication, qtbot) -> None:
-        """AI branch has a Models child."""
+        """AI branch has Models and Budgets children."""
         tm = ThemeManager(qapp)
         dialog = SettingsDialog(tm)
         qtbot.addWidget(dialog)
@@ -120,9 +120,9 @@ class TestSettingsDialogConstruction:
                 ai_item = item
                 break
         assert ai_item is not None
-        assert ai_item.childCount() == 1
-        child = ai_item.child(0)
-        assert child is not None and child.text(0) == "Models"
+        assert ai_item.childCount() == 2
+        children = [ai_item.child(i).text(0) for i in range(ai_item.childCount())]
+        assert children == ["Models", "Budgets"]
 
     def test_private_packages_has_provider_children(self, qapp: QApplication, qtbot) -> None:
         """Private packages has npm / JSR / PyPI children."""

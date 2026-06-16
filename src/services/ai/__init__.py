@@ -7,6 +7,7 @@ Re-exports the public API so callers import from one place::
 
 from __future__ import annotations
 
+from services.ai.ai_budget_config import AiBudgetConfig, ProviderBudgetEntry
 from services.ai.ai_config import AiConfig, AiModelEntry
 from services.ai.chat import (
     AiChatMessageDict,
@@ -28,6 +29,7 @@ from services.ai.provider_catalog import (
 __all__ = [
     "DEFAULT_AGENT_ID",
     "PROVIDERS",
+    "AiBudgetConfig",
     "AiChatMessageDict",
     "AiChatSessionDict",
     "AiChatSessionService",
@@ -35,6 +37,7 @@ __all__ = [
     "AiLlmService",
     "AiModelEntry",
     "ModelSpec",
+    "ProviderBudgetEntry",
     "ProviderSpec",
     "capability_text",
     "fetch_provider_models",

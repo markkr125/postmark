@@ -1803,6 +1803,21 @@ def build_global_qss(p: ThemePalette) -> str:
         background: transparent;
         border: none;
     }}
+    QPushButton[objectName="aiChatContextPopupMode"] {{
+        background: {p["bg_alt"]};
+        border: 1px solid {p["border"]};
+        border-radius: 12px;
+        color: {p["text"]};
+        font-size: 12px;
+        padding: 3px 10px;
+    }}
+    QPushButton[objectName="aiChatContextPopupMode"]:hover {{
+        background: {p["hover_bg"]};
+    }}
+    QPushButton[objectName="aiChatContextPopupMode"][active="true"] {{
+        background: {p["hover_bg"]};
+        border-color: {p["accent"]};
+    }}
     QFrame[objectName="aiChatContextPopup"] {{
         background: {p["bg"]};
         border: 1px solid {p["border"]};

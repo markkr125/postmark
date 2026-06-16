@@ -287,6 +287,19 @@ TypedDict: `AiModelEntry` (`id`, `provider`, `label`, optional
 `ai:<uuid>`. Settings tree pills: `suggest`, `tools`, `vision`. Ollama refresh
 reads `insert`/`tools`/`vision` from `/api/show`.
 
+### AiBudgetConfig (`services/ai/ai_budget_config.py`)
+
+Per-provider-connection spend limits (Settings → AI → Budgets). Persisted in QSettings `ai/provider_budgets` as JSON `{"schema": 1, "entries": [...]}`. Enforcement deferred — storage only in v1.
+
+| Method | Purpose |
+|--------|---------|
+| `get_budgets()` | Load all persisted budget rows |
+| `budget_for_connection(connection_key)` | One row by `provider_connection_key()` |
+| `save_all(entries)` | Merge by `connection_key`; omit rows with no enabled limits; skip invalid rows |
+| `prune_orphaned(models)` | Drop rows whose connection keys are absent from configured models |
+
+TypedDict: `ProviderBudgetEntry` (`connection_key`, `period`, `soft_limit_usd`, `hard_limit_usd`). Helper: `validate_budget_entry(entry) -> str | None`.
+
 ### AiChatSessionService (`services/ai/chat/session_service.py`)
 
 Hybrid storage: SQLite index (`ai_chat_sessions`, `ai_chat_messages`) +
@@ -299,6 +312,7 @@ OpenHands SDK disk state under `session_disk_dir(id)`. Worker thread builds
 | `list_sessions(search=None)` | List non-archived sessions by `updated_at` desc |
 | `resolve_restore_session_id()` | Startup restore: persisted id when valid, else most recent if stored id was deleted; `None` when unset (**New chat**) |
 | `get_messages(session_id)` | Transcript for repaint |
+| `session_spend_breakdown(session_id, *, models=None)` | Per-model USD rollup from assistant-turn token deltas (`message_usage.session_spend_breakdown`) |
 | `record_user_message` / `record_assistant_message` | Append SQLite rows + touch preview; user rows accept optional `send_snapshot` (`UserMessageSendSnapshot`) persisted as `send_*` columns |
 | `count_messages_after(session_id, after_message_id)` | Count rows after a message (confirm dialog before edit) |
 | `send_snapshot_from_message` / `infer_send_snapshot_fallback` | Restore per-send model/mode/agent for inline edit |
@@ -340,6 +354,23 @@ Static helpers that power the composer context ring and breakdown popup.
 | `CHAT_CONDENSER_MAX_TOKEN_FRACTION` | `0.72` | Proactive token-budget threshold (72% of effective run context) |
 | `CHAT_CONDENSER_MINIMUM_PROGRESS` | `0.05` | Minimum fraction of events that soft condensation must forget |
 | `CHAT_CONDENSER_DIAGNOSTIC_USAGE_FRACTION` | `0.70` | Ring usage fraction that triggers `[postmark.ai]` compaction diagnostics |
+
+### message_usage (`services/ai/chat/message_usage.py`)
+
+Per-turn token deltas, assistant footer cost labels, and session spend rollups (computed on read from model rates).
+
+| Function | Purpose |
+|----------|---------|
+| `turn_usage_delta(sdk, previous_cumulative)` | Per-turn token delta from SDK cumulative metrics |
+| `message_turn_cost_usd(entry, prompt_tokens=…, …)` | USD for one turn when rates exist |
+| `format_assistant_footer_label(…)` | Model name + optional turn cost for bubble footer |
+| `session_spend_breakdown(messages, *, session_model_id=None, models=None)` | `SessionSpendBreakdown` grouped by model id |
+| `format_context_ring_tooltip(used, total, summary)` | Ring hover text with optional session spend |
+| `format_spend_tab_label(summary)` | Spend flyout tab (`Spend $0.042` or `Spend`) |
+| `format_spend_pill_label(summary)` | Compact USD label (`$0.042` or `$0.04+`) |
+| `spend_pill_visible(summary)` | Whether session has known or partial USD |
+
+TypedDicts: `SessionSpendBreakdown`, `ModelSpendRow` (`ProviderSpendRow` alias).
 
 ### LocalScriptService (`services/local_script_service.py`)
 
