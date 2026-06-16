@@ -170,7 +170,7 @@ recomputed from content instead.
 | More than 15 visual lines | Height stops at **15 lines**; vertical scrollbar appears; content still scrolls inside. |
 | Delete text / send | Shrinks back down (``clear()`` after send triggers the same resize path). |
 | Submit | **Enter** emits ``submit_requested`` → docked ``AiChatPanel._on_docked_send`` or inline ``_on_inline_edit_submit`` (Shift+Enter inserts a newline). |
-| Inline edit | **Escape** or **Cancel** (`aiChatEditCancel`) ends edit without saving; docked composer hidden while inline composer is active. |
+| Inline edit | **Escape** or **Cancel** (`aiChatEditCancel`) ends edit without saving; docked composer stays visible. |
 
 #### User messages
 

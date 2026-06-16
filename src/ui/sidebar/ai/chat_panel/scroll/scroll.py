@@ -155,7 +155,7 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
         self._set_bar_value(bar, target)
 
     def _request_scroll_to_user_bubble(self, bubble: ChatMessageBubble) -> None:
-        """Defer scroll until inline-edit layout and docked composer hide have settled."""
+        """Defer scroll until inline-edit layout has settled."""
         self._pending_edit_scroll_bubble = bubble
         if self._edit_scroll_pending:
             return

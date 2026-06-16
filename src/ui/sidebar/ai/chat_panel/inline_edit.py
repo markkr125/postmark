@@ -116,7 +116,6 @@ class _ChatPanelInlineEditMixin:  # type: ignore[misc]
             saved_text=saved_text,
             saved_snapshot=snapshot,
         )
-        panel._docked_composer.hide()
         panel._request_scroll_to_user_bubble(bubble)  # type: ignore[attr-defined]
         QTimer.singleShot(0, inline.input_widget().setFocus)
         panel._invalidate_sticky_extents()  # type: ignore[attr-defined]
@@ -134,7 +133,6 @@ class _ChatPanelInlineEditMixin:  # type: ignore[misc]
         state.composer.deleteLater()
         self._inline_edit = None
         self._sticky_edit_suppressed = False
-        panel._docked_composer.show()
         panel._invalidate_sticky_extents()  # type: ignore[attr-defined]
         panel._sync_sticky_turn_prompt()  # type: ignore[attr-defined]
 

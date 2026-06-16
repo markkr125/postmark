@@ -8,8 +8,8 @@ from ui.sidebar.ai import AiChatPanel
 from ui.sidebar.ai.message_bubble import ChatMessageBubble
 
 
-def test_begin_inline_edit_hides_docked_composer(qapp: QApplication, qtbot) -> None:
-    """Inline edit swaps the user bubble for a composer and hides the dock."""
+def test_begin_inline_edit_keeps_docked_composer_visible(qapp: QApplication, qtbot) -> None:
+    """Inline edit swaps the user bubble for a composer but leaves the dock visible."""
     panel = AiChatPanel()
     qtbot.addWidget(panel)
     panel.resize(400, 600)
@@ -17,11 +17,11 @@ def test_begin_inline_edit_hides_docked_composer(qapp: QApplication, qtbot) -> N
     bubble = panel.add_message("user", "edit me", message_id=42)
     assert panel.begin_inline_edit(42) is True
     assert panel._inline_edit is not None
-    assert not panel._docked_composer.isVisible()
+    assert panel._docked_composer.isVisible()
+    assert panel._docked_composer.isEnabled()
     assert bubble.user_message_text() == "edit me"
     panel.end_inline_edit(restore_bubble=True)
     assert panel._inline_edit is None
-    assert panel._docked_composer.isVisible()
 
 
 def test_inline_edit_submit_emits_signal(qapp: QApplication, qtbot) -> None:
