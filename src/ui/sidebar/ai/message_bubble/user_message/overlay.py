@@ -122,6 +122,7 @@ class StickyUserPromptOverlay(QWidget):
         self._expanded = True
         self._collapsible = False
         self._applied_metrics: StickyOverlayMetrics | None = None
+        self._inline_composer: QWidget | None = None
 
         self._frame = QFrame(self)
         self._frame.setObjectName("aiChatMessageUser")
@@ -193,6 +194,57 @@ class StickyUserPromptOverlay(QWidget):
     def footer_mode(self) -> UserMessageFooterMode:
         """Return the sticky footer action mode."""
         return self._footer.footer_mode()
+
+    def hosts_inline_composer(self) -> bool:
+        """Return whether this overlay hosts an inline edit composer."""
+        from ui.sidebar.ai.message_bubble.user_message.overlay_edit_host import (
+            hosts_inline_composer,
+        )
+
+        return hosts_inline_composer(self)
+
+    def host_inline_composer(self, composer: QWidget) -> None:
+        """Embed an inline edit composer in place of read-only prompt chrome."""
+        from ui.sidebar.ai.message_bubble.user_message.overlay_edit_host import (
+            host_inline_composer,
+        )
+
+        host_inline_composer(self, composer)  # type: ignore[arg-type]
+
+    def release_inline_composer(self) -> QWidget | None:
+        """Release a hosted inline composer back to the caller."""
+        from ui.sidebar.ai.message_bubble.user_message.overlay_edit_host import (
+            release_inline_composer,
+        )
+
+        return release_inline_composer(self)  # type: ignore[return-value]
+
+    def measure_edit_for_width(
+        self,
+        width: int,
+        max_height: int,
+        composer: QWidget,
+    ) -> StickyOverlayMetrics:
+        """Measure overlay geometry for a hosted inline composer."""
+        from ui.sidebar.ai.message_bubble.user_message.overlay_edit_host import (
+            measure_edit_for_width,
+        )
+
+        return measure_edit_for_width(self, width, max_height, composer)
+
+    def apply_edit_geometry(
+        self,
+        width: int,
+        height: int,
+        metrics: StickyOverlayMetrics,
+        composer: QWidget,
+    ) -> None:
+        """Apply geometry for a hosted inline composer."""
+        from ui.sidebar.ai.message_bubble.user_message.overlay_edit_host import (
+            apply_edit_geometry,
+        )
+
+        apply_edit_geometry(self, width, height, metrics, composer)
 
     def set_anchor_state(
         self,
@@ -372,6 +424,9 @@ class StickyUserPromptOverlay(QWidget):
 
     def _layout_children(self, metrics: StickyOverlayMetrics) -> None:
         """Position frame children from explicit metrics (no height-for-width layout loop)."""
+        if self._inline_composer is not None:
+            self.apply_edit_geometry(self.width(), self.height(), metrics, self._inline_composer)
+            return
         self._frame.setGeometry(0, 0, self.width(), self.height())
         inner_w = self._inner_label_width(self.width())
         self._refresh_collapsible_state()

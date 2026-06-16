@@ -5,13 +5,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QPoint, QTimer
+from shiboken6 import isValid
 
 from services.ai.chat.session_service import (
     AiChatSessionService,
     UserMessageSendSnapshot,
 )
 from ui.sidebar.ai.chat_panel.composer import AiChatComposer
+from ui.sidebar.ai.chat_panel.scroll.sticky_prompt import (
+    _MIN_STICKY_HEIGHT_ESTIMATE_PX,
+    _STICKY_PROMPT_TOP_PX,
+)
 from ui.sidebar.ai.message_bubble import ChatMessageBubble
 
 if TYPE_CHECKING:
@@ -33,12 +38,10 @@ class _ChatPanelInlineEditMixin:  # type: ignore[misc]
     """Swap a user bubble for an inline composer during message edit."""
 
     _inline_edit: _InlineEditState | None
-    _sticky_edit_suppressed: bool
 
     def _init_inline_edit_state(self) -> None:
         """Initialise inline-edit flags (call from panel ``__init__``)."""
         self._inline_edit = None
-        self._sticky_edit_suppressed = False
 
     def _active_composer(self) -> AiChatComposer:
         """Return the inline composer when editing, else the docked composer."""
@@ -51,7 +54,150 @@ class _ChatPanelInlineEditMixin:  # type: ignore[misc]
         if self._inline_edit is not None:
             self.end_inline_edit(restore_bubble=True)
 
-    def begin_inline_edit(self, message_id: int) -> bool:
+    def _release_inline_composer_to_bubble(self, state: _InlineEditState) -> None:
+        """Ensure the inline composer lives in the transcript bubble before teardown."""
+        panel = cast("AiChatPanel", self)
+        sticky = panel._sticky_turn_prompt  # type: ignore[attr-defined]
+        if sticky is not None and sticky.hosts_inline_composer():
+            released = sticky.release_inline_composer()
+            if released is not None and state.bubble._inline_composer is None:
+                state.bubble.reattach_inline_composer(released)
+        elif state.bubble._inline_composer is None:
+            state.bubble.reattach_inline_composer(state.composer)
+
+    def _edited_turn_qualifies_for_sticky_host(self, state: _InlineEditState) -> bool:
+        """Return whether the edited turn should host its composer in sticky."""
+        panel = cast("AiChatPanel", self)
+        bubble = state.bubble
+        composer = state.composer
+        assistant = panel._assistant_bubble_for_turn(bubble)  # type: ignore[attr-defined]
+        if assistant is None:
+            return False
+
+        scroll_val = panel._scroll.verticalScrollBar().value()  # type: ignore[attr-defined]
+        user_top = bubble.mapTo(panel._messages, QPoint(0, 0)).y()  # type: ignore[attr-defined]
+        if panel._user_prompt_visible_near_viewport_top(user_top - scroll_val):  # type: ignore[attr-defined]
+            return False
+
+        assistant_top = assistant.mapTo(panel._messages, QPoint(0, 0)).y()  # type: ignore[attr-defined]
+        assistant_bottom = assistant.mapTo(  # type: ignore[attr-defined]
+            panel._messages,
+            QPoint(0, assistant.height()),
+        ).y()
+        assistant_bottom_y = assistant_bottom - scroll_val
+        assistant_top_y = assistant_top - scroll_val
+
+        if not panel._assistant_intersects_viewport(assistant_top_y, assistant_bottom_y):  # type: ignore[attr-defined]
+            return False
+
+        if assistant_bottom_y <= _STICKY_PROMPT_TOP_PX + _MIN_STICKY_HEIGHT_ESTIMATE_PX:
+            return False
+
+        viewport = panel._scroll.viewport()  # type: ignore[attr-defined]
+        _, content_w = panel._sticky_content_geometry(bubble, viewport)  # type: ignore[attr-defined]
+        cap = panel._sticky_prompt_height_cap()  # type: ignore[attr-defined]
+        available_h = max(1, assistant_bottom_y - _STICKY_PROMPT_TOP_PX)
+        height_cap = min(cap, available_h)
+        sticky = panel._sticky_turn_prompt  # type: ignore[attr-defined]
+        if sticky is None:
+            sticky = panel._ensure_sticky_edit_prompt(bubble)  # type: ignore[attr-defined]
+        metrics = sticky.measure_edit_for_width(content_w, height_cap, composer)
+        sticky_h = min(metrics.total_height, height_cap)
+        return bool(assistant_bottom_y > sticky_h + _STICKY_PROMPT_TOP_PX)
+
+    def _focus_inline_edit_composer(self) -> None:
+        """Return keyboard focus to the inline composer after reparenting."""
+        state = self._inline_edit
+        if state is None:
+            return
+        QTimer.singleShot(0, state.composer.input_widget().setFocus)
+
+    def _on_inline_edit_composer_layout_changed(self) -> None:
+        """Reflow transcript and sticky host when the inline composer resizes."""
+        state = self._inline_edit
+        if state is None:
+            return
+        state.bubble.layout_height_changed.emit()
+        cast("AiChatPanel", self)._sync_sticky_turn_prompt()  # type: ignore[attr-defined]
+
+    def _sync_inline_edit_sticky_host(self, state: _InlineEditState) -> bool:
+        """Reparent the inline composer between bubble and sticky overlay.
+
+        Returns ``True`` when this path fully handled sticky for the edited turn.
+        Returns ``False`` so read-only sticky can run for other viewport turns.
+        """
+        panel = cast("AiChatPanel", self)
+        if not isValid(panel._scroll):  # type: ignore[attr-defined]
+            return True
+
+        if not self._edited_turn_qualifies_for_sticky_host(state):
+            self._release_inline_composer_to_bubble(state)
+            return False
+
+        bubble = state.bubble
+        composer = state.composer
+        assistant = panel._assistant_bubble_for_turn(bubble)  # type: ignore[attr-defined]
+        assert assistant is not None
+
+        scroll_val = panel._scroll.verticalScrollBar().value()  # type: ignore[attr-defined]
+        assistant_bottom = assistant.mapTo(  # type: ignore[attr-defined]
+            panel._messages,
+            QPoint(0, assistant.height()),
+        ).y()
+        assistant_bottom_y = assistant_bottom - scroll_val
+
+        if bubble._inline_composer is not None:
+            bubble.detach_inline_composer()
+
+        viewport = panel._scroll.viewport()  # type: ignore[attr-defined]
+        sticky = panel._ensure_sticky_edit_prompt(bubble)  # type: ignore[attr-defined]
+        if not sticky.hosts_inline_composer():
+            sticky.host_inline_composer(composer)
+            self._focus_inline_edit_composer()
+
+        sticky_x, content_w = panel._sticky_content_geometry(bubble, viewport)  # type: ignore[attr-defined]
+        cap = panel._sticky_prompt_height_cap()  # type: ignore[attr-defined]
+        available_h = max(1, assistant_bottom_y - _STICKY_PROMPT_TOP_PX)
+        height_cap = min(cap, available_h)
+        metrics = sticky.measure_edit_for_width(content_w, height_cap, composer)
+        sticky_h = min(metrics.total_height, height_cap)
+        metrics = sticky.measure_edit_for_width(content_w, sticky_h, composer)
+        sticky.apply_edit_geometry(content_w, sticky_h, metrics, composer)
+
+        target_geom = (sticky_x, _STICKY_PROMPT_TOP_PX, content_w, sticky_h)
+        assistant_id = assistant.message_id
+        unchanged = (
+            panel._sticky_applied_visible  # type: ignore[attr-defined]
+            and panel._sticky_applied_anchor is bubble  # type: ignore[attr-defined]
+            and panel._sticky_applied_assistant_id == assistant_id  # type: ignore[attr-defined]
+            and panel._sticky_applied_geom == target_geom
+            and sticky.hosts_inline_composer()
+        )
+        if not unchanged:
+            sticky.move(target_geom[0], target_geom[1])
+            sticky.show()
+            panel._sticky_turn_anchor = bubble  # type: ignore[attr-defined]
+            panel._sticky_applied_anchor = bubble  # type: ignore[attr-defined]
+            panel._sticky_applied_assistant_id = assistant_id  # type: ignore[attr-defined]
+            panel._sticky_applied_prompt_text = composer.plain_text()
+            panel._sticky_applied_visible = True  # type: ignore[attr-defined]
+            panel._sticky_applied_geom = target_geom  # type: ignore[attr-defined]
+            panel._sticky_applied_height_cap = cap  # type: ignore[attr-defined]
+            panel._raise_sticky_layers()  # type: ignore[attr-defined]
+        return True
+
+    def _sticky_visible_for_bubble(self, bubble: ChatMessageBubble) -> bool:
+        """Return whether the sticky overlay is showing this user row."""
+        panel = cast("AiChatPanel", self)
+        sticky = panel._sticky_turn_prompt  # type: ignore[attr-defined]
+        return (
+            sticky is not None
+            and sticky.isVisible()
+            and panel._sticky_turn_anchor is bubble  # type: ignore[attr-defined]
+            and not sticky.hosts_inline_composer()
+        )
+
+    def begin_inline_edit(self, message_id: int, *, prefer_sticky_host: bool = False) -> bool:
         """Open an inline composer on the user row for *message_id*."""
         panel = cast("AiChatPanel", self)
         if panel._run_busy or self._inline_edit is not None:
@@ -84,13 +230,19 @@ class _ChatPanelInlineEditMixin:  # type: ignore[misc]
         else:
             snapshot = UserMessageSendSnapshot()
 
-        self._sticky_edit_suppressed = True
         panel._hide_context_popup()
         panel._picker_popup.hidePopup()  # type: ignore[attr-defined]
         panel._mode_popup.hide_popup()  # type: ignore[attr-defined]
 
         saved_text = bubble.user_message_text()
-        inline = AiChatComposer(bubble.user_message_host())
+        host_in_sticky = prefer_sticky_host and self._sticky_visible_for_bubble(bubble)
+        sticky = None
+        inline_parent = bubble.user_message_host()
+        if host_in_sticky:
+            sticky = panel._ensure_sticky_edit_prompt(bubble)  # type: ignore[attr-defined]
+            inline_parent = sticky._frame
+
+        inline = AiChatComposer(inline_parent)
         inline.set_models(panel._models)  # type: ignore[attr-defined]
         inline.set_embedded(True)
         inline.set_compact(True)
@@ -101,12 +253,30 @@ class _ChatPanelInlineEditMixin:  # type: ignore[misc]
         inline.mode_picker_requested.connect(panel._open_mode_picker)
         inline.submit_requested.connect(lambda: panel._on_inline_edit_submit())
         inline.cancel_requested.connect(lambda: panel.end_inline_edit(restore_bubble=True))
-        inline.layout_height_changed.connect(bubble.layout_height_changed.emit)
+        inline.layout_height_changed.connect(self._on_inline_edit_composer_layout_changed)
+
+        if host_in_sticky:
+            assert sticky is not None
+            if not bubble.begin_inline_edit_chrome():
+                inline.setParent(None)
+                inline.deleteLater()
+                return False
+            sticky.host_inline_composer(inline)
+            self._inline_edit = _InlineEditState(
+                message_id=message_id,
+                bubble=bubble,
+                composer=inline,
+                saved_text=saved_text,
+                saved_snapshot=snapshot,
+            )
+            self._focus_inline_edit_composer()
+            panel._invalidate_sticky_extents()  # type: ignore[attr-defined]
+            panel._sync_sticky_turn_prompt()  # type: ignore[attr-defined]
+            return True
 
         if not bubble.begin_inline_composer(inline):
             inline.setParent(None)
             inline.deleteLater()
-            self._sticky_edit_suppressed = False
             return False
 
         self._inline_edit = _InlineEditState(
@@ -117,7 +287,7 @@ class _ChatPanelInlineEditMixin:  # type: ignore[misc]
             saved_snapshot=snapshot,
         )
         panel._request_scroll_to_user_bubble(bubble)  # type: ignore[attr-defined]
-        QTimer.singleShot(0, inline.input_widget().setFocus)
+        self._focus_inline_edit_composer()
         panel._invalidate_sticky_extents()  # type: ignore[attr-defined]
         panel._sync_sticky_turn_prompt()  # type: ignore[attr-defined]
         return True
@@ -128,11 +298,11 @@ class _ChatPanelInlineEditMixin:  # type: ignore[misc]
         state = self._inline_edit
         if state is None:
             return
+        self._release_inline_composer_to_bubble(state)
         state.bubble.end_inline_composer(restore_text=state.saved_text if restore_bubble else None)
         state.composer.setParent(None)
         state.composer.deleteLater()
         self._inline_edit = None
-        self._sticky_edit_suppressed = False
         panel._invalidate_sticky_extents()  # type: ignore[attr-defined]
         panel._sync_sticky_turn_prompt()  # type: ignore[attr-defined]
 

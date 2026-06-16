@@ -471,11 +471,11 @@ class AiChatPanel(
         bubble.user_edit_requested.connect(self._on_user_bubble_edit)
 
     def _edit_sticky_prompt(self, anchor: ChatMessageBubble) -> None:
-        """Begin inline edit for the user row mirrored by the sticky overlay."""
+        """Begin inline edit in the sticky overlay for the mirrored user row."""
         message_id = anchor.message_id
         if message_id is None:
             return
-        self.user_edit_requested.emit(message_id)
+        self.begin_inline_edit(message_id, prefer_sticky_host=True)
 
     def _on_user_bubble_edit(self) -> None:
         """Emit an edit request for the user bubble that triggered the action."""

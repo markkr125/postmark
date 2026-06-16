@@ -386,7 +386,8 @@ src/
     │   │   │       ├── footer.py
     │   │   │       ├── actions_popup.py  # Edit message + Fork chat
     │   │   │       ├── fade.py
-    │   │   │       └── overlay.py       # StickyUserPromptOverlay — viewport sticky clone
+    │   │   │       ├── overlay.py       # StickyUserPromptOverlay — viewport sticky clone
+    │   │   │       └── overlay_edit_host.py  # Reparent inline AiChatComposer into sticky during edit
     │   │   ├── model_picker_edit.py  # AiModelPickerEditPanel flyout (context / thinking / reasoning)
     │   │   └── model_picker_popup.py  # AiModelPickerPopup — Cursor-style model list + gear
     │   ├── left_sidebar.py        # LeftSidebar — activity rail + stacked nav flyout pages

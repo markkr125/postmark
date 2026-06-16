@@ -82,4 +82,3 @@ def test_begin_inline_edit_scrolls_user_row_to_top(qapp: QApplication, qtbot) ->
     expected = max(0, y - 8)
     assert abs(bar.value() - expected) <= 12
     panel.end_inline_edit(restore_bubble=True)
-

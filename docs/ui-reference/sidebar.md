@@ -170,7 +170,7 @@ recomputed from content instead.
 | More than 15 visual lines | Height stops at **15 lines**; vertical scrollbar appears; content still scrolls inside. |
 | Delete text / send | Shrinks back down (``clear()`` after send triggers the same resize path). |
 | Submit | **Enter** emits ``submit_requested`` → docked ``AiChatPanel._on_docked_send`` or inline ``_on_inline_edit_submit`` (Shift+Enter inserts a newline). |
-| Inline edit | **Escape** or **Cancel** (`aiChatEditCancel`) ends edit without saving; docked composer stays visible. |
+| Inline edit | **Escape** or **Cancel** (`aiChatEditCancel`) ends edit without saving; docked composer stays visible. When the edited bubble scrolls off-screen, the live inline composer is reparented into the sticky overlay until scrolled back into view. **Edit message** on the sticky clone opens the composer in place. While edit is active on one turn, scrolling to earlier or later turns still uses the normal read-only sticky overlay for the viewport turn. |
 
 #### User messages
 
@@ -184,6 +184,12 @@ clock, e.g. ``Jun 7, 2:39 PM``). New sends pass ``sent_at=datetime.now(UTC)``;
 ``AiChatComposer`` on the bubble with per-send settings restored from
 ``send_*`` columns (legacy sessions use ``infer_send_snapshot_fallback``).
 Resubmit truncates later transcript rows and regenerates the assistant reply.
+While inline edit is active, scrolling the edited user bubble off the top of the
+viewport reparents the single live ``AiChatComposer`` into the sticky overlay
+(``overlay_edit_host.py``) so the editor stays pinned; scrolling back reattaches
+it to the transcript bubble. **Edit message** on the sticky clone itself opens
+the composer in place on the sticky overlay (no scroll-to-bubble). The docked
+bottom composer stays visible throughout.
 The footer ``aiChatUserMessageConfig`` button opens message actions
 (Edit message, Fork chat) when idle; during an active run it becomes a
 turn-scoped **stop** control on the user bubble that started the stream (and on

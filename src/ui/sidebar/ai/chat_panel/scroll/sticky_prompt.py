@@ -231,6 +231,11 @@ class _ChatPanelStickyPromptMixin:  # type: ignore[misc]
         self._reset_sticky_applied_state()
         if sticky is None:
             return
+        if sticky.hosts_inline_composer():
+            released = sticky.release_inline_composer()
+            state = getattr(self, "_inline_edit", None)
+            if released is not None and state is not None and state.bubble._inline_composer is None:
+                state.bubble.reattach_inline_composer(released)
         sticky.setParent(None)
         sticky.deleteLater()
 
@@ -321,6 +326,18 @@ class _ChatPanelStickyPromptMixin:  # type: ignore[misc]
         self._sticky_turn_prompt = sticky
         return sticky
 
+    def _ensure_sticky_edit_prompt(self, anchor: ChatMessageBubble) -> StickyUserPromptOverlay:
+        """Create or reuse a sticky overlay shell for inline edit hosting."""
+        sticky = self._sticky_turn_prompt
+        if sticky is not None and self._sticky_turn_anchor is anchor:
+            return sticky
+        self._clear_sticky_turn_prompt()
+        self._sticky_turn_anchor = anchor
+        sticky = StickyUserPromptOverlay(parent=self._scroll.viewport())
+        sticky.expanded_changed.connect(self._on_sticky_overlay_expanded_changed)
+        self._sticky_turn_prompt = sticky
+        return sticky
+
     def _sync_sticky_footer_mode(
         self,
         sticky: StickyUserPromptOverlay,
@@ -345,8 +362,8 @@ class _ChatPanelStickyPromptMixin:  # type: ignore[misc]
         if not isValid(self._scroll):
             return
 
-        if getattr(self, "_sticky_edit_suppressed", False):
-            self._hide_sticky_unless_already_hidden()
+        inline_edit = getattr(self, "_inline_edit", None)
+        if inline_edit is not None and self._sync_inline_edit_sticky_host(inline_edit):  # type: ignore[attr-defined]
             return
 
         viewport = self._scroll.viewport()

@@ -19,7 +19,6 @@ def _install_ring_theme_hook(widget: ContextUsageRingButton) -> None:
     for child in app.children():
         if isinstance(child, ThemeManager):
             child.theme_changed.connect(widget.update)
-            return
 
 
 class ContextUsageRingButton(QWidget):

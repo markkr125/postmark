@@ -210,6 +210,15 @@ class ChatMessageBubble(QWidget):
         """Return the user message frame for inline composer embedding."""
         return self._user_frame
 
+    def begin_inline_edit_chrome(self) -> bool:
+        """Hide read-only user UI for inline edit without embedding a composer."""
+        if self._user_section is None or self._user_footer is None:
+            return False
+        self._user_section.hide()
+        self._user_footer.hide()
+        self.layout_height_changed.emit()
+        return True
+
     def begin_inline_composer(self, composer: QWidget) -> bool:
         """Hide read-only body and embed *composer* in the user frame."""
         if self._user_frame is None or self._user_section is None or self._user_footer is None:
@@ -223,6 +232,30 @@ class ChatMessageBubble(QWidget):
         self._inline_composer = composer
         self.layout_height_changed.emit()
         return True
+
+    def detach_inline_composer(self) -> QWidget | None:
+        """Remove the inline composer from the frame without restoring read-only UI."""
+        composer = self._inline_composer
+        if composer is None or self._user_frame is None:
+            return None
+        frame_layout = self._user_frame.layout()
+        if frame_layout is not None:
+            frame_layout.removeWidget(composer)
+        composer.setParent(None)
+        self._inline_composer = None
+        self.layout_height_changed.emit()
+        return composer
+
+    def reattach_inline_composer(self, composer: QWidget) -> None:
+        """Re-embed *composer* in the user frame during inline edit."""
+        if self._user_frame is None or self._user_section is None or self._user_footer is None:
+            return
+        frame_layout = self._user_frame.layout()
+        if frame_layout is None:
+            return
+        frame_layout.addWidget(composer)
+        self._inline_composer = composer
+        self.layout_height_changed.emit()
 
     def end_inline_composer(self, *, restore_text: str | None) -> None:
         """Remove inline composer and restore the read-only user section."""

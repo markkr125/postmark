@@ -345,6 +345,7 @@ tests/
    │       ├── test_assistant_message_actions.py
    │       ├── test_user_message_actions.py
    │       ├── test_inline_edit_message.py
+   │       ├── test_inline_edit_sticky_host.py  # Inline edit composer reparented into sticky overlay
    │       ├── test_context_usage_integration.py
    │       ├── test_context_thread_safety.py
    │       └── test_context_usage_worker.py

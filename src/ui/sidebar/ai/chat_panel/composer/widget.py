@@ -167,7 +167,9 @@ class AiChatComposer(QWidget):
             self._input.setObjectName("aiChatInputInline")
         else:
             self.setObjectName("aiChatComposer")
-            self._root_layout.setContentsMargins(_CHAT_COMPOSER_MARGIN_H, 8, _CHAT_COMPOSER_MARGIN_H, 8)
+            self._root_layout.setContentsMargins(
+                _CHAT_COMPOSER_MARGIN_H, 8, _CHAT_COMPOSER_MARGIN_H, 8
+            )
             self._input.setObjectName("aiChatInput")
         self.style().unpolish(self)
         self.style().polish(self)
