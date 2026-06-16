@@ -47,6 +47,7 @@ class AiUserMessageActionsPopup(QFrame):
         self._opened_at_ms = 0
         self._fork_enabled = True
         self._fork_callback: Callable[[], None] | None = None
+        self._copy_callback: Callable[[], None] | None = None
 
     def toggle_for(
         self,
@@ -54,12 +55,13 @@ class AiUserMessageActionsPopup(QFrame):
         *,
         fork_enabled: bool = True,
         on_fork: Callable[[], None] | None = None,
+        on_copy: Callable[[], None] | None = None,
     ) -> None:
         """Hide when already open for *anchor*; otherwise show."""
         if self.isVisible() and self._anchor is anchor:
             self.hide_popup()
             return
-        self.show_for(anchor, fork_enabled=fork_enabled, on_fork=on_fork)
+        self.show_for(anchor, fork_enabled=fork_enabled, on_fork=on_fork, on_copy=on_copy)
 
     def show_for(
         self,
@@ -67,6 +69,7 @@ class AiUserMessageActionsPopup(QFrame):
         *,
         fork_enabled: bool = True,
         on_fork: Callable[[], None] | None = None,
+        on_copy: Callable[[], None] | None = None,
     ) -> None:
         """Populate rows and position near *anchor*."""
         if not Shiboken.isValid(anchor):
@@ -77,6 +80,7 @@ class AiUserMessageActionsPopup(QFrame):
         self._anchor = anchor
         self._fork_enabled = fork_enabled
         self._fork_callback = on_fork
+        self._copy_callback = on_copy
         self._rebuild()
         self.adjustSize()
         self._position_near_anchor(anchor)
@@ -96,6 +100,7 @@ class AiUserMessageActionsPopup(QFrame):
         self.hide()
         self._anchor = None
         self._fork_callback = None
+        self._copy_callback = None
         self.hidden.emit()
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
@@ -148,22 +153,22 @@ class AiUserMessageActionsPopup(QFrame):
         self.move(x, y)
 
     def _rebuild(self) -> None:
-        """Fill the flyout with edit (display-only) and fork action rows."""
+        """Fill the flyout with copy and fork action rows."""
         while self._layout.count():
             item = self._layout.takeAt(0)
             if item is None:
                 continue
             widget = item.widget()
             if widget is not None:
-                widget.deleteLater()
-        edit_row = ActionOptionRow(
-            "Edit message",
+                widget.delete()
+        copy_row = ActionOptionRow(
+            "Copy message",
             row_object_name="aiUserMessageActionRow",
             label_object_name="aiUserMessageActionLabel",
             parent=self,
         )
-        edit_row.setEnabled(False)
-        self._layout.addWidget(edit_row)
+        copy_row.clicked.connect(self._on_copy)
+        self._layout.addWidget(copy_row)
         fork_row = ActionOptionRow(
             "Fork chat",
             row_object_name="aiUserMessageActionRow",
@@ -173,6 +178,13 @@ class AiUserMessageActionsPopup(QFrame):
         fork_row.setEnabled(self._fork_enabled)
         fork_row.clicked.connect(self._on_fork)
         self._layout.addWidget(fork_row)
+
+    def _on_copy(self) -> None:
+        """Run the copy callback and dismiss."""
+        callback = self._copy_callback
+        self.hide_popup()
+        if callback is not None:
+            callback()
 
     def _on_fork(self) -> None:
         """Run the fork callback and dismiss."""

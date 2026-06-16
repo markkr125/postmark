@@ -179,7 +179,7 @@ inside the bubble below the prompt shows when the message was sent (local date a
 clock, e.g. ``Jun 7, 2:39 PM``). New sends pass ``sent_at=datetime.now(UTC)``;
 ``load_transcript`` / session switches restore user rows from persisted
 ``created_at``. The footer ``aiChatUserMessageConfig`` button opens message actions
-(Edit message, Fork chat) when idle; during an active run it becomes a
+(Copy message, Fork chat) when idle; during an active run it becomes a
 turn-scoped **stop** control on the user bubble that started the stream (and on
 the sticky clone when pinned), emitting the same ``stop_requested`` signal as
 the composer stop button. **Stop** immediately clears busy state: during the

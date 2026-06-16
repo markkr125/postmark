@@ -299,14 +299,14 @@ standard object names:
 | `aiChatUserMessageFooter` | `QWidget` | Footer row below user prompt: timestamp left, config menu right |
 | `aiChatUserMessageConfig` | `QPushButton` | User message footer action: curved-arrow **message actions** (`footerMode="actions"`) opens `aiUserMessageActionsPopup`; while a run is in flight the active turn swaps to ``smallPrimaryButton`` styling with shared ``chat_stop_icon()`` (same as composer stop) and emits `AiChatPanel.stop_requested` |
 | `aiChatUserMessageTime` | `QLabel` | Muted send-time label inside `aiChatUserMessageFooter` (left-aligned); set from `sent_at` on send or `created_at` on `load_transcript` |
-| `aiUserMessageActionsPopup` | `QFrame` | Flyout for user message actions (Edit message display-only, Fork chat) |
+| `aiUserMessageActionsPopup` | `QFrame` | Flyout for user message actions (Copy message, Fork chat) |
 | `aiUserMessageActionRow` | `QWidget` | One static action row inside `aiUserMessageActionsPopup` |
 | `aiUserMessageActionLabel` | `QLabel` | Action label inside `aiUserMessageActionRow` |
 | `aiChatAssistantRow` | `QWidget` | Assistant transcript row (no bubble; plain wrapped text) |
 | `aiChatAssistantMessageFooter` | `QWidget` | Metadata row below completed assistant turns: model/cost left, ⋯ menu right |
 | `aiChatAssistantUsageLabel` | `QLabel` | Model name + per-turn USD cost (when priced) inside `aiChatAssistantMessageFooter` |
 | `aiChatAssistantMessageMenu` | `QPushButton` | Three-dot menu opening `aiAssistantMessageActionsPopup` |
-| `aiAssistantMessageActionsPopup` | `QFrame` | Flyout for assistant actions (Fork chat, Copy message) |
+| `aiAssistantMessageActionsPopup` | `QFrame` | Flyout for assistant actions (Copy message, Fork chat) |
 | `aiAssistantMessageActionRow` | `QWidget` | One clickable action row inside `aiAssistantMessageActionsPopup` |
 | `aiAssistantMessageActionLabel` | `QLabel` | Action label inside `aiAssistantMessageActionRow` |
 | `aiChatAssistantText` | `QWidget` (`MarkdownContent`) | Assistant answer: static `QTextDocument` paint; dashed footer rule painted below content when turn complete; default I-beam cursor over prose, pointing hand over markdown links and fenced-code **Copy**; mouse drag / double-click word / Ctrl+C selection with highlight; incremental `StreamingMarkdownCache` while streaming; full `render_chat_markdown_html` on finalize; re-renders on `ThemeManager.theme_changed`; width/height measure cache (`_cached_height_for_text_width`); defers expensive height sync during pane resize coalescing (`set_reflow_deferred` / `flush_deferred_reflow`); fenced-code **Copy** links (`postmark-code-copy:<index>`) use `copy_block_index_at_document_pos` (anchor + padded line-geometry hit), `WA_Hover` + mouse tracking, `enterEvent`, and transcript scroll hooks for pointing-hand cursor and accent underline; click copies raw fence source and shows **Copied** ~2s; other link clicks via `anchorAt` when not selecting; context-menu **Copy** (selection) and **Copy message** (markdown source); wheel events forward to transcript `QScrollArea` |

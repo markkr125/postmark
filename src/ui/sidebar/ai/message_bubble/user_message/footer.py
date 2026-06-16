@@ -24,6 +24,7 @@ class UserMessageFooterRow(QWidget):
 
     stop_requested = Signal()
     fork_requested = Signal()
+    copy_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Build timestamp label and footer action button."""
@@ -124,6 +125,7 @@ class UserMessageFooterRow(QWidget):
             self._action_btn,
             fork_enabled=self._fork_enabled,
             on_fork=self.fork_requested.emit,
+            on_copy=self.copy_requested.emit,
         )
 
 

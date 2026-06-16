@@ -21,6 +21,7 @@ class ActionOptionRow(QWidget):
         row_object_name: str,
         label_object_name: str,
         parent: QWidget | None = None,
+        clickable: bool = True,
     ) -> None:
         """Build a labeled action row."""
         super().__init__(parent)
@@ -28,6 +29,7 @@ class ActionOptionRow(QWidget):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
         self._hovered = False
+        self._clickable = clickable
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -35,6 +37,7 @@ class ActionOptionRow(QWidget):
         label = QLabel(label_text)
         label.setObjectName(label_object_name)
         label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        label.setCursor(Qt.CursorShape.PointingHandCursor)
         layout.addWidget(label)
 
     def enterEvent(self, event) -> None:
@@ -51,6 +54,9 @@ class ActionOptionRow(QWidget):
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         """Emit ``clicked`` for primary-button releases inside the row."""
+        if not self._clickable:
+            event.accept()
+            return
         if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit()
             event.accept()

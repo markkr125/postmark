@@ -162,7 +162,7 @@ class AiAssistantMessageActionsPopup(QFrame):
         self.move(x, y)
 
     def _rebuild(self) -> None:
-        """Fill the flyout with fork and copy action rows."""
+        """Fill the flyout with copy and fork action rows."""
         while self._layout.count():
             item = self._layout.takeAt(0)
             if item is None:
@@ -170,6 +170,14 @@ class AiAssistantMessageActionsPopup(QFrame):
             widget = item.widget()
             if widget is not None:
                 widget.deleteLater()
+        copy_row = ActionOptionRow(
+            "Copy message",
+            row_object_name="aiAssistantMessageActionRow",
+            label_object_name="aiAssistantMessageActionLabel",
+            parent=self,
+        )
+        copy_row.clicked.connect(self._on_copy)
+        self._layout.addWidget(copy_row)
         fork_row = ActionOptionRow(
             "Fork chat",
             row_object_name="aiAssistantMessageActionRow",
@@ -179,14 +187,6 @@ class AiAssistantMessageActionsPopup(QFrame):
         fork_row.setEnabled(self._fork_enabled)
         fork_row.clicked.connect(self._on_fork)
         self._layout.addWidget(fork_row)
-        copy_row = ActionOptionRow(
-            "Copy message",
-            row_object_name="aiAssistantMessageActionRow",
-            label_object_name="aiAssistantMessageActionLabel",
-            parent=self,
-        )
-        copy_row.clicked.connect(self._on_copy)
-        self._layout.addWidget(copy_row)
 
     def _on_fork(self) -> None:
         """Run the fork callback and dismiss."""

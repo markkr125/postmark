@@ -304,6 +304,14 @@ class _ChatPanelStickyPromptMixin:  # type: ignore[misc]
         viewport = self._scroll.viewport()
         sticky = StickyUserPromptOverlay(parent=viewport)
         sticky._footer.stop_requested.connect(self.stop_requested.emit)  # type: ignore[attr-defined]
+        sticky._footer.copy_requested.connect(
+            lambda s=sticky: self._copy_sticky_prompt_text(s)  # type: ignore[attr-defined]
+        )
+        if anchor is not None:
+            sticky._footer.set_fork_enabled(anchor.message_id is not None)
+            sticky._footer.fork_requested.connect(
+                lambda a=anchor: self._fork_sticky_prompt(a)  # type: ignore[attr-defined]
+            )
         if anchor is not None:
             sticky.sync_expanded_from_anchor(anchor)
         else:
