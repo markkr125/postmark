@@ -55,6 +55,7 @@ class _ChatControllerHost(_AiChatControllerMixin):
         self._ai_chat_worker = None
         self._ai_chat_thread = None
         self._pending_title_session_id = None
+        self._pending_fork_composer = None
         self._session_load_generation = 0
         self._session_loader = SimpleNamespace(cancel=lambda: None, shutdown=lambda: None)  # type: ignore[assignment]
 
@@ -198,6 +199,48 @@ def test_init_ai_chat_controller_wires_transcript_refresh(
     monkeypatch.setattr(sidebar.ai_chat_panel, "refresh_context_usage", _record_refresh)
     sidebar.ai_chat_panel.transcript_load_finished.emit()
     assert calls == [None]
+    host._cleanup_ai_chat_threads()
+
+
+def test_user_fork_prefills_composer_after_transcript_load(
+    qapp: QApplication, qtbot, monkeypatch
+) -> None:
+    """Forking from a user message restores draft text when the transcript finishes loading."""
+    sidebar = RightSidebar()
+    qtbot.addWidget(sidebar)
+    host = _ControllerQObjectHost(sidebar)
+    panel = sidebar.ai_chat_panel
+    forked_id = "fork-session-1"
+    fork_result = {
+        "session": {
+            "id": forked_id,
+            "title": "Chat (1)",
+            "model_id": "m1",
+            "mode": "agent",
+            "agent_id": "postmark",
+            "created_at": "2026-01-01T00:00:00+00:00",
+            "updated_at": "2026-01-01T00:00:00+00:00",
+            "last_preview": None,
+            "archived": False,
+        },
+        "composer_draft": "Draft prompt",
+    }
+
+    monkeypatch.setattr(
+        "ui.main_window.ai_chat_controller.AiChatSessionService.fork_session_at_user_message",
+        lambda _sid, _mid: fork_result,
+    )
+
+    def _activate_only(session_id: str) -> None:
+        host._active_ai_session_id = session_id
+
+    monkeypatch.setattr(host, "_activate_chat_session", _activate_only)
+    host._active_ai_session_id = "source-session"
+    host._on_user_fork_requested(42)
+    assert host._pending_fork_composer == (forked_id, "Draft prompt")
+    panel.transcript_load_finished.emit()
+    assert panel._input.toPlainText() == "Draft prompt"
+    assert host._pending_fork_composer is None
     host._cleanup_ai_chat_threads()
 
 

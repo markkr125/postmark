@@ -41,6 +41,7 @@ class ChatMessageBubble(QWidget):
     layout_height_changed = Signal()
     fork_requested = Signal()
     copy_requested = Signal()
+    user_fork_requested = Signal()
 
     def __init__(
         self,
@@ -101,6 +102,7 @@ class ChatMessageBubble(QWidget):
             frame_layout.addWidget(self._user_section)
             self._user_footer = UserMessageFooterRow(frame)
             self._user_footer.set_sent_at(sent_at)
+            self._user_footer.fork_requested.connect(self.user_fork_requested.emit)
             frame_layout.addWidget(self._user_footer)
             self._user_frame = frame
             outer.addWidget(frame)
@@ -170,6 +172,8 @@ class ChatMessageBubble(QWidget):
         self._message_id = message_id
         if self._assistant_footer is not None:
             self._assistant_footer.set_fork_enabled(True)
+        if self._user_footer is not None:
+            self._user_footer.set_fork_enabled(True)
 
     def text(self) -> str:
         """Return the answer text (markdown source for assistant rows)."""

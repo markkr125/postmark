@@ -573,7 +573,7 @@ def test_user_message_config_button_opens_actions_popover(qapp: QApplication, qt
     assert popup.isVisible()
     assert {label.text() for label in popup.findChildren(QLabel, "aiUserMessageActionLabel")} == {
         "Edit message",
-        "Fork conversation",
+        "Fork chat",
     }
 
 

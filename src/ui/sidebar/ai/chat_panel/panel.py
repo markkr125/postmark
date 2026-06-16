@@ -46,6 +46,7 @@ class AiChatPanel(_ChatPanelStreamingMixin, _ChatPanelContextUsageMixin, QWidget
     message_submitted = Signal(str)
     stop_requested = Signal()
     assistant_fork_requested = Signal(int)
+    user_fork_requested = Signal(int)
     mode_changed = Signal(str)
     attachments_changed = Signal(list)
     manage_models_requested = Signal()
@@ -587,6 +588,10 @@ class AiChatPanel(_ChatPanelStreamingMixin, _ChatPanelContextUsageMixin, QWidget
         bubble.fork_requested.connect(self._on_assistant_bubble_fork)
         bubble.copy_requested.connect(self._on_assistant_bubble_copy)
 
+    def _wire_user_bubble_actions(self, bubble: ChatMessageBubble) -> None:
+        """Connect fork affordance for one user transcript row."""
+        bubble.user_fork_requested.connect(self._on_user_bubble_fork)
+
     def _on_assistant_bubble_fork(self) -> None:
         """Emit a fork request for the assistant bubble that triggered the action."""
         bubble = self.sender()
@@ -596,6 +601,16 @@ class AiChatPanel(_ChatPanelStreamingMixin, _ChatPanelContextUsageMixin, QWidget
         if message_id is None:
             return
         self.assistant_fork_requested.emit(message_id)
+
+    def _on_user_bubble_fork(self) -> None:
+        """Emit a fork request for the user bubble that triggered the action."""
+        bubble = self.sender()
+        if not isinstance(bubble, ChatMessageBubble):
+            return
+        message_id = bubble.message_id
+        if message_id is None:
+            return
+        self.user_fork_requested.emit(message_id)
 
     def _on_assistant_bubble_copy(self) -> None:
         """Copy the assistant answer markdown for the triggering bubble."""

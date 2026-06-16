@@ -51,6 +51,7 @@ class _AiChatControllerMixin:
     _ai_title_worker: AiChatTitleWorker | None
     _active_ai_session_id: str | None
     _pending_title_session_id: str | None
+    _pending_fork_composer: tuple[str, str] | None
     _title_run_session_id: str | None
     _session_load_generation: int
     _session_loader: AiChatSessionLoader
@@ -69,6 +70,7 @@ class _AiChatControllerMixin:
         self._ai_title_worker = None
         self._active_ai_session_id = None
         self._pending_title_session_id = None
+        self._pending_fork_composer = None
         self._title_run_session_id = None
         self._session_load_generation = 0
         self._manual_ai_session_titles = set()
@@ -91,6 +93,7 @@ class _AiChatControllerMixin:
         panel.message_submitted.connect(self._on_ai_message_submitted)
         panel.stop_requested.connect(self._on_ai_chat_stop)
         panel.assistant_fork_requested.connect(self._on_assistant_fork_requested)
+        panel.user_fork_requested.connect(self._on_user_fork_requested)
         self._right_sidebar.ai_new_chat_requested.connect(self._on_ai_new_chat)
         self._right_sidebar.ai_session_history_requested.connect(self._on_ai_session_history)
         self._right_sidebar.ai_session_title_renamed.connect(self._on_ai_session_title_renamed)
@@ -140,8 +143,13 @@ class _AiChatControllerMixin:
         self._sync_ai_session_title()
 
     def _on_ai_transcript_load_finished(self) -> None:
-        """Refresh context usage after transcript materialisation."""
-        self._right_sidebar.ai_chat_panel.refresh_context_usage()
+        """Refresh context usage and apply pending fork composer draft after load."""
+        panel = self._right_sidebar.ai_chat_panel
+        pending = self._pending_fork_composer
+        if pending is not None and pending[0] == self._active_ai_session_id:
+            self._pending_fork_composer = None
+            panel.restore_composer_text(pending[1])
+        panel.refresh_context_usage()
 
     def _on_ai_new_chat(self) -> None:
         """Clear transcript UI; next send creates a fresh session."""
@@ -458,7 +466,9 @@ class _AiChatControllerMixin:
         ctx = self._active_run_context
         model_id = ctx.model_id if ctx is not None else panel.current_model_id()
         usage = panel.take_pending_turn_sdk_metrics()
-        entry = entry_for_model_id(model_id, extra_entries=panel._models) or panel.current_model_entry()
+        entry = (
+            entry_for_model_id(model_id, extra_entries=panel._models) or panel.current_model_entry()
+        )
         model_label = model_display_name_from_entry(entry)
         assistant_row = AiChatSessionService.record_assistant_message(
             session_id,
@@ -480,6 +490,18 @@ class _AiChatControllerMixin:
         forked = AiChatSessionService.fork_session_at_message(session_id, message_id)
         if forked is None:
             return
+        self._activate_chat_session(forked["id"])
+
+    def _on_user_fork_requested(self, message_id: int) -> None:
+        """Fork before *message_id* and pre-fill the composer with that user text."""
+        session_id = self._active_ai_session_id
+        if session_id is None or message_id <= 0:
+            return
+        result = AiChatSessionService.fork_session_at_user_message(session_id, message_id)
+        if result is None:
+            return
+        forked = result["session"]
+        self._pending_fork_composer = (forked["id"], result["composer_draft"])
         self._activate_chat_session(forked["id"])
 
     def _on_ai_chat_stop(self) -> None:

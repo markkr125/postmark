@@ -308,8 +308,9 @@ OpenHands SDK disk state under `session_disk_dir(id)`. Worker thread builds
 | `message_display_parts(message)` / `chunk_parts_from_stream(chunk)` | Split SDK message or stream chunk into thinking + answer |
 | `record_assistant_message(session_id, content, *, thinking="", thinking_duration_seconds=None, model_id=None, usage=None)` | Persist answer + optional thinking, frozen duration, per-turn usage deltas (`model_id`, `prompt_tokens`, `completion_tokens`, `reasoning_tokens`), and touch preview |
 | `fork_session_at_message(source_session_id, message_id)` | New session with SQLite prefix through *message_id* + copied SDK disk dir (`base_state.json` id/persistence_dir rewritten); title ``{base} (N)`` via `allocate_fork_session_title` |
+| `fork_session_at_user_message(source_session_id, user_message_id)` | New session with prefix **before** the user row (empty + no disk copy when first message); returns ``AiChatUserForkResult`` with ``composer_draft`` = user message text |
 
-TypedDicts: `AiChatSessionDict`, `AiChatMessageDict` (optional `model_id`, `prompt_tokens`, `completion_tokens`, `reasoning_tokens` on assistant rows). Agent/tool registries:
+TypedDicts: `AiChatSessionDict`, `AiChatMessageDict` (optional `model_id`, `prompt_tokens`, `completion_tokens`, `reasoning_tokens` on assistant rows), `AiChatUserForkResult` (`session`, `composer_draft`). Agent/tool registries:
 `PostmarkAgentDef`, `DEFAULT_AGENT_ID` (`postmark-assistant`, no tools in v1).
 
 ### ContextUsageService (`services/ai/chat/context_usage.py`, SDK helpers in `context_usage_sdk.py`)

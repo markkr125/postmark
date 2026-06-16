@@ -114,6 +114,13 @@ class ComposerRunContext(TypedDict, total=False):
     reasoning_effort: str | None
 
 
+class AiChatUserForkResult(TypedDict):
+    """Fork from a user message: new session plus composer draft text."""
+
+    session: AiChatSessionDict
+    composer_draft: str
+
+
 class AiChatSessionLoadDict(TypedDict):
     """Session row plus transcript messages from a single read."""
 
@@ -496,6 +503,22 @@ class AiChatSessionService:
         base_path.write_text(json.dumps(data), encoding="utf-8")
 
     @staticmethod
+    def _fork_session_without_messages(source: dict[str, Any]) -> AiChatSessionDict:
+        """Create a forked session row with no transcript rows and no SDK disk copy."""
+        source_session_id = str(source["id"])
+        new_session_id = str(uuid.uuid4())
+        source_title = str(source.get("title") or "Chat").strip() or "Chat"
+        fork_title = allocate_fork_session_title(source_session_id, source_title)
+        row = create_session(
+            session_id=new_session_id,
+            title=fork_title,
+            model_id=source.get("model_id"),
+            mode=str(source.get("mode") or "agent"),
+            agent_id=str(source.get("agent_id") or DEFAULT_AGENT_ID),
+        )
+        return AiChatSessionService._cast_session(row)
+
+    @staticmethod
     def fork_session_at_message(
         source_session_id: str, message_id: int
     ) -> AiChatSessionDict | None:
@@ -529,6 +552,33 @@ class AiChatSessionService:
         preview = preview.replace("\n", " ")[:_TITLE_PREVIEW_LEN]
         touch_session(new_session_id, last_preview=preview or None)
         return AiChatSessionService._cast_session(row)
+
+    @staticmethod
+    def fork_session_at_user_message(
+        source_session_id: str, user_message_id: int
+    ) -> AiChatUserForkResult | None:
+        """Fork before *user_message_id*; return the new session and composer draft text."""
+        source = get_session_by_id(source_session_id)
+        if source is None:
+            return None
+        prefix_inclusive = list_messages_up_to(source_session_id, user_message_id)
+        if not prefix_inclusive or prefix_inclusive[-1]["id"] != user_message_id:
+            return None
+        user_row = prefix_inclusive[-1]
+        if user_row.get("role") != "user":
+            return None
+        draft = str(user_row.get("content") or "")
+        prior = prefix_inclusive[:-1]
+        if prior:
+            forked = AiChatSessionService.fork_session_at_message(
+                source_session_id,
+                prior[-1]["id"],
+            )
+            if forked is None:
+                return None
+            return {"session": forked, "composer_draft": draft}
+        forked = AiChatSessionService._fork_session_without_messages(source)
+        return {"session": forked, "composer_draft": draft}
 
     @staticmethod
     def extract_final_text(conversation: BaseConversation) -> str:

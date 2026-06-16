@@ -1,68 +1,23 @@
-"""Display-only actions flyout for user message config buttons."""
+"""Actions flyout for user message footer menus."""
 
 from __future__ import annotations
 
 from typing import ClassVar
 
+from collections.abc import Callable
+
 from PySide6.QtCore import QDateTime, QEvent, QObject, QPoint, Qt, Signal
-from PySide6.QtGui import QColor, QGuiApplication, QKeyEvent, QMouseEvent, QPainter
-from PySide6.QtWidgets import QFrame, QLabel, QVBoxLayout, QWidget
+from PySide6.QtGui import QGuiApplication, QKeyEvent, QMouseEvent
+from PySide6.QtWidgets import QFrame, QVBoxLayout, QWidget
 from shiboken6 import Shiboken
 
-from ui.styling.theme import COLOR_HOVER_BG
-
-_ACTION_LABELS: tuple[str, ...] = ("Edit message", "Fork conversation")
+from ui.sidebar.ai.message_bubble.assistant_message.action_option_row import ActionOptionRow
 
 _SHOW_GRACE_MS = 200
 
 
-class _ActionOptionRow(QWidget):
-    """One display-only action row with hover highlight and hand cursor."""
-
-    def __init__(self, label_text: str, parent: QWidget | None = None) -> None:
-        """Build a static action label row."""
-        super().__init__(parent)
-        self.setObjectName("aiUserMessageActionRow")
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
-        self._hovered = False
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-        label = QLabel(label_text)
-        label.setObjectName("aiUserMessageActionLabel")
-        label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        layout.addWidget(label)
-
-    def enterEvent(self, event) -> None:
-        """Track hover for gentle highlight."""
-        self._hovered = True
-        self.update()
-        super().enterEvent(event)
-
-    def leaveEvent(self, event) -> None:
-        """Clear hover highlight."""
-        self._hovered = False
-        self.update()
-        super().leaveEvent(event)
-
-    def paintEvent(self, event) -> None:
-        """Paint hover wash when the pointer is over the row."""
-        if self._hovered:
-            painter = QPainter(self)
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            painter.setPen(Qt.PenStyle.NoPen)
-            wash = QColor(COLOR_HOVER_BG)
-            wash.setAlpha(96)
-            painter.setBrush(wash)
-            painter.drawRoundedRect(self.rect().adjusted(2, 1, -2, -1), 4, 4)
-            painter.end()
-        super().paintEvent(event)
-
-
 class AiUserMessageActionsPopup(QFrame):
-    """Small flyout listing user-message actions (display-only for now)."""
+    """Small flyout listing user-message actions."""
 
     hidden = Signal()
     _instance: ClassVar[AiUserMessageActionsPopup | None] = None
@@ -90,20 +45,38 @@ class AiUserMessageActionsPopup(QFrame):
         self._layout.setSpacing(0)
         self._anchor: QWidget | None = None
         self._opened_at_ms = 0
+        self._fork_enabled = True
+        self._fork_callback: Callable[[], None] | None = None
 
-    def toggle_for(self, anchor: QWidget) -> None:
+    def toggle_for(
+        self,
+        anchor: QWidget,
+        *,
+        fork_enabled: bool = True,
+        on_fork: Callable[[], None] | None = None,
+    ) -> None:
         """Hide when already open for *anchor*; otherwise show."""
         if self.isVisible() and self._anchor is anchor:
             self.hide_popup()
             return
-        self.show_for(anchor)
+        self.show_for(anchor, fork_enabled=fork_enabled, on_fork=on_fork)
 
-    def show_for(self, anchor: QWidget) -> None:
-        """Populate static rows and position near *anchor*."""
+    def show_for(
+        self,
+        anchor: QWidget,
+        *,
+        fork_enabled: bool = True,
+        on_fork: Callable[[], None] | None = None,
+    ) -> None:
+        """Populate rows and position near *anchor*."""
+        if not Shiboken.isValid(anchor):
+            return
         app = QGuiApplication.instance()
         if app is not None and self.isVisible():
             app.removeEventFilter(self)
         self._anchor = anchor
+        self._fork_enabled = fork_enabled
+        self._fork_callback = on_fork
         self._rebuild()
         self.adjustSize()
         self._position_near_anchor(anchor)
@@ -122,6 +95,7 @@ class AiUserMessageActionsPopup(QFrame):
             app.removeEventFilter(self)
         self.hide()
         self._anchor = None
+        self._fork_callback = None
         self.hidden.emit()
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
@@ -155,6 +129,8 @@ class AiUserMessageActionsPopup(QFrame):
 
     def _position_near_anchor(self, anchor: QWidget) -> None:
         """Place the flyout below *anchor*, right-aligned; flip above if clipped."""
+        if not Shiboken.isValid(anchor):
+            return
         gap = 4
         panel_h = self.height()
         panel_w = self.width()
@@ -172,7 +148,7 @@ class AiUserMessageActionsPopup(QFrame):
         self.move(x, y)
 
     def _rebuild(self) -> None:
-        """Fill the flyout with static display-only action labels."""
+        """Fill the flyout with edit (display-only) and fork action rows."""
         while self._layout.count():
             item = self._layout.takeAt(0)
             if item is None:
@@ -180,8 +156,30 @@ class AiUserMessageActionsPopup(QFrame):
             widget = item.widget()
             if widget is not None:
                 widget.deleteLater()
-        for label_text in _ACTION_LABELS:
-            self._layout.addWidget(_ActionOptionRow(label_text, self))
+        edit_row = ActionOptionRow(
+            "Edit message",
+            row_object_name="aiUserMessageActionRow",
+            label_object_name="aiUserMessageActionLabel",
+            parent=self,
+        )
+        edit_row.setEnabled(False)
+        self._layout.addWidget(edit_row)
+        fork_row = ActionOptionRow(
+            "Fork chat",
+            row_object_name="aiUserMessageActionRow",
+            label_object_name="aiUserMessageActionLabel",
+            parent=self,
+        )
+        fork_row.setEnabled(self._fork_enabled)
+        fork_row.clicked.connect(self._on_fork)
+        self._layout.addWidget(fork_row)
+
+    def _on_fork(self) -> None:
+        """Run the fork callback and dismiss."""
+        callback = self._fork_callback
+        self.hide_popup()
+        if callback is not None:
+            callback()
 
 
 __all__ = ["AiUserMessageActionsPopup"]

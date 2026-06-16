@@ -299,7 +299,7 @@ standard object names:
 | `aiChatUserMessageFooter` | `QWidget` | Footer row below user prompt: timestamp left, config menu right |
 | `aiChatUserMessageConfig` | `QPushButton` | User message footer action: curved-arrow **message actions** (`footerMode="actions"`) opens `aiUserMessageActionsPopup`; while a run is in flight the active turn swaps to ``smallPrimaryButton`` styling with shared ``chat_stop_icon()`` (same as composer stop) and emits `AiChatPanel.stop_requested` |
 | `aiChatUserMessageTime` | `QLabel` | Muted send-time label inside `aiChatUserMessageFooter` (left-aligned); set from `sent_at` on send or `created_at` on `load_transcript` |
-| `aiUserMessageActionsPopup` | `QFrame` | Display-only flyout for user message actions (Edit message, Fork conversation) |
+| `aiUserMessageActionsPopup` | `QFrame` | Flyout for user message actions (Edit message display-only, Fork chat) |
 | `aiUserMessageActionRow` | `QWidget` | One static action row inside `aiUserMessageActionsPopup` |
 | `aiUserMessageActionLabel` | `QLabel` | Action label inside `aiUserMessageActionRow` |
 | `aiChatAssistantRow` | `QWidget` | Assistant transcript row (no bubble; plain wrapped text) |

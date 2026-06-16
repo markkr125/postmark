@@ -23,6 +23,7 @@ class UserMessageFooterRow(QWidget):
     """Timestamp on the left and a config or stop button on the right."""
 
     stop_requested = Signal()
+    fork_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Build timestamp label and footer action button."""
@@ -50,8 +51,13 @@ class UserMessageFooterRow(QWidget):
 
         self._sent_at: datetime | None = None
         self._footer_mode: UserMessageFooterMode = "actions"
+        self._fork_enabled = False
         self._timestamp.hide()
         self._apply_footer_mode("actions")
+
+    def set_fork_enabled(self, enabled: bool) -> None:
+        """Enable or disable the fork action for this footer."""
+        self._fork_enabled = enabled
 
     def timestamp_label(self) -> QLabel:
         """Return the send-time label widget."""
@@ -114,7 +120,11 @@ class UserMessageFooterRow(QWidget):
         if self._footer_mode == "stop":
             self.stop_requested.emit()
             return
-        AiUserMessageActionsPopup.instance().toggle_for(self._action_btn)
+        AiUserMessageActionsPopup.instance().toggle_for(
+            self._action_btn,
+            fork_enabled=self._fork_enabled,
+            on_fork=self.fork_requested.emit,
+        )
 
 
 __all__ = ["UserMessageFooterMode", "UserMessageFooterRow"]

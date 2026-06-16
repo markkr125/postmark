@@ -342,6 +342,7 @@ tests/
    │       ├── test_context_ring_button.py
    │       ├── test_assistant_message_footer.py
    │       ├── test_assistant_message_actions.py
+   │       ├── test_user_message_actions.py
    │       ├── test_context_usage_integration.py
    │       ├── test_context_thread_safety.py
    │       └── test_context_usage_worker.py

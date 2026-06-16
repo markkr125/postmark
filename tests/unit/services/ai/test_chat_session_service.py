@@ -478,3 +478,32 @@ def test_fork_session_title_increments_for_same_family() -> None:
     )
     assert third is not None
     assert third["title"] == "Planning (3)"
+
+
+def test_fork_session_at_user_message_excludes_user_row() -> None:
+    """User fork copies prefix before the user message and returns composer draft."""
+    source_id = str(uuid.uuid4())
+    create_session(session_id=source_id, title="Source", model_id="m1", mode="agent")
+    AiChatSessionService.record_user_message(source_id, "One")
+    AiChatSessionService.record_assistant_message(source_id, "A1", model_id="m1")
+    user_two = AiChatSessionService.record_user_message(source_id, "Two")
+    result = AiChatSessionService.fork_session_at_user_message(source_id, user_two["id"])
+    assert result is not None
+    forked = result["session"]
+    assert result["composer_draft"] == "Two"
+    assert forked["id"] != source_id
+    messages = AiChatSessionService.get_messages(forked["id"])
+    assert len(messages) == 2
+    assert messages[-1]["content"] == "A1"
+
+
+def test_fork_session_at_user_message_first_message_empty_transcript() -> None:
+    """Forking from the first user message yields an empty transcript and draft text."""
+    source_id = str(uuid.uuid4())
+    create_session(session_id=source_id, title="Fresh", model_id="m1", mode="agent")
+    user = AiChatSessionService.record_user_message(source_id, "Hello")
+    result = AiChatSessionService.fork_session_at_user_message(source_id, user["id"])
+    assert result is not None
+    assert result["composer_draft"] == "Hello"
+    messages = AiChatSessionService.get_messages(result["session"]["id"])
+    assert messages == []
