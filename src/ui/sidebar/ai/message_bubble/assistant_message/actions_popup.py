@@ -12,11 +12,14 @@ from PySide6.QtWidgets import QFrame, QVBoxLayout, QWidget
 from shiboken6 import Shiboken
 
 from ui.sidebar.ai.message_bubble.assistant_message.action_option_row import ActionOptionRow
+from ui.sidebar.ai.message_bubble.assistant_message.action_popup_anchor import (
+    AnchorFollowingActionsPopupMixin,
+)
 
 _SHOW_GRACE_MS = 200
 
 
-class AiAssistantMessageActionsPopup(QFrame):
+class AiAssistantMessageActionsPopup(AnchorFollowingActionsPopupMixin, QFrame):
     """Small flyout listing assistant-message actions."""
 
     hidden = Signal()
@@ -44,6 +47,7 @@ class AiAssistantMessageActionsPopup(QFrame):
         self._layout.setContentsMargins(4, 4, 4, 4)
         self._layout.setSpacing(0)
         self._anchor: QWidget | None = None
+        self._init_anchor_popup_tracking_state()
         self._opened_at_ms = 0
         self._fork_enabled = True
         self._fork_callback: Callable[[], None] | None = None
@@ -92,6 +96,7 @@ class AiAssistantMessageActionsPopup(QFrame):
         self.show()
         self.raise_()
         self._opened_at_ms = QDateTime.currentMSecsSinceEpoch()
+        self._attach_anchor_scroll_tracking()
         if app is not None:
             app.installEventFilter(self)
 
@@ -99,6 +104,7 @@ class AiAssistantMessageActionsPopup(QFrame):
         """Hide the flyout and remove the click-away filter."""
         if not self.isVisible():
             return
+        self._teardown_anchor_popup_tracking()
         app = QGuiApplication.instance()
         if app is not None:
             app.removeEventFilter(self)
@@ -120,7 +126,15 @@ class AiAssistantMessageActionsPopup(QFrame):
         super().keyPressEvent(event)
 
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
-        """Close on a mouse press outside the flyout after the grace window."""
+        """Close on outside click; reposition when the anchor window moves."""
+        etype = event.type()
+        if self.isVisible() and etype in (QEvent.Type.Move, QEvent.Type.Resize):
+            anchor = self._anchor
+            if anchor is not None and Shiboken.isValid(anchor):
+                window = anchor.window()
+                if obj is window:
+                    self._schedule_popup_position_sync()
+                    return super().eventFilter(obj, event)
         is_press = event.type() == QEvent.Type.MouseButtonPress and isinstance(event, QMouseEvent)
         past_grace = QDateTime.currentMSecsSinceEpoch() - self._opened_at_ms >= _SHOW_GRACE_MS
         if is_press and past_grace and self.isVisible():
@@ -140,26 +154,6 @@ class AiAssistantMessageActionsPopup(QFrame):
             return False
         local = anchor.mapFromGlobal(global_pos)
         return anchor.rect().contains(local)
-
-    def _position_near_anchor(self, anchor: QWidget) -> None:
-        """Place the flyout below *anchor*, right-aligned; flip above if clipped."""
-        if not Shiboken.isValid(anchor):
-            return
-        gap = 4
-        panel_h = self.height()
-        panel_w = self.width()
-        bottom_right = anchor.mapToGlobal(anchor.rect().bottomRight())
-        x = bottom_right.x() - panel_w
-        y = bottom_right.y() + gap
-        screen = QGuiApplication.screenAt(bottom_right) or QGuiApplication.primaryScreen()
-        sr = screen.availableGeometry() if screen else None
-        if sr is not None:
-            x = max(sr.left(), min(x, sr.right() - panel_w))
-            if y + panel_h > sr.bottom():
-                top_right = anchor.mapToGlobal(anchor.rect().topRight())
-                y = top_right.y() - panel_h - gap
-            y = max(sr.top(), min(y, sr.bottom() - panel_h))
-        self.move(x, y)
 
     def _rebuild(self) -> None:
         """Fill the flyout with copy and fork action rows."""

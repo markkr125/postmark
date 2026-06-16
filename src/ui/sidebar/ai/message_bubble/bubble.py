@@ -103,7 +103,6 @@ class ChatMessageBubble(QWidget):
             self._user_footer = UserMessageFooterRow(frame)
             self._user_footer.set_sent_at(sent_at)
             self._user_footer.fork_requested.connect(self.user_fork_requested.emit)
-            self._user_footer.copy_requested.connect(self.copy_requested.emit)
             frame_layout.addWidget(self._user_footer)
             self._user_frame = frame
             outer.addWidget(frame)

@@ -29,7 +29,6 @@ from ui.sidebar.ai.chat_panel.context_usage_panel import _ChatPanelContextUsageM
 from ui.sidebar.ai.chat_panel_streaming import _ChatPanelStreamingMixin
 from ui.sidebar.ai.chat_transcript_loading_row import ChatTranscriptLoadingOverlay
 from ui.sidebar.ai.message_bubble import ChatMessageBubble
-from ui.sidebar.ai.message_bubble.user_message.overlay import StickyUserPromptOverlay
 from ui.sidebar.ai.model_picker_edit import reasoning_levels_for_entry, thinking_enabled_for_entry
 from ui.sidebar.ai.model_picker_popup import AiModelPickerPopup
 from ui.styling.icons import CHAT_STOP_ICON_SIZE, chat_stop_icon, phi
@@ -590,28 +589,8 @@ class AiChatPanel(_ChatPanelStreamingMixin, _ChatPanelContextUsageMixin, QWidget
         bubble.copy_requested.connect(self._on_assistant_bubble_copy)
 
     def _wire_user_bubble_actions(self, bubble: ChatMessageBubble) -> None:
-        """Connect fork/copy affordances for one user transcript row."""
+        """Connect fork affordance for one user transcript row."""
         bubble.user_fork_requested.connect(self._on_user_bubble_fork)
-        bubble.copy_requested.connect(self._on_user_bubble_copy)
-
-    def _on_user_bubble_copy(self) -> None:
-        """Copy the user prompt text for the triggering bubble."""
-        from PySide6.QtGui import QGuiApplication
-
-        bubble = self.sender()
-        if not isinstance(bubble, ChatMessageBubble):
-            return
-        clipboard = QGuiApplication.clipboard()
-        if clipboard is not None:
-            clipboard.setText(bubble.text())
-
-    def _copy_sticky_prompt_text(self, sticky: StickyUserPromptOverlay) -> None:
-        """Copy the sticky overlay prompt text to the clipboard."""
-        from PySide6.QtGui import QGuiApplication
-
-        clipboard = QGuiApplication.clipboard()
-        if clipboard is not None:
-            clipboard.setText(sticky.text())
 
     def _fork_sticky_prompt(self, anchor: ChatMessageBubble) -> None:
         """Fork from the transcript user row mirrored by the sticky overlay."""

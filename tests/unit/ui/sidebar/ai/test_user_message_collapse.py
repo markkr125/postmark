@@ -369,7 +369,7 @@ def test_user_message_config_opens_actions_popover(qapp: QApplication, qtbot) ->
     qtbot.mouseClick(config, Qt.MouseButton.LeftButton)
     assert popup.isVisible()
     labels = popup.findChildren(QLabel, "aiUserMessageActionLabel")
-    assert {label.text() for label in labels} == {"Copy message", "Fork chat"}
+    assert {label.text() for label in labels} == {"Edit message", "Fork chat"}
     rows = popup.findChildren(QWidget, "aiUserMessageActionRow")
     assert len(rows) == 2
     assert all(row.cursor().shape() == Qt.CursorShape.PointingHandCursor for row in rows)
