@@ -442,9 +442,9 @@ def build_global_qss(p: ThemePalette) -> str:
         background: {"rgba(255,255,255,0.02)" if p is DARK_PALETTE else "rgba(0,0,0,0.02)"};
         color: {p["text_muted"]};
     }}
-    QDialog#aiBudgetLimitsDialog QComboBox,
-    QDialog#aiBudgetLimitsDialog QTimeEdit,
-    QDialog#aiBudgetLimitsDialog QSpinBox {{
+    QDialog#aiBudgetConnectionDialog QComboBox,
+    QDialog#aiBudgetConnectionDialog QTimeEdit,
+    QDialog#aiBudgetConnectionDialog QSpinBox {{
         min-height: 26px;
         padding-top: 0px;
         padding-bottom: 0px;
@@ -452,7 +452,7 @@ def build_global_qss(p: ThemePalette) -> str:
     /* QAbstractSpinBox: styling the widget body (min-height, border, :disabled)
        switches painting to QStyleSheetStyle; Fusion no longer draws step buttons.
        Style every sub-control (up/down button + arrow) for normal and disabled. */
-    QDialog#aiBudgetLimitsDialog QDoubleSpinBox#aiBudgetLimitSpin {{
+    QDialog#aiBudgetConnectionDialog QDoubleSpinBox#aiBudgetLimitSpin {{
         background: {p["input_bg"]};
         border: 1px solid {p["border"]};
         border-radius: 4px;
@@ -462,53 +462,98 @@ def build_global_qss(p: ThemePalette) -> str:
         padding: 0px 10px;
         padding-right: 22px;
     }}
-    QDialog#aiBudgetLimitsDialog QDoubleSpinBox#aiBudgetLimitSpin:disabled {{
+    QDialog#aiBudgetConnectionDialog QDoubleSpinBox#aiBudgetLimitSpin:disabled {{
         background: {p["bg_alt"]};
         color: {p["text_muted"]};
         border-color: {p["border"]};
     }}
-    QDialog#aiBudgetLimitsDialog QDoubleSpinBox#aiBudgetLimitSpin::up-button,
-    QDialog#aiBudgetLimitsDialog QDoubleSpinBox#aiBudgetLimitSpin::down-button {{
+    QDialog#aiBudgetConnectionDialog QDoubleSpinBox#aiBudgetLimitSpin::up-button,
+    QDialog#aiBudgetConnectionDialog QDoubleSpinBox#aiBudgetLimitSpin::down-button {{
         subcontrol-origin: border;
         width: 20px;
         background-color: {p["bg_alt"]};
         border: 1px solid {p["border"]};
     }}
-    QDialog#aiBudgetLimitsDialog QDoubleSpinBox#aiBudgetLimitSpin::up-button {{
+    QDialog#aiBudgetConnectionDialog QDoubleSpinBox#aiBudgetLimitSpin::up-button {{
         subcontrol-position: top right;
         border-top-right-radius: 3px;
     }}
-    QDialog#aiBudgetLimitsDialog QDoubleSpinBox#aiBudgetLimitSpin::down-button {{
+    QDialog#aiBudgetConnectionDialog QDoubleSpinBox#aiBudgetLimitSpin::down-button {{
         subcontrol-position: bottom right;
         border-bottom-right-radius: 3px;
         margin-top: -1px;
     }}
-    QDialog#aiBudgetLimitsDialog QDoubleSpinBox#aiBudgetLimitSpin::up-button:hover,
-    QDialog#aiBudgetLimitsDialog QDoubleSpinBox#aiBudgetLimitSpin::down-button:hover {{
+    QDialog#aiBudgetConnectionDialog QDoubleSpinBox#aiBudgetLimitSpin::up-button:hover,
+    QDialog#aiBudgetConnectionDialog QDoubleSpinBox#aiBudgetLimitSpin::down-button:hover {{
         background: {p["hover_bg"]};
     }}
-    QDialog#aiBudgetLimitsDialog QDoubleSpinBox#aiBudgetLimitSpin::up-button:disabled,
-    QDialog#aiBudgetLimitsDialog QDoubleSpinBox#aiBudgetLimitSpin::down-button:disabled {{
+    QDialog#aiBudgetConnectionDialog QDoubleSpinBox#aiBudgetLimitSpin::up-button:disabled,
+    QDialog#aiBudgetConnectionDialog QDoubleSpinBox#aiBudgetLimitSpin::down-button:disabled {{
         background: {p["bg_alt"]};
         border-color: {p["border"]};
     }}
-    QDialog#aiBudgetLimitsDialog QDoubleSpinBox#aiBudgetLimitSpin::up-arrow {{
+    QDialog#aiBudgetConnectionDialog QDoubleSpinBox#aiBudgetLimitSpin::up-arrow {{
         image: {budget_spin_up};
         width: 8px;
         height: 8px;
         subcontrol-position: center;
     }}
-    QDialog#aiBudgetLimitsDialog QDoubleSpinBox#aiBudgetLimitSpin::down-arrow {{
+    QDialog#aiBudgetConnectionDialog QDoubleSpinBox#aiBudgetLimitSpin::down-arrow {{
         image: {budget_spin_down};
         width: 8px;
         height: 8px;
         subcontrol-position: center;
     }}
-    QDialog#aiBudgetLimitsDialog QDoubleSpinBox#aiBudgetLimitSpin::up-arrow:disabled {{
+    QDialog#aiBudgetConnectionDialog QDoubleSpinBox#aiBudgetLimitSpin::up-arrow:disabled {{
         image: {budget_spin_up_disabled};
     }}
-    QDialog#aiBudgetLimitsDialog QDoubleSpinBox#aiBudgetLimitSpin::down-arrow:disabled {{
+    QDialog#aiBudgetConnectionDialog QDoubleSpinBox#aiBudgetLimitSpin::down-arrow:disabled {{
         image: {budget_spin_down_disabled};
+    }}
+    QFrame#aiBudgetSpendSummaryCard {{
+        background: {p["bg_alt"]};
+        border: 1px solid {p["border"]};
+        border-radius: 4px;
+    }}
+    QFrame#aiChatBudgetBanner {{
+        background: {p["editor_warning_gutter_bg"]};
+        border: 1px solid {p["warning"]};
+        border-radius: 0px;
+    }}
+    QFrame#aiChatBudgetStatusCard {{
+        background: {p["bg_alt"]};
+        border: 1px solid {p["border"]};
+        border-radius: 4px;
+    }}
+    QDialog#aiBudgetConnectionDialog QLabel#aiBudgetSpendDetailsHeader {{
+        font-size: 11px;
+        padding-bottom: 2px;
+    }}
+    QDialog#aiBudgetConnectionDialog QWidget#aiBudgetSpendModelRow {{
+        border-bottom: 1px solid {p["border"]};
+    }}
+    QTabWidget#aiBudgetConnectionTabs::pane {{
+        border: 1px solid {p["border"]};
+        background: {p["bg"]};
+        top: -1px;
+        padding: 16px;
+    }}
+    QTabWidget#aiBudgetConnectionTabs > QTabBar::tab {{
+        padding: 6px 16px;
+        border: 1px solid {p["border"]};
+        margin-right: -1px;
+        background: {p["bg_alt"]};
+        color: {p["text_muted"]};
+    }}
+    QTabWidget#aiBudgetConnectionTabs > QTabBar::tab:last {{
+        margin-right: 0px;
+    }}
+    QTabWidget#aiBudgetConnectionTabs > QTabBar::tab:selected {{
+        background: {p["bg"]};
+        color: {p["accent"]};
+        font-weight: bold;
+        border-bottom: 1px solid {p["bg"]};
+        margin-bottom: -1px;
     }}
     QPushButton#debugBreakpointToolbarButton {{
         border: 1px solid {p["border"]};

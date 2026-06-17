@@ -222,6 +222,7 @@ src/
 │   │       ├── context_usage_sdk.py # OpenHands SDK View token accounting + compaction diagnostics
 │   │       ├── message_usage.py   # Per-turn usage deltas, session spend rollups, assistant footer cost formatting
 │   │       ├── spend_rollup.py    # Cross-session spend rollups for Settings → Budgets
+│   │       ├── budget_status.py   # connection_budget_status() for chat enforcement + Spend flyout
 │   │       ├── transcript_window.py # Turn-aware tail/older/newer slice helpers + paging constants
 │   │       └── session_service.py # AiChatSessionService — SQLite index + SDK bridge
 │   ├── assertion_service.py       # AssertionService + AssertionDict — declarative tests CRUD + compile
@@ -343,7 +344,8 @@ src/
     │   │   │   ├── composer/      # AiChatComposer sub-package (docked + inline edit)
     │   │   │   │   ├── widget.py  # AiChatComposer — attachments, input, mode/model, send/stop
     │   │   │   │   ├── input.py   # ComposerInput — prompt editor (Escape → cancel in edit mode)
-    │   │   │   │   └── model_picker_button.py  # ModelPickerButton
+    │   │   │   │   ├── model_picker_button.py  # ModelPickerButton
+    │   │   │   │   └── budget_banner.py  # AiChatBudgetBanner (aiChatBudgetBanner)
     │   │   │   ├── context_ring_button.py  # ContextUsageRingButton (aiChatContextRing)
     │   │   │   ├── context_popup_mode_pill.py  # ContextPopupModePill (aiChatContextPopupMode)
     │   │   │   ├── context_usage_panel.py  # _ChatPanelContextUsageMixin — debounced refresh + popup
@@ -640,6 +642,7 @@ tests/
 │       │   ├── test_ai_budget_config.py
 │       │   ├── test_budget_period.py
 │       │   ├── test_spend_rollup.py
+│       │   ├── test_budget_status.py
 │       │   ├── test_ai_config.py
 │       │   ├── test_chat_session_service.py
 │       │   ├── test_context_usage.py

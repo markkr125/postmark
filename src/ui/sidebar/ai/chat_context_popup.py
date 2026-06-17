@@ -19,6 +19,11 @@ from PySide6.QtWidgets import (
 )
 from shiboken6 import Shiboken
 
+from services.ai.chat.budget_status import (
+    ConnectionBudgetStatus,
+    connection_budget_card_visible,
+    format_connection_budget_card_amounts,
+)
 from services.ai.chat.context_usage import ContextUsageBreakdown, ContextUsageCategory
 from services.ai.chat.message_usage import (
     SessionSpendBreakdown,
@@ -326,6 +331,7 @@ class AiChatContextUsagePopup(QFrame):
         self._mode: PopupMode = "context"
         self._breakdown = _empty_breakdown()
         self._spend_breakdown = _empty_spend_breakdown()
+        self._connection_budget: ConnectionBudgetStatus | None = None
         self._rows: list[_CategoryRow] = []
         self._spend_rows: list[_SpendModelRow] = []
 
@@ -400,6 +406,22 @@ class AiChatContextUsagePopup(QFrame):
 
         self._spend_summary = QLabel("")
         spend_layout.addWidget(self._spend_summary)
+
+        self._budget_card = QFrame()
+        self._budget_card.setObjectName("aiChatBudgetStatusCard")
+        budget_layout = QVBoxLayout(self._budget_card)
+        budget_layout.setContentsMargins(12, 12, 12, 12)
+        budget_layout.setSpacing(4)
+        self._budget_title = QLabel("")
+        self._budget_title.setObjectName("titleLabel")
+        budget_layout.addWidget(self._budget_title)
+        self._budget_amounts = QLabel("")
+        budget_layout.addWidget(self._budget_amounts)
+        self._budget_reset = QLabel("")
+        self._budget_reset.setObjectName("mutedLabel")
+        budget_layout.addWidget(self._budget_reset)
+        self._budget_card.hide()
+        spend_layout.addWidget(self._budget_card)
 
         spend_scroll = QScrollArea()
         spend_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
@@ -548,6 +570,23 @@ class AiChatContextUsagePopup(QFrame):
                 cost_usd=model_row.get("cost_usd"),
             )
             row.show()
+
+    def set_connection_budget(self, status: ConnectionBudgetStatus | None) -> None:
+        """Refresh the connection budget card on the Spend tab."""
+        self._connection_budget = status
+        if not connection_budget_card_visible(status):
+            self._budget_card.hide()
+            return
+        assert status is not None
+        self._budget_title.setText(f"{status['provider_label']} · this period")
+        self._budget_amounts.setText(format_connection_budget_card_amounts(status))
+        reset_label = status.get("period_reset_label") or ""
+        if reset_label:
+            self._budget_reset.setText(f"Resets {reset_label}")
+            self._budget_reset.show()
+        else:
+            self._budget_reset.hide()
+        self._budget_card.show()
 
     def set_breakdown(self, breakdown: ContextUsageBreakdown) -> None:
         """Refresh popup contents while it is open."""

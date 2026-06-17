@@ -289,7 +289,7 @@ reads `insert`/`tools`/`vision` from `/api/show`.
 
 ### AiBudgetConfig (`services/ai/ai_budget_config.py`)
 
-Per-provider-connection spend limits (Settings → AI → Budgets). Persisted in QSettings `ai/provider_budgets` as JSON `{"schema": 2, "entries": [...]}`. Enforcement deferred — storage only.
+Per-provider-connection spend limits (Settings → AI → Budgets). Persisted in QSettings `ai/provider_budgets` as JSON `{"schema": 2, "entries": [...]}`. Soft/hard caps are enforced in the AI assistant via `connection_budget_status()` (`services/ai/chat/budget_status.py`).
 
 | Method | Purpose |
 |--------|---------|
@@ -325,6 +325,20 @@ Cross-session spend for the Budgets page (computed on read from assistant messag
 | `format_global_spend_summary_line(...)` | Summary strip line |
 
 TypedDicts: `ConnectionSpendSummary`, `GlobalSpendSummary`. Reuses `ModelSpendRow` from `message_usage`.
+
+### Connection budget status (`services/ai/chat/budget_status.py`)
+
+Chat enforcement and Spend flyout budget card for the active model's provider connection.
+
+| Function | Purpose |
+|----------|---------|
+| `connection_budget_status(entry, *, spend_summary=None, models=None)` | `ConnectionBudgetStatus` — compare period `known_period_usd` vs soft/hard caps |
+| `format_connection_budget_banner_html(status)` | Rich-text composer banner copy |
+| `format_connection_budget_card_amounts(status)` | Spend flyout amounts line |
+| `connection_budget_card_visible(status)` | Whether Spend tab shows `aiChatBudgetStatusCard` |
+| `budget_period_dedupe_key(connection_key, period, anchor)` | Banner dedupe key within one period window |
+
+TypedDict: `ConnectionBudgetStatus` (`state`: `ok` \| `no_limits` \| `unrated` \| `soft_exceeded` \| `hard_exceeded`).
 
 ### AiChatSessionService (`services/ai/chat/session_service.py`)
 

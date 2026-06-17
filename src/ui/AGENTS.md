@@ -338,21 +338,26 @@ standard object names:
 | `aiChatContextRing` | `QWidget` | `ContextUsageRingButton` — circular context fill; opens breakdown popup |
 | `aiChatContextPopupMode` | `QPushButton` | Context / Spend mode pills inside the context flyout |
 | `aiChatContextPopup` | `QFrame` | `AiChatContextUsagePopup` — context breakdown or session spend (Spend tab) |
-| `aiProviderBudgetsTree` | `QTableWidget` | Settings → AI → Budgets provider rows |
-| `aiBudgetSpendSummaryLabel` | `QLabel` | Budgets page period/all-time spend summary |
-| `aiBudgetViewBreakdownBtn` | `QPushButton` | Page-level per-model spend breakdown |
-| `aiBudgetActionsButton` | `QPushButton` | Per-row gear menu (Limits + spend details) |
-| `aiBudgetActionsMenu` | `QMenu` | Budget row actions flyout |
-| `aiBudgetLimitsDialog` | `QDialog` | Limits editor; scoped QSS on schedule pickers + `aiBudgetLimitSpin`; Save uses `primaryButton` |
-| `aiBudgetSoftLimitEnable` | `QCheckBox` | Enable soft limit in limits dialog |
-| `aiBudgetHardLimitEnable` | `QCheckBox` | Enable hard limit in limits dialog |
-| `aiBudgetLimitSpin` | `QDoubleSpinBox` | USD limit amount in limits dialog |
-| `aiBudgetPeriodCombo` | `QComboBox` | Reset period inside limits dialog |
+| `aiChatBudgetBanner` | `QFrame` | `AiChatBudgetBanner` — soft/hard budget warning above composer; Settings link |
+| `aiChatBudgetStatusCard` | `QFrame` | Spend flyout connection budget card (period spend vs soft/hard caps) |
+| `aiProviderBudgetsTree` | `QTableWidget` | Settings → AI → Budgets provider rows; resizable columns (`ui/ai_budget_table_header/v4`) |
+| `aiBudgetActionsButton` | `QPushButton` | Per-row gear — opens `aiBudgetConnectionDialog` |
+| `aiBudgetConnectionDialog` | `QDialog` | Tabbed limits + spend editor; scoped QSS on schedule pickers + `aiBudgetLimitSpin` |
+| `aiBudgetConnectionTabs` | `QTabWidget` | **Limits** + **Spend details**; box tabs (same QSS as `importTabs`) |
+| `aiBudgetLimitsTab` | `QWidget` | Limits tab body |
+| `aiBudgetSpendDetailsPanel` | `BudgetSpendDetailsPanel` | Spend tab body: intro, summary card, column headers, model rows |
+| `aiBudgetSpendSummaryCard` | `QFrame` | This period / All time totals matching the Budgets table |
+| `aiBudgetSpendDetailsHeader` | `QWidget` | Model / Tokens / Cost column labels |
+| `aiBudgetSpendModelRow` | `QWidget` | One all-time model row with separator border |
+| `aiBudgetSoftLimitEnable` | `QCheckBox` | Enable soft limit in connection dialog |
+| `aiBudgetHardLimitEnable` | `QCheckBox` | Enable hard limit in connection dialog |
+| `aiBudgetLimitSpin` | `QDoubleSpinBox` | USD limit amount in connection dialog |
+| `aiBudgetPeriodCombo` | `QComboBox` | Reset period inside connection dialog |
 | `aiBudgetResetTime` | `QTimeEdit` | Local reset time (hour/minute) |
 | `aiBudgetResetWeekday` | `QComboBox` | Weekly reset weekday |
 | `aiBudgetResetMonth` | `QComboBox` | Yearly reset month |
 | `aiBudgetResetDay` | `QSpinBox` | Monthly/yearly reset day |
-| `aiBudgetPeriodResetPanel` | `QWidget` | Period + reset schedule block in limits dialog |
+| `aiBudgetPeriodResetPanel` | `QWidget` | Period + reset schedule block in connection dialog |
 | `aiBudgetResetSchedule` | `QWidget` | Reset schedule rows container |
 | `aiBudgetStatusLabel` | `QLabel` | Budget validation error line |
 | `aiBudgetEmptyLabel` | `QLabel` | Budgets page empty state |

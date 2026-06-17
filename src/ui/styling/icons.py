@@ -153,9 +153,7 @@ def _ensure_qss_icons_dir() -> Path | None:
         return None
 
     if _qss_icons_dir is None:
-        cache_root = QStandardPaths.writableLocation(
-            QStandardPaths.StandardLocation.CacheLocation
-        )
+        cache_root = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.CacheLocation)
         if not cache_root:
             return None
         _qss_icons_dir = Path(cache_root) / "postmark" / "qss_icons"

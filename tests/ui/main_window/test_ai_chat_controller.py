@@ -600,3 +600,112 @@ def test_user_edit_submitted_truncates_and_resubmits(
     assert panel._bubble_by_message_id.get(11) is None
     assert panel._bubble_by_message_id.get(10) is not None
     assert panel._run_busy is True
+
+
+def test_hard_budget_blocks_message_submit(
+    qapp: QApplication, qtbot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Hard budget cap prevents starting a new assistant run."""
+    from services.ai.chat.budget_status import ConnectionBudgetStatus
+
+    sidebar = RightSidebar()
+    qtbot.addWidget(sidebar)
+    host = _ControllerQObjectHost(sidebar)
+    host._active_ai_session_id = "sess-budget"
+    panel = sidebar.ai_chat_panel
+    panel.set_models(
+        [
+            {
+                "id": "m1",
+                "provider": "openai",
+                "label": "GPT-4o",
+                "model": "openai/gpt-4o",
+                "base_url": "",
+                "api_version": "",
+                "auth_kind": "token",
+                "auth_ref": "ref-a",
+                "context": 128_000,
+                "enabled": True,
+            }
+        ]
+    )
+    record_calls: list[tuple] = []
+
+    def _record_user_message(session_id: str, text: str, **kwargs: object) -> dict[str, object]:
+        record_calls.append((session_id, text))
+        return {"id": 1, "session_id": session_id, "role": "user", "content": text}
+
+    monkeypatch.setattr(
+        "ui.main_window.ai_chat_controller.AiChatSessionService.record_user_message",
+        _record_user_message,
+    )
+    hard_status = ConnectionBudgetStatus(
+        connection_key="ref-a",
+        provider_label="OpenAI",
+        rated=True,
+        period="monthly",
+        period_reset_label="monthly on the 1st at 00:00",
+        period_known_usd=1.0,
+        period_usd=1.0,
+        partial_period=False,
+        soft_limit_usd=0.53,
+        hard_limit_usd=1.0,
+        state="hard_exceeded",
+        dedupe_key="ref-a:2026-07-01T00:00:00",
+    )
+    monkeypatch.setattr(
+        "ui.main_window.ai_chat_controller.connection_budget_status",
+        lambda _entry, **kwargs: hard_status,
+    )
+
+    host._on_ai_message_submitted("hello")
+    assert record_calls == []
+    assert host._ai_chat_thread is None
+    host._cleanup_ai_chat_threads()
+
+
+def test_apply_session_chrome_prefers_stored_chat_model(
+    qapp: QApplication, qtbot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Restoring a session keeps the persisted composer model, not stale session.model_id."""
+    from services.ai.ai_config import AiConfig
+
+    AiConfig.set_chat_model_id("gpt-55")
+    sidebar = RightSidebar()
+    qtbot.addWidget(sidebar)
+    panel = sidebar.ai_chat_panel
+    host = _ChatControllerHost(panel, session_id="sess-restore", sidebar=sidebar)
+    panel.set_models(
+        [
+            {
+                "id": "gpt-55",
+                "provider": "openai",
+                "label": "gpt-5.5",
+                "model": "openai/gpt-5.5",
+                "base_url": "",
+                "api_version": "",
+                "auth_kind": "none",
+                "auth_ref": "",
+                "context": 128_000,
+                "enabled": True,
+            },
+            {
+                "id": "oss-1",
+                "provider": "ollama",
+                "label": "gpt-oss",
+                "model": "ollama/gpt-oss:20b",
+                "base_url": "",
+                "api_version": "",
+                "auth_kind": "none",
+                "auth_ref": "",
+                "context": 128_000,
+                "enabled": True,
+            },
+        ]
+    )
+    session = _session_row("sess-restore", "Linux vs macOS")
+    session["model_id"] = "oss-1"
+    host._apply_session_chrome(session)
+    assert panel.current_model_id() == "gpt-55"
+    assert "gpt-5.5" in panel._model_button_label()
+    AiConfig.set_chat_model_id("")

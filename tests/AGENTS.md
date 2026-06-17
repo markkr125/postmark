@@ -231,6 +231,7 @@ tests/
 │       │   ├── test_ai_budget_config.py
 │       │   ├── test_budget_period.py
 │       │   ├── test_spend_rollup.py
+│       │   ├── test_budget_status.py
 │       │   ├── test_ai_config.py
 │       │   ├── test_model_metadata.py
 │       │   ├── test_run_context_choices.py
@@ -343,6 +344,7 @@ tests/
    │       ├── test_sticky_prompt_virtual_transcript.py  # Sticky overlay with virtual tail + evicted user rows
    │       ├── test_transcript_memory.py  # xdist_group transcript_memory; tail vs full RAM
    │       ├── test_chat_context_popup.py
+   │       ├── test_chat_budget_banner.py
    │       ├── test_context_ring_button.py
    │       ├── test_assistant_message_footer.py
    │       ├── test_assistant_message_actions.py

@@ -299,3 +299,63 @@ def test_popup_mode_pills_switch_in_place(qapp: QApplication, qtbot) -> None:
     assert popup._spend_body.isVisible()
     assert not popup._context_body.isVisible()
     popup.hide_popup()
+
+
+def test_spend_tab_shows_connection_budget_card(qapp: QApplication, qtbot) -> None:
+    """Spend mode shows period spend against configured caps when limits exist."""
+    from services.ai.chat.budget_status import ConnectionBudgetStatus
+
+    popup = AiChatContextUsagePopup.instance()
+    popup.hide_popup()
+    qtbot.addWidget(popup)
+    ring = ContextUsageRingButton()
+    qtbot.addWidget(ring)
+    ring.show()
+    popup.show_for(ring, _breakdown(estimated=False), spend_breakdown=_spend_breakdown())  # type: ignore[arg-type]
+    status = ConnectionBudgetStatus(
+        connection_key="ref-a",
+        provider_label="OpenAI",
+        rated=True,
+        period="monthly",
+        period_reset_label="monthly on the 1st at 00:00",
+        period_known_usd=0.56,
+        period_usd=0.56,
+        partial_period=False,
+        soft_limit_usd=0.53,
+        hard_limit_usd=1.0,
+        state="soft_exceeded",
+        dedupe_key="ref-a:2026-07-01T00:00:00",
+    )
+    popup.set_mode("spend")
+    popup.set_connection_budget(status)
+    assert popup._budget_card.isVisible()
+    assert "OpenAI" in popup._budget_title.text()
+    assert "soft" in popup._budget_amounts.text().lower()
+    assert popup._budget_reset.isVisible()
+    popup.hide_popup()
+
+
+def test_spend_tab_hides_budget_card_without_limits(qapp: QApplication, qtbot) -> None:
+    """Spend mode hides the budget card when no caps are configured."""
+    from services.ai.chat.budget_status import ConnectionBudgetStatus
+
+    popup = AiChatContextUsagePopup.instance()
+    popup.hide_popup()
+    qtbot.addWidget(popup)
+    status = ConnectionBudgetStatus(
+        connection_key="ref-a",
+        provider_label="OpenAI",
+        rated=True,
+        period="none",
+        period_reset_label="",
+        period_known_usd=0.10,
+        period_usd=0.10,
+        partial_period=False,
+        soft_limit_usd=None,
+        hard_limit_usd=None,
+        state="no_limits",
+        dedupe_key="ref-a",
+    )
+    popup.set_mode("spend")
+    popup.set_connection_budget(status)
+    assert not popup._budget_card.isVisible()

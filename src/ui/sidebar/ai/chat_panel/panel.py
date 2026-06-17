@@ -12,6 +12,7 @@ from services.ai.ai_config import AiModelEntry, model_entry_enabled
 from services.ai.chat.session_service import AiChatMessageDict
 from ui.sidebar.ai.agent_mode_popup import AiAgentModePopup
 from ui.sidebar.ai.chat_panel.composer import AiChatComposer
+from ui.sidebar.ai.chat_panel.composer.budget_banner import AiChatBudgetBanner
 from ui.sidebar.ai.chat_panel.context_usage_panel import _ChatPanelContextUsageMixin
 from ui.sidebar.ai.chat_panel.inline_edit import _ChatPanelInlineEditMixin
 from ui.sidebar.ai.chat_panel_streaming import _ChatPanelStreamingMixin
@@ -42,6 +43,7 @@ class AiChatPanel(
     mode_changed = Signal(str)
     attachments_changed = Signal(list)
     manage_models_requested = Signal()
+    budget_settings_requested = Signal()
     effort_changed = Signal(str, str)
     context_requested = Signal()
     transcript_load_finished = Signal()
@@ -133,7 +135,17 @@ class AiChatPanel(
 
         root.addWidget(self._scroll, 1)
 
-        self._docked_composer = AiChatComposer(self)
+        composer_col = QWidget(self)
+        composer_col_layout = QVBoxLayout(composer_col)
+        composer_col_layout.setContentsMargins(0, 0, 0, 0)
+        composer_col_layout.setSpacing(4)
+
+        self._budget_banner = AiChatBudgetBanner(composer_col)
+        self._budget_banner.hide()
+        self._budget_banner.open_settings_clicked.connect(self.budget_settings_requested.emit)
+        composer_col_layout.addWidget(self._budget_banner)
+
+        self._docked_composer = AiChatComposer(composer_col)
         self._docked_composer.submit_requested.connect(self._on_docked_send)
         self._docked_composer.stop_requested.connect(self.stop_requested.emit)
         self._docked_composer.mode_changed.connect(self.mode_changed.emit)
@@ -141,7 +153,8 @@ class AiChatPanel(
         self._docked_composer.attachments_changed.connect(self._on_composer_attachments_changed)
         self._docked_composer.model_picker_requested.connect(self._open_model_picker)
         self._docked_composer.mode_picker_requested.connect(self._open_mode_picker)
-        root.addWidget(self._docked_composer)
+        composer_col_layout.addWidget(self._docked_composer)
+        root.addWidget(composer_col)
 
         self._init_inline_edit_state()
         self._init_chat_streaming_state()
@@ -253,6 +266,7 @@ class AiChatPanel(
         if self._inline_edit is not None:
             self._inline_edit.composer.set_models(self._models)
         self.refresh_context_usage()
+        self.refresh_connection_budget()
 
     def current_model_id(self) -> str | None:
         """Return the selected model id, or ``None`` when no model is set."""
@@ -270,6 +284,7 @@ class AiChatPanel(
             self._inline_edit.composer.set_run_busy(busy)
         if not busy:
             self._deactivate_streaming_turn_user_footer()
+            self._apply_budget_send_gate()
 
     def restore_composer_text(self, text: str) -> None:
         """Put unsent prompt text back into the composer input."""
@@ -321,6 +336,7 @@ class AiChatPanel(
     def _on_composer_model_changed(self, model_id: str) -> None:
         """Refresh context usage after model selection changes."""
         self.refresh_context_usage()
+        self.refresh_connection_budget()
         self.effort_changed.emit(model_id, self.current_reasoning_effort() or "")
 
     def _on_composer_attachments_changed(self, paths: list) -> None:

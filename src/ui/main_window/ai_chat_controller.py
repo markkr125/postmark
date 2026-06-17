@@ -10,6 +10,7 @@ from PySide6.QtCore import QObject, Qt, QThread, Slot
 
 from services.ai.ai_config import AiConfig
 from services.ai.chat.agent_registry import DEFAULT_AGENT_ID
+from services.ai.chat.budget_status import connection_budget_status
 from services.ai.chat.response_text import pick_richest_text
 from services.ai.chat.session_service import (
     AiChatSessionDict,
@@ -217,9 +218,14 @@ class _AiChatControllerMixin:
         """Update flyout title and composer model/mode for *session*."""
         self._sync_ai_session_title(session)
         panel = self._right_sidebar.ai_chat_panel
-        model_id = session.get("model_id")
-        if isinstance(model_id, str) and model_id:
-            panel.select_model_if_available(model_id)
+        stored_id = AiConfig.get_chat_model_id()
+        enabled_ids = {entry["id"] for entry in panel._models}
+        if stored_id in enabled_ids:
+            panel.select_model_if_available(stored_id)
+        else:
+            model_id = session.get("model_id")
+            if isinstance(model_id, str) and model_id:
+                panel.select_model_if_available(model_id)
         mode = session.get("mode")
         if isinstance(mode, str) and mode.strip():
             panel.set_mode(mode.strip())
@@ -291,6 +297,8 @@ class _AiChatControllerMixin:
         panel = self._right_sidebar.ai_chat_panel
         entry = panel.current_model_entry()
         if entry is None:
+            return
+        if self._budget_blocks_send(panel, entry):
             return
 
         session_id = self._active_ai_session_id
@@ -382,6 +390,12 @@ class _AiChatControllerMixin:
                 snapshot["send_agent_id"] = str(session_row.get("agent_id") or DEFAULT_AGENT_ID)
         return cast(UserMessageSendSnapshot, snapshot)
 
+    def _budget_blocks_send(self, panel, entry) -> bool:
+        """Refresh budget chrome and return True when hard cap blocks a new send."""
+        status = connection_budget_status(entry)
+        panel.refresh_connection_budget(status)
+        return status["state"] == "hard_exceeded"
+
     @Slot(int)
     def _on_user_edit_requested(self, message_id: int) -> None:
         """Begin inline edit when the panel signals a user-message edit."""
@@ -447,6 +461,8 @@ class _AiChatControllerMixin:
 
         entry = composer.current_model_entry() or panel.current_model_entry()
         if entry is None:
+            return
+        if self._budget_blocks_send(panel, entry):
             return
 
         user_bubble = panel._bubble_by_message_id.get(message_id)

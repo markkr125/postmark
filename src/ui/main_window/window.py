@@ -161,6 +161,9 @@ class MainWindow(
         self._right_sidebar.ai_chat_panel.manage_models_requested.connect(
             self._on_open_ai_models_settings
         )
+        self._right_sidebar.ai_chat_panel.budget_settings_requested.connect(
+            self._on_open_ai_budget_settings
+        )
         self._right_sidebar.ai_settings_requested.connect(self._on_open_ai_settings)
 
         # Debounce timer for live snippet updates in the sidebar
@@ -856,6 +859,11 @@ class MainWindow(
     def _on_open_ai_models_settings(self) -> None:
         """Open Settings on the AI Models page and refresh the chat model picker."""
         self._open_settings_dialog(initial_category="Models")
+        self._right_sidebar.ai_chat_panel.set_models(AiConfig.get_models())
+
+    def _on_open_ai_budget_settings(self) -> None:
+        """Open Settings on the Budgets page and refresh chat budget chrome."""
+        self._open_settings_dialog(initial_category="Budgets")
         self._right_sidebar.ai_chat_panel.set_models(AiConfig.get_models())
 
     def _open_settings_dialog(self, *, initial_category: str) -> None:

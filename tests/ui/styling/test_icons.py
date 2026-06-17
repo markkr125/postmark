@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from PySide6.QtGui import QIcon
 
-from ui.styling.icons import chat_stop_icon, clear_cache, load_font, phi, phi_qss_image_url, square_filled_icon
+from ui.styling.icons import (
+    chat_stop_icon,
+    clear_cache,
+    load_font,
+    phi,
+    phi_qss_image_url,
+    square_filled_icon,
+)
 
 
 class TestLoadFont:

@@ -29,12 +29,12 @@ from services.ai.budget_period import (
 _WEEKDAY_LABELS = list(calendar.day_name)
 _MONTH_LABELS = [calendar.month_name[i] for i in range(1, 13)]
 _LABEL_WIDTH = 108
-_SCHEDULE_ROW_HEIGHT = 28
+_SCHEDULE_ROW_HEIGHT = 32
 _SCHEDULE_ROW_GAP = 8
-_SCHEDULE_MAX_ROWS = 3
-_SCHEDULE_MIN_HEIGHT = (
-    _SCHEDULE_MAX_ROWS * _SCHEDULE_ROW_HEIGHT
-    + (_SCHEDULE_MAX_ROWS - 1) * _SCHEDULE_ROW_GAP
+_SCHEDULE_MAX_VISIBLE_ROWS = 3
+_SCHEDULE_FIXED_HEIGHT = (
+    _SCHEDULE_MAX_VISIBLE_ROWS * _SCHEDULE_ROW_HEIGHT
+    + (_SCHEDULE_MAX_VISIBLE_ROWS - 1) * _SCHEDULE_ROW_GAP
 )
 
 
@@ -63,7 +63,7 @@ class BudgetPeriodResetPanel(QWidget):
 
         self._schedule_host = QWidget()
         self._schedule_host.setObjectName("aiBudgetResetSchedule")
-        self._schedule_host.setMinimumHeight(_SCHEDULE_MIN_HEIGHT)
+        self._schedule_host.setFixedHeight(_SCHEDULE_FIXED_HEIGHT)
         schedule = QVBoxLayout(self._schedule_host)
         schedule.setContentsMargins(0, 0, 0, 0)
         schedule.setSpacing(_SCHEDULE_ROW_GAP)

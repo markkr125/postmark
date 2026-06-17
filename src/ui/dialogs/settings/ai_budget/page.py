@@ -8,11 +8,12 @@ from dataclasses import dataclass
 from functools import partial
 from typing import cast
 
+from PySide6.QtCore import QByteArray, QSettings, QTimer
+from PySide6.QtGui import QResizeEvent
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
-    QPushButton,
     QTableWidget,
     QVBoxLayout,
     QWidget,
@@ -32,7 +33,6 @@ from services.ai.chat.spend_rollup import (
     format_budget_limits_summary,
     format_budget_tokens_cell,
     format_budget_usd_cell,
-    format_global_spend_summary_line,
     global_spend_summary,
 )
 from services.ai.provider_catalog import (
@@ -40,8 +40,7 @@ from services.ai.provider_catalog import (
     provider_connection_key,
     provider_group_label,
 )
-from ui.dialogs.settings.ai_budget.breakdown_dialog import show_budget_spend_breakdown
-from ui.dialogs.settings.ai_budget.limits_dialog import edit_budget_limits
+from ui.dialogs.settings.ai_budget.limits_dialog import open_budget_connection_dialog
 from ui.dialogs.settings.ai_budget.row_actions import make_budget_row_gear_button
 
 _MIN_LIMIT_USD = 0.01
@@ -52,6 +51,29 @@ _COL_OVERALL_USD = 3
 _COL_OVERALL_TOKENS = 4
 _COL_LIMITS = 5
 _COL_ACTIONS = 6
+
+_SETTINGS_ORG = "Postmark"
+_SETTINGS_APP = "Postmark"
+_HEADER_SETTINGS_KEY = "ui/ai_budget_table_header/v4"
+_PERSIST_DEBOUNCE_MS = 300
+_ACTIONS_COLUMN_WIDTH = 40
+_DEFAULT_COLUMN_WIDTHS: dict[int, int] = {
+    _COL_PROVIDER: 240,
+    _COL_PERIOD_USD: 96,
+    _COL_PERIOD_TOKENS: 96,
+    _COL_OVERALL_USD: 104,
+    _COL_OVERALL_TOKENS: 104,
+    _COL_LIMITS: 128,
+}
+
+
+class _BudgetTable(QTableWidget):
+    """Budget table that keeps interactive columns filling the viewport."""
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        """Expand the Provider column into unused viewport width on table resize."""
+        super().resizeEvent(event)
+        _fill_budget_table_viewport(self)
 
 
 @dataclass
@@ -75,7 +97,6 @@ class AiBudgetPageController:
         self._table = page.findChild(QTableWidget, "aiProviderBudgetsTree")
         self._status = page.findChild(QLabel, "aiBudgetStatusLabel")
         self._empty = page.findChild(QLabel, "aiBudgetEmptyLabel")
-        self._summary = page.findChild(QLabel, "aiBudgetSpendSummaryLabel")
         self._row_widgets: dict[str, _BudgetRowWidgets] = {}
         self._row_keys: list[str] = []
         self._spend_by_key: dict[str, ConnectionSpendSummary] = {}
@@ -98,7 +119,6 @@ class AiBudgetPageController:
         self._spend_by_key = {
             row["connection_key"]: row for row in self._global_spend.get("connections") or []
         }
-        self._update_summary_strip()
         self._table.setRowCount(0)
         self._row_widgets.clear()
         self._row_keys.clear()
@@ -140,16 +160,6 @@ class AiBudgetPageController:
         self._set_status("")
         self._loading = False
 
-    def show_global_breakdown(self) -> None:
-        """Open the all-models spend breakdown dialog."""
-        summary = self._global_spend
-        models = list(summary.get("models") or []) if summary is not None else []
-        show_budget_spend_breakdown(
-            title="Spend breakdown — all providers",
-            models=models,
-            parent=self._page.window(),
-        )
-
     def apply(self) -> None:
         """Persist current table state (no-op when budgets already saved live)."""
         self._persist_if_valid()
@@ -179,35 +189,6 @@ class AiBudgetPageController:
                 else None
             ),
         )
-
-    def _update_summary_strip(self) -> None:
-        if self._summary is None:
-            return
-        summary = self._global_spend
-        if summary is None:
-            self._summary.setText("")
-            return
-        has_rated = any(
-            float(conn.get("known_overall_usd") or 0.0) > 0
-            for conn in summary.get("connections") or []
-        )
-        period_line = format_global_spend_summary_line(
-            label="This period",
-            known_usd=float(summary.get("known_period_usd") or 0.0),
-            total_usd=summary.get("period_usd"),
-            tokens=int(summary.get("period_tokens") or 0),
-            partial=bool(summary.get("partial_period")),
-            has_rated_spend=has_rated,
-        )
-        overall_line = format_global_spend_summary_line(
-            label="All time",
-            known_usd=float(summary.get("known_overall_usd") or 0.0),
-            total_usd=summary.get("overall_usd"),
-            tokens=int(summary.get("overall_tokens") or 0),
-            partial=bool(summary.get("partial_overall")),
-            has_rated_spend=has_rated,
-        )
-        self._summary.setText(f"{period_line}   ·   {overall_line}")
 
     def _fill_spend_and_limits_cells(
         self,
@@ -287,27 +268,33 @@ class AiBudgetPageController:
     def _make_actions_cell(
         self, connection_key: str, provider_label: str, *, rated: bool
     ) -> QWidget:
-        """Build the per-row gear menu."""
+        """Build the per-row gear button."""
         return make_budget_row_gear_button(
-            on_limits=(
-                partial(self._edit_limits, connection_key, provider_label) if rated else None
+            on_open=partial(
+                self._open_connection_dialog,
+                connection_key,
+                provider_label,
+                rated,
             ),
-            on_details=partial(self._show_row_breakdown, connection_key, provider_label),
         )
 
-    def _edit_limits(self, connection_key: str, provider_label: str) -> None:
+    def _open_connection_dialog(
+        self, connection_key: str, provider_label: str, rated: bool
+    ) -> None:
         widgets = self._row_widgets.get(connection_key)
-        if widgets is None or not widgets.rated:
-            return
-        result = edit_budget_limits(
+        spend = self._spend_by_key.get(connection_key)
+        result = open_budget_connection_dialog(
             provider_label=provider_label,
-            period=widgets.period,
-            period_anchor=widgets.period_anchor,
-            soft_limit_usd=widgets.soft_limit_usd,
-            hard_limit_usd=widgets.hard_limit_usd,
+            spend=spend,
+            rated=rated and widgets is not None and widgets.rated,
+            period=widgets.period if widgets is not None else "none",
+            period_anchor=widgets.period_anchor if widgets is not None else None,
+            soft_limit_usd=widgets.soft_limit_usd if widgets is not None else None,
+            hard_limit_usd=widgets.hard_limit_usd if widgets is not None else None,
+            initial_tab="limits" if rated else "spend",
             parent=self._page.window(),
         )
-        if result is None:
+        if result is None or widgets is None or not widgets.rated:
             return
         widgets.period = result.period
         widgets.period_anchor = result.period_anchor
@@ -315,14 +302,9 @@ class AiBudgetPageController:
         widgets.hard_limit_usd = result.hard_limit_usd
         self._on_row_edited()
 
-    def _show_row_breakdown(self, connection_key: str, provider_label: str) -> None:
-        spend = self._spend_by_key.get(connection_key)
-        models = list(spend.get("models") or []) if spend is not None else []
-        show_budget_spend_breakdown(
-            title=f"Spend breakdown — {provider_label}",
-            models=models,
-            parent=self._page.window(),
-        )
+    def _edit_limits(self, connection_key: str, provider_label: str) -> None:
+        """Open the connection dialog on the Limits tab (tests and shortcuts)."""
+        self._open_connection_dialog(connection_key, provider_label, rated=True)
 
     def _on_row_edited(self) -> None:
         if self._loading:
@@ -341,7 +323,6 @@ class AiBudgetPageController:
         self._spend_by_key = {
             row["connection_key"]: row for row in self._global_spend.get("connections") or []
         }
-        self._update_summary_strip()
         for row_index, key in enumerate(self._row_keys):
             widgets = self._row_widgets.get(key)
             if widgets is None:
@@ -381,13 +362,79 @@ class AiBudgetPageController:
             self._status.setText(text)
 
 
-def _configure_budget_table(table: QTableWidget) -> None:
-    """Stretch the provider column and size the rest to content."""
+def _apply_budget_actions_column_width(header: QHeaderView) -> None:
+    """Keep the gear column narrow and non-resizable."""
+    header.setSectionResizeMode(_COL_ACTIONS, QHeaderView.ResizeMode.Fixed)
+    header.resizeSection(_COL_ACTIONS, _ACTIONS_COLUMN_WIDTH)
+
+
+def _fill_budget_table_viewport(table: QTableWidget) -> None:
+    """Grow Provider when configured widths do not fill the visible table."""
     header = table.horizontalHeader()
+    if table.columnCount() <= _COL_ACTIONS:
+        return
+    deficit = table.viewport().width() - header.length()
+    if deficit <= 0:
+        return
+    header.resizeSection(_COL_PROVIDER, header.sectionSize(_COL_PROVIDER) + deficit)
+
+
+def _apply_default_budget_column_widths(header: QHeaderView, *, column_count: int) -> None:
+    """Apply first-run column widths before user customization."""
+    for col, width in _DEFAULT_COLUMN_WIDTHS.items():
+        if col < column_count:
+            header.resizeSection(col, width)
+    if column_count > _COL_ACTIONS:
+        _apply_budget_actions_column_width(header)
+
+
+def _apply_budget_header_resize_modes(header: QHeaderView, *, column_count: int) -> None:
+    """Enable drag-resize on all data columns; fix the gear column."""
     header.setStretchLastSection(False)
-    header.setSectionResizeMode(_COL_PROVIDER, QHeaderView.ResizeMode.Stretch)
-    for col in range(1, table.columnCount()):
-        header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
+    header.setCascadingSectionResizes(False)
+    header.setSectionsMovable(False)
+    header.setMinimumSectionSize(48)
+    for col in range(min(column_count, _COL_LIMITS + 1)):
+        header.setSectionResizeMode(col, QHeaderView.ResizeMode.Interactive)
+    if column_count > _COL_ACTIONS:
+        _apply_budget_actions_column_width(header)
+
+
+def restore_ai_budget_table_header(header: QHeaderView, *, column_count: int) -> None:
+    """Restore saved column widths from QSettings, or apply defaults."""
+    settings = QSettings(_SETTINGS_ORG, _SETTINGS_APP)
+    raw = settings.value(_HEADER_SETTINGS_KEY, QByteArray())
+    restored = isinstance(raw, QByteArray) and not raw.isEmpty() and header.restoreState(raw)
+    if not restored:
+        _apply_default_budget_column_widths(header, column_count=column_count)
+    elif column_count > _COL_ACTIONS:
+        _apply_budget_actions_column_width(header)
+
+
+def save_ai_budget_table_header(header: QHeaderView) -> None:
+    """Persist header geometry (column widths) to QSettings."""
+    settings = QSettings(_SETTINGS_ORG, _SETTINGS_APP)
+    settings.setValue(_HEADER_SETTINGS_KEY, header.saveState())
+    settings.sync()
+
+
+def configure_ai_budget_table_header(table: QTableWidget) -> None:
+    """Interactive resizable columns with debounced QSettings persistence."""
+    header = table.horizontalHeader()
+    count = table.columnCount()
+    restore_ai_budget_table_header(header, column_count=count)
+    _apply_budget_header_resize_modes(header, column_count=count)
+    _fill_budget_table_viewport(table)
+    timer = QTimer(table)
+    timer.setSingleShot(True)
+    timer.setInterval(_PERSIST_DEBOUNCE_MS)
+    timer.timeout.connect(lambda: save_ai_budget_table_header(header))
+    header.sectionResized.connect(lambda *_args: timer.start())
+
+
+def _configure_budget_table(table: QTableWidget) -> None:
+    """User-resizable data columns with persisted widths."""
+    configure_ai_budget_table_header(table)
 
 
 def build_ai_budget_page(on_changed: Callable[[], None]) -> tuple[QWidget, AiBudgetPageController]:
@@ -402,31 +449,21 @@ def build_ai_budget_page(on_changed: Callable[[], None]) -> tuple[QWidget, AiBud
     layout.addWidget(heading)
 
     intro = QLabel(
-        "Track spend per provider connection (same groups as Models). Rated providers can "
-        "open the gear menu to set reset schedules and optional USD limits. Soft limits "
-        "warn when exceeded; hard limits block new messages once enforcement is enabled."
+        "Track spend per provider connection (same groups as Models). Use the gear "
+        "on each row to set reset schedules, USD limits, and view per-model spend. "
+        "Soft limits warn when exceeded; hard limits block new messages once "
+        "enforcement is enabled."
     )
     intro.setObjectName("mutedLabel")
     intro.setWordWrap(True)
     layout.addWidget(intro)
-
-    summary_row = QHBoxLayout()
-    summary_row.setContentsMargins(0, 0, 0, 0)
-    summary_row.setSpacing(8)
-    summary = QLabel("")
-    summary.setObjectName("aiBudgetSpendSummaryLabel")
-    summary_row.addWidget(summary, 1)
-    view_breakdown = QPushButton("View breakdown")
-    view_breakdown.setObjectName("aiBudgetViewBreakdownBtn")
-    summary_row.addWidget(view_breakdown, 0)
-    layout.addLayout(summary_row)
 
     empty = QLabel("No provider connections configured. Add providers under AI → Models.")
     empty.setObjectName("aiBudgetEmptyLabel")
     empty.setWordWrap(True)
     layout.addWidget(empty)
 
-    table = QTableWidget(0, 7)
+    table = _BudgetTable(0, 7)
     table.setObjectName("aiProviderBudgetsTree")
     table.setHorizontalHeaderLabels(
         [
@@ -451,7 +488,6 @@ def build_ai_budget_page(on_changed: Callable[[], None]) -> tuple[QWidget, AiBud
     layout.addWidget(status)
 
     ctrl = AiBudgetPageController(page, on_changed)
-    view_breakdown.clicked.connect(ctrl.show_global_breakdown)
     return page, ctrl
 
 

@@ -144,10 +144,15 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   **Budgets** in
   `ui/dialogs/settings/ai_budget/` with `AiBudgetConfig` (`ai/provider_budgets`),
   `budget_period.py`, and `spend_rollup.global_spend_summary()` for period/all-time
-  spend on the Budgets page.
+  spend on the Budgets page. Chat enforcement uses
+  `services/ai/chat/budget_status.connection_budget_status()` against
+  `global_spend_summary()` period totals: soft exceed shows a composer banner;
+  hard exceed disables send (including edit-resend) until the period resets or
+  limits change in Settings.
   Session USD spend is computed on read in `message_usage.session_spend_breakdown`
   (per-model rows) and shown on the **Spend** tab inside `AiChatContextUsagePopup`
-  (composer ring unchanged).
+  (composer ring unchanged). When limits are configured for the active connection,
+  the Spend tab also shows period spend vs soft/hard caps (`aiChatBudgetStatusCard`).
   Apply calls `AiPageController.apply()`.
 - `RunHistoryService` follows the same `@staticmethod` pattern.  It wraps
   `run_history_repository` for run history CRUD (create, finish, add result,

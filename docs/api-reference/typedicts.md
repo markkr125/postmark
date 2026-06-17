@@ -104,10 +104,31 @@ Optional per-provider-connection spend limits (Settings → AI → Budgets). Per
 | Field | Type | Description |
 |-------|------|-------------|
 | `connection_key` | `str` | `provider_connection_key()` for the connection |
-| `period` | `"none" \| "daily" \| "weekly" \| "monthly" \| "yearly"` | Reset period (enforcement deferred) |
+| `period` | `"none" \| "daily" \| "weekly" \| "monthly" \| "yearly"` | Reset period for period spend rollups and chat enforcement |
 | `period_anchor` | `str \| None` | ISO `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM` (local reset schedule); required when `period` ≠ `none` |
 | `soft_limit_usd` | `float \| None` | Warn threshold when enabled (min $0.01) |
 | `hard_limit_usd` | `float \| None` | Block threshold when enabled (min $0.01) |
+
+### ConnectionBudgetStatus
+
+**Module:** `services/ai/chat/budget_status.py`
+
+Period spend vs configured caps for the provider connection backing the active chat model. Computed on read from `AiBudgetConfig.budget_for_connection()`, `global_spend_summary()`, and `connection_has_usd_pricing()`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `connection_key` | `str` | `provider_connection_key()` for the connection |
+| `provider_label` | `str` | Display label (Settings group name) |
+| `rated` | `bool` | Whether any model on the connection has USD per-token rates |
+| `period` | `BudgetPeriod` | Active budget period from Settings |
+| `period_reset_label` | `str` | Human-readable reset schedule (`format_period_reset_label`) |
+| `period_known_usd` | `float` | Priced USD in the active period window |
+| `period_usd` | `float \| None` | Total period USD when fully priced |
+| `partial_period` | `bool` | Some period turns lack pricing |
+| `soft_limit_usd` | `float \| None` | Configured soft cap |
+| `hard_limit_usd` | `float \| None` | Configured hard cap |
+| `state` | `"ok" \| "no_limits" \| "unrated" \| "soft_exceeded" \| "hard_exceeded"` | Enforcement classification |
+| `dedupe_key` | `str` | Stable key for soft-limit banner dedupe within one period window |
 
 ### ConnectionSpendSummary
 

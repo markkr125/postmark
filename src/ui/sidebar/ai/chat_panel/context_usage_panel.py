@@ -9,6 +9,7 @@ from typing import cast
 from PySide6.QtCore import QObject, QThread, QTimer, Qt, Slot
 
 from services.ai.chat.agent_registry import DEFAULT_AGENT_ID
+from services.ai.chat.budget_status import ConnectionBudgetStatus, connection_budget_status
 from services.ai.chat.context_usage import ContextUsageBreakdown, ContextUsageSdkMetrics
 from services.ai.chat.message_usage import SessionSpendBreakdown
 from services.ai.chat.session_service import AiChatMessageDict, AiChatSessionService
@@ -31,6 +32,7 @@ class _ChatPanelContextUsageMixin:  # type: ignore[misc]
     _context_refresh_pending: bool
     _context_refresh_generation: int
     _summarized_notice_session_id: str | None
+    _connection_budget_status: ConnectionBudgetStatus | None
 
     def _init_context_usage_state(self) -> None:
         """Initialise context ring worker state (call from ``__init__``)."""
@@ -42,6 +44,7 @@ class _ChatPanelContextUsageMixin:  # type: ignore[misc]
         self._context_refresh_pending = False
         self._context_refresh_generation = 0
         self._summarized_notice_session_id = None
+        self._connection_budget_status = None
         self._context_usage_loader = ContextUsageLoader(cast(QObject, self))
         queued = Qt.ConnectionType.QueuedConnection
         self._context_usage_loader.finished.connect(self._on_context_usage_loader_finished, queued)
@@ -224,6 +227,7 @@ class _ChatPanelContextUsageMixin:  # type: ignore[misc]
                         "models": [],
                     }
                 )
+            self.refresh_connection_budget()
             return
         breakdown = AiChatSessionService.session_spend_breakdown(
             session_id,
@@ -233,6 +237,34 @@ class _ChatPanelContextUsageMixin:  # type: ignore[misc]
         popup = AiChatContextUsagePopup.instance()
         if popup.isVisible():
             popup.set_spend_breakdown(breakdown)
+        self.refresh_connection_budget()
+
+    def refresh_connection_budget(
+        self,
+        status: ConnectionBudgetStatus | None = None,
+    ) -> None:
+        """Reload provider connection budget state for the active model."""
+        if status is None:
+            entry = self.current_model_entry()
+            status = connection_budget_status(entry) if entry is not None else None
+        self._connection_budget_status = status
+        self._budget_banner.set_status(status)
+        self._apply_budget_send_gate()
+        AiChatContextUsagePopup.instance().set_connection_budget(status)
+
+    def _apply_budget_send_gate(self) -> None:
+        """Disable send when the active connection exceeded its hard budget cap."""
+        if self._run_busy:
+            return
+        blocked = (
+            self._connection_budget_status is not None
+            and self._connection_budget_status["state"] == "hard_exceeded"
+        )
+        self.set_send_enabled(not blocked)
+        if blocked:
+            self._send_btn.setToolTip("Hard budget limit reached for this provider connection.")
+        elif self._models:
+            self._send_btn.setToolTip("Send (Enter)")
 
     def _restore_context_ring_tooltip(self) -> None:
         """Restore the ring tooltip after the popup closes."""
@@ -270,6 +302,7 @@ class _ChatPanelContextUsageMixin:  # type: ignore[misc]
             breakdown,
             spend_breakdown=self._session_spend_breakdown,
         )
+        popup.set_connection_budget(self._connection_budget_status)
         self._context_ring.setToolTip("")
 
     def _reset_context_usage_chrome(self) -> None:
@@ -283,6 +316,7 @@ class _ChatPanelContextUsageMixin:  # type: ignore[misc]
         if self._context_refresh_timer.isActive():
             self._context_refresh_timer.stop()
         self._summarized_notice_session_id = None
+        self.refresh_connection_budget()
         entry = self.current_model_entry()
         total = self.current_run_context_tokens() if entry is not None else 0
         self._context_ring.set_usage(0, total)
