@@ -379,7 +379,7 @@ AiChatPanel._on_send (or Enter)
   → chat QThread finished → optional AiChatTitleWorker (deferred; avoids SDK session races)
 
 RightSidebar.ai_new_chat_requested → _on_ai_new_chat
-RightSidebar.ai_session_history_requested → AiSessionHistoryPopup.show_for(ai_history_button, …)
+RightSidebar.ai_session_history_requested → AiSessionHistoryPopup.open_for(ai_history_button, …) (async SessionListLoader)
   → on_select → load_transcript(get_messages)
 
 AiChatPanel.manage_models_requested → _on_open_ai_models_settings

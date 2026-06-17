@@ -10,6 +10,7 @@ import pytest
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QApplication, QLabel
 
+from services.ai.chat.session_service import AiChatSessionDict
 from ui.main_window.ai_chat_controller import _AiChatControllerMixin, _AiChatRunContext
 from ui.sidebar import RightSidebar
 from ui.sidebar.ai import AiChatPanel
@@ -99,19 +100,19 @@ class _FakeUsageWorker(QObject):
         self.assistant_finished.emit("", "reply")
 
 
-def _session_row(session_id: str, title: str) -> dict[str, Any]:
+def _session_row(session_id: str, title: str) -> AiChatSessionDict:
     """Build a minimal session dict for controller title tests."""
-    return {
-        "id": session_id,
-        "title": title,
-        "model_id": "gpt-test",
-        "mode": "agent",
-        "agent_id": "postmark-assistant",
-        "created_at": "2026-01-01T00:00:00+00:00",
-        "updated_at": "2026-01-01T00:00:00+00:00",
-        "last_preview": None,
-        "archived": False,
-    }
+    return AiChatSessionDict(
+        id=session_id,
+        title=title,
+        model_id="gpt-test",
+        mode="agent",
+        agent_id="postmark-assistant",
+        created_at="2026-01-01T00:00:00+00:00",
+        updated_at="2026-01-01T00:00:00+00:00",
+        last_preview=None,
+        archived=False,
+    )
 
 
 def test_sync_ai_session_title_uses_active_session(qapp: QApplication, qtbot) -> None:

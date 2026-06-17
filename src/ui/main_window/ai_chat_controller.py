@@ -176,10 +176,8 @@ class _AiChatControllerMixin:
             popup.hide_popup()
             return
         self._right_sidebar.ai_chat_panel._hide_context_popup()
-        sessions = AiChatSessionService.list_sessions()
-        popup.show_for(
+        popup.open_for(
             self._right_sidebar.ai_history_button,
-            sessions,
             self._on_ai_session_selected,
             active_session_id=self._active_ai_session_id,
         )

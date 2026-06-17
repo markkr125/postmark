@@ -621,7 +621,7 @@ RIGHT_FLYOUT_MIN_WIDTH_EM = 14.0
 RIGHT_FLYOUT_OPEN_WIDTH_EM = 29.0
 
 # AI session history popover — narrower than the flyout; titles ellipsize inside.
-AI_SESSION_HISTORY_POPUP_WIDTH_EM = 20.0
+AI_SESSION_HISTORY_POPUP_WIDTH_EM = 22.0
 
 
 def ai_capability_color(kind: str) -> tuple[str, str]:

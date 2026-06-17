@@ -363,7 +363,8 @@ src/
     │   │   │   └── window.py  # _ChatPanelTranscriptWindowMixin — tail paging, eviction, virtual spacers
     │   │   ├── chat_transcript_loading_row.py  # ChatTranscriptLoadingOverlay — viewport line animation during session load
     │   │   ├── chat_sessions/     # Session history popover + time formatting
-    │   │   │   ├── history_popup.py  # AiSessionHistoryPopup
+    │   │   │   ├── history/       # Virtualized popover (model, delegate, worker, popup)
+    │   │   │   ├── history_popup.py  # Re-export shim → history.popup
     │   │   │   ├── session_title.py  # AiChatSessionTitle — hover + inline rename
     │   │   │   └── time_format.py
     │   │   ├── workers/           # AiChatWorker + AiChatTitleWorker (QThread)

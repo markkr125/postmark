@@ -1,4 +1,4 @@
-"""Re-export shim — implementation lives in ``chat_sessions.history``."""
+"""Virtualized AI session history popover."""
 
 from ui.sidebar.ai.chat_sessions.history.popup import AiSessionHistoryPopup
 

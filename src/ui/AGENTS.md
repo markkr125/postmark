@@ -381,12 +381,9 @@ standard object names:
 | `aiModelPickerProvider` | `QLabel` | *(unused)* — provider shown as bold ``QListWidget`` group headers instead |
 | `aiChatAttachments` | `QWidget` | Attachment chips row (hidden when empty) |
 | `aiChatAttachmentChip` | `QPushButton` | Removable file attachment chip |
-| `aiSessionHistoryPopup` | `QFrame` | Session history popover (title-row clock button); width ``AI_SESSION_HISTORY_POPUP_WIDTH_EM`` × em; no horizontal list scroll |
+| `aiSessionHistoryPopup` | `QFrame` | Session history popover (title-row clock button); width ``AI_SESSION_HISTORY_POPUP_WIDTH_EM`` × em; async ``SessionListLoader`` + debounced SQL search |
 | `aiSessionSearch` | `QLineEdit` | Session history search field |
-| `aiSessionHistoryList` | `QListWidget` | Scrollable session list; horizontal scrollbar off |
-| `aiSessionHistoryRow` | `QWidget` | One session row (elided title with relative time beneath); ``activeSession`` property when row matches the open chat |
-| `aiSessionHistoryTitle` | `QLabel` | Elided session title inside ``aiSessionHistoryRow``; full text in tooltip |
-| `aiSessionHistoryTime` | `QLabel` | Muted relative-time label below the title on session rows |
+| `aiSessionHistoryList` | `QListView` | Virtualized session list (`SessionHistoryListModel` + `SessionHistoryRowDelegate`); horizontal scrollbar off; fixed 44px row height |
 | `requestHistoryPanel` | `HistoryPanel` | Per-request History flyout (right rail) |
 | `globalHistoryPanel` | `HistoryPanel` | Workspace History flyout (left rail, 3rd button; `set_global_mode`) |
 | `globalHistoryHeader` | `QWidget` | Left global History title row (History label + refresh) |

@@ -335,7 +335,7 @@ tests/
    │   ├── test_chat_panel_smooth_scroll.py
    │   ├── test_chat_panel_resize.py
    │   ├── test_ai_chat_worker.py
-   │   ├── test_ai_session_history_popup.py
+   │   ├── test_ai_session_history_popup.py  # Virtualized QListView popover; async SessionListLoader + debounced SQL search
    │   ├── test_session_transcript_load.py  # Async session switch + lazy markdown
    │   └── ai/
    │       ├── conftest.py  # load_transcript_sync helper

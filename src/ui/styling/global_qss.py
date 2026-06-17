@@ -2085,7 +2085,7 @@ def build_global_qss(p: ThemePalette) -> str:
         padding: 4px 8px;
         font-size: 12px;
     }}
-    QListWidget[objectName="aiSessionHistoryList"] {{
+    QListView[objectName="aiSessionHistoryList"] {{
         background: transparent;
         border: none;
         outline: none;
@@ -2099,11 +2099,11 @@ def build_global_qss(p: ThemePalette) -> str:
         background: {p["selected_bg"]};
         border-radius: 4px;
     }}
-    QListWidget[objectName="aiSessionHistoryList"]::item:selected {{
+    QListView[objectName="aiSessionHistoryList"]::item:selected {{
         background: {p["selected_bg"]};
         border-radius: 4px;
     }}
-    QListWidget[objectName="aiSessionHistoryList"]::item:hover {{
+    QListView[objectName="aiSessionHistoryList"]::item:hover {{
         background: {p["hover_bg"]};
         border-radius: 4px;
     }}

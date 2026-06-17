@@ -141,10 +141,13 @@ When the AI panel is open, the flyout header is three stacked rows **above**
    titles are not overwritten by auto-title). Hidden when another right-rail panel is active.
 3. **Separator** — ``sidebarSeparator``, then ``AiChatPanel``.
 
-History opens ``AiSessionHistoryPopup`` (search + elided session titles with
-relative time on a second line beneath each title,
-``AI_SESSION_HISTORY_POPUP_WIDTH_EM`` wide); the row for the **currently open**
-session is highlighted (``activeSession`` on ``aiSessionHistoryRow``). New chat
+History opens ``AiSessionHistoryPopup`` (debounced search + virtualized
+``QListView`` session list with delegate-painted elided titles and relative time
+on a second line beneath each title, ``AI_SESSION_HISTORY_POPUP_WIDTH_EM`` wide).
+Sessions load asynchronously via ``SessionListLoader`` when the popover opens;
+search re-queries ``AiChatSessionService.list_sessions(search=…)`` off the GUI
+thread. The row for the **currently open** session is highlighted via
+``ACTIVE_SESSION_ROLE`` in the list model. New chat
 clears the transcript and persisted ``ai/chat_session_id`` (SQLite row created
 on first send). On startup, ``MainWindow`` reloads the last active session from
 ``ai/chat_session_id`` when set. The gear emits ``RightSidebar.ai_settings_requested``;
