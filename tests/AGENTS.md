@@ -229,6 +229,8 @@ tests/
 │       ├── test_request_history_service.py
 │       ├── ai/
 │       │   ├── test_ai_budget_config.py
+│       │   ├── test_budget_period.py
+│       │   ├── test_spend_rollup.py
 │       │   ├── test_ai_config.py
 │       │   ├── test_model_metadata.py
 │       │   ├── test_run_context_choices.py

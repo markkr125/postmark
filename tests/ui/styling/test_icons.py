@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtGui import QIcon
 
-from ui.styling.icons import chat_stop_icon, clear_cache, load_font, phi, square_filled_icon
+from ui.styling.icons import chat_stop_icon, clear_cache, load_font, phi, phi_qss_image_url, square_filled_icon
 
 
 class TestLoadFont:
@@ -74,6 +74,17 @@ class TestSquareFilledIcon:
         icon = chat_stop_icon()
         assert isinstance(icon, QIcon)
         assert not icon.isNull()
+
+
+class TestPhiQssImageUrl:
+    """Tests for stylesheet arrow PNG URLs."""
+
+    def test_returns_postmark_qss_url(self, qapp) -> None:
+        """phi_qss_image_url() should reference a cached PNG on disk."""
+        load_font()
+        url = phi_qss_image_url("caret-up", color="#112233", size=8)
+        assert url.startswith("url(postmark-qss:")
+        assert url.endswith(".png)")
 
 
 class TestClearCache:

@@ -16,9 +16,10 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 
-from PySide6.QtCore import QRect, Qt
+from PySide6.QtCore import QDir, QRect, QStandardPaths, Qt
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QIcon, QPainter, QPixmap
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,11 @@ _charmap: dict[str, str] = {}
 _font_family: str = ""
 _font_loaded: bool = False
 _icon_cache: dict[tuple[str, str, int], QIcon] = {}
+_qss_image_cache: dict[tuple[str, str, int], str] = {}
+_qss_icons_dir: Path | None = None
+_qss_search_path_registered = False
+_QSS_ICON_SCHEME = "postmark-qss"
+_COLOR_SLUG_RE = re.compile(r"[^0-9a-fA-F]+")
 
 # Default icon size used when none is specified.
 _DEFAULT_SIZE = 16
@@ -130,6 +136,76 @@ def phi(name: str, *, color: str = "", size: int = _DEFAULT_SIZE) -> QIcon:
     return icon
 
 
+def _qss_icon_filename(name: str, color: str, size: int) -> str:
+    """Return a stable on-disk filename for a QSS arrow PNG."""
+    color_slug = _COLOR_SLUG_RE.sub("", color.removeprefix("#").lower()) or "default"
+    safe_name = name.replace("/", "-")
+    return f"{safe_name}_{size}_{color_slug}.png"
+
+
+def _ensure_qss_icons_dir() -> Path | None:
+    """Return the writable cache directory for QSS arrow PNGs."""
+    global _qss_icons_dir, _qss_search_path_registered
+
+    from PySide6.QtWidgets import QApplication
+
+    if QApplication.instance() is None:
+        return None
+
+    if _qss_icons_dir is None:
+        cache_root = QStandardPaths.writableLocation(
+            QStandardPaths.StandardLocation.CacheLocation
+        )
+        if not cache_root:
+            return None
+        _qss_icons_dir = Path(cache_root) / "postmark" / "qss_icons"
+        _qss_icons_dir.mkdir(parents=True, exist_ok=True)
+
+    if not _qss_search_path_registered:
+        QDir.addSearchPath(_QSS_ICON_SCHEME, str(_qss_icons_dir))
+        _qss_search_path_registered = True
+
+    return _qss_icons_dir
+
+
+def phi_qss_image_url(name: str, *, color: str, size: int = 8) -> str:
+    """Return a Qt-stylesheet ``image`` URL for a Phosphor glyph PNG on disk.
+
+    QAbstractSpinBox arrows cannot use CSS border triangles in QSS (Qt draws
+    them as lines). QSS also does not support ``data:`` image URLs (QTBUG-51081),
+    so glyphs are rendered to PNG files under the app cache directory and
+    referenced via ``url(postmark-qss:…png)``.
+    """
+    if not color:
+        from ui.styling.theme import COLOR_TEXT_MUTED
+
+        color = COLOR_TEXT_MUTED
+
+    cache_key = (name, color, size)
+    if cache_key in _qss_image_cache:
+        return _qss_image_cache[cache_key]
+
+    icon_dir = _ensure_qss_icons_dir()
+    if icon_dir is None:
+        _qss_image_cache[cache_key] = "none"
+        return "none"
+
+    filename = _qss_icon_filename(name, color, size)
+    path = icon_dir / filename
+    if not path.exists():
+        pixmap = phi(name, color=color, size=size).pixmap(size, size)
+        if pixmap.isNull():
+            _qss_image_cache[cache_key] = "none"
+            return "none"
+        if not pixmap.save(str(path), "PNG"):
+            _qss_image_cache[cache_key] = "none"
+            return "none"
+
+    url = f"url({_QSS_ICON_SCHEME}:{filename})"
+    _qss_image_cache[cache_key] = url
+    return url
+
+
 def square_filled_icon(*, color: str, size: int = _DEFAULT_SIZE) -> QIcon:
     """Return a cached solid-square ``QIcon`` (media-style stop affordance).
 
@@ -184,6 +260,7 @@ def clear_cache() -> None:
     Call after a theme change so colours are re-rendered on next access.
     """
     _icon_cache.clear()
+    _qss_image_cache.clear()
     from ui.styling.language_icons import clear_language_icon_cache
 
     clear_language_icon_cache()

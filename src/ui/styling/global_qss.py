@@ -17,10 +17,15 @@ from ui.styling.theme import (
     TREE_ROW_HEIGHT,
     ThemePalette,
 )
+from ui.styling.icons import phi_qss_image_url
 
 
 def build_global_qss(p: ThemePalette) -> str:
     """Return the global stylesheet string for the entire application."""
+    budget_spin_up = phi_qss_image_url("caret-up", color=p["text"], size=8)
+    budget_spin_down = phi_qss_image_url("caret-down", color=p["text"], size=8)
+    budget_spin_up_disabled = phi_qss_image_url("caret-up", color=p["text_muted"], size=8)
+    budget_spin_down_disabled = phi_qss_image_url("caret-down", color=p["text_muted"], size=8)
     return f"""
     /* ---- Global resets ------------------------------------------ */
     QMainWindow, QDialog {{
@@ -420,19 +425,90 @@ def build_global_qss(p: ThemePalette) -> str:
         background: {"rgba(255,255,255,0.02)" if p is DARK_PALETTE else "rgba(0,0,0,0.02)"};
         color: {p["text_muted"]};
     }}
-    QPushButton#aiProviderActionsButton {{
+    QPushButton#aiProviderActionsButton,
+    QPushButton#aiBudgetActionsButton {{
         border: none;
         padding: 0px;
         border-radius: 4px;
         background: transparent;
         color: {p["text"]};
     }}
-    QPushButton#aiProviderActionsButton:hover {{
+    QPushButton#aiProviderActionsButton:hover,
+    QPushButton#aiBudgetActionsButton:hover {{
         background: {"rgba(255,255,255,0.08)" if p is DARK_PALETTE else "rgba(0,0,0,0.06)"};
     }}
-    QPushButton#aiProviderActionsButton:disabled {{
+    QPushButton#aiProviderActionsButton:disabled,
+    QPushButton#aiBudgetActionsButton:disabled {{
         background: {"rgba(255,255,255,0.02)" if p is DARK_PALETTE else "rgba(0,0,0,0.02)"};
         color: {p["text_muted"]};
+    }}
+    QDialog#aiBudgetLimitsDialog QComboBox,
+    QDialog#aiBudgetLimitsDialog QTimeEdit,
+    QDialog#aiBudgetLimitsDialog QSpinBox {{
+        min-height: 26px;
+        padding-top: 0px;
+        padding-bottom: 0px;
+    }}
+    /* QAbstractSpinBox: styling the widget body (min-height, border, :disabled)
+       switches painting to QStyleSheetStyle; Fusion no longer draws step buttons.
+       Style every sub-control (up/down button + arrow) for normal and disabled. */
+    QDialog#aiBudgetLimitsDialog QDoubleSpinBox#aiBudgetLimitSpin {{
+        background: {p["input_bg"]};
+        border: 1px solid {p["border"]};
+        border-radius: 4px;
+        color: {p["text"]};
+        min-height: 26px;
+        max-height: 26px;
+        padding: 0px 10px;
+        padding-right: 22px;
+    }}
+    QDialog#aiBudgetLimitsDialog QDoubleSpinBox#aiBudgetLimitSpin:disabled {{
+        background: {p["bg_alt"]};
+        color: {p["text_muted"]};
+        border-color: {p["border"]};
+    }}
+    QDialog#aiBudgetLimitsDialog QDoubleSpinBox#aiBudgetLimitSpin::up-button,
+    QDialog#aiBudgetLimitsDialog QDoubleSpinBox#aiBudgetLimitSpin::down-button {{
+        subcontrol-origin: border;
+        width: 20px;
+        background-color: {p["bg_alt"]};
+        border: 1px solid {p["border"]};
+    }}
+    QDialog#aiBudgetLimitsDialog QDoubleSpinBox#aiBudgetLimitSpin::up-button {{
+        subcontrol-position: top right;
+        border-top-right-radius: 3px;
+    }}
+    QDialog#aiBudgetLimitsDialog QDoubleSpinBox#aiBudgetLimitSpin::down-button {{
+        subcontrol-position: bottom right;
+        border-bottom-right-radius: 3px;
+        margin-top: -1px;
+    }}
+    QDialog#aiBudgetLimitsDialog QDoubleSpinBox#aiBudgetLimitSpin::up-button:hover,
+    QDialog#aiBudgetLimitsDialog QDoubleSpinBox#aiBudgetLimitSpin::down-button:hover {{
+        background: {p["hover_bg"]};
+    }}
+    QDialog#aiBudgetLimitsDialog QDoubleSpinBox#aiBudgetLimitSpin::up-button:disabled,
+    QDialog#aiBudgetLimitsDialog QDoubleSpinBox#aiBudgetLimitSpin::down-button:disabled {{
+        background: {p["bg_alt"]};
+        border-color: {p["border"]};
+    }}
+    QDialog#aiBudgetLimitsDialog QDoubleSpinBox#aiBudgetLimitSpin::up-arrow {{
+        image: {budget_spin_up};
+        width: 8px;
+        height: 8px;
+        subcontrol-position: center;
+    }}
+    QDialog#aiBudgetLimitsDialog QDoubleSpinBox#aiBudgetLimitSpin::down-arrow {{
+        image: {budget_spin_down};
+        width: 8px;
+        height: 8px;
+        subcontrol-position: center;
+    }}
+    QDialog#aiBudgetLimitsDialog QDoubleSpinBox#aiBudgetLimitSpin::up-arrow:disabled {{
+        image: {budget_spin_up_disabled};
+    }}
+    QDialog#aiBudgetLimitsDialog QDoubleSpinBox#aiBudgetLimitSpin::down-arrow:disabled {{
+        image: {budget_spin_down_disabled};
     }}
     QPushButton#debugBreakpointToolbarButton {{
         border: 1px solid {p["border"]};

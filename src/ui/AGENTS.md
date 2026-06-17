@@ -136,6 +136,10 @@ action.setIcon(phi("trash", color="#e74c3c", size=16))
 - `load_font()` is called once in `main.py` after `QApplication` is created.
 - `clear_cache()` is called automatically by `ThemeManager.apply()` on theme
   change so icon colours refresh.
+- `phi_qss_image_url(name, color=…, size=…)` writes a cached PNG under the app
+  cache dir and returns `url(postmark-qss:…)` for Qt stylesheet `image` rules
+  (e.g. `QSpinBox::up-arrow`). CSS border triangles and `data:` URLs do not work
+  on spinbox arrows in QSS.
 - Browse available icon names in `data/fonts/phosphor-charmap.json`.
 
 ## Theme system — ThemeManager + global QSS + QPalette
@@ -335,6 +339,21 @@ standard object names:
 | `aiChatContextPopupMode` | `QPushButton` | Context / Spend mode pills inside the context flyout |
 | `aiChatContextPopup` | `QFrame` | `AiChatContextUsagePopup` — context breakdown or session spend (Spend tab) |
 | `aiProviderBudgetsTree` | `QTableWidget` | Settings → AI → Budgets provider rows |
+| `aiBudgetSpendSummaryLabel` | `QLabel` | Budgets page period/all-time spend summary |
+| `aiBudgetViewBreakdownBtn` | `QPushButton` | Page-level per-model spend breakdown |
+| `aiBudgetActionsButton` | `QPushButton` | Per-row gear menu (Limits + spend details) |
+| `aiBudgetActionsMenu` | `QMenu` | Budget row actions flyout |
+| `aiBudgetLimitsDialog` | `QDialog` | Limits editor; scoped QSS on schedule pickers + `aiBudgetLimitSpin`; Save uses `primaryButton` |
+| `aiBudgetSoftLimitEnable` | `QCheckBox` | Enable soft limit in limits dialog |
+| `aiBudgetHardLimitEnable` | `QCheckBox` | Enable hard limit in limits dialog |
+| `aiBudgetLimitSpin` | `QDoubleSpinBox` | USD limit amount in limits dialog |
+| `aiBudgetPeriodCombo` | `QComboBox` | Reset period inside limits dialog |
+| `aiBudgetResetTime` | `QTimeEdit` | Local reset time (hour/minute) |
+| `aiBudgetResetWeekday` | `QComboBox` | Weekly reset weekday |
+| `aiBudgetResetMonth` | `QComboBox` | Yearly reset month |
+| `aiBudgetResetDay` | `QSpinBox` | Monthly/yearly reset day |
+| `aiBudgetPeriodResetPanel` | `QWidget` | Period + reset schedule block in limits dialog |
+| `aiBudgetResetSchedule` | `QWidget` | Reset schedule rows container |
 | `aiBudgetStatusLabel` | `QLabel` | Budget validation error line |
 | `aiBudgetEmptyLabel` | `QLabel` | Budgets page empty state |
 | `aiChatSummarizedNotice` | `QWidget` | Muted one-line transcript notice after OpenHands compaction |

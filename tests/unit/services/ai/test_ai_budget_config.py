@@ -48,6 +48,7 @@ def test_save_all_persists_enabled_limits() -> None:
             {
                 "connection_key": "ref-a",
                 "period": "monthly",
+                "period_anchor": "2026-06-01",
                 "soft_limit_usd": 50.0,
                 "hard_limit_usd": 100.0,
             }
@@ -82,6 +83,7 @@ def test_validate_budget_entry_rejects_soft_above_hard() -> None:
         {
             "connection_key": "openai|ref-a",
             "period": "monthly",
+            "period_anchor": "2026-06-01",
             "soft_limit_usd": 75.0,
             "hard_limit_usd": 50.0,
         }
@@ -96,12 +98,14 @@ def test_prune_orphaned_removes_stale_connection_keys() -> None:
             {
                 "connection_key": "ref-a",
                 "period": "monthly",
+                "period_anchor": "2026-06-01",
                 "soft_limit_usd": 10.0,
                 "hard_limit_usd": None,
             },
             {
                 "connection_key": "ref-b",
                 "period": "monthly",
+                "period_anchor": "2026-06-01",
                 "soft_limit_usd": 20.0,
                 "hard_limit_usd": None,
             },
@@ -110,6 +114,39 @@ def test_prune_orphaned_removes_stale_connection_keys() -> None:
     AiBudgetConfig.prune_orphaned([_model(provider="openai", auth_ref="ref-a")])
     keys = {row["connection_key"] for row in AiBudgetConfig.get_budgets()}
     assert keys == {"ref-a"}
+
+
+def test_validate_budget_entry_requires_anchor_for_period() -> None:
+    """Non-none periods require a valid anchor date."""
+    err = validate_budget_entry(
+        {
+            "connection_key": "ref-a",
+            "period": "weekly",
+            "period_anchor": None,
+            "soft_limit_usd": 10.0,
+            "hard_limit_usd": None,
+        }
+    )
+    assert err is not None
+
+
+def test_save_all_persists_period_anchor_without_limits() -> None:
+    """Period and anchor can be saved without enabled USD limits."""
+    AiBudgetConfig.save_all(
+        [
+            {
+                "connection_key": "ref-a",
+                "period": "weekly",
+                "period_anchor": "2026-06-01",
+                "soft_limit_usd": None,
+                "hard_limit_usd": None,
+            }
+        ]
+    )
+    row = AiBudgetConfig.budget_for_connection("ref-a")
+    assert row is not None
+    assert row["period"] == "weekly"
+    assert row.get("period_anchor") == "2026-06-01"
 
 
 def test_get_budgets_reads_schema_payload() -> None:

@@ -243,7 +243,8 @@ under `session_disk_dir(id)`. Repositories: `ai_chat_repository.py` (mutations,
 including explicit message-row delete + `shutil.rmtree` of the hex dir);
 `ai_chat_query_repository.py` (read-only `list_sessions`, `search_messages`,
 `list_messages_tail`, `list_messages_before`, `list_messages_after`,
-`allocate_fork_session_title`, `count_fork_family_sessions`).
+`list_assistant_usage_messages`, `allocate_fork_session_title`,
+`count_fork_family_sessions`).
 
 ### Request send history — metadata vs files
 

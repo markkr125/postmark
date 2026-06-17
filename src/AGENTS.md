@@ -141,8 +141,10 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   MainWindow wiring: `_AiChatControllerMixin` (`ai_chat_controller.py`).
   Settings UI: tree branch **AI** (overview) → **Models** and **Budgets** children;
   `ui/dialogs/settings/ai_page.py` + `AiProviderDialog` (per-provider credentials,
-  in-dialog Test connection, live model list); **Budgets** in
-  `ui/dialogs/settings/ai_budget/` with `AiBudgetConfig` (`ai/provider_budgets`).
+  **Budgets** in
+  `ui/dialogs/settings/ai_budget/` with `AiBudgetConfig` (`ai/provider_budgets`),
+  `budget_period.py`, and `spend_rollup.global_spend_summary()` for period/all-time
+  spend on the Budgets page.
   Session USD spend is computed on read in `message_usage.session_spend_breakdown`
   (per-model rows) and shown on the **Spend** tab inside `AiChatContextUsagePopup`
   (composer ring unchanged).

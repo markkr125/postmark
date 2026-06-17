@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypedDict
 
@@ -686,6 +686,15 @@ def cost_per_token_for_entry(entry: object) -> tuple[float, float]:
     return inp, out
 
 
+def connection_has_usd_pricing(models: Iterable[object]) -> bool:
+    """Return whether any model in *models* has persisted USD per-token rates."""
+    for entry in models:
+        inp, out = cost_per_token_for_entry(entry)
+        if inp > 0 or out > 0:
+            return True
+    return False
+
+
 def cost_display_for_spec(spec: ModelSpec) -> str:
     """Cost column text for a :class:`ModelSpec` (import preview, etc.)."""
     inp = spec.input_cost_per_token
@@ -739,6 +748,7 @@ __all__ = [
     "catalog_provider_label",
     "clamp_effort",
     "clamp_run_context_tokens",
+    "connection_has_usd_pricing",
     "context_display_for_entry",
     "context_tiers_for_entry",
     "context_tokens_for_entry",

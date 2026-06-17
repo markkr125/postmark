@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import date
 from typing import Literal, TypedDict, cast
 
 from PySide6.QtCore import QSettings
@@ -16,7 +17,7 @@ logger = logging.getLogger(__name__)
 _ORG = "Postmark"
 _APP = "Postmark"
 _SETTINGS_KEY = "ai/provider_budgets"
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 3
 _MIN_LIMIT_USD = 0.01
 
 BudgetPeriod = Literal["none", "daily", "weekly", "monthly", "yearly"]
@@ -43,8 +44,33 @@ class ProviderBudgetEntry(TypedDict, total=False):
 
     connection_key: str
     period: BudgetPeriod
+    period_anchor: str | None
     soft_limit_usd: float | None
     hard_limit_usd: float | None
+
+
+def _parse_period_anchor(value: str | None) -> str | None:
+    """Return normalized ``YYYY-MM-DD`` or ``YYYY-MM-DDTHH:MM`` text when valid."""
+    if not value or not str(value).strip():
+        return None
+    text = str(value).strip()
+    if "T" in text:
+        date_part, time_part = text.split("T", 1)
+        try:
+            date.fromisoformat(date_part)
+            hour_str, minute_str, *_rest = f"{time_part}:00".split(":")
+            hour = int(hour_str)
+            minute = int(minute_str)
+        except ValueError:
+            return None
+        if not 0 <= hour <= 23 or not 0 <= minute <= 59:
+            return None
+        return f"{date_part}T{hour:02d}:{minute:02d}"
+    try:
+        date.fromisoformat(text)
+    except ValueError:
+        return None
+    return text
 
 
 def _get_settings() -> QSettings:
@@ -65,15 +91,26 @@ def _normalize_entry(raw: object) -> ProviderBudgetEntry | None:
     hard = raw.get("hard_limit_usd")
     soft_val = float(soft) if isinstance(soft, int | float) and soft is not None else None
     hard_val = float(hard) if isinstance(hard, int | float) and hard is not None else None
+    anchor_raw = raw.get("period_anchor")
+    anchor = str(anchor_raw).strip() if isinstance(anchor_raw, str) and anchor_raw.strip() else None
     entry: ProviderBudgetEntry = {
         "connection_key": key,
         "period": cast(BudgetPeriod, period),
+        "period_anchor": anchor,
         "soft_limit_usd": soft_val,
         "hard_limit_usd": hard_val,
     }
-    if not _entry_has_limits(entry):
+    if not _entry_has_content(entry):
         return None
     return entry
+
+
+def _entry_has_content(entry: ProviderBudgetEntry) -> bool:
+    """Return whether *entry* should be persisted."""
+    if _entry_has_limits(entry):
+        return True
+    period = entry.get("period") or "none"
+    return period != "none" and _parse_period_anchor(entry.get("period_anchor")) is not None
 
 
 def _entry_has_limits(entry: ProviderBudgetEntry) -> bool:
@@ -87,6 +124,9 @@ def _entry_has_limits(entry: ProviderBudgetEntry) -> bool:
 
 def validate_budget_entry(entry: ProviderBudgetEntry) -> str | None:
     """Return an error message when *entry* is invalid, else ``None``."""
+    period = entry.get("period") or "none"
+    if period != "none" and _parse_period_anchor(entry.get("period_anchor")) is None:
+        return "Choose a reset schedule when a budget period is set."
     soft = entry.get("soft_limit_usd")
     hard = entry.get("hard_limit_usd")
     if soft is not None and soft < _MIN_LIMIT_USD:

@@ -289,16 +289,42 @@ reads `insert`/`tools`/`vision` from `/api/show`.
 
 ### AiBudgetConfig (`services/ai/ai_budget_config.py`)
 
-Per-provider-connection spend limits (Settings → AI → Budgets). Persisted in QSettings `ai/provider_budgets` as JSON `{"schema": 1, "entries": [...]}`. Enforcement deferred — storage only in v1.
+Per-provider-connection spend limits (Settings → AI → Budgets). Persisted in QSettings `ai/provider_budgets` as JSON `{"schema": 2, "entries": [...]}`. Enforcement deferred — storage only.
 
 | Method | Purpose |
 |--------|---------|
 | `get_budgets()` | Load all persisted budget rows |
 | `budget_for_connection(connection_key)` | One row by `provider_connection_key()` |
-| `save_all(entries)` | Merge by `connection_key`; omit rows with no enabled limits; skip invalid rows |
+| `save_all(entries)` | Merge by `connection_key`; omit empty rows; skip invalid rows |
 | `prune_orphaned(models)` | Drop rows whose connection keys are absent from configured models |
 
-TypedDict: `ProviderBudgetEntry` (`connection_key`, `period`, `soft_limit_usd`, `hard_limit_usd`). Helper: `validate_budget_entry(entry) -> str | None`.
+TypedDict: `ProviderBudgetEntry` (`connection_key`, `period`, `period_anchor`, `soft_limit_usd`, `hard_limit_usd`). Helper: `validate_budget_entry(entry) -> str | None`.
+
+### Budget period (`services/ai/budget_period.py`)
+
+| Function | Purpose |
+|----------|---------|
+| `period_window(period, anchor, *, now=None)` | Active `[start, end)` UTC window for a budget period |
+| `parse_period_reset(value)` | Parse `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM` reset schedule |
+| `parse_period_anchor(value)` | Parse date portion of anchor text |
+| `format_period_reset(reset)` / `format_period_reset_label(period, anchor)` | Serialize or label reset schedules |
+| `daily_reset_anchor` / `weekly_reset_anchor` / `monthly_reset_anchor` / `yearly_reset_anchor` | Build stored anchors from UI fields |
+| `message_in_window(msg, window)` | Whether a message `created_at` falls in the window |
+
+### Spend rollup (`services/ai/chat/spend_rollup.py`)
+
+Cross-session spend for the Budgets page (computed on read from assistant message token columns).
+
+| Function | Purpose |
+|----------|---------|
+| `global_spend_summary(*, models=None, budgets=None)` | `GlobalSpendSummary` with per-connection period/all-time totals |
+| `format_budget_usd_cell(...)` | USD-only budgets table cell |
+| `format_budget_tokens_cell(tokens)` | Token-only budgets table cell |
+| `format_budget_limits_summary(...)` | Reset schedule + soft/hard limits summary |
+| `format_budget_spend_label(...)` | Legacy combined spend cell (`~$0.38 · 278k` or token-only) |
+| `format_global_spend_summary_line(...)` | Summary strip line |
+
+TypedDicts: `ConnectionSpendSummary`, `GlobalSpendSummary`. Reuses `ModelSpendRow` from `message_usage`.
 
 ### AiChatSessionService (`services/ai/chat/session_service.py`)
 

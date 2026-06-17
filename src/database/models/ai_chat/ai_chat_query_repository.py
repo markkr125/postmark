@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -220,6 +221,50 @@ def count_messages(session_id: str) -> int:
             .where(AiChatMessageModel.session_id == session_id)
         )
     return int(count or 0)
+
+
+def list_assistant_usage_messages(
+    *,
+    created_from: datetime | None = None,
+    created_to: datetime | None = None,
+) -> list[dict[str, Any]]:
+    """Return assistant messages with token usage, optionally filtered by ``created_at``."""
+    from datetime import UTC
+
+    from .ai_chat_repository import _message_to_dict
+
+    with db_session() as db:
+        stmt = (
+            select(AiChatMessageModel)
+            .where(AiChatMessageModel.role == "assistant")
+            .where(
+                (
+                    AiChatMessageModel.prompt_tokens.is_not(None)
+                    & (AiChatMessageModel.prompt_tokens > 0)
+                )
+                | (
+                    AiChatMessageModel.completion_tokens.is_not(None)
+                    & (AiChatMessageModel.completion_tokens > 0)
+                )
+                | (
+                    AiChatMessageModel.reasoning_tokens.is_not(None)
+                    & (AiChatMessageModel.reasoning_tokens > 0)
+                )
+            )
+            .order_by(AiChatMessageModel.created_at.asc(), AiChatMessageModel.id.asc())
+        )
+        if created_from is not None:
+            start = created_from
+            if start.tzinfo is None:
+                start = start.replace(tzinfo=UTC)
+            stmt = stmt.where(AiChatMessageModel.created_at >= start)
+        if created_to is not None:
+            end = created_to
+            if end.tzinfo is None:
+                end = end.replace(tzinfo=UTC)
+            stmt = stmt.where(AiChatMessageModel.created_at < end)
+        rows = list(db.scalars(stmt).all())
+    return [_message_to_dict(row) for row in rows]
 
 
 def search_messages(query: str) -> list[dict[str, Any]]:

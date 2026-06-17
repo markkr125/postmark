@@ -207,6 +207,7 @@ src/
 │   │   ├── provider_catalog.py    # Static provider/model catalog (display defaults)
 │   │   ├── reasoning_effort.py    # Reasoning-effort vocabulary + Ollama/LiteLLM helpers
 │   │   ├── ai_budget_config.py    # ProviderBudgetEntry + AiBudgetConfig (QSettings ai/provider_budgets)
+│   │   ├── budget_period.py       # period_window + anchor parsing for budget resets
 │   │   ├── ai_config.py           # AiConfig + AiModelEntry — QSettings ai/models, ai/chat_model_id, ai/chat_session_id
 │   │   ├── sdk_env.py             # ensure_openhands_env + connection timeouts
 │   │   ├── ai_logging.py          # [postmark.ai] stderr log during provider setup
@@ -220,6 +221,7 @@ src/
 │   │       ├── context_usage.py   # ContextUsageService + breakdown TypedDicts + SQLite fallback
 │   │       ├── context_usage_sdk.py # OpenHands SDK View token accounting + compaction diagnostics
 │   │       ├── message_usage.py   # Per-turn usage deltas, session spend rollups, assistant footer cost formatting
+│   │       ├── spend_rollup.py    # Cross-session spend rollups for Settings → Budgets
 │   │       ├── transcript_window.py # Turn-aware tail/older/newer slice helpers + paging constants
 │   │       └── session_service.py # AiChatSessionService — SQLite index + SDK bridge
 │   ├── assertion_service.py       # AssertionService + AssertionDict — declarative tests CRUD + compile
@@ -426,7 +428,7 @@ src/
     │   ├── tab_settings_manager.py # TabSettingsManager — request-tab QSettings bridge (preview, limits, activate-on-close, wrap mode)
     │   ├── history_settings_manager.py # HistorySettingsManager — QSettings history/* send retention
     │   ├── global_qss.py          # build_global_qss() — global stylesheet builder
-    │   └── icons.py               # Phosphor font-glyph icon provider (phi())
+    │   └── icons.py               # Phosphor font-glyph icon provider (phi(), phi_qss_image_url())
     ├── widgets/                   # Reusable shared components
     │   ├── code_editor/           # CodeEditorWidget sub-package
     │   │   ├── editor_widget.py   # CodeEditorWidget — core + __init__ (mixins below)
@@ -500,7 +502,7 @@ src/
     │   │   ├── history_page.py    # Settings → History page (retention, bodies, storage path)
     │   │   ├── ai_provider_dialog.py # Add/edit provider credentials + model (in-dialog Test connection)
     │   │   ├── ai_provider_workers.py # Setup worker + AiRefreshUiBridge (GUI-thread refresh slot)
-    │   │   ├── ai_budget/         # Settings → AI → Budgets page (ai_budget_page)
+    │   │   ├── ai_budget/         # Settings → AI → Budgets (page, row_actions, period_reset_panel, limits_dialog, breakdown_dialog)
     │   │   ├── ai_page.py         # Settings → AI → Models tree; refresh updates children only
     │   │   └── ai_page_actions.py # Provider actions + resizable tree header (QSettings)
     │   ├── collection_runner/
@@ -636,6 +638,8 @@ tests/
 │       ├── test_request_history_service.py
 │       ├── ai/                    # AI config + LLM service tests
 │       │   ├── test_ai_budget_config.py
+│       │   ├── test_budget_period.py
+│       │   ├── test_spend_rollup.py
 │       │   ├── test_ai_config.py
 │       │   ├── test_chat_session_service.py
 │       │   ├── test_context_usage.py

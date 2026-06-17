@@ -99,14 +99,54 @@ with `secret_store`.
 
 **Module:** `services/ai/ai_budget_config.py`
 
-Optional per-provider-connection spend limits (Settings → AI → Budgets). Persisted in QSettings `ai/provider_budgets` as JSON `{"schema": 1, "entries": [...]}`. Rows with no enabled soft/hard limits are omitted.
+Optional per-provider-connection spend limits (Settings → AI → Budgets). Persisted in QSettings `ai/provider_budgets` as JSON `{"schema": 2, "entries": [...]}`. Rows with enabled soft/hard limits or a non-`none` period with anchor are persisted.
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `connection_key` | `str` | `provider_connection_key()` for the connection |
 | `period` | `"none" \| "daily" \| "weekly" \| "monthly" \| "yearly"` | Reset period (enforcement deferred) |
+| `period_anchor` | `str \| None` | ISO `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM` (local reset schedule); required when `period` ≠ `none` |
 | `soft_limit_usd` | `float \| None` | Warn threshold when enabled (min $0.01) |
 | `hard_limit_usd` | `float \| None` | Block threshold when enabled (min $0.01) |
+
+### ConnectionSpendSummary
+
+**Module:** `services/ai/chat/spend_rollup.py`
+
+Per-connection spend rollup for the Budgets page (computed on read from all assistant messages).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `connection_key` | `str` | Provider connection key |
+| `provider_label` | `str` | Display label |
+| `period_usd` | `float \| None` | USD in the active budget period window |
+| `known_period_usd` | `float` | Priced USD in period |
+| `overall_usd` | `float \| None` | All-time USD when fully priced |
+| `known_overall_usd` | `float` | All-time priced USD |
+| `period_tokens` | `int` | Tokens in period |
+| `overall_tokens` | `int` | All-time tokens |
+| `partial_period` | `bool` | Some period turns lack pricing |
+| `partial_overall` | `bool` | Some all-time turns lack pricing |
+| `models` | `list[ModelSpendRow]` | Per-model rows for this connection |
+
+### GlobalSpendSummary
+
+**Module:** `services/ai/chat/spend_rollup.py`
+
+Sum across connections using each row's configured period window for period totals.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `connections` | `list[ConnectionSpendSummary]` | Per-connection rows |
+| `period_usd` | `float \| None` | Total USD in configured periods |
+| `known_period_usd` | `float` | Known priced USD in period |
+| `overall_usd` | `float \| None` | All-time total USD |
+| `known_overall_usd` | `float` | All-time known USD |
+| `period_tokens` | `int` | Tokens in period |
+| `overall_tokens` | `int` | All-time tokens |
+| `partial_period` | `bool` | Partial period pricing |
+| `partial_overall` | `bool` | Partial all-time pricing |
+| `models` | `list[ModelSpendRow]` | All models across connections |
 
 ### SessionSpendBreakdown
 
