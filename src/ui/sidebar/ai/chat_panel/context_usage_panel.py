@@ -307,6 +307,7 @@ class _ChatPanelContextUsageMixin:  # type: ignore[misc]
 
     def _reset_context_usage_chrome(self) -> None:
         """Clear ring state on session switch or new chat."""
+        self._context_refresh_generation += 1
         self._hide_context_popup()
         self._context_breakdown = None
         self._session_spend_breakdown = None

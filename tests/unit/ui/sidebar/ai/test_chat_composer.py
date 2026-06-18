@@ -70,3 +70,15 @@ def test_compact_hides_context_ring(qapp: QApplication, qtbot) -> None:
     composer.set_compact(True)
     assert not composer.context_ring().isVisible()
     assert not composer._upload_btn.isVisible()
+
+
+def test_set_models_disabled_entries_show_enable_hint(qapp: QApplication, qtbot) -> None:
+    """Configured-but-disabled models show an enable hint instead of empty state."""
+    composer = AiChatComposer()
+    qtbot.addWidget(composer)
+    disabled = _entry("m1")
+    disabled["enabled"] = False
+    composer.set_models([disabled])
+    assert composer.model_button_label() == "Enable a model in Settings"
+    assert composer.model_button().isEnabled()
+    assert not composer.send_button().isEnabled()

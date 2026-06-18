@@ -19,7 +19,11 @@ from services.ai.provider_catalog import effective_run_context_tokens, format_ru
 from services.ai.reasoning_effort import clamp_effort, default_effort_for, format_reasoning_effort
 from ui.sidebar.ai.agent_mode_popup import AgentModeButton
 from ui.sidebar.ai.chat_panel.composer.input import ComposerInput
-from ui.sidebar.ai.chat_panel.composer.model_picker_button import ModelPickerButton, _NO_MODELS_TEXT
+from ui.sidebar.ai.chat_panel.composer.model_picker_button import (
+    ModelPickerButton,
+    _NO_ENABLED_MODELS_TEXT,
+    _NO_MODELS_TEXT,
+)
 from ui.sidebar.ai.chat_panel.context_ring_button import ContextUsageRingButton
 from ui.sidebar.ai.model_picker_edit import reasoning_levels_for_entry, thinking_enabled_for_entry
 from ui.styling.icons import CHAT_STOP_ICON_SIZE, chat_stop_icon, phi
@@ -57,6 +61,7 @@ class AiChatComposer(QWidget):
         self._run_busy = False
         self._compact = False
         self._embedded = False
+        self._configured_model_count = 0
 
         self._root_layout = QVBoxLayout(self)
         self._root_layout.setContentsMargins(_CHAT_COMPOSER_MARGIN_H, 8, _CHAT_COMPOSER_MARGIN_H, 8)
@@ -189,14 +194,15 @@ class AiChatComposer(QWidget):
 
     def set_models(self, entries: list[AiModelEntry]) -> None:
         """Store enabled models and refresh selection."""
+        self._configured_model_count = len(entries)
         self._models = [e for e in entries if model_entry_enabled(e)]
         ids = {e["id"] for e in self._models}
         self._current_model_id = self._pick_model_id(ids)
         self._sync_model_state(self._current_model_id)
-        has_models = bool(self._models)
-        self._model_btn.setEnabled(has_models)
+        has_enabled = bool(self._models)
+        self._model_btn.setEnabled(has_enabled or self._configured_model_count > 0)
         if not self._run_busy:
-            self._send_btn.setEnabled(has_models)
+            self._send_btn.setEnabled(has_enabled)
         self._refresh_model_button()
         entry = self._entry_by_id(self._current_model_id) if self._current_model_id else None
         total = effective_run_context_tokens(entry) if entry is not None else 0
@@ -243,6 +249,10 @@ class AiChatComposer(QWidget):
         if self._current_model_id is None:
             return None
         return self._entry_by_id(self._current_model_id)
+
+    def configured_model_count(self) -> int:
+        """Return how many models exist in Settings (enabled or not)."""
+        return self._configured_model_count
 
     def current_mode(self) -> str:
         """Return agent mode (``agent`` / ``ask`` / ``plan``)."""
@@ -438,6 +448,8 @@ class AiChatComposer(QWidget):
 
     def _model_button_parts(self) -> tuple[str, str | None, str | None] | None:
         if not self._models or self._current_model_id is None:
+            if self._configured_model_count > 0:
+                return (_NO_ENABLED_MODELS_TEXT, None, None)
             return None
         entry = self._entry_by_id(self._current_model_id)
         if entry is None:

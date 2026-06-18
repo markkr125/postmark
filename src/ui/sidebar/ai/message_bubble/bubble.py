@@ -5,11 +5,12 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal, NamedTuple
 
-from PySide6.QtCore import QPoint, Qt, Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QFrame, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from services.ai.ai_config import AiModelEntry
 from services.ai.chat.message_usage import format_assistant_footer_label
+from ui.sidebar.ai.chat_panel.scroll.widget_coords import map_widget_y_to_ancestor
 from ui.sidebar.ai.message_bubble.activity_row import AssistantActivityRow
 from ui.sidebar.ai.message_bubble.assistant_message.footer import AssistantMessageFooterRow
 from ui.sidebar.ai.message_bubble.markdown_content import MarkdownContent
@@ -512,7 +513,11 @@ class ChatMessageBubble(QWidget):
             self._scroll_compensation_capture = None
             self._scroll_compensation_block = None
             return
-        anchor_y = block.mapTo(messages, QPoint(0, block.height())).y()
+        anchor_y = map_widget_y_to_ancestor(block, messages, offset_y=block.height())
+        if anchor_y is None:
+            self._scroll_compensation_capture = None
+            self._scroll_compensation_block = None
+            return
         self._scroll_compensation_capture = (anchor_y, block.sizeHint().height())
         self._scroll_compensation_block = block
 

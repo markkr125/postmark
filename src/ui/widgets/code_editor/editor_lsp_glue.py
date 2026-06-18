@@ -20,6 +20,9 @@ _DEBUG_SUSPENDED_EDITORS: weakref.WeakSet[CodeEditorWidget] = weakref.WeakSet()
 
 def set_debug_session_active(editor: CodeEditorWidget, active: bool) -> None:
     """Pause LSP sync and other debounced editor work during an active debug session."""
+    if not Shiboken.isValid(editor):
+        _DEBUG_SUSPENDED_EDITORS.discard(editor)
+        return
     if getattr(editor, "_debug_session_active", False) == active:
         return
     editor._debug_session_active = active

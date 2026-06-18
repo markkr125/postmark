@@ -12,6 +12,7 @@ from typing import Any
 
 from PySide6.QtCore import QEventLoop, Qt, QTimer, Slot
 from PySide6.QtWidgets import QApplication, QWidget
+from shiboken6 import Shiboken
 
 from ui.sidebar.ai.chat_panel.scroll import _ChatPanelScrollMixin
 from ui.sidebar.ai.transcript.window import _ChatPanelTranscriptWindowMixin
@@ -189,10 +190,17 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
         self._invalidate_sticky_extents()  # type: ignore[attr-defined]
         self._schedule_sticky_sync()  # type: ignore[attr-defined]
 
-    def _finish_load_transcript_layout(self) -> None:
-        """Reconcile streaming anchor and sticky overlay after transcript widgets settle."""
+    def _reconcile_transcript_content_size(self) -> None:
+        """Shrink the scroll child to laid-out transcript rows after batch layout changes."""
+        with contextlib.suppress(RuntimeError):
+            self._messages_layout.activate()
+        self._messages.adjustSize()
         self._messages.updateGeometry()
         self._scroll.updateGeometry()  # type: ignore[attr-defined]
+
+    def _finish_load_transcript_layout(self) -> None:
+        """Reconcile streaming anchor and sticky overlay after transcript widgets settle."""
+        self._reconcile_transcript_content_size()
         QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
         self._turn_scroll_anchor = self._find_last_turn_user_bubble()
         self._rebuild_sticky_turn_pairs()  # type: ignore[attr-defined]
@@ -200,10 +208,19 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
         self._attach_transcript_layout_hooks()
         self._finish_transcript_bottom_scroll()  # type: ignore[attr-defined]
 
+    def _detach_streaming_bubble_height_hook(self) -> None:
+        """Disconnect the active streaming row before transcript teardown."""
+        hook = self._stream_bubble_height_hook
+        if hook is not None:
+            with contextlib.suppress(TypeError, RuntimeError):
+                hook.layout_height_changed.disconnect(self._on_streaming_bubble_layout_changed)
+        self._stream_bubble_height_hook = None
+
     def _attach_streaming_bubble_height_hook(self, bubble: ChatMessageBubble) -> None:
         """Connect one layout-height hook for the active streaming assistant row."""
         if self._stream_bubble_height_hook is bubble:
             return
+        self._detach_streaming_bubble_height_hook()
         self._stream_bubble_height_hook = bubble
         bubble.layout_height_changed.connect(self._on_streaming_bubble_layout_changed)
 
@@ -293,6 +310,16 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
             return None
         return bubble.thinking_duration_seconds()
 
+    def _ensure_transcript_layout_skeleton(self) -> None:
+        """Restore stretch, empty label, and virtual spacers after transcript teardown."""
+        layout = self._messages_layout
+        first = layout.itemAt(0) if layout.count() > 0 else None
+        if first is None or first.spacerItem() is None:
+            layout.insertStretch(0, 1)
+        if layout.indexOf(self._empty_label) < 0:
+            layout.insertWidget(1, self._empty_label)
+        self._ensure_virtual_spacers()  # type: ignore[attr-defined]
+
     def _clear_transcript_widgets(self) -> None:
         """Remove message bubbles without touching load-generation state."""
         self._deactivate_streaming_turn_user_footer()
@@ -302,24 +329,34 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
         self._invalidate_sticky_turn_pairs()  # type: ignore[attr-defined]
         self._clear_streaming_viewport_spacer()  # type: ignore[attr-defined]
         self._detach_transcript_layout_hooks()
+        self._detach_streaming_bubble_height_hook()
         self._streaming_bubble = None
-        self._stream_bubble_height_hook = None
         self._turn_scroll_anchor = None
         self._stream_content_started = False
         self._stream_generation = 0
         self._open_stream_generation = 0
         self.reset_transcript_window()
-        for i in reversed(range(self._messages_layout.count())):
-            item = self._messages_layout.itemAt(i)
-            widget = item.widget() if item is not None else None
+        self._ensure_transcript_layout_skeleton()
+        for index in reversed(range(self._messages_layout.count())):
+            item = self._messages_layout.itemAt(index)
+            if item is None:
+                continue
+            widget = item.widget()
             if isinstance(widget, ChatMessageBubble):
+                if not Shiboken.isValid(widget):
+                    continue
+                widget.blockSignals(True)
                 widget.end_streaming(render=False)
-                widget.setParent(None)
+                self._messages_layout.removeWidget(widget)
                 widget.deleteLater()
             elif isinstance(widget, QWidget) and widget.objectName() == "aiChatSummarizedNotice":
-                widget.setParent(None)
+                if not Shiboken.isValid(widget):
+                    continue
+                widget.blockSignals(True)
+                self._messages_layout.removeWidget(widget)
                 widget.deleteLater()
         self._empty_label.show()
+        self._reconcile_transcript_content_size()
 
     def clear_streaming_transcript(self) -> None:
         """Remove all message bubbles and restore the empty state."""
@@ -440,7 +477,7 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
             self.remove_transcript_bubble(bubble)
         self._clear_streaming_viewport_spacer()  # type: ignore[attr-defined]
         self._streaming_bubble = None
-        self._stream_bubble_height_hook = None
+        self._detach_streaming_bubble_height_hook()
         self._stream_content_started = False
         self._open_stream_generation = 0
         self._turn_scroll_anchor = None
@@ -519,7 +556,7 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
         QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
 
         self._streaming_bubble = None
-        self._stream_bubble_height_hook = None
+        self._detach_streaming_bubble_height_hook()
         self._stream_content_started = False
         self._open_stream_generation = 0
         self._invalidate_sticky_turn_pairs()  # type: ignore[attr-defined]

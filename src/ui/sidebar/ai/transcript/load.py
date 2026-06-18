@@ -141,6 +141,10 @@ class _ChatPanelTranscriptLoadMixin:
 
     def cancel_transcript_load(self) -> None:
         """Stop an in-flight incremental transcript build."""
+        cancel_sticky = getattr(self, "_cancel_sticky_sync", None)
+        if callable(cancel_sticky):
+            cancel_sticky()
+        self._transcript_load_generation += 1
         if self._transcript_load_timer.isActive():
             self._transcript_load_timer.stop()
         self._transcript_load_messages = []
@@ -267,7 +271,8 @@ class _ChatPanelTranscriptLoadMixin:
         self._transcript_load_messages = []
         self._transcript_load_index = 0
         self._turn_scroll_anchor = cast(Any, self)._find_last_turn_user_bubble()
-        QTimer.singleShot(0, self._finish_transcript_load_and_signal)
+        generation = self._transcript_load_generation
+        QTimer.singleShot(0, lambda g=generation: self._finish_transcript_load_and_signal(g))
 
     def flush_transcript_load(self) -> None:
         """Drain incremental transcript load synchronously (for tests)."""
@@ -285,9 +290,11 @@ class _ChatPanelTranscriptLoadMixin:
         msg = "flush_transcript_load exceeded iteration limit"
         raise RuntimeError(msg)
 
-    def _finish_transcript_load_and_signal(self) -> None:
+    def _finish_transcript_load_and_signal(self, generation: int) -> None:
         """Run post-load layout and notify listeners."""
-        if self._transcript_load_active_generation != self._transcript_load_generation:
+        if generation != self._transcript_load_generation:
+            return
+        if self._transcript_load_active_generation != generation:
             return
         self._finish_load_transcript_layout()  # type: ignore[attr-defined]
         self._hide_transcript_loading()

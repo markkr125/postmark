@@ -16,6 +16,10 @@ from PySide6.QtWidgets import (
 )
 from shiboken6 import isValid
 
+from ui.sidebar.ai.chat_panel.scroll.widget_coords import (
+    map_widget_point_to_ancestor,
+    map_widget_y_to_ancestor,
+)
 from ui.sidebar.ai.chat_panel.scroll.smooth_scroll import SmoothScroller
 from ui.sidebar.ai.chat_panel.scroll.sticky_prompt import _ChatPanelStickyPromptMixin
 from ui.sidebar.ai.message_bubble import ChatMessageBubble
@@ -138,14 +142,18 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
         bar = self._scroll.verticalScrollBar()
         if anchor is None:
             return bar.maximum()
-        y = anchor.mapTo(self._messages, QPoint(0, 0)).y()
+        y = map_widget_y_to_ancestor(anchor, self._messages)
+        if y is None:
+            return bar.maximum()
         return max(0, min(y - _TURN_SCROLL_MARGIN_PX, bar.maximum()))
 
     def _scroll_value_for_bubble_top(self, bubble: ChatMessageBubble) -> int:
         """Return scroll offset that places *bubble* near the viewport top."""
         bar = self._scroll.verticalScrollBar()
         anchor = bubble.user_message_host() or bubble
-        y = anchor.mapTo(self._messages, QPoint(0, 0)).y()
+        y = map_widget_y_to_ancestor(anchor, self._messages)
+        if y is None:
+            return bar.maximum()
         return max(0, min(y - _TURN_SCROLL_MARGIN_PX, bar.maximum()))
 
     def _scroll_to_user_bubble(self, bubble: ChatMessageBubble) -> None:
@@ -186,8 +194,10 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
         bubble = self._streaming_bubble
         if anchor is None or bubble is None:
             return 0
-        top = anchor.mapTo(self._messages, QPoint(0, 0)).y()
-        bottom = bubble.mapTo(self._messages, QPoint(0, bubble.height())).y()
+        top = map_widget_y_to_ancestor(anchor, self._messages)
+        bottom = map_widget_y_to_ancestor(bubble, self._messages, offset_y=bubble.height())
+        if top is None or bottom is None:
+            return 0
         return max(0, bottom - top)
 
     def _request_turn_bottom_scroll(self) -> None:
@@ -222,7 +232,9 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
 
     def _widget_top_in_viewport(self, widget: QWidget) -> int:
         """Return *widget* top edge Y in viewport coordinates (scroll-offset aware)."""
-        y_messages = widget.mapTo(self._messages, QPoint(0, 0)).y()
+        y_messages = map_widget_y_to_ancestor(widget, self._messages)
+        if y_messages is None:
+            return 0
         return y_messages - self._scroll.verticalScrollBar().value()
 
     def _widget_bottom_in_viewport(self, widget: QWidget) -> int:
@@ -435,7 +447,14 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
         viewport_h = self._scroll.viewport().height()
         if viewport_h <= 0:
             return
-        target_h = max(0, viewport_h - self._streaming_turn_extent_px())
+        if self._turn_scroll_anchor is None or self._streaming_bubble is None:
+            self._clear_streaming_viewport_spacer()
+            return
+        extent = self._streaming_turn_extent_px()
+        if extent <= 0:
+            self._clear_streaming_viewport_spacer()
+            return
+        target_h = max(0, viewport_h - extent)
         if self._streaming_viewport_spacer is None:
             spacer = QWidget(self._messages)
             spacer.setObjectName("aiChatStreamingViewportSpacer")
@@ -498,7 +517,9 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
         bar = self._scroll.verticalScrollBar()
         vp_top = bar.value()
         vp_bottom = vp_top + self._scroll.viewport().height()
-        top = bubble.mapTo(self._messages, QPoint(0, 0)).y()
+        top = map_widget_y_to_ancestor(bubble, self._messages)
+        if top is None:
+            return False
         bottom = top + bubble.height()
         return bottom > vp_top and top < vp_bottom
 
@@ -580,7 +601,9 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
     def markdown_body_intersects_viewport(self, body: QWidget) -> bool:
         """Return whether *body* intersects the transcript scroll viewport."""
         viewport = self._scroll.viewport()
-        top_left = body.mapTo(viewport, QPoint(0, 0))
+        top_left = map_widget_point_to_ancestor(body, viewport, QPoint(0, 0))
+        if top_left is None:
+            return False
         bottom_y = top_left.y() + body.height()
         return bottom_y > 0 and top_left.y() < viewport.height()
 

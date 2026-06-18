@@ -8,25 +8,21 @@ import tempfile
 from collections.abc import Generator
 from pathlib import Path
 
-import pytest
-from PySide6.QtCore import QSettings
-from PySide6.QtWidgets import QApplication
-
-from database.database import init_db
-from qt_app_init import configure_before_qapplication
-from services.scripting._subprocess_env import reap_zombie_children
-
-configure_before_qapplication()
-
-# ------------------------------------------------------------------
-# Isolate QSettings so tests never overwrite user preferences
-# ------------------------------------------------------------------
-# Create the temp directory once at import time — before any QSettings
-# instance is constructed — so that even session-scoped fixtures read
-# from the sandbox rather than the real config path.
+# Isolate QSettings before any other import constructs QSettings("Postmark", …).
 _settings_tmp = tempfile.mkdtemp(prefix="postmark_test_settings_")
+from PySide6.QtCore import QSettings  # noqa: E402
+
 QSettings.setPath(QSettings.Format.NativeFormat, QSettings.Scope.UserScope, _settings_tmp)
 QSettings.setPath(QSettings.Format.IniFormat, QSettings.Scope.UserScope, _settings_tmp)
+
+import pytest  # noqa: E402
+from PySide6.QtWidgets import QApplication  # noqa: E402
+
+from database.database import init_db  # noqa: E402
+from qt_app_init import configure_before_qapplication  # noqa: E402
+from services.scripting._subprocess_env import reap_zombie_children  # noqa: E402
+
+configure_before_qapplication()
 
 
 def _cleanup_test_process_leaks() -> None:
@@ -203,6 +199,8 @@ def _shutdown_lsp_clients(qapp: QApplication) -> Generator[None, None, None]:
 def _reset_code_editor_popups_after_test(qapp: QApplication) -> Generator[None, None, None]:
     """Dismiss app-wide completion/hint popups so non-``tests/ui`` Qt tests cannot leave windows up."""
     yield
+    from PySide6.QtCore import QThreadPool
+
     from tests.qt_popup_cleanup import (
         dismiss_all_top_level_test_widgets,
         flush_deferred_widget_deletes,
@@ -210,6 +208,8 @@ def _reset_code_editor_popups_after_test(qapp: QApplication) -> Generator[None, 
     )
 
     reset_code_editor_popups()
+    QThreadPool.globalInstance().waitForDone(5000)
+    qapp.processEvents()
     dismiss_all_top_level_test_widgets(qapp)
     flush_deferred_widget_deletes(qapp)
 

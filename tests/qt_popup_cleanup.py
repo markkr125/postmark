@@ -20,6 +20,19 @@ _TEST_TOP_LEVEL_TYPES = frozenset(
 )
 
 
+def reset_session_history_popups() -> None:
+    """Hide AI session history tool popovers and drop app event filters."""
+    from shiboken6 import Shiboken
+
+    from ui.sidebar.ai.chat_sessions.history.actions_popup import SessionHistoryActionsPopup
+    from ui.sidebar.ai.chat_sessions.history_popup import AiSessionHistoryPopup
+
+    SessionHistoryActionsPopup.instance().hide_popup()
+    popup = AiSessionHistoryPopup._instance
+    if popup is not None and Shiboken.isValid(popup):
+        popup.hide_popup()
+
+
 def reset_code_editor_popups() -> None:
     """Hide and disconnect shared code-editor popups so they do not leak onto the desktop."""
     from ui.widgets.code_editor import popup_registry

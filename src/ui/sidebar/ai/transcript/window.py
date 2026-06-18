@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from datetime import datetime
 from typing import Any, NamedTuple, cast
 
-from PySide6.QtCore import QEventLoop, QPoint, QTimer
+from PySide6.QtCore import QEventLoop, QTimer
 from PySide6.QtWidgets import QApplication, QSizePolicy, QWidget
 
 from services.ai.chat.session_service import AiChatMessageDict, AiChatTranscriptPageDict
@@ -19,6 +19,7 @@ from services.ai.chat.transcript_window import (
     TOP_PREFETCH_MARGIN_PX,
     TOP_PREFETCH_VIEWPORT_FRACTION,
 )
+from ui.sidebar.ai.chat_panel.scroll.widget_coords import map_widget_y_to_ancestor
 from ui.sidebar.ai.message_bubble import ChatMessageBubble
 from ui.sidebar.ai.transcript.load import _ChatPanelTranscriptLoadMixin
 from ui.sidebar.ai.transcript.older_loading_row import TranscriptOlderLoadingRow
@@ -95,11 +96,17 @@ class _ChatPanelTranscriptWindowMixin(_ChatPanelTranscriptLoadMixin):
 
     def _ensure_virtual_spacers(self) -> None:
         """Insert top/bottom virtual spacers after the empty-state label."""
-        if self._top_virtual_spacer is None:
+        if (
+            self._top_virtual_spacer is None
+            or self._messages_layout.indexOf(self._top_virtual_spacer) < 0
+        ):
             self._top_virtual_spacer = _VirtualTranscriptSpacer(self._messages)
             index = self._messages_layout.indexOf(self._empty_label) + 1
             self._messages_layout.insertWidget(index, self._top_virtual_spacer)
-        if self._bottom_virtual_spacer is None:
+        if (
+            self._bottom_virtual_spacer is None
+            or self._messages_layout.indexOf(self._bottom_virtual_spacer) < 0
+        ):
             self._bottom_virtual_spacer = _VirtualTranscriptSpacer(self._messages)
             self._messages_layout.addWidget(self._bottom_virtual_spacer)
 
@@ -234,7 +241,9 @@ class _ChatPanelTranscriptWindowMixin(_ChatPanelTranscriptLoadMixin):
     def _widget_top_in_viewport(self, widget: QWidget) -> int:
         """Return widget top edge Y relative to the viewport (negative = above)."""
         bar = self._scroll.verticalScrollBar()
-        top = widget.mapTo(self._messages, QPoint(0, 0)).y()
+        top = map_widget_y_to_ancestor(widget, self._messages)
+        if top is None:
+            return 0
         return int(top - bar.value())
 
     def _init_virtual_pass_timer(self) -> None:
@@ -257,6 +266,8 @@ class _ChatPanelTranscriptWindowMixin(_ChatPanelTranscriptLoadMixin):
         if self._loading_window_page or self._virtual_session_id is None:
             return
         if self._open_stream_generation > 0 and self._loading_window_page:
+            return
+        if self.is_transcript_load_active():
             return
         self._maybe_prefetch_older_page()
         self._maybe_prefetch_newer_page()
@@ -307,7 +318,9 @@ class _ChatPanelTranscriptWindowMixin(_ChatPanelTranscriptLoadMixin):
             return
         bar = self._scroll.verticalScrollBar()
         viewport_h = self._scroll.viewport().height()
-        bottom_y = last.mapTo(self._messages, QPoint(0, 0)).y() + last.height()
+        bottom_y = map_widget_y_to_ancestor(last, self._messages, offset_y=last.height())
+        if bottom_y is None:
+            return
         viewport_bottom = bar.value() + viewport_h
         # Positive distance means the last row is still below the viewport.
         if bottom_y > viewport_bottom + _BOTTOM_PREFETCH_MARGIN_PX:
@@ -670,6 +683,10 @@ class _ChatPanelTranscriptWindowMixin(_ChatPanelTranscriptLoadMixin):
 
     def reset_transcript_window(self) -> None:
         """Clear virtual window state during transcript teardown."""
+        self._window_page_generation += 1
+        timer = self._virtual_pass_timer
+        if timer is not None:
+            timer.stop()
         self._bubble_by_message_id.clear()
         self._bubble_height_by_id.clear()
         self._virtual_session_id = None

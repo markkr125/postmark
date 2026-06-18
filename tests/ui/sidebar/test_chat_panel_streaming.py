@@ -1264,6 +1264,11 @@ def test_clear_transcript_removes_spacer(qapp: QApplication, qtbot) -> None:
     """Clearing the transcript removes the streaming viewport spacer."""
     panel = AiChatPanel()
     qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitExposed(panel)
+    panel.resize(360, 400)
+    panel.add_message("user", "hello")
+    qapp.processEvents()
     panel.begin_assistant_stream()
     assert panel._streaming_viewport_spacer is not None
     panel.clear_streaming_transcript()

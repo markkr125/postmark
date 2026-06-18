@@ -144,9 +144,12 @@ When the AI panel is open, the flyout header is three stacked rows **above**
 History opens ``AiSessionHistoryPopup`` (debounced search + virtualized
 ``QListView`` session list with delegate-painted elided titles and relative time
 on a second line beneath each title, ``AI_SESSION_HISTORY_POPUP_WIDTH_EM`` wide).
-Sessions load asynchronously via ``SessionListLoader`` when the popover opens;
-search re-queries ``AiChatSessionService.list_sessions(search=…)`` off the GUI
-thread. The row for the **currently open** session is highlighted via
+Hovering a row shows a trailing ⋯ control; clicking it opens
+``SessionHistoryActionsPopup`` (Rename via ``QInputDialog``, Delete via
+``QMessageBox`` confirmation) without opening the session. Row-body click still
+loads the session. Sessions load asynchronously via ``SessionListLoader`` when
+the popover opens; search re-queries ``AiChatSessionService.list_sessions(search=…)``
+off the GUI thread. The row for the **currently open** session is highlighted via
 ``ACTIVE_SESSION_ROLE`` in the list model. New chat
 clears the transcript and persisted ``ai/chat_session_id`` (SQLite row created
 on first send). On startup, ``MainWindow`` reloads the last active session from

@@ -10,6 +10,10 @@ from PySide6.QtCore import QPoint, QTimer
 from PySide6.QtWidgets import QPushButton, QScrollArea, QWidget
 from shiboken6 import isValid
 
+from ui.sidebar.ai.chat_panel.scroll.widget_coords import (
+    map_widget_point_to_ancestor,
+    map_widget_y_to_ancestor,
+)
 from ui.sidebar.ai.message_bubble import ChatMessageBubble
 from ui.sidebar.ai.message_bubble.user_message.overlay import (
     StickyOverlayMetrics,
@@ -61,6 +65,7 @@ class _ChatPanelStickyPromptMixin:  # type: ignore[misc]
     _sticky_applied_height_cap: int = 0
     _sticky_sync_pending: bool = False
     _sticky_sync_frame_pending: bool = False
+    _sticky_sync_generation: int = 0
 
     def _iter_chat_turns(self) -> Iterator[tuple[ChatMessageBubble, ChatMessageBubble]]:
         """Yield transcript turn pairs (implemented by :class:`_ChatPanelScrollMixin`)."""
@@ -72,6 +77,9 @@ class _ChatPanelStickyPromptMixin:  # type: ignore[misc]
 
     def _invalidate_sticky_turn_pairs(self) -> None:
         """Mark cached user/assistant turn pairs stale after transcript changes."""
+        self._sticky_turn_pairs = []
+        self._sticky_turn_extents = []
+        self._sticky_extent_by_assistant = {}
         self._sticky_turn_pairs_dirty = True
         self._sticky_extents_dirty = True
 
@@ -103,10 +111,18 @@ class _ChatPanelStickyPromptMixin:  # type: ignore[misc]
         for user, assistant in self._ensure_sticky_turn_pairs():
             if not isValid(user) or not isValid(assistant):
                 continue
-            user_top = user.mapTo(self._messages, QPoint(0, 0)).y()
-            user_bottom = user.mapTo(self._messages, QPoint(0, user.height())).y()
-            assistant_top = assistant.mapTo(self._messages, QPoint(0, 0)).y()
-            assistant_bottom = assistant.mapTo(self._messages, QPoint(0, assistant.height())).y()
+            user_top = map_widget_y_to_ancestor(user, self._messages)
+            assistant_top = map_widget_y_to_ancestor(assistant, self._messages)
+            assistant_bottom = map_widget_y_to_ancestor(
+                assistant,
+                self._messages,
+                offset_y=assistant.height(),
+            )
+            if user_top is None or assistant_top is None or assistant_bottom is None:
+                continue
+            user_bottom = map_widget_y_to_ancestor(user, self._messages, offset_y=user.height())
+            if user_bottom is None:
+                continue
             extent = StickyTurnExtent(
                 user,
                 assistant,
@@ -122,8 +138,14 @@ class _ChatPanelStickyPromptMixin:  # type: ignore[misc]
         for evicted, assistant in self._iter_orphan_sticky_turns():
             if not isValid(assistant):
                 continue
-            assistant_top = assistant.mapTo(self._messages, QPoint(0, 0)).y()
-            assistant_bottom = assistant.mapTo(self._messages, QPoint(0, assistant.height())).y()
+            assistant_top = map_widget_y_to_ancestor(assistant, self._messages)
+            assistant_bottom = map_widget_y_to_ancestor(
+                assistant,
+                self._messages,
+                offset_y=assistant.height(),
+            )
+            if assistant_top is None or assistant_bottom is None:
+                continue
             user_bottom = assistant_top
             user_top = user_bottom - max(1, evicted.height_px)
             extent = StickyTurnExtent(
@@ -166,6 +188,12 @@ class _ChatPanelStickyPromptMixin:  # type: ignore[misc]
         self._sticky_applied_geom = (0, 0, 0, 0)
         self._sticky_applied_height_cap = 0
 
+    def _cancel_sticky_sync(self) -> None:
+        """Drop deferred sticky overlay work scheduled before transcript teardown."""
+        self._sticky_sync_generation += 1
+        self._sticky_sync_pending = False
+        self._sticky_sync_frame_pending = False
+
     def _schedule_sticky_sync(self) -> None:
         """Coalesce sticky overlay updates to one pass per event-loop frame."""
         if getattr(self, "_resize_active", False):
@@ -174,11 +202,14 @@ class _ChatPanelStickyPromptMixin:  # type: ignore[misc]
         self._sticky_sync_pending = True
         if not self._sticky_sync_frame_pending:
             self._sticky_sync_frame_pending = True
-            QTimer.singleShot(0, self._flush_sticky_sync)
+            generation = self._sticky_sync_generation
+            QTimer.singleShot(0, lambda g=generation: self._flush_sticky_sync(g))
 
-    def _flush_sticky_sync(self) -> None:
+    def _flush_sticky_sync(self, generation: int | None = None) -> None:
         """Apply one deferred sticky overlay sync after scroll/layout bursts."""
         self._sticky_sync_frame_pending = False
+        if generation is not None and generation != self._sticky_sync_generation:
+            return
         if not self._sticky_sync_pending:
             return
         self._sticky_sync_pending = False
@@ -225,6 +256,7 @@ class _ChatPanelStickyPromptMixin:  # type: ignore[misc]
 
     def _clear_sticky_turn_prompt(self) -> None:
         """Remove the sticky turn prompt overlay from the viewport."""
+        self._cancel_sticky_sync()
         sticky = self._sticky_turn_prompt
         self._sticky_turn_prompt = None
         self._sticky_turn_anchor = None
@@ -259,7 +291,10 @@ class _ChatPanelStickyPromptMixin:  # type: ignore[misc]
     ) -> tuple[int, int]:
         """Return ``(x, width)`` filling the transcript content column in the viewport."""
         inset = _STICKY_PROMPT_VIEWPORT_INSET_PX
-        anchor_x = layout_source.mapTo(viewport, QPoint(0, 0)).x()
+        mapped = map_widget_point_to_ancestor(layout_source, viewport, QPoint(0, 0))
+        if mapped is None:
+            return inset, max(1, viewport.width() - inset * 2)
+        anchor_x = mapped.x()
         sticky_x = max(inset, anchor_x - _STICKY_PROMPT_LEFT_SHIFT_PX)
         content_w = max(1, viewport.width() - sticky_x - inset)
         return sticky_x, content_w

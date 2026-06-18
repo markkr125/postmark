@@ -78,12 +78,18 @@ def _reset_popup_and_flush_widgets(qapp: QApplication) -> Iterator[None]:
         dismiss_all_top_level_test_widgets,
         flush_deferred_widget_deletes,
         reset_code_editor_popups,
+        reset_session_history_popups,
     )
 
-    reset_code_editor_popups()
-    dismiss_all_top_level_test_widgets(qapp)
     from PySide6.QtCore import QThreadPool
 
+    reset_code_editor_popups()
+    reset_session_history_popups()
+    # Drain background work before ``deleteLater()`` so loader callbacks cannot
+    # touch widgets that teardown is about to destroy.
+    QThreadPool.globalInstance().waitForDone(5000)
+    qapp.processEvents()
+    dismiss_all_top_level_test_widgets(qapp)
     QThreadPool.globalInstance().waitForDone(5000)
     flush_deferred_widget_deletes(qapp)
 

@@ -349,7 +349,7 @@ src/
     │   │   │   ├── context_ring_button.py  # ContextUsageRingButton (aiChatContextRing)
     │   │   │   ├── context_popup_mode_pill.py  # ContextPopupModePill (aiChatContextPopupMode)
     │   │   │   ├── context_usage_panel.py  # _ChatPanelContextUsageMixin — debounced refresh + popup
-    │   │   │   └── scroll/        # Scroll-lock, smooth wheel, sticky prompt overlay
+    │   │   │   └── scroll/        # Scroll-lock, smooth wheel, sticky prompt, widget_coords
     │   │   │       ├── scroll.py  # _ChatPanelScrollMixin — direction-based scroll-lock, turn-start anchor, viewport spacer, queued follow passes
     │   │   │       ├── smooth_scroll.py  # SmoothScroller — animated viewport wheel
     │   │   │       └── sticky_prompt.py  # _ChatPanelStickyPromptMixin — viewport sticky user prompt
@@ -363,7 +363,12 @@ src/
     │   │   │   └── window.py  # _ChatPanelTranscriptWindowMixin — tail paging, eviction, virtual spacers
     │   │   ├── chat_transcript_loading_row.py  # ChatTranscriptLoadingOverlay — viewport line animation during session load
     │   │   ├── chat_sessions/     # Session history popover + time formatting
-    │   │   │   ├── history/       # Virtualized popover (model, delegate, worker, popup)
+    │   │   │   ├── history/       # Virtualized popover (model, delegate, worker, popup, actions_popup)
+    │   │   │   │   ├── actions_popup.py  # SessionHistoryActionsPopup — Rename / Delete flyout
+    │   │   │   │   ├── delegate.py     # SessionHistoryRowDelegate — ⋯ paint + editorEvent
+    │   │   │   │   ├── model.py
+    │   │   │   │   ├── popup.py          # AiSessionHistoryPopup
+    │   │   │   │   └── worker.py         # SessionListLoader
     │   │   │   ├── history_popup.py  # Re-export shim → history.popup
     │   │   │   ├── session_title.py  # AiChatSessionTitle — hover + inline rename
     │   │   │   └── time_format.py

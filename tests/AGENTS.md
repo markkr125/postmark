@@ -149,7 +149,7 @@ test file still exceeds 600 lines, split by test class into separate files.
 ```
 tests/
 ├── conftest.py                    # Root: configure_before_qapplication + _fresh_db + _reset_tab_settings + _disable_script_lsp_in_tests + _shutdown_lsp_clients + _reset_code_editor_popups_after_test (autouse) + qapp
-├── qt_popup_cleanup.py            # reset_code_editor_popups + dismiss_all_top_level_test_widgets
+├── qt_popup_cleanup.py            # reset_code_editor_popups + reset_session_history_popups + dismiss_all_top_level_test_widgets
 ├── esprima_test_util.py           # deno_and_esprima_available() for JS parse-dependent tests
 ├── unit/                          # Pure logic — no Qt widgets
 │   ├── database/                  # Repository layer tests
@@ -288,6 +288,7 @@ tests/
     ├── conftest.py                # _no_fetch (autouse) + helper functions
    ├── main_window/
    │   └── test_ai_chat_controller.py  # AI chat controller stop/fail finalize paths
+   │   └── test_session_history_switch.py  # MainWindow session history switch during transcript load
    ├── test_main_window.py        # Top-level MainWindow smoke tests
    ├── test_main_window_tabs_navigation.py # Wrapped tab deck shortcuts + search tests
    ├── test_main_window_tab_nav_history.py # Go menu tab activation back/forward
@@ -335,7 +336,7 @@ tests/
    │   ├── test_chat_panel_smooth_scroll.py
    │   ├── test_chat_panel_resize.py
    │   ├── test_ai_chat_worker.py
-   │   ├── test_ai_session_history_popup.py  # Virtualized QListView popover; async SessionListLoader + debounced SQL search
+   │   ├── test_ai_session_history_popup.py  # Virtualized list; ⋯ menu click routing; rename/delete dialogs
    │   ├── test_session_transcript_load.py  # Async session switch + lazy markdown
    │   └── ai/
    │       ├── conftest.py  # load_transcript_sync helper

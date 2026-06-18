@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QWidget
 from ui.styling.icons import phi
 
 _NO_MODELS_TEXT = "No models configured"
+_NO_ENABLED_MODELS_TEXT = "Enable a model in Settings"
 
 
 class ModelPickerButton(QWidget):
@@ -100,4 +101,4 @@ class ModelPickerButton(QWidget):
         super().mousePressEvent(event)
 
 
-__all__ = ["_NO_MODELS_TEXT", "ModelPickerButton"]
+__all__ = ["_NO_ENABLED_MODELS_TEXT", "_NO_MODELS_TEXT", "ModelPickerButton"]

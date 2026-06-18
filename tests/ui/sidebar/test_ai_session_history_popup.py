@@ -4,15 +4,14 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, QPoint, Qt
 from PySide6.QtGui import QFont, QFontMetrics
-from PySide6.QtWidgets import QApplication, QPushButton, QWidget
+from PySide6.QtWidgets import QApplication, QInputDialog, QMessageBox, QPushButton, QWidget
 
 from services.ai.chat.session_service import AiChatSessionDict, AiChatSessionService
-from ui.sidebar.ai.chat_sessions.history.model import (
-    ACTIVE_SESSION_ROLE,
-    RELATIVE_TIME_ROLE,
-)
+from ui.sidebar.ai.chat_sessions.history.actions_popup import SessionHistoryActionsPopup
+from ui.sidebar.ai.chat_sessions.history.delegate import session_row_menu_rect
+from ui.sidebar.ai.chat_sessions.history.model import ACTIVE_SESSION_ROLE, RELATIVE_TIME_ROLE
 from ui.sidebar.ai.chat_sessions.history_popup import AiSessionHistoryPopup
 from ui.sidebar.ai.chat_sessions.time_format import format_relative_time
 from ui.styling.theme import AI_SESSION_HISTORY_POPUP_WIDTH_EM
@@ -86,7 +85,7 @@ def test_active_session_row_is_highlighted(qapp: QApplication, qtbot) -> None:
 
 
 def test_row_click_calls_on_select(qapp: QApplication, qtbot) -> None:
-    """Clicking a row invokes the select callback with the session id."""
+    """Clicking a row body invokes the select callback with the session id."""
     popup = AiSessionHistoryPopup()
     qtbot.addWidget(popup)
     anchor = QPushButton("anchor")
@@ -97,9 +96,27 @@ def test_row_click_calls_on_select(qapp: QApplication, qtbot) -> None:
         selected.append(session_id)
 
     popup.show_for(anchor, [_session("sess-1", "One")], on_select)
-    popup._list.clicked.emit(popup._model.index(0, 0))
+    index = popup._model.index(0, 0)
+    row_rect = popup._list.visualRect(index)
+    body_pos = QPoint(row_rect.left() + 20, row_rect.center().y())
+    qtbot.mouseClick(popup._list.viewport(), Qt.MouseButton.LeftButton, pos=body_pos)
+    qtbot.wait(20)
     assert selected == ["sess-1"]
     assert not popup.isVisible()
+
+
+def test_app_event_filter_ignores_non_qobject_watchers(qapp: QApplication, qtbot) -> None:
+    """App-wide filter must not forward layout child events to QFrame.eventFilter."""
+    popup = AiSessionHistoryPopup()
+    qtbot.addWidget(popup)
+    anchor = QPushButton("anchor")
+    qtbot.addWidget(anchor)
+    popup.show_for(anchor, [_session("sess-1", "One")], lambda _id: None)
+
+    class _NotQObject:
+        """Stand-in for QWidgetItem-style non-QObject event-filter watchers."""
+
+    assert popup.eventFilter(_NotQObject(), QEvent(QEvent.Type.ChildAdded)) is False  # type: ignore[arg-type]
 
 
 def test_escape_closes_popup(qapp: QApplication, qtbot) -> None:
@@ -272,3 +289,117 @@ def test_show_for_many_sessions_populates_quickly(qapp: QApplication, qtbot) -> 
     elapsed = time.monotonic() - started
     assert popup._model.rowCount() == 220
     assert elapsed < 2.0
+
+
+def test_menu_dots_click_opens_actions_not_session(qapp: QApplication, qtbot) -> None:
+    """Clicking ⋯ opens the actions flyout without opening the session."""
+    popup = AiSessionHistoryPopup()
+    qtbot.addWidget(popup)
+    anchor = QPushButton("anchor")
+    qtbot.addWidget(anchor)
+    selected: list[str] = []
+    popup.show_for(anchor, [_session("sess-1", "One")], selected.append)
+    index = popup._model.index(0, 0)
+    row_rect = popup._list.visualRect(index)
+    menu_center = session_row_menu_rect(row_rect).center()
+    qtbot.mouseMove(popup._list.viewport(), pos=menu_center)
+    qtbot.wait(10)
+    qtbot.mouseClick(popup._list.viewport(), Qt.MouseButton.LeftButton, pos=menu_center)
+    qtbot.wait(10)
+    assert SessionHistoryActionsPopup.instance().isVisible()
+    assert selected == []
+    assert popup.isVisible()
+
+
+def test_row_body_click_opens_session_not_menu(qapp: QApplication, qtbot) -> None:
+    """Clicking the row body opens the session, not the actions flyout."""
+    popup = AiSessionHistoryPopup()
+    qtbot.addWidget(popup)
+    anchor = QPushButton("anchor")
+    qtbot.addWidget(anchor)
+    selected: list[str] = []
+    popup.show_for(anchor, [_session("sess-1", "One")], selected.append)
+    index = popup._model.index(0, 0)
+    row_rect = popup._list.visualRect(index)
+    body_pos = QPoint(row_rect.left() + 16, row_rect.center().y())
+    qtbot.mouseClick(popup._list.viewport(), Qt.MouseButton.LeftButton, pos=body_pos)
+    qtbot.wait(20)
+    assert selected == ["sess-1"]
+    assert not SessionHistoryActionsPopup.instance().isVisible()
+
+
+def test_editor_event_menu_hit_returns_true(qapp: QApplication, qtbot) -> None:
+    """``editorEvent`` on ⋯ returns True and emits ``menu_requested``."""
+    from PySide6.QtCore import QEvent, QRect, QPointF
+    from PySide6.QtGui import QMouseEvent
+    from PySide6.QtWidgets import QStyleOptionViewItem
+
+    popup = AiSessionHistoryPopup()
+    qtbot.addWidget(popup)
+    delegate = popup._delegate
+    popup._model.set_sessions([_session("a", "Alpha")], active_session_id=None)
+    index = popup._model.index(0, 0)
+    row_rect = QRect(0, 0, 300, 44)
+    menu_center = session_row_menu_rect(row_rect).center()
+    option = QStyleOptionViewItem()
+    option.rect = row_rect
+    emitted: list[int] = []
+    delegate.menu_requested.connect(lambda idx: emitted.append(idx.row()))
+    event = QMouseEvent(
+        QEvent.Type.MouseButtonRelease,
+        QPointF(menu_center),
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    handled = delegate.editorEvent(event, popup._model, option, index)
+    assert handled is True
+    assert emitted == [0]
+
+
+def test_rename_dialog_calls_service(qapp: QApplication, qtbot, monkeypatch) -> None:
+    """Rename from the actions menu persists via ``rename_session``."""
+    calls: list[tuple[str, str]] = []
+
+    def fake_rename(session_id: str, title: str) -> AiChatSessionDict:
+        calls.append((session_id, title))
+        return _session(session_id, title)
+
+    monkeypatch.setattr(AiChatSessionService, "rename_session", fake_rename)
+    monkeypatch.setattr(
+        QInputDialog,
+        "getText",
+        lambda *_args, **_kwargs: ("Renamed", True),
+    )
+
+    popup = AiSessionHistoryPopup()
+    qtbot.addWidget(popup)
+    anchor = QPushButton("anchor")
+    qtbot.addWidget(anchor)
+    popup.show_for(anchor, [_session("sess-1", "Old")], lambda _id: None)
+    popup._rename_session("sess-1", "Old")
+    assert calls == [("sess-1", "Renamed")]
+
+
+def test_delete_confirmed_calls_service(qapp: QApplication, qtbot, monkeypatch) -> None:
+    """Delete with confirmation calls ``delete_session``."""
+    deleted: list[str] = []
+
+    def fake_delete(session_id: str) -> bool:
+        deleted.append(session_id)
+        return True
+
+    monkeypatch.setattr(AiChatSessionService, "delete_session", fake_delete)
+    monkeypatch.setattr(
+        QMessageBox,
+        "question",
+        lambda *_args, **_kwargs: QMessageBox.StandardButton.Yes,
+    )
+
+    popup = AiSessionHistoryPopup()
+    qtbot.addWidget(popup)
+    anchor = QPushButton("anchor")
+    qtbot.addWidget(anchor)
+    popup.show_for(anchor, [_session("sess-1", "Gone")], lambda _id: None)
+    popup._delete_session("sess-1", "Gone")
+    assert deleted == ["sess-1"]

@@ -383,7 +383,10 @@ standard object names:
 | `aiChatAttachmentChip` | `QPushButton` | Removable file attachment chip |
 | `aiSessionHistoryPopup` | `QFrame` | Session history popover (title-row clock button); width ``AI_SESSION_HISTORY_POPUP_WIDTH_EM`` × em; async ``SessionListLoader`` + debounced SQL search |
 | `aiSessionSearch` | `QLineEdit` | Session history search field |
-| `aiSessionHistoryList` | `QListView` | Virtualized session list (`SessionHistoryListModel` + `SessionHistoryRowDelegate`); horizontal scrollbar off; fixed 44px row height |
+| `aiSessionHistoryList` | `QListView` | Virtualized session list (`SessionHistoryListModel` + `SessionHistoryRowDelegate`); hover ⋯ opens actions flyout; fixed 44px row height |
+| `aiSessionHistoryActionsPopup` | `QFrame` | Per-row Rename / Delete flyout from ⋯ menu |
+| `aiSessionHistoryActionRow` | `QWidget` | One action row inside ``aiSessionHistoryActionsPopup`` |
+| `aiSessionHistoryActionLabel` | `QLabel` | Action label inside ``aiSessionHistoryActionRow`` |
 | `requestHistoryPanel` | `HistoryPanel` | Per-request History flyout (right rail) |
 | `globalHistoryPanel` | `HistoryPanel` | Workspace History flyout (left rail, 3rd button; `set_global_mode`) |
 | `globalHistoryHeader` | `QWidget` | Left global History title row (History label + refresh) |

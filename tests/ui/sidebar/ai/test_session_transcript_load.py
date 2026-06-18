@@ -147,6 +147,44 @@ def test_activate_uses_tail_loader(qapp: QApplication, qtbot) -> None:
     load_tail.assert_called_once_with("sess-tail", 1)
 
 
+def test_activate_cancels_session_loader(qapp: QApplication, qtbot) -> None:
+    """Switching sessions cancels stale background loader results."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    host = _Host(panel)
+    host._active_ai_session_id = "sess-a"
+    with (
+        patch.object(host._session_loader, "cancel", autospec=True) as cancel_mock,
+        patch.object(host._session_loader, "load_tail") as load_tail,
+    ):
+        host._activate_chat_session("sess-b")
+    cancel_mock.assert_called_once()
+    load_tail.assert_called_once_with("sess-b", 1)
+
+
+def test_cancel_transcript_load_drops_stale_deferred_finish(qapp: QApplication, qtbot) -> None:
+    """Cancelling transcript load ignores a previously queued finish callback."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    finished: list[int] = []
+    panel.transcript_load_finished.connect(lambda: finished.append(1))
+    messages = _long_messages(4)
+    panel.load_transcript_async(messages, generation=1, lazy_markdown=True)
+    panel.cancel_transcript_load()
+    qtbot.wait(50)
+    assert finished == []
+    assert not panel.is_transcript_load_active()
+
+
+def test_reset_transcript_window_bumps_page_generation(qapp: QApplication, qtbot) -> None:
+    """Teardown invalidates in-flight virtual page fetch generations."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel._window_page_generation = 5
+    panel.reset_transcript_window()
+    assert panel._window_page_generation == 6
+
+
 def test_session_load_finished_applies_chrome_before_transcript(qapp: QApplication, qtbot) -> None:
     """Worker completion updates title before incremental transcript build."""
     panel = AiChatPanel()
@@ -428,3 +466,83 @@ def test_transcript_legacy_assistant_uses_session_model_for_footer(
     footer = assistant._assistant_footer
     assert footer is not None
     assert footer._usage_label.text() == "GPT-4o"
+
+
+def test_history_popup_open_during_transcript_load(qapp: QApplication, qtbot) -> None:
+    """History popover stays safe while transcript widgets are building."""
+    import uuid
+
+    from PySide6.QtCore import QObject, Signal
+    from database.models.ai_chat.ai_chat_repository import append_message, create_session
+    from ui.sidebar import RightSidebar
+    from ui.sidebar.ai.chat_sessions.history_popup import AiSessionHistoryPopup
+
+    session_ids: list[str] = []
+    for index in range(3):
+        session_id = str(uuid.uuid4())
+        create_session(
+            session_id=session_id,
+            title=f"Popup stress {index}",
+            model_id="gpt-test",
+            mode="agent",
+        )
+        for turn in range(8):
+            append_message(
+                session_id=session_id,
+                role="user" if turn % 2 == 0 else "assistant",
+                content=f"turn {turn}",
+            )
+        session_ids.append(session_id)
+
+    class _Host(QObject, _AiChatControllerMixin):
+        _ai_assistant_finish_requested = Signal(str, str)
+        _ai_chat_fail_requested = Signal(str, str, str)
+        _ai_title_ready_requested = Signal(str)
+
+        def __init__(self, sidebar: RightSidebar) -> None:
+            super().__init__()
+            self._right_sidebar = sidebar
+            self._init_ai_chat_controller()
+
+    sidebar = RightSidebar()
+    qtbot.addWidget(sidebar)
+    sidebar.open_panel("ai")
+    sidebar.show()
+    qtbot.waitExposed(sidebar)
+    panel = sidebar.ai_chat_panel
+    panel.set_models(
+        [
+            AiModelEntry(
+                id="gpt-test",
+                provider="openai",
+                label="GPT",
+                model="openai/gpt-4o",
+                base_url="",
+                api_version="",
+                auth_kind="none",
+                auth_ref="",
+                context=128_000,
+                enabled=True,
+            )
+        ]
+    )
+    host = _Host(sidebar)
+    popup = AiSessionHistoryPopup.instance()
+    anchor = sidebar.ai_history_button
+
+    try:
+        for session_id in session_ids:
+            host._activate_chat_session(session_id)
+            popup.open_for(anchor, host._on_ai_session_selected, active_session_id=session_id)
+            for _ in range(25):
+                qapp.processEvents()
+            popup.hide_popup()
+            panel.cancel_transcript_load()
+            for _ in range(10):
+                qapp.processEvents()
+    finally:
+        popup.hide_popup()
+        host._cleanup_ai_chat_threads()
+        panel.cancel_transcript_load()
+        panel._shutdown_context_usage_worker()
+        qapp.processEvents()

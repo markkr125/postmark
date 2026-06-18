@@ -349,6 +349,8 @@ class AiChatPanel(
         self._hide_context_popup()
         composer = self._active_composer()
         if not self._models:
+            if composer.configured_model_count() > 0:
+                self._on_manage_models()
             return
         if self._picker_popup.isVisible():
             self._picker_popup.hidePopup()

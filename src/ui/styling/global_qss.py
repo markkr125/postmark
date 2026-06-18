@@ -6,18 +6,12 @@ application-wide Qt Style Sheet string from a ThemePalette.
 
 from __future__ import annotations
 
-from ui.styling.theme import (
-    BADGE_BORDER_RADIUS,
-    BADGE_FONT_SIZE,
-    BADGE_HEIGHT,
-    BADGE_MIN_WIDTH,
-    DARK_PALETTE,
-    LIGHT_PALETTE,
-    SCRIPT_OUTPUT_TAB_PANE_BOTTOM_PAD_PX,
-    TREE_ROW_HEIGHT,
-    ThemePalette,
-)
 from ui.styling.icons import phi_qss_image_url
+from ui.styling.theme import (BADGE_BORDER_RADIUS, BADGE_FONT_SIZE,
+                              BADGE_HEIGHT, BADGE_MIN_WIDTH, DARK_PALETTE,
+                              LIGHT_PALETTE,
+                              SCRIPT_OUTPUT_TAB_PANE_BOTTOM_PAD_PX,
+                              TREE_ROW_HEIGHT, ThemePalette)
 
 
 def build_global_qss(p: ThemePalette) -> str:
@@ -1748,6 +1742,20 @@ def build_global_qss(p: ThemePalette) -> str:
         background: {p["bg"]};
         border: 1px solid {p["border"]};
         border-radius: 8px;
+    }}
+    QFrame[objectName="aiSessionHistoryActionsPopup"] {{
+        background: {p["bg"]};
+        border: 1px solid {p["border"]};
+        border-radius: 8px;
+    }}
+    QWidget[objectName="aiSessionHistoryActionRow"] {{
+        background: transparent;
+    }}
+    QLabel[objectName="aiSessionHistoryActionLabel"] {{
+        color: {p["text"]};
+        font-size: 12px;
+        background: transparent;
+        padding: 6px 10px;
     }}
     QWidget[objectName="aiUserMessageActionRow"] {{
         background: transparent;

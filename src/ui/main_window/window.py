@@ -854,16 +854,17 @@ class MainWindow(
     def _on_open_ai_settings(self) -> None:
         """Open Settings on the AI page and refresh the chat model picker."""
         self._open_settings_dialog(initial_category="AI")
-        self._right_sidebar.ai_chat_panel.set_models(AiConfig.get_models())
 
     def _on_open_ai_models_settings(self) -> None:
-        """Open Settings on the AI Models page and refresh the chat model picker."""
+        """Open Settings on the AI page and refresh the chat model picker."""
         self._open_settings_dialog(initial_category="Models")
-        self._right_sidebar.ai_chat_panel.set_models(AiConfig.get_models())
 
     def _on_open_ai_budget_settings(self) -> None:
         """Open Settings on the Budgets page and refresh chat budget chrome."""
         self._open_settings_dialog(initial_category="Budgets")
+
+    def _refresh_ai_chat_models_from_settings(self) -> None:
+        """Reload enabled models into the AI composer after Settings changes."""
         self._right_sidebar.ai_chat_panel.set_models(AiConfig.get_models())
 
     def _open_settings_dialog(self, *, initial_category: str) -> None:
@@ -878,6 +879,7 @@ class MainWindow(
             history_settings_manager=self._history_settings,
         )
         dialog.exec()
+        self._refresh_ai_chat_models_from_settings()
         w = self._editor_stack.currentWidget()
         if w is not None and hasattr(w, "_update_runtime_banners"):
             w._update_runtime_banners()  # type: ignore[union-attr]

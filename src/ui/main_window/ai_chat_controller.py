@@ -180,6 +180,8 @@ class _AiChatControllerMixin:
             self._right_sidebar.ai_history_button,
             self._on_ai_session_selected,
             active_session_id=self._active_ai_session_id,
+            on_active_session_deleted=self._on_ai_new_chat,
+            on_sessions_changed=self._sync_ai_session_title,
         )
 
     def _on_ai_session_selected(self, session_id: str) -> None:
@@ -191,6 +193,7 @@ class _AiChatControllerMixin:
         if session_id == self._active_ai_session_id:
             return
         self._cancel_active_chat_run()
+        self._session_loader.cancel()
         self._session_load_generation += 1
         generation = self._session_load_generation
         panel = self._right_sidebar.ai_chat_panel
@@ -612,10 +615,7 @@ class _AiChatControllerMixin:
         thinking_duration_seconds: int | None = None,
     ) -> None:
         """Persist one assistant row with stashed SDK usage and update the bubble."""
-        from services.ai.chat.message_usage import (
-            entry_for_model_id,
-            model_display_name_from_entry,
-        )
+        from services.ai.chat.message_usage import entry_for_model_id, model_display_name_from_entry
 
         panel = self._right_sidebar.ai_chat_panel
         ctx = self._active_run_context

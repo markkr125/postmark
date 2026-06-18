@@ -1764,6 +1764,10 @@ class SettingsDialog(QDialog):
 
         if self._ai_controller is not None:
             self._ai_controller.apply()
+            parent = self.parent()
+            refresh = getattr(parent, "_refresh_ai_chat_models_from_settings", None)
+            if callable(refresh):
+                refresh()
         if self._ai_budget_controller is not None:
             self._ai_budget_controller.apply()
 
