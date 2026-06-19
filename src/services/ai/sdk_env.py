@@ -5,8 +5,11 @@ from __future__ import annotations
 import logging
 import os
 
+from services.ai.chat.chat_run_limits import DEFAULT_MAX_CONCURRENT_CHAT_RUNS
+
 CONNECTION_TEST_TIMEOUT_SEC: int = 10
 CHAT_RUN_TIMEOUT_SEC: int = 300
+MAX_CONCURRENT_CHAT_RUNS: int = DEFAULT_MAX_CONCURRENT_CHAT_RUNS
 HTTP_TIMEOUT_SEC: float = 10.0
 MODEL_LIST_TIMEOUT_SEC: float = 120.0
 
@@ -29,6 +32,7 @@ __all__ = [
     "CHAT_RUN_TIMEOUT_SEC",
     "CONNECTION_TEST_TIMEOUT_SEC",
     "HTTP_TIMEOUT_SEC",
+    "MAX_CONCURRENT_CHAT_RUNS",
     "MODEL_LIST_TIMEOUT_SEC",
     "ensure_openhands_env",
 ]

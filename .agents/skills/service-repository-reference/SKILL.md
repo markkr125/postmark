@@ -271,11 +271,9 @@ All methods are `@staticmethod`.  No database layer.
 | `AiConfig.get_chat_session_id()` / `set_chat_session_id(session_id)` | Last active AI chat session (`ai/chat_session_id`; cleared on **New chat**) |
 | `AiConfig.save_all(entries)` | Persist models; clears legacy default id |
 | `AiConfig.set_model_reasoning_effort(model_id, effort)` | Persist per-model reasoning effort (clamped to `reasoning_efforts`) |
-| `AiLlmService.build_llm(entry, *, stream=False, reasoning_effort=None, run_context_tokens=None, thinking_enabled=None, …)` | Build `openhands.sdk.LLM`; `postmark-chat-*` usage rewrites Ollama models to `ollama_chat/…` (`/api/chat`); passes `reasoning_effort=None` for Ollama chat (overrides OpenHands default `high`); Ollama chat sets `litellm_extra_body` via `ollama_chat_litellm_extra_body` (`num_ctx`, `think`) and `num_retries=0`; Ollama entries set `extra_headers={"Content-Type": "application/json"}` for strict reverse-proxies; resolves Ollama `base_url` |
-| `ollama_chat_litellm_extra_body(entry, *, run_context_tokens, thinking_enabled, reasoning_effort)` | Build LiteLLM `extra_body` for Ollama chat (`num_ctx`, boolean or Harmony `think`) |
-| `resolve_litellm_model(entry, *, usage_id)` | Return LiteLLM model id; `postmark-chat-*` + Ollama → `ollama_chat/{name}` instead of `ollama/{name}` |
-| `resolve_llm_base_url(entry)` | Provider default base URL when the model row's `base_url` is empty |
 | `chat_reasoning_effort_for_litellm(entry, effort, *, streaming=True)` | Map UI effort to LiteLLM; returns `None` for Ollama + streaming (avoids broken `think` param) |
+| `chat_reasoning_summary_for_llm(entry, *, usage_id, streaming)` | Return `"detailed"` for streaming `postmark-chat-*` on non-Ollama reasoning models (OpenAI Responses summaries for Thought UI) |
+| `AiLlmService.build_llm(entry, *, stream=False, reasoning_effort=None, run_context_tokens=None, thinking_enabled=None, …)` | Build `openhands.sdk.LLM`; `postmark-chat-*` usage rewrites Ollama models to `ollama_chat/…` (`/api/chat`); passes `reasoning_effort=None` for Ollama chat (overrides OpenHands default `high`); sets `reasoning_summary="detailed"` for OpenAI-style reasoning chat runs; Ollama chat sets `litellm_extra_body` via `ollama_chat_litellm_extra_body` (`num_ctx`, `think`) and `num_retries=0`; Ollama entries set `extra_headers={"Content-Type": "application/json"}` for strict reverse-proxies; resolves Ollama `base_url` |
 | `AiLlmService.test(entry)` | Ping completion; returns `(ok, detail)`; never raises |
 
 TypedDict: `AiModelEntry` (`id`, `provider`, `label`, optional
@@ -340,6 +338,39 @@ Chat enforcement and Spend flyout budget card for the active model's provider co
 
 TypedDict: `ConnectionBudgetStatus` (`state`: `ok` \| `no_limits` \| `unrated` \| `soft_exceeded` \| `hard_exceeded`).
 
+Concurrent per-session `AiChatWorker` + `QThread` pairs for background agent turns.
+Advisory threshold: `max_concurrent_chat_runs()` (`services/ai/chat/chat_run_limits.py`,
+QSettings `ai/max_concurrent_runs`, default 10). UI shows a warning at/above the
+threshold but does not block sends.
+
+### Chat run limits (`services/ai/chat/chat_run_limits.py`)
+
+| Function | Purpose |
+|----------|---------|
+| `max_concurrent_chat_runs()` | Read clamped advisory threshold from QSettings |
+| `set_max_concurrent_chat_runs(value)` | Persist threshold (1–64) |
+
+### Chat run registry (`services/ai/chat/run_registry.py`)
+
+| Symbol | Purpose |
+|--------|---------|
+| `ChatRunRegistry` | Start/cancel runs; fan-out worker signals with `session_id` + `run_generation` |
+| `_WorkerSignalBridge` | Per-run `@Slot` QObject wiring worker→registry (no lambdas on `QueuedConnection`) |
+| `ChatRunHandle` | Per-run buffers (`thinking_buffer`, `content_buffer`, `status_text`, `pending_sdk_metrics`) + `bridge` |
+| `AiChatRunContext` | `session_id`, `user_message_id`, `user_text`, `run_generation`, `model_id` |
+| `running_sessions_changed` | Qt signal when the running set changes (header badge + history `RUNNING_ROLE`) |
+
+| Method | Purpose |
+|--------|---------|
+| `start_run(...)` | Spawn worker; returns `ChatRunHandle \| None` when duplicate session |
+| `run_for(session_id)` | Active handle or `None` |
+| `is_running(session_id)` | Whether a worker thread is running for the session |
+| `running_session_ids()` | `frozenset[str]` of in-flight session ids |
+| `count_running()` | Number of active handles |
+| `at_capacity()` | `True` when `count_running() >= max_concurrent_chat_runs()` |
+| `cancel(session_id)` | `worker.cancel()` for one session |
+| `cancel_all()` | Interrupt all runs (window teardown) |
+
 ### AiChatSessionService (`services/ai/chat/session_service.py`)
 
 Hybrid storage: SQLite index (`ai_chat_sessions`, `ai_chat_messages`) +
@@ -384,7 +415,7 @@ Static helpers that power the composer context ring and breakdown popup.
 | `collect_compaction_diagnostics(...)` | Compare SQLite transcript estimates, SDK event/token counts, and condenser thresholds/reasons |
 | `build_breakdown(...)` | Assemble the 8 Cursor-style buckets and totals, preferring SDK `View` tokens when SDK events exist and using SQLite as fallback |
 | `build_breakdown_for_session(session_id, ...)` | Load the full SQLite session transcript, then call `build_breakdown` |
-| `metrics_from_conversation(conv, session_id)` | Read `conversation_stats.get_metrics_for_usage("postmark-chat-<id>")` after `arun()` |
+| `metrics_from_conversation(conv, session_id, *, baseline_accumulated_cost=None)` | SDK cumulative usage + per-turn ``turn_cost_usd`` delta |
 
 `services/ai/chat/compaction.py` also defines:
 
@@ -403,6 +434,9 @@ Per-turn token deltas, assistant footer cost labels, and session spend rollups (
 |----------|---------|
 | `turn_usage_delta(sdk, previous_cumulative)` | Per-turn token delta from SDK cumulative metrics |
 | `message_turn_cost_usd(entry, prompt_tokens=…, …)` | USD for one turn when rates exist |
+| `pricing_model_id_for_assistant_message(msg, *, messages, msg_index, session_model_id)` | Model id used to price one assistant row |
+| `assistant_turn_cost_for_message(msg, *, messages, msg_index, …)` | `(pricing_model_id, usd_cost)` for one assistant row |
+| `sum_assistant_turn_costs(messages, *, session_model_id=None, models=None)` | Sum priced USD across all assistant rows |
 | `format_assistant_footer_label(…)` | Model name + optional turn cost for bubble footer |
 | `session_spend_breakdown(messages, *, session_model_id=None, models=None)` | `SessionSpendBreakdown` grouped by model id |
 | `format_context_ring_tooltip(used, total, summary)` | Ring hover text with optional session spend |

@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QFrame, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from services.ai.ai_config import AiModelEntry
 from services.ai.chat.message_usage import format_assistant_footer_label
+from services.ai.chat.session_service import AiChatMessageDict
 from ui.sidebar.ai.chat_panel.scroll.widget_coords import map_widget_y_to_ancestor
 from ui.sidebar.ai.message_bubble.activity_row import AssistantActivityRow
 from ui.sidebar.ai.message_bubble.assistant_message.footer import AssistantMessageFooterRow
@@ -331,6 +332,10 @@ class ChatMessageBubble(QWidget):
         reasoning_tokens: int | None = None,
         entry: AiModelEntry | None = None,
         extra_entries: list[AiModelEntry] | None = None,
+        message: AiChatMessageDict | None = None,
+        messages: list[AiChatMessageDict] | None = None,
+        msg_index: int | None = None,
+        session_model_id: str | None = None,
     ) -> None:
         """Apply persisted or live usage metadata to the assistant footer."""
         if self._role != "assistant" or self._assistant_footer is None:
@@ -349,6 +354,10 @@ class ChatMessageBubble(QWidget):
             completion_tokens=completion_tokens,
             reasoning_tokens=reasoning_tokens,
             extra_entries=extra_entries,
+            message=message,
+            messages=messages,
+            msg_index=msg_index,
+            session_model_id=session_model_id,
         )
         self._assistant_footer.set_usage_text(label)
         self._assistant_footer.set_fork_enabled(self._message_id is not None)

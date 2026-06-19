@@ -261,10 +261,20 @@ class _SpendModelRow(QWidget):
         provider_label: str,
         tokens: int,
         cost_usd: float | None,
+        turn_count: int = 0,
     ) -> None:
         """Update row content."""
         self._model.setText(model_label)
-        self._provider.setText(provider_label)
+        if turn_count > 0:
+            turn_word = "turn" if turn_count == 1 else "turns"
+            subtitle = (
+                f"{provider_label} · {turn_count} {turn_word}"
+                if provider_label
+                else f"{turn_count} {turn_word}"
+            )
+        else:
+            subtitle = provider_label
+        self._provider.setText(subtitle)
         self._tokens.setText(format_run_context_tokens(tokens))
         if cost_usd is None:
             self._cost.setText("—")
@@ -568,6 +578,7 @@ class AiChatContextUsagePopup(QFrame):
                 provider_label=str(model_row.get("provider_label") or ""),
                 tokens=tokens,
                 cost_usd=model_row.get("cost_usd"),
+                turn_count=int(model_row.get("turn_count") or 0),
             )
             row.show()
 

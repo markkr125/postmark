@@ -8,7 +8,7 @@ from __future__ import annotations
 import contextlib
 import re
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 from PySide6.QtCore import QEventLoop, Qt, QTimer, Slot
 from PySide6.QtWidgets import QApplication, QWidget
@@ -380,6 +380,21 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
         self._streaming_bubble.show_activity(_ACTIVITY_DEFAULT_MESSAGE)
         self._start_activity_timer()
         self._request_turn_bottom_scroll()  # type: ignore[attr-defined]
+
+    def resume_assistant_stream(
+        self,
+        thinking: str,
+        content: str,
+        *,
+        status: str = "",
+    ) -> None:
+        """Reattach streaming UI for a session with an in-flight background run."""
+        self.begin_assistant_stream()
+        if thinking or content:
+            self.append_assistant_chunk(thinking, content)
+            self._flush_pending_chunks()
+        elif status:
+            cast(Any, self).deliver_activity_status(status)
 
     @Slot(str, str)
     def append_assistant_chunk(self, thinking_delta: str, content_delta: str) -> None:

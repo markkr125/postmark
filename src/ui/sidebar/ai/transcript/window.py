@@ -179,6 +179,9 @@ class _ChatPanelTranscriptWindowMixin(_ChatPanelTranscriptLoadMixin):
         self._bubble_height_by_id.clear()
         self._reset_virtual_spacers()
         self._apply_virtual_page_state(page)
+        refresh_pricing = getattr(self, "_refresh_pricing_messages", None)
+        if callable(refresh_pricing):
+            refresh_pricing()
         refresh = getattr(self, "refresh_context_usage", None)
         if callable(refresh):
             refresh()

@@ -532,7 +532,7 @@ def test_worker_emits_usage_updated_after_arun(
     )
     monkeypatch.setattr(
         "ui.sidebar.ai.workers.chat_worker.metrics_from_conversation",
-        lambda _conv, _session_id: {
+        lambda _conv, _session_id, **_kw: {
             "prompt_tokens": 10,
             "completion_tokens": 5,
             "reasoning_tokens": 2,
@@ -604,7 +604,7 @@ def test_worker_emits_summarizing_status_and_context_compacted(
     )
     monkeypatch.setattr(
         "ui.sidebar.ai.workers.chat_worker.metrics_from_conversation",
-        lambda _conv, _session_id: None,
+        lambda _conv, _session_id, **_kw: None,
     )
 
     statuses: list[str] = []

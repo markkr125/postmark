@@ -68,6 +68,32 @@ def _looks_like_markdown_table_block(lines: list[str]) -> bool:
     return any(is_table_separator_line(line) for line in lines)
 
 
+def split_prose_prefix_and_table(block: str) -> tuple[str, str]:
+    """Split one markdown block into optional leading prose and a trailing pipe table.
+
+    Models often emit ``### Heading`` immediately followed by a pipe table with a
+    single newline (no blank line). The table must not treat the heading as the
+    header row.
+    """
+    if "|" not in block:
+        return block, ""
+    lines = block.splitlines()
+    nonempty: list[tuple[int, str]] = [
+        (index, line.strip()) for index, line in enumerate(lines) if line.strip()
+    ]
+    for index in range(1, len(nonempty)):
+        header_raw_index, header_text = nonempty[index - 1]
+        _, separator_text = nonempty[index]
+        if "|" not in header_text or not is_table_separator_line(separator_text):
+            continue
+        prose = "\n".join(lines[:header_raw_index]).strip()
+        table = "\n".join(lines[header_raw_index:])
+        if block.endswith("\n") and table and not table.endswith("\n"):
+            table += "\n"
+        return prose, table
+    return block, ""
+
+
 def _inline_code_style(*, palette: ThemePalette) -> str:
     bg = html_escape(palette["bg_alt"])
     border = html_escape(palette["border"])
@@ -228,12 +254,16 @@ class StreamingTableRenderer:
             f"border:1px solid {border};background:{bg};"
         )
 
-        header_line = lines[0].strip()
-        separator_index = next(
-            (index for index, line in enumerate(lines) if is_table_separator_line(line)),
-            -1,
-        )
-        if "|" not in header_line or separator_index < 1:
+        separator_index = -1
+        for index in range(1, len(lines)):
+            if is_table_separator_line(lines[index]) and "|" in lines[index - 1]:
+                separator_index = index
+                break
+        if separator_index < 1:
+            return self._fallback_pre(block, palette=palette)
+
+        header_line = lines[separator_index - 1].strip()
+        if "|" not in header_line:
             return self._fallback_pre(block, palette=palette)
 
         column_count = len(markdown_table_cells(header_line))
@@ -301,4 +331,5 @@ __all__ = [
     "is_table_separator_line",
     "markdown_table_cells",
     "render_inline_markdown",
+    "split_prose_prefix_and_table",
 ]

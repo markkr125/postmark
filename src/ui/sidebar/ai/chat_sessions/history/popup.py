@@ -32,6 +32,7 @@ from ui.styling.theme import AI_SESSION_HISTORY_POPUP_WIDTH_EM
 
 _SHOW_GRACE_MS = 200
 _SEARCH_DEBOUNCE_MS = 200
+_RUNNING_SPINNER_MS = 90
 _POPUP_MIN_HEIGHT_PX = 460
 _LIST_MIN_HEIGHT_PX = 380
 
@@ -88,6 +89,8 @@ class AiSessionHistoryPopup(QFrame):
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
         self._search_timer.setInterval(_SEARCH_DEBOUNCE_MS)
+        self._running_spinner_timer = QTimer(self)
+        self._running_spinner_timer.setInterval(_RUNNING_SPINNER_MS)
         self._actions_popup = SessionHistoryActionsPopup.instance()
 
         self._active_session_id: str | None = None
@@ -106,6 +109,7 @@ class AiSessionHistoryPopup(QFrame):
 
         self._search.textChanged.connect(self._schedule_search)
         self._search_timer.timeout.connect(self._run_search)
+        self._running_spinner_timer.timeout.connect(self._tick_running_spinner)
         self._delegate.menu_requested.connect(self._on_menu_requested)
         self._delegate.row_activated.connect(self._on_row_activated)
         self._loader.finished.connect(self._on_sessions_loaded)
@@ -166,6 +170,29 @@ class AiSessionHistoryPopup(QFrame):
         )
         self._apply_sessions(sessions)
 
+    def set_running_session_ids(self, running_ids: frozenset[str]) -> None:
+        """Update per-row running indicators while the popover is open."""
+        self._model.set_running_session_ids(running_ids)
+        self._sync_running_spinner_timer()
+
+    def _sync_running_spinner_timer(self) -> None:
+        """Start or stop the running-row spinner animation."""
+        if self.isVisible() and self._model.has_running_sessions():
+            if not self._running_spinner_timer.isActive():
+                self._running_spinner_timer.start()
+            return
+        self._running_spinner_timer.stop()
+
+    def _tick_running_spinner(self) -> None:
+        """Advance the running-row spinner and repaint visible rows."""
+        if not self.isVisible() or not self._model.has_running_sessions():
+            self._running_spinner_timer.stop()
+            return
+        self._delegate.advance_spin_frame()
+        viewport = self._list.viewport()
+        if Shiboken.isValid(viewport):
+            viewport.update()
+
     def hide_popup(self) -> None:
         """Hide and clear callbacks."""
         self._row_activation_generation += 1
@@ -175,6 +202,7 @@ class AiSessionHistoryPopup(QFrame):
         self._delegate.set_menu_open_row(-1)
         self._loader.cancel()
         self._search_timer.stop()
+        self._running_spinner_timer.stop()
         self._detach_app_event_filter()
         anchor = self._anchor
         self.hide()
@@ -319,6 +347,7 @@ class AiSessionHistoryPopup(QFrame):
         if active_row >= 0:
             index = self._model.index(active_row, 0)
             self._list.setCurrentIndex(index)
+        self._sync_running_spinner_timer()
 
     def _on_menu_requested(self, index: QModelIndex) -> None:
         """Open the rename/delete flyout for *index* (deferred out of delegate input handling)."""

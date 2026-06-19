@@ -26,6 +26,7 @@ class AiChatMessageModel(Base):
     prompt_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     completion_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     reasoning_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cost_usd: Mapped[float | None] = mapped_column(nullable=True)
     send_model_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     send_mode: Mapped[str | None] = mapped_column(String(32), nullable=True)
     send_agent_id: Mapped[str | None] = mapped_column(String(64), nullable=True)

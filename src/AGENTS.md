@@ -106,12 +106,28 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   `ai:<uuid>` in `secret_store` (never in QSettings). `sdk_env.ensure_openhands_env`
   runs at startup (`qt_app_init`) and before SDK import — suppresses OpenHands
   banner/Rich logging and SQLAlchemy INFO noise. `AiLlmService` builds
-  and tests `openhands.sdk.LLM` instances (lazy SDK import).
+  and tests `openhands.sdk.LLM` instances (lazy SDK import); streaming
+  `postmark-chat-*` runs set `reasoning_summary="detailed"` on non-Ollama
+  reasoning models so OpenAI Responses summaries populate the Thought block.
   **Multi-session AI chat:** `AiChatSessionService` (`services/ai/chat/`)
   indexes sessions/messages in SQLite (`get_session_tail` / `load_older_messages` /
   `load_newer_messages` for virtualized transcript paging;
   `get_session_with_messages` for one-shot full reads) and builds OpenHands `Conversation`
-  on worker threads (`AiChatWorker`). SDK state persists under
+  on worker threads (`AiChatWorker`).   **Concurrent runs:** `ChatRunRegistry`
+  (`services/ai/chat/run_registry.py`) owns one `AiChatWorker` + `QThread` per
+  session id (advisory threshold `max_concurrent_chat_runs()` from
+  `services/ai/chat/chat_run_limits.py`, QSettings `ai/max_concurrent_runs`,
+  default 10; soft warning only — sends are not blocked). Per-run
+  `_WorkerSignalBridge` (`@Slot` QObject) connects worker signals to the registry
+  on the GUI thread — **never use Python lambdas** for cross-thread
+  `QueuedConnection` (defers delivery until `worker.run()` returns and breaks
+  streaming).
+  `_AiChatRunsMixin` (`ui/main_window/ai_chat_runs.py`) routes worker signals by
+  `session_id` + `run_generation`; only the visible session streams into
+  `AiChatPanel`; background sessions buffer chunks on `ChatRunHandle` and persist
+  on finish. Switching sessions or **New chat** does not cancel in-flight workers.
+  `running_sessions_changed` refreshes `aiChatActiveRunsBadge` and session-history
+  `RUNNING_ROLE`. SDK state persists under
   `session_disk_dir(id)`; searchable metadata in `ai_chat_sessions` /
   `ai_chat_messages`. Context accounting lives in
   `services/ai/chat/context_usage.py` (`ContextUsageService`,
@@ -138,7 +154,8 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   Postmark agent/tool registries
   (`agent_registry.py`, `tool_registry.py`) ship `DEFAULT_AGENT_ID` with no
   custom tools in v1.
-  MainWindow wiring: `_AiChatControllerMixin` (`ai_chat_controller.py`).
+  MainWindow wiring: `_AiChatControllerMixin` (`ai_chat_controller.py`) with
+  `_AiChatRunsMixin`, `_AiChatTurnFinalizeMixin`, `_AiChatTitleMixin`.
   Settings UI: tree branch **AI** (overview) → **Models** and **Budgets** children;
   `ui/dialogs/settings/ai_page.py` + `AiProviderDialog` (per-provider credentials,
   **Budgets** in
@@ -151,7 +168,11 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   limits change in Settings.
   Session USD spend is computed on read in `message_usage.session_spend_breakdown`
   (per-model rows) and shown on the **Spend** tab inside `AiChatContextUsagePopup`
-  (composer ring unchanged). When limits are configured for the active connection,
+  (composer ring unchanged). Per-message footer costs and the Spend rollup share
+  `pricing_model_id_for_assistant_message()` (assistant `model_id`, else preceding
+  user `send_model_id`, else session default). Assistant rows persist SDK per-turn
+  USD in `cost_usd` (OpenHands ``accumulated_cost`` delta per run, including cache
+  pricing); older rows without `cost_usd` fall back to token-rate estimates. When limits are configured for the active connection,
   the Spend tab also shows period spend vs soft/hard caps (`aiChatBudgetStatusCard`).
   Apply calls `AiPageController.apply()`.
 - `RunHistoryService` follows the same `@staticmethod` pattern.  It wraps

@@ -38,6 +38,7 @@ def test_page_builds_and_registers(qapp: QApplication, qtbot) -> None:
     dialog = SettingsDialog(ThemeManager(qapp))
     qtbot.addWidget(dialog)
     assert "ai_models" in dialog._page_indices
+    assert "ai_agents" in dialog._page_indices
     assert "ai_overview" in dialog._page_indices
     assert dialog._ai_controller is None
     dialog._ensure_ai_models_page()

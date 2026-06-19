@@ -17,6 +17,7 @@ from ui.sidebar.ai.markdown.streaming_table import (
     is_complete_markdown_table,
     is_table_separator_line,
     markdown_table_cells,
+    split_prose_prefix_and_table,
 )
 from ui.styling.theme import ThemePalette, current_palette
 
@@ -65,6 +66,22 @@ def _looks_like_markdown_table_block(lines: list[str]) -> bool:
     return any(is_table_separator_line(line) for line in lines)
 
 
+def _render_streaming_table_html(
+    block: str,
+    *,
+    table_renderer: StreamingTableRenderer,
+    palette: ThemePalette,
+) -> str:
+    """Render one pipe-table block, falling back to monospace pre when malformed."""
+    lines = [line for line in block.splitlines() if line.strip()]
+    if not _looks_like_markdown_table_block(lines):
+        return ""
+    table_html = table_renderer.render_html(block, palette=palette)
+    if table_html:
+        return table_html
+    return StreamingTableRenderer._fallback_pre(block, palette=palette)
+
+
 def _render_streaming_prose_html(text: str, *, palette: ThemePalette) -> str:
     """Render prose for an open stream with incremental pipe-table rows."""
     if "|" not in text:
@@ -73,15 +90,31 @@ def _render_streaming_prose_html(text: str, *, palette: ThemePalette) -> str:
     parts: list[str] = []
     table_renderer = StreamingTableRenderer()
     for block in blocks:
-        lines = [line for line in block.splitlines() if line.strip()]
-        if _looks_like_markdown_table_block(lines):
-            table_html = table_renderer.render_html(block, palette=palette)
+        prose_prefix, table_block = split_prose_prefix_and_table(block)
+        if prose_prefix:
+            parts.append(render_segment_html(ProseSegment(prose_prefix), palette=palette))
+        if table_block:
+            table_html = _render_streaming_table_html(
+                table_block,
+                table_renderer=table_renderer,
+                palette=palette,
+            )
             if table_html:
                 parts.append(table_html)
             else:
-                parts.append(StreamingTableRenderer._fallback_pre(block, palette=palette))
-        else:
-            parts.append(render_segment_html(ProseSegment(block), palette=palette))
+                parts.append(render_segment_html(ProseSegment(table_block), palette=palette))
+        elif not prose_prefix:
+            lines = [line for line in block.splitlines() if line.strip()]
+            if _looks_like_markdown_table_block(lines):
+                parts.append(
+                    _render_streaming_table_html(
+                        block,
+                        table_renderer=table_renderer,
+                        palette=palette,
+                    )
+                )
+            else:
+                parts.append(render_segment_html(ProseSegment(block), palette=palette))
     return "".join(parts)
 
 

@@ -6,8 +6,32 @@ from ui.sidebar.ai.markdown.streaming_table import (
     StreamingTableRenderer,
     is_complete_markdown_table,
     render_inline_markdown,
+    split_prose_prefix_and_table,
 )
 from ui.styling.theme import DARK_PALETTE
+
+
+def test_split_prose_prefix_and_table_splits_heading() -> None:
+    """A markdown heading directly above a table is prose, not a header row."""
+    block = (
+        "### **Why People Get Confused:**\n"
+        "| Mistake | Fix |\n"
+        "|---------|-----|\n"
+        "| Forgot `chmod +x` | Run `chmod +x script` |"
+    )
+    prose, table = split_prose_prefix_and_table(block)
+    assert "Why People Get Confused" in prose
+    assert prose.startswith("###")
+    assert table.startswith("| Mistake")
+    assert "|---------|" in table
+
+
+def test_table_after_heading_renders_without_pre_fallback() -> None:
+    """Renderer locates the real header row when prose precedes the table."""
+    block = "### Heading\n| A | B |\n|---|---|\n| 1 | 2 |\n"
+    html = StreamingTableRenderer().render_html(block, palette=DARK_PALETTE).lower()
+    assert "<table" in html
+    assert "<pre" not in html
 
 
 def test_header_and_separator_render_table_shell() -> None:

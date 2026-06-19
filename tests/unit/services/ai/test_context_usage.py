@@ -472,3 +472,30 @@ def test_build_breakdown_flags_transcript_larger_than_sdk(
     assert breakdown["transcript_larger_than_sdk"] is True
     assert breakdown["sqlite_message_count"] == 8
     assert breakdown["sdk_event_count"] == 2
+
+
+def test_metrics_from_conversation_returns_turn_cost_delta() -> None:
+    """Per-turn USD is the SDK accumulated-cost delta since run start."""
+    from types import SimpleNamespace
+
+    from services.ai.chat.context_usage import metrics_from_conversation
+
+    usage = SimpleNamespace(
+        prompt_tokens=3900,
+        completion_tokens=2280,
+        reasoning_tokens=432,
+        per_turn_token=6180,
+    )
+    metrics = SimpleNamespace(accumulated_token_usage=usage, accumulated_cost=0.0097)
+    stats = SimpleNamespace(
+        get_metrics_for_usage=lambda _usage_id: metrics,
+    )
+    conv = SimpleNamespace(conversation_stats=stats)
+    result = metrics_from_conversation(
+        conv,
+        "sess-1",
+        baseline_accumulated_cost=0.0073,
+    )
+    assert result is not None
+    assert abs(float(result["turn_cost_usd"]) - 0.0024) < 1e-12
+    assert result["prompt_tokens"] == 3900

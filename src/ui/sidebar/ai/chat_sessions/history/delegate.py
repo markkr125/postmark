@@ -21,11 +21,12 @@ from ui.sidebar.ai.chat_sessions.history.model import (
     ACTIVE_SESSION_ROLE,
     FULL_TITLE_ROLE,
     RELATIVE_TIME_ROLE,
+    RUNNING_ROLE,
     SESSION_ID_ROLE,
 )
 from ui.styling import theme
 from ui.styling.icons import phi
-from ui.styling.theme import COLOR_TEXT
+from ui.styling.theme import COLOR_ACCENT, COLOR_BORDER, COLOR_TEXT
 
 _ROW_HEIGHT_PX = 44
 _H_PADDING_PX = 8
@@ -36,6 +37,28 @@ _TIME_FONT_PX = 10
 _MENU_ICON_PX = 16
 _MENU_RIGHT_GAP_PX = 6
 _MENU_HIT_PAD_PX = 4
+_SPINNER_PX = 12
+_SPINNER_GAP_PX = 6
+_SPINNER_ARC_SPAN = 90 * 16
+_SPINNER_FRAME_COUNT = 8
+
+
+def _paint_running_spinner(painter: QPainter, rect: QRect, frame: int) -> None:
+    """Paint a small indeterminate accent arc for in-flight session rows."""
+    painter.save()
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    inner = rect.adjusted(1, 1, -1, -1)
+    track = QPen(QColor(COLOR_BORDER), 1.5)
+    track.setCapStyle(Qt.PenCapStyle.RoundCap)
+    painter.setPen(track)
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    painter.drawEllipse(inner)
+    arc_pen = QPen(QColor(COLOR_ACCENT), 1.5)
+    arc_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    painter.setPen(arc_pen)
+    start_angle = (90 - (frame % _SPINNER_FRAME_COUNT) * (360 // _SPINNER_FRAME_COUNT)) * 16
+    painter.drawArc(inner, start_angle, -_SPINNER_ARC_SPAN)
+    painter.restore()
 
 
 def session_row_menu_rect(row_rect: QRect) -> QRect:
@@ -72,6 +95,15 @@ class SessionHistoryRowDelegate(QStyledItemDelegate):
         """Initialise delegate with no menu row highlighted."""
         super().__init__(parent)
         self._menu_open_row = -1
+        self._spin_frame = 0
+
+    def spin_frame(self) -> int:
+        """Return the current running-row spinner animation frame."""
+        return self._spin_frame
+
+    def advance_spin_frame(self) -> None:
+        """Advance the running-row spinner animation frame."""
+        self._spin_frame = (self._spin_frame + 1) % _SPINNER_FRAME_COUNT
 
     def set_menu_open_row(self, row: int) -> None:
         """Highlight ⋯ on *row* while the actions flyout is open."""
@@ -88,6 +120,7 @@ class SessionHistoryRowDelegate(QStyledItemDelegate):
         title = str(index.data(FULL_TITLE_ROLE) or index.data(Qt.ItemDataRole.DisplayRole) or "")
         time_text = str(index.data(RELATIVE_TIME_ROLE) or "")
         is_active = bool(index.data(ACTIVE_SESSION_ROLE))
+        is_running = bool(index.data(RUNNING_ROLE))
         is_placeholder = not index.data(SESSION_ID_ROLE) or title in {"Loading…", "No sessions yet"}
 
         self.initStyleOption(option, index)
@@ -126,6 +159,11 @@ class SessionHistoryRowDelegate(QStyledItemDelegate):
             return
 
         text_left = rect.left() + _H_PADDING_PX
+        if is_running:
+            spinner_top = rect.top() + (rect.height() - _SPINNER_PX) // 2
+            spinner_rect = QRect(text_left, spinner_top, _SPINNER_PX, _SPINNER_PX)
+            _paint_running_spinner(painter, spinner_rect, self._spin_frame)
+            text_left += _SPINNER_PX + _SPINNER_GAP_PX
         text_right = session_row_title_right(rect) if show_menu else rect.right() - _H_PADDING_PX
         text_width = max(0, text_right - text_left)
 

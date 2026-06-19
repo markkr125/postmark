@@ -2145,6 +2145,15 @@ def build_global_qss(p: ThemePalette) -> str:
         background: transparent;
         border: none;
     }}
+    QLabel[objectName="aiChatActiveRunsBadge"] {{
+        color: {p["accent"]};
+        background: {p["drop_zone_active_bg"]};
+        border: 1px solid {p["accent"]};
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: 600;
+        padding: 2px 8px;
+    }}
     QWidget[objectName="aiChatSessionTitleSlot"] {{
         background: transparent;
         border: none;

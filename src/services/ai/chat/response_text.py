@@ -48,6 +48,55 @@ def pick_richest_text(*parts: str) -> str:
     return best
 
 
+def _text_from_reasoning_blocks(blocks: object) -> str:
+    """Extract plaintext from Responses reasoning summary/content blocks."""
+    if not isinstance(blocks, list):
+        return ""
+    parts: list[str] = []
+    for block in blocks:
+        text = getattr(block, "text", None)
+        if isinstance(text, str) and text:
+            parts.append(text)
+            continue
+        if isinstance(block, str) and block:
+            parts.append(block)
+            continue
+        if isinstance(block, dict):
+            raw = block.get("text")
+            if isinstance(raw, str) and raw:
+                parts.append(raw)
+    return "".join(parts)
+
+
+def _text_from_reasoning_items(items: object) -> str:
+    """Extract plaintext from LiteLLM ``reasoning_items`` stream deltas."""
+    if not isinstance(items, list):
+        return ""
+    parts: list[str] = []
+    for item in items:
+        summary = _text_from_reasoning_blocks(getattr(item, "summary", None))
+        if summary:
+            parts.append(summary)
+        content = _text_from_reasoning_blocks(getattr(item, "content", None))
+        if content:
+            parts.append(content)
+    return "".join(parts)
+
+
+def _thinking_from_responses_reasoning_item(item: object) -> str:
+    """Collect visible reasoning text from an OpenHands ``ReasoningItemModel``."""
+    if item is None:
+        return ""
+    parts: list[str] = []
+    summary = getattr(item, "summary", None)
+    if isinstance(summary, list):
+        parts.append(_text_from_reasoning_blocks(summary))
+    content = getattr(item, "content", None)
+    if isinstance(content, list):
+        parts.append(_text_from_reasoning_blocks(content))
+    return "".join(parts)
+
+
 def _thinking_from_message(message: Message) -> str:
     """Collect reasoning / thinking text from an SDK message."""
     parts: list[str] = []
@@ -67,12 +116,9 @@ def _thinking_from_message(message: Message) -> str:
 
     responses_item = getattr(message, "responses_reasoning_item", None)
     if responses_item is not None:
-        summary = getattr(responses_item, "summary", None)
-        if isinstance(summary, list):
-            parts.extend(str(s) for s in summary if s)
-        content = getattr(responses_item, "content", None)
-        if isinstance(content, list):
-            parts.extend(str(c) for c in content if c)
+        item_text = _thinking_from_responses_reasoning_item(responses_item)
+        if item_text:
+            parts.append(item_text)
 
     return "".join(parts)
 
@@ -107,6 +153,10 @@ def _thinking_from_stream_delta(delta: object) -> str:
         data = getattr(block, "data", None)
         if isinstance(data, str) and data:
             parts.append(data)
+
+    items_text = _text_from_reasoning_items(getattr(delta, "reasoning_items", None))
+    if items_text:
+        parts.append(items_text)
 
     return "".join(parts)
 

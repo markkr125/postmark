@@ -88,6 +88,56 @@ def test_build_llm_composes_fields(monkeypatch: pytest.MonkeyPatch) -> None:
     assert kw["api_version"] == "v1"
     assert kw["max_output_tokens"] == 16
     assert kw.get("extra_headers") is None
+    assert "reasoning_summary" not in kw
+
+
+def test_build_llm_openai_chat_requests_reasoning_summary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Streaming OpenAI reasoning models request Responses reasoning summaries."""
+    _install_fake_sdk(monkeypatch)
+    import services.ai.llm_service as svc
+
+    monkeypatch.setattr(svc, "get_default_store", lambda: _Store())
+    entry = _entry(
+        model="openai/gpt-5.4-mini",
+        reasoning_efforts=["low", "medium", "high"],
+        reasoning_effort="medium",
+    )
+    llm = AiLlmService.build_llm(
+        entry,
+        stream=True,
+        usage_id="postmark-chat-session",
+        reasoning_effort="medium",
+    )
+    kw = getattr(llm, "kw", {})
+    assert kw["reasoning_summary"] == "detailed"
+
+
+def test_build_llm_ollama_chat_skips_reasoning_summary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ollama chat must not set OpenAI-only reasoning_summary."""
+    import os
+
+    import services.ai.llm_service as svc
+
+    monkeypatch.setattr(svc, "get_default_store", lambda: _Store())
+    os.environ["ALLOW_SHORT_CONTEXT_WINDOWS"] = "true"
+    entry = _entry(
+        provider="ollama",
+        model="ollama/gpt-oss:20b",
+        base_url="",
+        auth_kind="none",
+        auth_ref="",
+    )
+    llm = AiLlmService.build_llm(
+        entry,
+        stream=True,
+        usage_id="postmark-chat-test",
+        reasoning_effort="medium",
+    )
+    assert getattr(llm, "reasoning_summary", None) is None
 
 
 def test_build_llm_ollama_extra_headers(monkeypatch: pytest.MonkeyPatch) -> None:

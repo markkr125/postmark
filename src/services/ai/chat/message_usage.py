@@ -132,6 +132,30 @@ class SessionSpendBreakdown(TypedDict):
     models: list[ModelSpendRow]
 
 
+def pricing_model_id_for_assistant_message(
+    msg: AiChatMessageDict,
+    *,
+    messages: list[AiChatMessageDict] | None = None,
+    msg_index: int | None = None,
+    session_model_id: str | None = None,
+) -> str | None:
+    """Resolve the configured model id used to price one assistant row."""
+    mid = msg.get("model_id")
+    if isinstance(mid, str) and mid.strip():
+        return mid.strip()
+    if messages is not None and msg_index is not None:
+        for prior_index in range(msg_index - 1, -1, -1):
+            prior = messages[prior_index]
+            if prior.get("role") != "user":
+                continue
+            send_model_id = prior.get("send_model_id")
+            if isinstance(send_model_id, str) and send_model_id.strip():
+                return send_model_id.strip()
+    if session_model_id:
+        return session_model_id
+    return None
+
+
 def resolve_turn_model_id(
     msg: AiChatMessageDict,
     *,
@@ -140,19 +164,64 @@ def resolve_turn_model_id(
     session_model_id: str | None = None,
 ) -> str | None:
     """Resolve the model id used to price one assistant turn."""
-    mid = msg.get("model_id")
-    if isinstance(mid, str) and mid.strip():
-        return mid.strip()
-    for prior_index in range(msg_index - 1, -1, -1):
-        prior = messages[prior_index]
-        if prior.get("role") != "user":
-            continue
-        send_model_id = prior.get("send_model_id")
-        if isinstance(send_model_id, str) and send_model_id.strip():
-            return send_model_id.strip()
-    if session_model_id:
-        return session_model_id
-    return None
+    return pricing_model_id_for_assistant_message(
+        msg,
+        messages=messages,
+        msg_index=msg_index,
+        session_model_id=session_model_id,
+    )
+
+
+def assistant_turn_cost_for_message(
+    msg: AiChatMessageDict,
+    *,
+    messages: list[AiChatMessageDict],
+    msg_index: int,
+    session_model_id: str | None = None,
+    models: list[AiModelEntry] | None = None,
+) -> tuple[str | None, float | None]:
+    """Return ``(pricing_model_id, usd_cost)`` for one assistant message row."""
+    if msg.get("role") != "assistant" or not _assistant_turn_has_tokens(msg):
+        return None, None
+    model_list = list(models) if models is not None else list(AiConfig.get_models())
+    model_id = pricing_model_id_for_assistant_message(
+        msg,
+        messages=messages,
+        msg_index=msg_index,
+        session_model_id=session_model_id,
+    )
+    stored_cost = msg.get("cost_usd")
+    if isinstance(stored_cost, int | float):
+        return model_id, float(stored_cost)
+    entry = entry_for_model_id(model_id, extra_entries=model_list)
+    cost = assistant_message_cost_usd(
+        entry,
+        prompt_tokens=int(msg.get("prompt_tokens") or 0),
+        completion_tokens=int(msg.get("completion_tokens") or 0),
+        reasoning_tokens=int(msg.get("reasoning_tokens") or 0),
+    )
+    return model_id, cost
+
+
+def sum_assistant_turn_costs(
+    messages: list[AiChatMessageDict],
+    *,
+    session_model_id: str | None = None,
+    models: list[AiModelEntry] | None = None,
+) -> float:
+    """Sum priced USD for every assistant row (unrounded)."""
+    total = 0.0
+    for index, msg in enumerate(messages):
+        _model_id, cost = assistant_turn_cost_for_message(
+            msg,
+            messages=messages,
+            msg_index=index,
+            session_model_id=session_model_id,
+            models=models,
+        )
+        if cost is not None:
+            total += cost
+    return total
 
 
 def _assistant_turn_has_tokens(msg: AiChatMessageDict) -> bool:
@@ -207,19 +276,14 @@ def session_spend_breakdown(
         prompt = int(msg.get("prompt_tokens") or 0)
         completion = int(msg.get("completion_tokens") or 0)
         reasoning = int(msg.get("reasoning_tokens") or 0)
-        model_id = resolve_turn_model_id(
+        model_id, cost = assistant_turn_cost_for_message(
             msg,
             messages=messages,
             msg_index=index,
             session_model_id=session_model_id,
+            models=model_list,
         )
         entry = entry_for_model_id(model_id, extra_entries=model_list)
-        cost = assistant_message_cost_usd(
-            entry,
-            prompt_tokens=prompt,
-            completion_tokens=completion,
-            reasoning_tokens=reasoning,
-        )
         if cost is not None:
             priced_turns += 1
             known_usd += cost
@@ -404,9 +468,22 @@ def format_assistant_footer_label(
     completion_tokens: int | None,
     reasoning_tokens: int | None,
     extra_entries: Iterable[AiModelEntry] | None = None,
+    message: AiChatMessageDict | None = None,
+    messages: list[AiChatMessageDict] | None = None,
+    msg_index: int | None = None,
+    session_model_id: str | None = None,
+    cost_usd: float | None = None,
 ) -> str:
     """Build footer text: model name plus turn cost when pricing is known."""
-    resolved_entry = entry_for_model_id(model_id, extra_entries=extra_entries) or entry
+    pricing_model_id = model_id
+    if message is not None and messages is not None and msg_index is not None:
+        pricing_model_id = pricing_model_id_for_assistant_message(
+            message,
+            messages=messages,
+            msg_index=msg_index,
+            session_model_id=session_model_id,
+        )
+    resolved_entry = entry_for_model_id(pricing_model_id, extra_entries=extra_entries) or entry
     name = resolve_assistant_footer_name(
         model_label=model_label,
         model_id=model_id,
@@ -416,6 +493,12 @@ def format_assistant_footer_label(
     prompt = int(prompt_tokens or 0)
     completion = int(completion_tokens or 0)
     reasoning = int(reasoning_tokens or 0)
+    if cost_usd is None and message is not None:
+        stored = message.get("cost_usd")
+        if isinstance(stored, int | float):
+            cost_usd = float(stored)
+    if cost_usd is not None and cost_usd > 0:
+        return f"{name} · {_format_usd_amount(cost_usd)}"
     if prompt <= 0 and completion <= 0 and reasoning <= 0:
         return name
     cost = message_turn_cost_usd(
@@ -434,6 +517,7 @@ __all__ = [
     "ProviderSpendRow",
     "SessionSpendBreakdown",
     "assistant_message_cost_usd",
+    "assistant_turn_cost_for_message",
     "effective_assistant_model_id",
     "entry_for_model_id",
     "format_assistant_footer_label",
@@ -443,10 +527,12 @@ __all__ = [
     "format_usd_amount",
     "message_turn_cost_usd",
     "model_display_name_from_entry",
+    "pricing_model_id_for_assistant_message",
     "resolve_assistant_footer_name",
     "resolve_model_display_name",
     "resolve_turn_model_id",
     "session_spend_breakdown",
     "spend_pill_visible",
+    "sum_assistant_turn_costs",
     "turn_usage_delta",
 ]

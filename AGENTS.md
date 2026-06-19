@@ -223,6 +223,8 @@ src/
 │   │       ├── message_usage.py   # Per-turn usage deltas, session spend rollups, assistant footer cost formatting
 │   │       ├── spend_rollup.py    # Cross-session spend rollups for Settings → Budgets
 │   │       ├── budget_status.py   # connection_budget_status() for chat enforcement + Spend flyout
+│   │       ├── chat_run_limits.py # max_concurrent_chat_runs() — QSettings ai/max_concurrent_runs (default 10)
+│   │       ├── run_registry.py    # ChatRunRegistry + _WorkerSignalBridge — concurrent per-session workers
 │   │       ├── transcript_window.py # Turn-aware tail/older/newer slice helpers + paging constants
 │   │       └── session_service.py # AiChatSessionService — SQLite index + SDK bridge
 │   ├── assertion_service.py       # AssertionService + AssertionDict — declarative tests CRUD + compile
@@ -324,6 +326,10 @@ src/
     │   ├── draft_controller.py    # _DraftControllerMixin — draft tab open/save
     │   ├── tab_controller.py      # _TabControllerMixin — tab open/close/switch
     │   ├── ai_chat_controller.py  # _AiChatControllerMixin — AI chat sessions + worker wiring
+    │   ├── ai_chat_host_protocol.py # _AiChatHostProtocol — typing for composed mixins
+    │   ├── ai_chat_runs.py        # _AiChatRunsMixin — ChatRunRegistry signal routing + re-attach
+    │   ├── ai_chat_turn_finalize.py # _AiChatTurnFinalizeMixin — persist/stop/fail assistant turns
+    │   ├── ai_chat_title.py       # _AiChatTitleMixin — AiChatTitleWorker lifecycle
     │   ├── session_restore.py   # Delayed, batched session tab restore after load_finished
     │   ├── startup_workers.py   # LocalProjectConfigWorker + AiModelBackfillWorker — delayed startup workers off GUI thread
     │   ├── tab_nav/               # Tab activation back/forward stacks
@@ -510,6 +516,7 @@ src/
     │   │   ├── history_page.py    # Settings → History page (retention, bodies, storage path)
     │   │   ├── ai_provider_dialog.py # Add/edit provider credentials + model (in-dialog Test connection)
     │   │   ├── ai_provider_workers.py # Setup worker + AiRefreshUiBridge (GUI-thread refresh slot)
+    │   │   ├── ai_agents/         # Settings → AI → Agents (concurrent-run advisory limit)
     │   │   ├── ai_budget/         # Settings → AI → Budgets (page, row_actions, period_reset_panel, limits_dialog, breakdown_dialog)
     │   │   ├── ai_page.py         # Settings → AI → Models tree; refresh updates children only
     │   │   └── ai_page_actions.py # Provider actions + resizable tree header (QSettings)
@@ -649,6 +656,9 @@ tests/
 │       │   ├── test_budget_period.py
 │       │   ├── test_spend_rollup.py
 │       │   ├── test_budget_status.py
+│       │   ├── test_chat_run_limits.py
+│       │   ├── test_chat_run_registry.py
+│       │   ├── test_chat_run_registry_streaming.py
 │       │   ├── test_ai_config.py
 │       │   ├── test_chat_session_service.py
 │       │   ├── test_context_usage.py
@@ -669,7 +679,10 @@ tests/
 └── ui/                            # End-to-end PySide6 widget tests
     ├── conftest.py                # _no_fetch (autouse) + helpers
     ├── main_window/
-    │   └── test_ai_chat_controller.py  # AI chat controller stop/fail finalize paths
+    │   └── test_ai_chat_controller.py  # AI chat controller + concurrent run registry paths
+    │   └── test_ai_chat_controller.py # AI chat controller stop/fail finalize paths
+    │   └── test_ai_chat_registry_streaming.py # E2E incremental streaming via ChatRunRegistry
+    │   └── test_ai_concurrent_runs.py  # E2E concurrent runs: New chat, session switch, docked send
     ├── test_main_window.py
     ├── test_main_window_tabs_navigation.py # Wrapped tab deck shortcuts + search tests
     ├── test_main_window_tab_nav_history.py # Go menu tab activation back/forward
@@ -683,6 +696,7 @@ tests/
     │   ├── test_ai_chat_panel.py
     │   ├── test_ai_chat_worker.py
     │   ├── test_ai_session_history_popup.py
+    │   ├── test_ai_active_run_badge.py
     │   ├── test_sidebar.py
     │   ├── test_left_sidebar.py
     │   ├── test_left_sidebar_global_history.py
@@ -724,6 +738,7 @@ tests/
     │   └── test_new_local_script_popup.py
     ├── dialogs/                   # Dialog tests
     │   ├── test_collection_runner.py
+    │   ├── test_ai_agents_page.py
     │   ├── test_ai_budget_page.py
     │   ├── test_ai_page.py
     │   ├── test_import_dialog.py

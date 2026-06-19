@@ -252,7 +252,7 @@ def test_spend_popup_shows_model_rows(qapp: QApplication, qtbot) -> None:
     assert "assistant turns" in popup._spend_summary.text().lower()
     assert popup._spend_rows[0].isVisible()
     assert popup._spend_rows[0]._model.text() == "gpt-5.4-mini"
-    assert popup._spend_rows[0]._provider.text() == "OpenAI (work)"
+    assert popup._spend_rows[0]._provider.text() == "OpenAI (work) · 2 turns"
     assert popup._spend_rows[2]._model.text() == "llama3.2"
     assert popup._spend_rows[2]._cost.text() == "—"
     popup.hide_popup()

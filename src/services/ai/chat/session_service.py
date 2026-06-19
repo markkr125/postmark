@@ -109,6 +109,7 @@ class AiChatMessageDict(TypedDict):
     prompt_tokens: NotRequired[int | None]
     completion_tokens: NotRequired[int | None]
     reasoning_tokens: NotRequired[int | None]
+    cost_usd: NotRequired[float | None]
     send_model_id: NotRequired[str | None]
     send_mode: NotRequired[str | None]
     send_agent_id: NotRequired[str | None]
@@ -663,9 +664,13 @@ class AiChatSessionService:
         preview = (content or thinking).strip().replace("\n", " ")[:_TITLE_PREVIEW_LEN]
         touch_session(session_id, last_preview=preview)
         turn_usage = None
+        cost_usd: float | None = None
         if usage is not None:
             previous = get_last_assistant_usage_cumulative(session_id)
             turn_usage = turn_usage_delta(usage, previous)
+            raw_turn_cost = usage.get("turn_cost_usd")
+            if isinstance(raw_turn_cost, int | float) and float(raw_turn_cost) >= 0:
+                cost_usd = float(raw_turn_cost)
         row = append_message(
             session_id=session_id,
             role="assistant",
@@ -677,6 +682,7 @@ class AiChatSessionService:
             prompt_tokens=turn_usage.get("prompt_tokens") if turn_usage else None,
             completion_tokens=turn_usage.get("completion_tokens") if turn_usage else None,
             reasoning_tokens=turn_usage.get("reasoning_tokens") if turn_usage else None,
+            cost_usd=cost_usd,
         )
         return AiChatSessionService._cast_message(row)
 
@@ -899,6 +905,7 @@ class AiChatSessionService:
             prompt_tokens=row.get("prompt_tokens"),
             completion_tokens=row.get("completion_tokens"),
             reasoning_tokens=row.get("reasoning_tokens"),
+            cost_usd=row.get("cost_usd"),
             send_model_id=row.get("send_model_id"),
             send_mode=row.get("send_mode"),
             send_agent_id=row.get("send_agent_id"),

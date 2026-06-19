@@ -143,6 +143,11 @@ class _FlyoutPanel(QWidget):
         session_title_layout.setSpacing(4)
         self._ai_session_title_label = AiChatSessionTitle(self._ai_session_title_bar)
         session_title_layout.addWidget(self._ai_session_title_label, 1)
+        self._ai_active_runs_badge = QLabel()
+        self._ai_active_runs_badge.setObjectName("aiChatActiveRunsBadge")
+        self._ai_active_runs_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._ai_active_runs_badge.hide()
+        session_title_layout.addWidget(self._ai_active_runs_badge, 0)
         session_title_layout.addWidget(self._ai_history_btn, 0)
         session_title_layout.addWidget(self._ai_new_chat_btn, 0)
         layout.addWidget(self._ai_session_title_bar)
@@ -174,6 +179,18 @@ class _FlyoutPanel(QWidget):
     def set_ai_session_title_rename_enabled(self, enabled: bool) -> None:
         """Allow or block inline rename for the active session title."""
         self._ai_session_title_label.set_rename_enabled(enabled)
+
+    def set_ai_active_run_count(self, count: int) -> None:
+        """Show how many chat sessions currently have in-flight agent runs."""
+        badge = self._ai_active_runs_badge
+        if count <= 0:
+            badge.hide()
+            badge.setToolTip("")
+            return
+        noun = "chat" if count == 1 else "chats"
+        badge.setText(f"{count} active")
+        badge.setToolTip(f"{count} {noun} running")
+        badge.show()
 
 
 # ------------------------------------------------------------------
@@ -294,6 +311,10 @@ class RightSidebar(QWidget):
     def set_ai_session_title_rename_enabled(self, enabled: bool) -> None:
         """Allow or block inline rename for the active session title."""
         self._flyout.set_ai_session_title_rename_enabled(enabled)
+
+    def set_ai_active_run_count(self, count: int) -> None:
+        """Show how many chat sessions currently have in-flight agent runs."""
+        self._flyout.set_ai_active_run_count(count)
 
     # ------------------------------------------------------------------
     # Splitter integration

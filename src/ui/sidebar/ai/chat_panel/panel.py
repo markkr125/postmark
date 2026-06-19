@@ -446,16 +446,23 @@ class AiChatPanel(
     ) -> None:
         """Apply persisted usage fields to the active or latest assistant bubble."""
         from services.ai.chat.message_usage import (
-            effective_assistant_model_id,
             entry_for_model_id,
             model_display_name_from_entry,
+            pricing_model_id_for_assistant_message,
         )
 
         bubble = self._streaming_bubble or self._last_assistant_bubble()
         if bubble is None or bubble.role != "assistant":
             return
         session_model_id = getattr(self, "_transcript_session_model_id", None)
-        model_id = effective_assistant_model_id(message.get("model_id"), session_model_id)
+        self._refresh_pricing_messages()
+        pricing_messages, msg_index = self._pricing_context_for_message(message)
+        model_id = pricing_model_id_for_assistant_message(
+            message,
+            messages=pricing_messages if msg_index is not None else None,
+            msg_index=msg_index,
+            session_model_id=session_model_id,
+        )
         model_label = message.get("model_label")
         if entry is None:
             entry = entry_for_model_id(model_id, extra_entries=self._models)
@@ -469,6 +476,10 @@ class AiChatPanel(
             reasoning_tokens=message.get("reasoning_tokens"),
             entry=entry,
             extra_entries=self._models,
+            message=message,
+            messages=pricing_messages if msg_index is not None else None,
+            msg_index=msg_index,
+            session_model_id=session_model_id,
         )
 
     def _wire_assistant_bubble_actions(self, bubble: ChatMessageBubble) -> None:

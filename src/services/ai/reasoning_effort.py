@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from services.ai.ai_config import AiModelEntry
+
+_ReasoningSummary = Literal["auto", "concise", "detailed"]
+_CHAT_USAGE_PREFIX = "postmark-chat"
 
 # Ollama boolean thinking uses off/on; LiteLLM uses none/minimal/low/medium/high/xhigh/max.
 REASONING_EFFORT_ORDER: tuple[str, ...] = (
@@ -206,6 +209,32 @@ def ollama_chat_litellm_extra_body(
     return body
 
 
+def chat_reasoning_summary_for_llm(
+    entry: AiModelEntry | dict[str, object],
+    *,
+    usage_id: str,
+    streaming: bool,
+) -> _ReasoningSummary | None:
+    """Return OpenAI Responses ``reasoning.summary`` for visible Thought blocks.
+
+    Ollama exposes thinking via ``think`` / ``reasoning_content`` stream deltas.
+    OpenAI GPT-5 family needs an explicit summary level or only encrypted reasoning
+    is returned (no plaintext for the UI).
+    """
+    if not usage_id.startswith(_CHAT_USAGE_PREFIX) or not streaming:
+        return None
+    if _is_ollama_model(entry):
+        return None
+    if leveled_reasoning_efforts(entry):
+        return "detailed"
+    from openhands.sdk.llm.utils.model_features import get_features
+
+    model = str(entry.get("model", "")).strip()
+    if model and get_features(model).supports_reasoning_effort:
+        return "detailed"
+    return None
+
+
 __all__ = [
     "OLLAMA_BOOLEAN_DEFAULT",
     "OLLAMA_BOOLEAN_LEVELS",
@@ -214,6 +243,7 @@ __all__ = [
     "REASONING_DEFAULT",
     "REASONING_EFFORT_ORDER",
     "chat_reasoning_effort_for_litellm",
+    "chat_reasoning_summary_for_llm",
     "clamp_effort",
     "default_effort_for",
     "format_reasoning_effort",

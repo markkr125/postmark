@@ -76,6 +76,7 @@ class ContextUsageSdkMetrics(TypedDict, total=False):
     completion_tokens: int
     reasoning_tokens: int
     per_turn_token: int
+    turn_cost_usd: float
 
 
 SdkUsageMetrics = ContextUsageSdkMetrics
@@ -347,7 +348,12 @@ def build_breakdown_for_session(
     )
 
 
-def metrics_from_conversation(conv: Any, session_id: str) -> ContextUsageSdkMetrics | None:
+def metrics_from_conversation(
+    conv: Any,
+    session_id: str,
+    *,
+    baseline_accumulated_cost: float | None = None,
+) -> ContextUsageSdkMetrics | None:
     """Extract chat LLM metrics from an OpenHands conversation after ``arun()``."""
     usage_id = f"postmark-chat-{session_id}"
     try:
@@ -355,12 +361,23 @@ def metrics_from_conversation(conv: Any, session_id: str) -> ContextUsageSdkMetr
         usage = metrics.accumulated_token_usage
         if usage is None:
             return None
-        return ContextUsageSdkMetrics(
+        accumulated_cost = float(metrics.accumulated_cost or 0.0)
+        turn_cost_usd: float | None = None
+        if baseline_accumulated_cost is not None:
+            delta = max(0.0, accumulated_cost - baseline_accumulated_cost)
+            if delta > 0:
+                turn_cost_usd = delta
+        elif accumulated_cost > 0:
+            turn_cost_usd = accumulated_cost
+        payload = ContextUsageSdkMetrics(
             prompt_tokens=int(usage.prompt_tokens),
             completion_tokens=int(usage.completion_tokens),
             reasoning_tokens=int(getattr(usage, "reasoning_tokens", 0) or 0),
             per_turn_token=int(usage.per_turn_token),
         )
+        if turn_cost_usd is not None:
+            payload["turn_cost_usd"] = turn_cost_usd
+        return payload
     except Exception:
         logger.debug("No SDK metrics for usage_id=%s", usage_id, exc_info=True)
         return None
@@ -436,9 +453,18 @@ class ContextUsageService:
         )
 
     @staticmethod
-    def metrics_from_conversation(conv: Any, session_id: str) -> ContextUsageSdkMetrics | None:
+    def metrics_from_conversation(
+        conv: Any,
+        session_id: str,
+        *,
+        baseline_accumulated_cost: float | None = None,
+    ) -> ContextUsageSdkMetrics | None:
         """Extract authoritative SDK usage metrics after one chat run."""
-        return metrics_from_conversation(conv, session_id)
+        return metrics_from_conversation(
+            conv,
+            session_id,
+            baseline_accumulated_cost=baseline_accumulated_cost,
+        )
 
     @staticmethod
     def measure_sdk_view(session_id: str, entry: AiModelEntry) -> SdkViewSnapshot | None:

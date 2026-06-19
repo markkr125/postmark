@@ -237,6 +237,15 @@ class AiChatWorker(QObject):
                 self._emit_failure(conv, _STOPPED_MESSAGE)
                 return
 
+            baseline_cost = 0.0
+            try:
+                usage_id = f"postmark-chat-{self._session_id}"
+                baseline_cost = float(
+                    conv.conversation_stats.get_metrics_for_usage(usage_id).accumulated_cost or 0.0
+                )
+            except Exception:
+                baseline_cost = 0.0
+
             asyncio.run(conv.arun())
 
             if self._stop_requested:
@@ -250,7 +259,11 @@ class AiChatWorker(QObject):
                 self.chunk_received.emit(think_tail, content_tail)
             self._thinking_buffer = final.thinking
             self._content_buffer = final.content
-            sdk_metrics = metrics_from_conversation(conv, self._session_id)
+            sdk_metrics = metrics_from_conversation(
+                conv,
+                self._session_id,
+                baseline_accumulated_cost=baseline_cost,
+            )
             if sdk_metrics is not None:
                 self.usage_updated.emit(sdk_metrics)
             if (

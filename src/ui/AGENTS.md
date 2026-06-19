@@ -283,7 +283,8 @@ standard object names:
 | `leftSidebarRail` | `QWidget` | Left activity rail: background uses palette ``status_bar_bg`` (same as ``QStatusBar#appStatusBar``); no outer layout padding |
 | `leftSidebarRailButton` | `QToolButton` | Rail icon (``_LeftRailButton``): width ``round(LEFT_RAIL_WIDTH_EM * em)``, icon ``round(LEFT_RAIL_ICON_EM * em)``, height ``icon_size + LEFT_RAIL_BUTTON_EXTRA_HEIGHT_PX``; checked left accent **painted** full height (``LEFT_RAIL_ACCENT_STRIPE_WIDTH_PX``); QSS margin/padding ``0`` |
 | `sidebarPanelArea` | `QWidget` | Right sidebar collapsible flyout panel (separate splitter child); title bar has no close button (collapse via rail toggle, splitter drag, or Ctrl+B); open width ``RIGHT_FLYOUT_OPEN_WIDTH_EM`` × em, min width ``RIGHT_FLYOUT_MIN_WIDTH_EM`` × em; ``border-right`` vs icon rail only — left edge is ``mainWindowHorizontalSplitter`` handle (no ``border-left``); right-sidebar installs an event filter on that splitter handle so AI pane resize coalescing starts on mouse press before transcript child layout is queried |
-| `aiChatSessionTitleBar` | `QWidget` | Conversation title row in flyout chrome (below ``sidebarTitleLabel``, above ``sidebarSeparator``): text-hugging ``aiChatSessionTitleSlot`` left, checkable session-history + new chat ``iconButton``s right; visible only when AI panel is open |
+| `aiChatSessionTitleBar` | `QWidget` | Conversation title row in flyout chrome (below ``sidebarTitleLabel``, above ``sidebarSeparator``): text-hugging ``aiChatSessionTitleSlot`` left, optional ``aiChatActiveRunsBadge`` count pill when any chat runs are in flight, checkable session-history + new chat ``iconButton``s right; visible only when AI panel is open |
+| `aiChatActiveRunsBadge` | `QLabel` | Accent pill between session title and history button; ``{n} active`` when ``ChatRunRegistry.count_running() > 0``; updated via ``RightSidebar.set_ai_active_run_count`` |
 | `aiChatSessionTitleSlot` | `QWidget` | Expanding left-aligned host for the inline title group; empty space to the right is not hoverable |
 | `aiChatSessionTitleInline` | `QWidget` | Tight group around elided ``aiChatSessionTitle`` + ``aiChatSessionTitlePencil``; gentle ``ai_session_title_hover_bg`` pill on hover (`titleHovered` dynamic property) |
 | `aiChatSessionTitle` | `QLabel` | Elided session title from ``ai_chat_sessions.title``; placeholder ``New chat`` when no active session; updated via ``RightSidebar.set_ai_session_title`` |
@@ -341,6 +342,8 @@ standard object names:
 | `aiChatBudgetBanner` | `QFrame` | `AiChatBudgetBanner` — soft/hard budget warning above composer; Settings link |
 | `aiChatBudgetStatusCard` | `QFrame` | Spend flyout connection budget card (period spend vs soft/hard caps) |
 | `aiProviderBudgetsTree` | `QTableWidget` | Settings → AI → Budgets provider rows; resizable columns (`ui/ai_budget_table_header/v4`) |
+| `aiAgentsConcurrentRunsSpin` | `QSpinBox` | Settings → AI → Agents advisory concurrent-run threshold |
+| `aiAgentsConcurrentRunsLabel` | `QLabel` | Settings → AI → Agents concurrent-run row label |
 | `aiBudgetActionsButton` | `QPushButton` | Per-row gear — opens `aiBudgetConnectionDialog` |
 | `aiBudgetConnectionDialog` | `QDialog` | Tabbed limits + spend editor; scoped QSS on schedule pickers + `aiBudgetLimitSpin` |
 | `aiBudgetConnectionTabs` | `QTabWidget` | **Limits** + **Spend details**; box tabs (same QSS as `importTabs`) |

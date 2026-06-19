@@ -110,6 +110,49 @@ class TestStreamingMarkdownCache:
         assert "<pre" not in html
         assert "minimalist, tab-based" in html
 
+    def test_streaming_table_after_heading_without_blank_line(self) -> None:
+        """Headings immediately above a pipe table must not force a pre fallback."""
+        cache = StreamingMarkdownCache()
+        markdown = (
+            "### **Why People Get Confused:**\n"
+            "| Mistake | Fix |\n"
+            "|---------|-----|\n"
+            "| Forgot `chmod +x` | Run `chmod +x script` |\n"
+            "| Wrong shebang | Use `#!/bin/bash` |"
+        )
+        html = cache.render_document_html(markdown, palette=DARK_PALETTE).lower()
+        assert "<table" in html
+        assert "<thead" in html
+        assert "<td" in html
+        assert "<pre" not in html
+        assert "| mistake |" not in html
+        assert "why people get confused" in html
+        assert "forgot" in html
+
+    def test_streaming_table_after_heading_streams_row_by_row(
+        self,
+        _qapp_for_markdown: QApplication,
+        qtbot,
+    ) -> None:
+        """MarkdownContent keeps incremental table rendering when a heading precedes the table."""
+        body = _MarkdownContent()
+        qtbot.addWidget(body)
+        body.resize(420, 480)
+        body.begin_streaming()
+        chunks = [
+            "### **Why People Get Confused:**\n",
+            "| Mistake | Fix |\n",
+            "|---------|-----|\n",
+            "| Forgot `chmod +x` | Run `chmod +x script` |",
+        ]
+        for chunk in chunks:
+            body.append_markdown(chunk)
+        html = body.toHtml().lower()
+        assert "<table" in html
+        assert "<pre" not in html
+        assert "| mistake |" not in html
+        body.end_streaming()
+
     def test_streaming_tables_gain_rows_before_stream_ends(self) -> None:
         """Committed table rows appear before the final row newline arrives."""
         cache = StreamingMarkdownCache()

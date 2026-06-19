@@ -7,8 +7,6 @@ import resource
 import tracemalloc
 from typing import Any, cast
 
-import pytest
-
 from PySide6.QtWidgets import QApplication
 
 from services.ai.chat.transcript_window import INITIAL_TAIL_TURNS
@@ -18,8 +16,6 @@ from ui.main_window.ai_chat_controller import _AiChatControllerMixin
 from ui.sidebar.ai import AiChatPanel
 from ui.sidebar.ai.message_bubble import ChatMessageBubble
 from ui.sidebar.ai.message_bubble.markdown_content import MarkdownContent
-
-pytestmark = pytest.mark.xdist_group("transcript_memory")
 
 
 class _Host(_AiChatControllerMixin):

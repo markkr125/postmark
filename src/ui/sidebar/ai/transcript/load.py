@@ -170,6 +170,33 @@ class _ChatPanelTranscriptLoadMixin:
         self._transcript_load_lazy_markdown = lazy_markdown
         self._show_transcript_loading()
 
+    def _refresh_pricing_messages(self) -> None:
+        """Cache the full session transcript for per-turn spend attribution."""
+        session_id = getattr(self, "_virtual_session_id", None)
+        if not session_id:
+            self._pricing_messages = []
+            return
+        from services.ai.chat.session_service import AiChatSessionService
+
+        self._pricing_messages = AiChatSessionService.get_messages(session_id)
+
+    def _pricing_context_for_message(
+        self,
+        msg: AiChatMessageDict,
+    ) -> tuple[list[AiChatMessageDict], int | None]:
+        """Return full-session messages and index for spend attribution."""
+        messages = getattr(self, "_pricing_messages", None) or []
+        if not messages:
+            self._refresh_pricing_messages()
+            messages = getattr(self, "_pricing_messages", None) or []
+        msg_id = msg.get("id")
+        if msg_id is None:
+            return messages, None
+        for index, row in enumerate(messages):
+            if row.get("id") == msg_id:
+                return messages, index
+        return messages, None
+
     def _message_from_dict(
         self,
         msg: AiChatMessageDict,
@@ -194,13 +221,19 @@ class _ChatPanelTranscriptLoadMixin:
         )
         if role == "assistant":
             from services.ai.chat.message_usage import (
-                effective_assistant_model_id,
                 entry_for_model_id,
                 model_display_name_from_entry,
+                pricing_model_id_for_assistant_message,
             )
 
             session_model_id = getattr(self, "_transcript_session_model_id", None)
-            model_id = effective_assistant_model_id(msg.get("model_id"), session_model_id)
+            pricing_messages, msg_index = self._pricing_context_for_message(msg)
+            model_id = pricing_model_id_for_assistant_message(
+                msg,
+                messages=pricing_messages if msg_index is not None else None,
+                msg_index=msg_index,
+                session_model_id=session_model_id,
+            )
             entry = entry_for_model_id(model_id, extra_entries=self._models)  # type: ignore[attr-defined]
             model_label = msg.get("model_label") or model_display_name_from_entry(entry)
             bubble.set_usage_metadata(
@@ -211,6 +244,10 @@ class _ChatPanelTranscriptLoadMixin:
                 reasoning_tokens=msg.get("reasoning_tokens"),
                 entry=entry,
                 extra_entries=self._models,  # type: ignore[attr-defined]
+                message=msg,
+                messages=pricing_messages if msg_index is not None else None,
+                msg_index=msg_index,
+                session_model_id=session_model_id,
             )
         return cast(ChatMessageBubble, bubble)
 
@@ -229,6 +266,7 @@ class _ChatPanelTranscriptLoadMixin:
         self._transcript_load_index = 0
         self._transcript_load_lazy_markdown = lazy_markdown
         self._defer_transcript_hooks = True
+        self._refresh_pricing_messages()
         if page is not None:
             self._apply_virtual_page_state(page)  # type: ignore[attr-defined]
         cast(Any, self)._arm_scroll_lock()

@@ -77,8 +77,8 @@ class MainWindow(
     """
 
     session_restore_finished = Signal()
-    _ai_assistant_finish_requested = Signal(str, str)
-    _ai_chat_fail_requested = Signal(str, str, str)
+    _ai_assistant_finish_requested = Signal(str, int, str, str)
+    _ai_chat_fail_requested = Signal(str, int, str, str, str)
     _ai_title_ready_requested = Signal(str)
 
     def __init__(

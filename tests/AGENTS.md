@@ -36,8 +36,9 @@
    runs. Use ``tests/qt_widget_lifecycle.py`` (``dispose_qt_widget``,
    ``run_gc_after_qt_flush``, ``wait_for_weakrefs_cleared``). Memory-leak tests
    in ``test_code_editor_memory.py`` use ``pytest.mark.xdist_group("code_editor_memory")``
-   (serialized under xdist); ``test_transcript_memory.py`` uses
-   ``pytest.mark.xdist_group("transcript_memory")`` — run ``-n0`` when debugging.
+   (serialized under xdist); all ``tests/ui/sidebar/`` UI tests share
+   ``pytest.mark.xdist_group("sidebar_qt")`` via ``tests/ui/sidebar/conftest.py``
+   (including transcript memory cases — run ``-n0`` when debugging a single file).
    RestrictedPython subprocess tests use ``pytest.mark.xdist_group("restricted_python_sandbox")``
    and ``tests/conftest.py`` caps xdist workers at 8, reaps child zombies after
    each test, and tears down sandbox subprocesses via detached process groups.
@@ -232,6 +233,9 @@ tests/
 │       │   ├── test_budget_period.py
 │       │   ├── test_spend_rollup.py
 │       │   ├── test_budget_status.py
+│       │   ├── test_chat_run_limits.py
+│       │   ├── test_chat_run_registry.py
+│       │   ├── test_chat_run_registry_streaming.py  # Registry incremental streaming + anti-lambda guard
 │       │   ├── test_ai_config.py
 │       │   ├── test_model_metadata.py
 │       │   ├── test_run_context_choices.py
@@ -287,7 +291,9 @@ tests/
 └── ui/                            # PySide6 widget tests (need qapp + qtbot)
     ├── conftest.py                # _no_fetch (autouse) + helper functions
    ├── main_window/
-   │   └── test_ai_chat_controller.py  # AI chat controller stop/fail finalize paths
+   │   └── test_ai_chat_controller.py  # AI chat controller + concurrent run registry paths
+   │   └── test_ai_chat_registry_streaming.py  # E2E registry→controller→panel incremental streaming
+   │   └── test_ai_concurrent_runs.py  # E2E New chat / session switch + parallel send flows
    │   └── test_session_history_switch.py  # MainWindow session history switch during transcript load
    ├── test_main_window.py        # Top-level MainWindow smoke tests
    ├── test_main_window_tabs_navigation.py # Wrapped tab deck shortcuts + search tests
@@ -331,19 +337,21 @@ tests/
     │   ├── test_busy_spinner.py
     │   └── test_runtime_banner.py
    ├── sidebar/                   # Sidebar widget tests
+   │   ├── conftest.py  # pytestmark xdist_group sidebar_qt (all sidebar UI tests)
    │   ├── test_ai_chat_panel.py
    │   ├── test_chat_panel_streaming.py
    │   ├── test_chat_panel_smooth_scroll.py
    │   ├── test_chat_panel_resize.py
    │   ├── test_ai_chat_worker.py
-   │   ├── test_ai_session_history_popup.py  # Virtualized list; ⋯ menu click routing; rename/delete dialogs
+   │   ├── test_ai_session_history_popup.py  # Virtualized list; RUNNING_ROLE; ⋯ menu click routing; rename/delete dialogs
+   │   ├── test_ai_active_run_badge.py  # Header aiChatActiveRunsBadge count pill
    │   ├── test_session_transcript_load.py  # Async session switch + lazy markdown
    │   └── ai/
    │       ├── conftest.py  # load_transcript_sync helper
    │       ├── test_transcript_window.py  # Virtual tail/prepend paging + spacers
    │       ├── test_transcript_integration.py  # Real SQLite tail load + prefetch guards
    │       ├── test_sticky_prompt_virtual_transcript.py  # Sticky overlay with virtual tail + evicted user rows
-   │       ├── test_transcript_memory.py  # xdist_group transcript_memory; tail vs full RAM
+   │       ├── test_transcript_memory.py  # sidebar_qt group; tail vs full RAM
    │       ├── test_chat_context_popup.py
    │       ├── test_chat_budget_banner.py
    │       ├── test_context_ring_button.py
@@ -384,6 +392,7 @@ tests/
     │   ├── test_new_item_popup.py
     │   └── test_new_local_script_popup.py
     ├── dialogs/                   # Dialog tests
+    │   ├── test_ai_agents_page.py
     │   ├── test_ai_budget_page.py
     │   ├── test_ai_page.py
     │   ├── test_ai_provider_dialog.py

@@ -82,6 +82,47 @@ def test_chunk_parts_from_stream_reads_delta_thinking_field() -> None:
     assert chunk_parts_from_stream(chunk) == AssistantParts("trace", "")  # type: ignore[arg-type]
 
 
+def test_chunk_parts_from_stream_reads_openai_reasoning_items() -> None:
+    """OpenAI Responses API streams reasoning summaries via reasoning_items."""
+    summary_block = types.SimpleNamespace(type="summary_text", text="Planning the answer")
+    reasoning_item = types.SimpleNamespace(
+        type="reasoning",
+        id="rs_1",
+        summary=[summary_block],
+        content=None,
+    )
+    chunk = types.SimpleNamespace(
+        choices=[
+            types.SimpleNamespace(
+                delta=types.SimpleNamespace(
+                    reasoning_content=None,
+                    thinking=None,
+                    content="Hello",
+                    reasoning_items=[reasoning_item],
+                )
+            )
+        ]
+    )
+    assert chunk_parts_from_stream(chunk) == AssistantParts("Planning the answer", "Hello")  # type: ignore[arg-type]
+
+
+def test_message_display_parts_reads_responses_reasoning_item() -> None:
+    """Finalized Responses messages expose reasoning via responses_reasoning_item."""
+    from openhands.sdk import TextContent
+    from openhands.sdk.llm import Message, ReasoningItemModel
+
+    msg = Message(
+        role="assistant",
+        content=[TextContent(text="Answer body")],
+        responses_reasoning_item=ReasoningItemModel(
+            id="rs_1",
+            summary=["Step one", "Step two"],
+        ),
+    )
+    parts = message_display_parts(msg)
+    assert parts == AssistantParts("Step oneStep two", "Answer body")
+
+
 def test_extract_richest_parts_scopes_to_current_turn() -> None:
     """Only the latest turn's agent events contribute, not earlier longer thinking."""
     from openhands.sdk import TextContent

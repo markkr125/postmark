@@ -12,6 +12,7 @@ from services.ai.provider_catalog import provider_by_key
 from services.ai.reasoning_effort import (
     _is_ollama_model,
     chat_reasoning_effort_for_litellm,
+    chat_reasoning_summary_for_llm,
     ollama_chat_litellm_extra_body,
 )
 from services.ai.sdk_env import (
@@ -176,6 +177,14 @@ class AiLlmService:
         }
         if num_retries is not None:
             llm_kwargs["num_retries"] = num_retries
+
+        reasoning_summary = chat_reasoning_summary_for_llm(
+            entry,
+            usage_id=usage_id,
+            streaming=stream,
+        )
+        if reasoning_summary is not None:
+            llm_kwargs["reasoning_summary"] = reasoning_summary
 
         with _ollama_api_base_env(entry, base_url):
             llm = LLM(**llm_kwargs)

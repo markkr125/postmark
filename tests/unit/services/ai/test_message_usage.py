@@ -6,6 +6,7 @@ from services.ai.ai_config import AiModelEntry
 from services.ai.chat.context_usage import ContextUsageSdkMetrics
 from services.ai.chat.message_usage import (
     SessionSpendBreakdown,
+    assistant_turn_cost_for_message,
     effective_assistant_model_id,
     entry_for_model_id,
     format_assistant_footer_label,
@@ -13,10 +14,12 @@ from services.ai.chat.message_usage import (
     format_spend_pill_label,
     format_spend_tab_label,
     message_turn_cost_usd,
+    pricing_model_id_for_assistant_message,
     resolve_model_display_name,
     resolve_turn_model_id,
     session_spend_breakdown,
     spend_pill_visible,
+    sum_assistant_turn_costs,
     turn_usage_delta,
 )
 from services.ai.chat.session_service import AiChatMessageDict
@@ -37,6 +40,39 @@ def _entry(**kw: object) -> AiModelEntry:
     }
     base.update(kw)  # type: ignore[typeddict-item]
     return base
+
+
+def test_format_assistant_footer_label_prefers_stored_cost_usd() -> None:
+    """Persisted SDK turn cost wins over token-rate estimates."""
+    text = format_assistant_footer_label(
+        _entry(),
+        "m1",
+        prompt_tokens=1000,
+        completion_tokens=200,
+        reasoning_tokens=0,
+        cost_usd=0.0097,
+    )
+    assert text == "GPT-4o · $0.0097"
+
+
+def test_assistant_turn_cost_for_message_uses_stored_cost_usd() -> None:
+    """Spend rollups prefer SDK-persisted per-turn USD."""
+    messages: list[AiChatMessageDict] = [
+        _msg(id=1, role="user", send_model_id="m1"),
+        _msg(
+            id=2,
+            role="assistant",
+            prompt_tokens=1000,
+            completion_tokens=200,
+            cost_usd=0.0097,
+        ),
+    ]
+    _model_id, cost = assistant_turn_cost_for_message(
+        messages[1],
+        messages=messages,
+        msg_index=1,
+    )
+    assert cost == 0.0097
 
 
 def test_turn_usage_delta_subtracts_previous_cumulative() -> None:
@@ -305,3 +341,82 @@ def test_spend_pill_visible_when_partial_or_known() -> None:
             "models": [],
         }
     )
+
+
+def test_sum_assistant_turn_costs_matches_session_known_usd(monkeypatch) -> None:
+    """Footer-priced turns sum to the Spend flyout known_usd total."""
+    mini = _entry(
+        id="mini",
+        label="gpt-5.4-mini",
+        input_cost_per_token=0.00000015,
+        output_cost_per_token=0.0000006,
+    )
+    monkeypatch.setattr(
+        "services.ai.chat.message_usage.AiConfig.get_models",
+        lambda: [mini],
+    )
+    messages: list[AiChatMessageDict] = [
+        _msg(id=1, role="user", send_model_id="mini"),
+        _msg(id=2, role="assistant", prompt_tokens=1200, completion_tokens=400),
+        _msg(id=3, role="user", send_model_id="mini"),
+        _msg(id=4, role="assistant", prompt_tokens=900, completion_tokens=350),
+        _msg(id=5, role="user", send_model_id="mini"),
+        _msg(id=6, role="assistant", prompt_tokens=600, completion_tokens=200),
+        _msg(id=7, role="user", send_model_id="mini"),
+        _msg(id=8, role="assistant", prompt_tokens=1100, completion_tokens=420),
+    ]
+    summary = session_spend_breakdown(messages, session_model_id="other-default")
+    summed = sum_assistant_turn_costs(messages, session_model_id="other-default")
+    assert summary["assistant_turns"] == 4
+    assert abs(float(summary["known_usd"]) - summed) < 1e-12
+    for model_row in summary["models"]:
+        model_id = model_row["model_id"]
+        row_sum = 0.0
+        for index, msg in enumerate(messages):
+            if msg.get("role") != "assistant":
+                continue
+            priced_model_id, cost = assistant_turn_cost_for_message(
+                msg,
+                messages=messages,
+                msg_index=index,
+                session_model_id="other-default",
+            )
+            if priced_model_id == model_id and cost is not None:
+                row_sum += cost
+        if model_row.get("cost_usd") is not None:
+            assert abs(float(model_row["cost_usd"] or 0.0) - row_sum) < 1e-12
+
+
+def test_pricing_model_id_prefers_preceding_user_send_model(monkeypatch) -> None:
+    """Spend attribution uses the user send model, not the session default."""
+    mini = _entry(id="mini", label="gpt-5.4-mini")
+    oss = _entry(id="oss", label="gpt-oss")
+    monkeypatch.setattr(
+        "services.ai.chat.message_usage.AiConfig.get_models",
+        lambda: [mini, oss],
+    )
+    messages: list[AiChatMessageDict] = [
+        _msg(id=1, role="user", send_model_id="mini"),
+        _msg(id=2, role="assistant", prompt_tokens=1000, completion_tokens=200),
+    ]
+    model_id = pricing_model_id_for_assistant_message(
+        messages[1],
+        messages=messages,
+        msg_index=1,
+        session_model_id="oss",
+    )
+    assert model_id == "mini"
+    footer = format_assistant_footer_label(
+        mini,
+        None,
+        prompt_tokens=1000,
+        completion_tokens=200,
+        reasoning_tokens=0,
+        message=messages[1],
+        messages=messages,
+        msg_index=1,
+        session_model_id="oss",
+    )
+    summary = session_spend_breakdown(messages, session_model_id="oss")
+    assert footer.startswith("gpt-5.4-mini · $")
+    assert summary["known_usd"] == sum_assistant_turn_costs(messages, session_model_id="oss")

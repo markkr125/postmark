@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import patch
@@ -10,12 +11,25 @@ import pytest
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QApplication, QLabel
 
+from services.ai.chat.run_registry import AiChatRunContext, ChatRunRegistry
 from services.ai.chat.session_service import AiChatSessionDict
 from ui.main_window.ai_chat_controller import _AiChatControllerMixin, _AiChatRunContext
 from ui.sidebar import RightSidebar
 from ui.sidebar.ai import AiChatPanel
 from ui.sidebar.ai.message_bubble import ChatMessageBubble
 from ui.sidebar.ai.message_bubble.markdown_content import MarkdownContent
+
+
+@pytest.fixture(autouse=True)
+def _shutdown_ai_sidebar_workers(qtbot, qapp) -> Iterator[None]:
+    """Stop context-usage loader threads left by controller integration tests."""
+    yield
+    for widget in qapp.topLevelWidgets():
+        panel = getattr(widget, "ai_chat_panel", None)
+        if panel is not None and hasattr(panel, "_shutdown_context_usage_worker"):
+            panel._shutdown_context_usage_worker()
+    qtbot.wait(200)
+    qapp.processEvents()
 
 
 def _flush_stream_chunks(qtbot) -> None:
@@ -53,8 +67,7 @@ class _ChatControllerHost(_AiChatControllerMixin):
         self._ai_title_thread_generation = 0
         self._active_run_context = None
         self._stopped_generations = {}
-        self._ai_chat_worker = None
-        self._ai_chat_thread = None
+        self._chat_run_registry = ChatRunRegistry()
         self._pending_title_session_id = None
         self._pending_fork_composer = None
         self._session_load_generation = 0
@@ -64,8 +77,8 @@ class _ChatControllerHost(_AiChatControllerMixin):
 class _ControllerQObjectHost(QObject, _AiChatControllerMixin):
     """QObject-backed host used to exercise signal wiring."""
 
-    _ai_assistant_finish_requested = Signal(str, str)
-    _ai_chat_fail_requested = Signal(str, str, str)
+    _ai_assistant_finish_requested = Signal(str, int, str, str)
+    _ai_chat_fail_requested = Signal(str, int, str, str, str)
     _ai_title_ready_requested = Signal(str)
 
     def __init__(self, sidebar: RightSidebar) -> None:
@@ -113,6 +126,30 @@ def _session_row(session_id: str, title: str) -> AiChatSessionDict:
         last_preview=None,
         archived=False,
     )
+
+
+def _cancellable_slow_worker_class():
+    """Build a fake worker that sleeps briefly but exits promptly on cancel."""
+
+    class _SlowWorker(_FakeUsageWorker):
+        def __init__(self) -> None:
+            super().__init__()
+            self._cancelled = False
+
+        def cancel(self) -> None:
+            self._cancelled = True
+
+        def run(self) -> None:
+            import time
+
+            for _ in range(50):
+                if self._cancelled:
+                    self.failed.emit("stopped", "", "")
+                    return
+                time.sleep(0.01)
+            self.assistant_finished.emit("", "reply")
+
+    return _SlowWorker
 
 
 def test_sync_ai_session_title_uses_active_session(qapp: QApplication, qtbot) -> None:
@@ -273,19 +310,20 @@ def test_usage_updated_signal_reaches_panel_refresh(qapp: QApplication, qtbot, m
         refresh_calls.append(sdk_metrics)
 
     monkeypatch.setattr(panel, "refresh_context_usage", _record_refresh)
-    monkeypatch.setattr("ui.main_window.ai_chat_controller.AiChatWorker", _FakeUsageWorker)
+    monkeypatch.setattr("services.ai.chat.run_registry.AiChatWorker", _FakeUsageWorker)
     host._on_ai_message_submitted("hello")
-    qtbot.waitUntil(lambda: host._ai_chat_thread is None, timeout=3000)
+    qtbot.waitUntil(lambda: host._chat_run_registry.count_running() == 0, timeout=3000)
 
     assert refresh_calls
     assert {"prompt_tokens": 7, "completion_tokens": 3} in refresh_calls
     host._cleanup_ai_chat_threads()
 
 
-def test_back_to_back_send_waits_for_prior_thread_cleanup(
+def test_concurrent_send_in_second_session_while_first_runs(
     qapp: QApplication, qtbot, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A second send can start after the first worker thread has fully stopped."""
+    """A second session can start while the first session worker is still running."""
+    _SlowWorker = _cancellable_slow_worker_class()
     sidebar = RightSidebar()
     qtbot.addWidget(sidebar)
     host = _ControllerQObjectHost(sidebar)
@@ -306,17 +344,55 @@ def test_back_to_back_send_waits_for_prior_thread_cleanup(
             }
         ]
     )
-    monkeypatch.setattr("ui.main_window.ai_chat_controller.AiChatWorker", _FakeUsageWorker)
+    monkeypatch.setattr("services.ai.chat.run_registry.AiChatWorker", _SlowWorker)
+    monkeypatch.setattr(
+        "ui.main_window.ai_chat_controller.AiChatSessionService.record_user_message",
+        lambda session_id, text, **kwargs: {
+            "id": 1 if session_id == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" else 2,
+            "session_id": session_id,
+            "role": "user",
+            "content": text,
+        },
+    )
+    monkeypatch.setattr(
+        "ui.main_window.ai_chat_controller.AiChatSessionService.get_session",
+        lambda session_id: _session_row(session_id, "Title"),
+    )
+    monkeypatch.setattr(
+        "ui.main_window.ai_chat_controller.AiChatSessionService.new_session",
+        lambda entry, mode, first_message="": _session_row(
+            "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+            first_message or "New",
+        ),
+    )
+
+    host._active_ai_session_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
     host._on_ai_message_submitted("first")
-    qtbot.waitUntil(lambda: host._ai_chat_thread is None, timeout=3000)
+    qtbot.waitUntil(lambda: host._chat_run_registry.count_running() == 1, timeout=3000)
+
+    host._active_ai_session_id = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+    panel.begin_virtual_session(
+        "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+        {
+            "messages": [],
+            "has_older": False,
+            "has_newer": False,
+            "oldest_id": None,
+            "newest_id": None,
+        },
+        session_model_id="m1",
+    )
     host._on_ai_message_submitted("second")
-    assert host._ai_chat_thread is not None
-    qtbot.waitUntil(lambda: host._ai_chat_thread is None, timeout=3000)
+    qtbot.waitUntil(lambda: host._chat_run_registry.count_running() == 2, timeout=3000)
+    qtbot.waitUntil(lambda: host._chat_run_registry.count_running() == 0, timeout=5000)
+    panel._shutdown_context_usage_worker()
     host._cleanup_ai_chat_threads()
+    qtbot.wait(500)
+    qapp.processEvents()
 
 
-def test_stale_chat_thread_finished_is_ignored(qapp: QApplication, qtbot) -> None:
-    """Late cleanup from an older chat run cannot delete the active worker thread."""
+def test_stale_registry_release_is_ignored(qapp: QApplication, qtbot) -> None:
+    """Late cleanup from an older chat run cannot drop a newer active handle."""
     from PySide6.QtCore import QThread
 
     from ui.sidebar.ai.workers.chat_worker import AiChatWorker
@@ -324,16 +400,24 @@ def test_stale_chat_thread_finished_is_ignored(qapp: QApplication, qtbot) -> Non
     sidebar = RightSidebar()
     qtbot.addWidget(sidebar)
     host = _ControllerQObjectHost(sidebar)
+    registry = host._chat_run_registry
     old_thread = QThread()
     old_worker = AiChatWorker()
     new_thread = QThread()
     new_worker = AiChatWorker()
-    host._ai_chat_thread_generation = 2
-    host._ai_chat_thread = new_thread
-    host._ai_chat_worker = new_worker
-    host._release_ai_chat_thread(old_thread, old_worker, generation=1)
-    assert host._ai_chat_thread is new_thread
-    assert host._ai_chat_worker is new_worker
+    ctx = AiChatRunContext("sess-1", 1, "hi", 1, "m1")
+    registry._handles["sess-1"] = type(
+        "H",
+        (),
+        {
+            "context": ctx,
+            "thread": new_thread,
+            "worker": new_worker,
+            "thread_generation": 2,
+        },
+    )()
+    registry._release("sess-1", old_thread, old_worker, thread_generation=1)
+    assert registry.is_running("sess-1")
     host._cleanup_ai_chat_threads()
     old_thread.deleteLater()
     new_thread.deleteLater()
@@ -377,7 +461,7 @@ def test_controller_stop_finalizes_streaming_rich_html(qapp: QApplication, qtbot
     """User stop marshals through the controller and exits streaming with rich HTML."""
     panel = AiChatPanel()
     qtbot.addWidget(panel)
-    host = _ChatControllerHost(panel)
+    host = _ChatControllerHost(panel, session_id="sess-1")
     panel.begin_assistant_stream()
     panel.append_assistant_chunk("", "**Partial**")
     _flush_stream_chunks(qtbot)
@@ -396,7 +480,7 @@ def test_controller_failure_finalizes_streaming_rich_html(qapp: QApplication, qt
     """Provider failure preserves streamed text and renders rich markdown."""
     panel = AiChatPanel()
     qtbot.addWidget(panel)
-    host = _ChatControllerHost(panel)
+    host = _ChatControllerHost(panel, session_id="sess-1")
     panel.begin_assistant_stream()
     panel.append_assistant_chunk("trace", "")
     panel.append_assistant_chunk("", "**Hi**")
@@ -417,7 +501,7 @@ def test_handle_chat_stop_clears_busy_immediately_pre_stream(qapp: QApplication,
     """Pre-stream stop rewinds the user bubble and restores the composer."""
     panel = AiChatPanel()
     qtbot.addWidget(panel)
-    host = _ChatControllerHost(panel)
+    host = _ChatControllerHost(panel, session_id="sess-1")
     panel.add_message("user", "hello")
     panel.set_run_busy(True)
     panel.begin_assistant_stream()
@@ -440,7 +524,7 @@ def test_handle_chat_stop_finalizes_partial_post_stream(qapp: QApplication, qtbo
     """Post-stream stop keeps partial text with a Stopped footer and clears busy."""
     panel = AiChatPanel()
     qtbot.addWidget(panel)
-    host = _ChatControllerHost(panel)
+    host = _ChatControllerHost(panel, session_id="sess-1")
     panel.add_message("user", "hello")
     panel.set_run_busy(True)
     panel.begin_assistant_stream()
@@ -461,7 +545,7 @@ def test_apply_worker_failed_ignored_after_pre_stream_stop(qapp: QApplication, q
     """Late worker Stopped signals do not recreate bubbles after pre-stream rollback."""
     panel = AiChatPanel()
     qtbot.addWidget(panel)
-    host = _ChatControllerHost(panel)
+    host = _ChatControllerHost(panel, session_id="sess-1")
     panel.add_message("user", "hello")
     panel.set_run_busy(True)
     panel.begin_assistant_stream()
@@ -475,7 +559,7 @@ def test_apply_worker_failed_ignored_after_pre_stream_stop(qapp: QApplication, q
     with patch(
         "ui.main_window.ai_chat_controller.AiChatSessionService.record_assistant_message",
     ) as record:
-        host._apply_ai_worker_failed("Stopped", "", "")
+        host._apply_registry_failed("sess-1", 3, "Stopped", "", "")
 
     record.assert_not_called()
     assert panel.findChildren(ChatMessageBubble) == []
@@ -589,9 +673,9 @@ def test_user_edit_submitted_truncates_and_resubmits(
         def run(self) -> None:
             return
 
-    monkeypatch.setattr("ui.main_window.ai_chat_controller.AiChatWorker", _FakeEditWorker)
+    monkeypatch.setattr("services.ai.chat.run_registry.AiChatWorker", _FakeEditWorker)
     monkeypatch.setattr(
-        "ui.main_window.ai_chat_controller.QThread.start",
+        "services.ai.chat.run_registry.QThread.start",
         lambda self: None,
     )
 
@@ -661,7 +745,7 @@ def test_hard_budget_blocks_message_submit(
 
     host._on_ai_message_submitted("hello")
     assert record_calls == []
-    assert host._ai_chat_thread is None
+    assert host._chat_run_registry.count_running() == 0
     host._cleanup_ai_chat_threads()
 
 
@@ -710,3 +794,232 @@ def test_apply_session_chrome_prefers_stored_chat_model(
     assert panel.current_model_id() == "gpt-55"
     assert "gpt-5.5" in panel._model_button_label()
     AiConfig.set_chat_model_id("")
+
+
+def test_activate_session_does_not_cancel_background_run(
+    qapp: QApplication, qtbot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Switching sessions leaves an in-flight worker running in the background."""
+    _SlowWorker = _cancellable_slow_worker_class()
+    sidebar = RightSidebar()
+    qtbot.addWidget(sidebar)
+    host = _ControllerQObjectHost(sidebar)
+    panel = sidebar.ai_chat_panel
+    panel.set_models(
+        [
+            {
+                "id": "m1",
+                "provider": "openai",
+                "label": "GPT-4o",
+                "model": "openai/gpt-4o",
+                "base_url": "",
+                "api_version": "",
+                "auth_kind": "none",
+                "auth_ref": "",
+                "context": 128_000,
+                "enabled": True,
+            }
+        ]
+    )
+    monkeypatch.setattr("services.ai.chat.run_registry.AiChatWorker", _SlowWorker)
+    monkeypatch.setattr(
+        "ui.main_window.ai_chat_controller.AiChatSessionService.record_user_message",
+        lambda session_id, text, **kwargs: {
+            "id": 1,
+            "session_id": session_id,
+            "role": "user",
+            "content": text,
+        },
+    )
+    monkeypatch.setattr(
+        "ui.main_window.ai_chat_controller.AiChatSessionService.get_session",
+        lambda session_id: _session_row(session_id, "Title"),
+    )
+    cancel_calls: list[str] = []
+    original_cancel = host._chat_run_registry.cancel
+
+    def _track_cancel(session_id: str) -> None:
+        cancel_calls.append(session_id)
+        original_cancel(session_id)
+
+    monkeypatch.setattr(host._chat_run_registry, "cancel", _track_cancel)
+    monkeypatch.setattr(host._session_loader, "load_tail", lambda *_args, **_kwargs: None)
+
+    session_a = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    session_b = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+    host._active_ai_session_id = session_a
+    host._on_ai_message_submitted("first")
+    qtbot.waitUntil(lambda: host._chat_run_registry.is_running(session_a), timeout=3000)
+
+    host._activate_chat_session(session_b)
+    assert session_a not in cancel_calls
+    assert host._chat_run_registry.is_running(session_a)
+    qtbot.waitUntil(lambda: host._chat_run_registry.count_running() == 0, timeout=5000)
+    panel._shutdown_context_usage_worker()
+    host._cleanup_ai_chat_threads()
+    qtbot.wait(500)
+    qapp.processEvents()
+
+
+def test_background_finish_persists_without_end_assistant_stream(
+    qapp: QApplication, qtbot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Background session completion persists to SQLite without touching the visible stream."""
+    from services.ai.chat.run_registry import ChatRunHandle
+
+    sidebar = RightSidebar()
+    qtbot.addWidget(sidebar)
+    host = _ControllerQObjectHost(sidebar)
+    panel = sidebar.ai_chat_panel
+    session_a = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    session_b = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+    host._active_ai_session_id = session_b
+
+    ctx = AiChatRunContext(session_a, 1, "hi", 1, "m1")
+    host._chat_run_registry._handles[session_a] = ChatRunHandle(
+        context=ctx,
+        thread=None,  # type: ignore[arg-type]
+        worker=None,  # type: ignore[arg-type]
+        thread_generation=1,
+        bridge=None,  # type: ignore[arg-type]
+        thinking_buffer="",
+        content_buffer="partial",
+    )
+
+    end_calls: list[object] = []
+    monkeypatch.setattr(
+        panel,
+        "end_assistant_stream",
+        lambda *args, **kwargs: end_calls.append((args, kwargs)),
+    )
+    persist_calls: list[dict[str, object]] = []
+
+    def _record_persist(*args, **kwargs) -> None:
+        persist_calls.append({"args": args, "kwargs": kwargs})
+
+    monkeypatch.setattr(host, "_persist_assistant_turn", _record_persist)
+
+    host._apply_registry_assistant_finished(session_a, 1, "", "background reply")
+    assert end_calls == []
+    assert persist_calls
+    first_kwargs = persist_calls[0].get("kwargs")
+    assert isinstance(first_kwargs, dict)
+    assert first_kwargs.get("update_panel") is False
+    host._chat_run_registry._handles.pop(session_a, None)
+    host._cleanup_ai_chat_threads()
+
+
+def test_reattach_replays_background_buffers(qapp: QApplication, qtbot) -> None:
+    """Switching back to a running session resumes streaming from buffered chunks."""
+    from services.ai.chat.run_registry import ChatRunHandle
+
+    sidebar = RightSidebar()
+    qtbot.addWidget(sidebar)
+    host = _ControllerQObjectHost(sidebar)
+    panel = sidebar.ai_chat_panel
+    session_a = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    host._active_ai_session_id = session_a
+
+    ctx = AiChatRunContext(session_a, 1, "hi", 1, "m1")
+    host._chat_run_registry._handles[session_a] = ChatRunHandle(
+        context=ctx,
+        thread=None,  # type: ignore[arg-type]
+        worker=None,  # type: ignore[arg-type]
+        thread_generation=1,
+        bridge=None,  # type: ignore[arg-type]
+        thinking_buffer="thought",
+        content_buffer="answer",
+        status_text="Planning",
+    )
+
+    resume_calls: list[tuple[str, str, str]] = []
+
+    def _resume(thinking: str, content: str, *, status: str = "") -> None:
+        resume_calls.append((thinking, content, status))
+
+    panel.resume_assistant_stream = _resume  # type: ignore[method-assign]
+    host._reattach_session_run_if_needed(session_a)
+    assert resume_calls == [("thought", "answer", "Planning")]
+    host._chat_run_registry._handles.pop(session_a, None)
+    host._cleanup_ai_chat_threads()
+
+
+def test_concurrency_warn_allows_send_past_advisory_limit(
+    qapp: QApplication, qtbot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """At the advisory limit, additional sends warn but still start workers."""
+    _SlowWorker = _cancellable_slow_worker_class()
+    sidebar = RightSidebar()
+    qtbot.addWidget(sidebar)
+    host = _ControllerQObjectHost(sidebar)
+    panel = sidebar.ai_chat_panel
+    panel.set_models(
+        [
+            {
+                "id": "m1",
+                "provider": "openai",
+                "label": "GPT-4o",
+                "model": "openai/gpt-4o",
+                "base_url": "",
+                "api_version": "",
+                "auth_kind": "none",
+                "auth_ref": "",
+                "context": 128_000,
+                "enabled": True,
+            }
+        ]
+    )
+    monkeypatch.setattr("services.ai.chat.run_registry.AiChatWorker", _SlowWorker)
+    monkeypatch.setattr(
+        "ui.main_window.ai_chat_runs.max_concurrent_chat_runs",
+        lambda: 1,
+    )
+    monkeypatch.setattr(
+        "ui.main_window.ai_chat_controller.AiChatSessionService.record_user_message",
+        lambda session_id, text, **kwargs: {
+            "id": hash(session_id) % 1000,
+            "session_id": session_id,
+            "role": "user",
+            "content": text,
+        },
+    )
+    monkeypatch.setattr(
+        "ui.main_window.ai_chat_controller.AiChatSessionService.get_session",
+        lambda session_id: _session_row(session_id, "Title"),
+    )
+    warn_messages: list[str] = []
+    monkeypatch.setattr(
+        "ui.main_window.ai_chat_runs.QMessageBox.warning",
+        lambda *_args, **kwargs: warn_messages.append(
+            str(kwargs.get("text") or (_args[2] if len(_args) > 2 else ""))
+        ),
+    )
+
+    sessions = [
+        "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+    ]
+    host._active_ai_session_id = sessions[0]
+    host._on_ai_message_submitted("first")
+    qtbot.waitUntil(lambda: host._chat_run_registry.count_running() == 1, timeout=3000)
+
+    host._active_ai_session_id = sessions[1]
+    panel.begin_virtual_session(
+        sessions[1],
+        {
+            "messages": [],
+            "has_older": False,
+            "has_newer": False,
+            "oldest_id": None,
+            "newest_id": None,
+        },
+        session_model_id="m1",
+    )
+    host._on_ai_message_submitted("second")
+    assert warn_messages
+    assert host._chat_run_registry.count_running() == 2
+    qtbot.waitUntil(lambda: host._chat_run_registry.count_running() == 0, timeout=5000)
+    panel._shutdown_context_usage_worker()
+    host._cleanup_ai_chat_threads()
+    qtbot.wait(500)
+    qapp.processEvents()

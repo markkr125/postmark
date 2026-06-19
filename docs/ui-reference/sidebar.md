@@ -131,8 +131,9 @@ When the AI panel is open, the flyout header is three stacked rows **above**
 1. **Headline** — ``sidebarTitleLabel`` (static **AI assistant**) plus **gear** on the right.
 2. **Conversation title** — text-hugging ``aiChatSessionTitleInline`` (``aiChatSessionTitle`` +
    hover pencil) inside ``aiChatSessionTitleBar``; elided single line with full-text tooltip on
-   the left; **session history** (clock, checkable ``iconButton`` — selected while the history
-   popover is open) and **new chat** (plus icon) ``iconButton``s on the right. Hover shows a
+   the left; when any sessions have in-flight agent runs, an accent ``aiChatActiveRunsBadge``
+   pill (``{n} active``) appears before the **session history** (clock, checkable
+   ``iconButton`` — selected while the history popover is open) and **new chat** (plus icon) ``iconButton``s on the right. Hover shows a
    gentle pill and ``pencil-simple`` icon immediately after the visible text; I-beam cursor;
    click opens ``aiChatSessionTitleEdit`` inline rename (Enter, Escape, or click-away saves via
    ``ai_session_title_renamed``). Disabled for placeholder **New chat** (no active session).
@@ -143,7 +144,8 @@ When the AI panel is open, the flyout header is three stacked rows **above**
 
 History opens ``AiSessionHistoryPopup`` (debounced search + virtualized
 ``QListView`` session list with delegate-painted elided titles and relative time
-on a second line beneath each title, ``AI_SESSION_HISTORY_POPUP_WIDTH_EM`` wide).
+on a second line beneath each title; a leading accent arc spinner when that session has
+an in-flight worker, ``AI_SESSION_HISTORY_POPUP_WIDTH_EM`` wide).
 Hovering a row shows a trailing ⋯ control; clicking it opens
 ``SessionHistoryActionsPopup`` (Rename via ``QInputDialog``, Delete via
 ``QMessageBox`` confirmation) without opening the session. Row-body click still
@@ -203,7 +205,16 @@ the sticky clone when pinned), emitting the same ``stop_requested`` signal as
 the composer stop button. **Stop** immediately clears busy state: during the
 activity-only ``Thinking…`` phase (no thinking/answer tokens yet) the user
 bubble is removed and the prompt is restored to ``aiChatInput``; after tokens
-arrive, partial assistant text is kept with a ``Stopped.`` footer. Session picks
+arrive, partial assistant text is kept with a ``Stopped.`` footer. **Stop** and
+busy chrome apply only to the **visible** session; other sessions may keep running
+in the background. An advisory limit (`ai/max_concurrent_runs` in QSettings,
+default 10) triggers a warning dialog when met or exceeded; sends are not blocked.
+Switching
+sessions or **New chat** does not cancel in-flight workers. Returning to a
+running session replays buffered stream chunks via ``resume_assistant_stream``.
+The title bar ``aiChatActiveRunsBadge`` shows ``{n} active`` while any runs are
+in flight; session history rows show a leading running spinner for those sessions.
+Session picks
 load off the GUI thread
 (``AiChatSessionLoader`` + ``get_session_tail``), update flyout
 title/model/mode immediately when the read completes, show the
@@ -222,7 +233,11 @@ the panel is shown.
 
 **Thought block.** ``aiChatThoughtToggle`` expands or collapses ``aiChatThoughtText``
 above the answer. Toggling adjusts the transcript scroll offset so visible answer
-content stays in place instead of jumping.
+content stays in place instead of jumping. Ollama thinking models stream
+``reasoning_content`` / ``think`` deltas; OpenAI GPT-5 family models request
+Responses API ``reasoning.summary=detailed`` via ``AiLlmService.build_llm`` so
+plaintext summaries arrive in ``reasoning_items`` / ``responses_reasoning_item``
+and populate the same Thought UI.
 
 #### Assistant answer markdown
 
@@ -255,9 +270,10 @@ GUI thread (~50ms) before updating the active bubble. Rich markdown stays live
 during streaming via an incremental segment renderer: stable prose and closed code
 blocks are reused; only the changed tail is re-rendered. Open (unclosed) fenced
 code uses a cheap provisional monospace block; full Pygments highlighting applies
-when the fence closes or the stream finalizes. Complete pipe-table blocks render
-as Qt tables during streaming; incomplete table blocks stay as stable plain text
-until enough rows arrive or the stream finalizes. The
+when the fence closes or the stream finalizes. Pipe-table blocks render as themed
+HTML tables during streaming (header, committed rows, and one provisional tail row);
+headings or prose directly above a table (even without a blank line) are rendered
+separately so the table is not dumped into a monospace ``<pre>`` fallback. The
 transcript scroll area
 (``aiChatScroll``) uses **smooth wheel scrolling** via ``SmoothScroller``
 (``chat_panel/scroll/smooth_scroll.py``): a viewport event filter intercepts wheel input
@@ -460,7 +476,7 @@ The manage control emits
 ``AiChatPanel.manage_models_requested`` → ``MainWindow`` opens Settings → AI →
 **Models** and refreshes the picker.
 
-A **context usage ring** (``ContextUsageRingButton``, ``objectName="aiChatContextRing"``) shows fill level for the active model's context window. The composer bar is unchanged — no extra cost controls beside the ring. Clicking the ring opens ``AiChatContextUsagePopup`` (``objectName="aiChatContextPopup"``) with **Context** and **Spend** pills in the flyout header. **Context** (default) shows the Cursor-style eight-bucket breakdown, stacked bar, and estimation hints. **Spend** shows session USD in the pill label when priced (e.g. ``Spend $0.042``) and per-model rows (model name, provider, tokens, cost) in the body; unrated models such as Ollama still list token totals with cost ``—``. When the active connection has configured soft/hard limits in Settings → Budgets, the Spend tab also shows ``aiChatBudgetStatusCard`` (period spend vs caps and reset schedule). The Spend body is clamped to a minimum height and scrolls when many models are listed. ``set_context_breakdown`` / ``refresh_context_usage`` drive the ring; session spend is computed on read in ``message_usage.session_spend_breakdown`` when the flyout opens or refreshes.
+A **context usage ring** (``ContextUsageRingButton``, ``objectName="aiChatContextRing"``) shows fill level for the active model's context window. The composer bar is unchanged — no extra cost controls beside the ring. Clicking the ring opens ``AiChatContextUsagePopup`` (``objectName="aiChatContextPopup"``) with **Context** and **Spend** pills in the flyout header. **Context** (default) shows the Cursor-style eight-bucket breakdown, stacked bar, and estimation hints. **Spend** shows session USD in the pill label when priced (e.g. ``Spend $0.042``) and per-model rows (model name, provider with turn count, tokens, cost) in the body; unrated models such as Ollama still list token totals with cost ``—``. When the active connection has configured soft/hard limits in Settings → Budgets, the Spend tab also shows ``aiChatBudgetStatusCard`` (period spend vs caps and reset schedule). The Spend body is clamped to a minimum height and scrolls when many models are listed. ``set_context_breakdown`` / ``refresh_context_usage`` drive the ring; session spend is computed on read in ``message_usage.session_spend_breakdown`` when the flyout opens or refreshes.
 
 When period spend exceeds a configured **soft** limit, ``aiChatBudgetBanner`` (above the docked composer) shows a muted warning with a link to Settings → Budgets; send still works. When **hard** limit is reached, the banner explains the block, send is disabled (tooltip on the send button), and ``_AiChatControllerMixin`` rejects new sends and edit-resend until spend drops or limits change. Unrated connections skip USD enforcement. ``refresh_connection_budget()`` recomputes status after session load, model change, turn finish, and Settings close (via ``budget_settings_requested`` → ``MainWindow._on_open_ai_budget_settings``).
 

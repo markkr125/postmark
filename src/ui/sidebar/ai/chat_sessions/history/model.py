@@ -19,6 +19,7 @@ SESSION_ID_ROLE = Qt.ItemDataRole.UserRole + 1
 RELATIVE_TIME_ROLE = Qt.ItemDataRole.UserRole + 2
 ACTIVE_SESSION_ROLE = Qt.ItemDataRole.UserRole + 3
 FULL_TITLE_ROLE = Qt.ItemDataRole.UserRole + 4
+RUNNING_ROLE = Qt.ItemDataRole.UserRole + 5
 
 _LOADING_ROW_ID = "__loading__"
 _EMPTY_ROW_ID = "__empty__"
@@ -32,6 +33,7 @@ class SessionHistoryListModel(QAbstractListModel):
         super().__init__(parent)
         self._sessions: list[AiChatSessionDict] = []
         self._active_session_id: str | None = None
+        self._running_session_ids: frozenset[str] = frozenset()
         self._placeholder: str | None = None
 
     def rowCount(
@@ -78,10 +80,31 @@ class SessionHistoryListModel(QAbstractListModel):
             if not isinstance(updated_raw, str) or not updated_raw:
                 return ""
             return format_relative_time(datetime.fromisoformat(updated_raw))
+        if role == RUNNING_ROLE:
+            return session["id"] in self._running_session_ids
         if role == ACTIVE_SESSION_ROLE:
             active_id = self._active_session_id
             return active_id is not None and session["id"] == active_id
         return None
+
+    def set_running_session_ids(self, running_ids: frozenset[str]) -> None:
+        """Refresh which rows show the running spinner."""
+        self._running_session_ids = frozenset(running_ids)
+        if self._placeholder is not None or not self._sessions:
+            return
+        top_left = self.index(0, 0)
+        bottom_right = self.index(len(self._sessions) - 1, 0)
+        self.dataChanged.emit(
+            top_left,
+            bottom_right,
+            [RELATIVE_TIME_ROLE, RUNNING_ROLE],
+        )
+
+    def has_running_sessions(self) -> bool:
+        """Return whether any visible row has an in-flight agent run."""
+        if self._placeholder is not None or not self._sessions:
+            return False
+        return any(session["id"] in self._running_session_ids for session in self._sessions)
 
     def set_loading(self) -> None:
         """Show a single non-selectable loading row."""
@@ -134,6 +157,7 @@ __all__ = [
     "ACTIVE_SESSION_ROLE",
     "FULL_TITLE_ROLE",
     "RELATIVE_TIME_ROLE",
+    "RUNNING_ROLE",
     "SESSION_ID_ROLE",
     "SessionHistoryListModel",
 ]

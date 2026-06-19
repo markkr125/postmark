@@ -702,7 +702,9 @@ All connections made in `MainWindow.__init__` (and `_create_menus`):
 - `_env_selector.manage_requested` → `_on_manage_environments`
 
 **From right sidebar AI chat:**
-- `ai_chat_panel.message_submitted` → `_on_ai_message_submitted`
+- `ai_chat_panel.message_submitted` → `_on_ai_message_submitted` (per-session send guard via `ChatRunRegistry`; concurrency cap blocks excess starts)
+- `ai_chat_panel.stop_requested` → `_on_ai_chat_stop` → `_handle_chat_stop` (cancels visible session only via `ChatRunRegistry.cancel`)
+- `ChatRunRegistry.running_sessions_changed` → `_sync_running_chrome` → `RightSidebar.set_ai_active_run_count` + history `RUNNING_ROLE`
 - `ai_chat_panel.manage_models_requested` → `_on_open_ai_models_settings`
 - `ai_settings_requested` → `_on_open_ai_settings`
 

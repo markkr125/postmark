@@ -46,6 +46,7 @@ from services.scripting.runtime_settings import (
 )
 from services.scripting.secret_store import backend_status
 from ui.styling.icons import phi
+from ui.dialogs.settings.ai_agents import AiAgentsPageController, build_ai_agents_page
 from ui.dialogs.settings.ai_budget import AiBudgetPageController, build_ai_budget_page
 from ui.dialogs.settings.ai_page import AiPageController, build_ai_page
 from ui.dialogs.settings.history_page import (
@@ -93,7 +94,8 @@ class SettingsDialog(QDialog):
         """Initialise the settings dialog.
 
         *initial_category* is one of ``"Appearance"``, ``"Tabs"``,
-        ``"Scripting"``, ``"History"``, ``"AI"``, ``"Models"``, ``"Private packages"``,
+        ``"Scripting"``, ``"History"``, ``"AI"``, ``"Models"``, ``"Agents"``,
+        ``"Budgets"``, ``"Private packages"``,
         ``"npm"``, ``"JSR"``, or ``"PyPI"`` (case-insensitive) and selects
         the list row and detail page on open.
         """
@@ -121,10 +123,13 @@ class SettingsDialog(QDialog):
         self._history_settings = history_settings_manager or HistorySettingsManager(self)
         self._history_widgets: HistoryPageWidgets | None = None
         self._ai_controller: AiPageController | None = None
+        self._ai_agents_controller: AiAgentsPageController | None = None
         self._ai_budget_controller: AiBudgetPageController | None = None
         self._ai_models_built = False
+        self._ai_agents_built = False
         self._ai_budget_built = False
         self._ai_models_placeholder: QWidget | None = None
+        self._ai_agents_placeholder: QWidget | None = None
         self._ai_budget_placeholder: QWidget | None = None
         self._deno_download_thread: QThread | None = None
         self._deno_download_worker: DenoDownloadWorker | None = None
@@ -208,7 +213,9 @@ class SettingsDialog(QDialog):
             Tabs
             Scripting
             AI                        ← overview landing
-            └─ Models
+            ├─ Models
+            ├─ Agents
+            └─ Budgets
             Private packages          ← landing page (overview + secret backend)
             ├─ npm
             ├─ JSR
@@ -240,6 +247,7 @@ class SettingsDialog(QDialog):
         ai_parent.setFont(0, ai_font)
         self._cat_tree.addTopLevelItem(ai_parent)
         _leaf(ai_parent, "Models", self._page_indices["ai_models"])
+        _leaf(ai_parent, "Agents", self._page_indices["ai_agents"])
         _leaf(ai_parent, "Budgets", self._page_indices["ai_budgets"])
         self._cat_tree.expandItem(ai_parent)
 
@@ -267,6 +275,7 @@ class SettingsDialog(QDialog):
             "history": "History",
             "ai": "AI",
             "models": "Models",
+            "agents": "Agents",
             "budgets": "Budgets",
             "private packages": "Private packages",
             "private": "Private packages",
@@ -623,6 +632,8 @@ class SettingsDialog(QDialog):
         self._build_ai_overview_page()
         self._ai_models_placeholder = QWidget()
         self._page_indices["ai_models"] = self._stack.addWidget(self._ai_models_placeholder)
+        self._ai_agents_placeholder = QWidget()
+        self._page_indices["ai_agents"] = self._stack.addWidget(self._ai_agents_placeholder)
         self._ai_budget_placeholder = QWidget()
         self._page_indices["ai_budgets"] = self._stack.addWidget(self._ai_budget_placeholder)
 
@@ -643,6 +654,25 @@ class SettingsDialog(QDialog):
         self._ai_budget_placeholder = None
         self._stack.insertWidget(idx, page)
         self._page_indices["ai_budgets"] = idx
+        ctrl.reload()
+
+    def _ensure_ai_agents_page(self) -> None:
+        """Build the Agents page on first visit."""
+        if self._ai_agents_built:
+            return
+        self._ai_agents_built = True
+        page, ctrl = build_ai_agents_page(self._mark_dirty)
+        self._ai_agents_controller = ctrl
+        placeholder = self._ai_agents_placeholder
+        if placeholder is None:
+            self._page_indices["ai_agents"] = self._stack.addWidget(page)
+            return
+        idx = self._stack.indexOf(placeholder)
+        self._stack.removeWidget(placeholder)
+        placeholder.deleteLater()
+        self._ai_agents_placeholder = None
+        self._stack.insertWidget(idx, page)
+        self._page_indices["ai_agents"] = idx
         ctrl.reload()
 
     def _ensure_ai_models_page(self) -> None:
@@ -677,8 +707,8 @@ class SettingsDialog(QDialog):
         intro = QLabel(
             "Configure LLM providers and models for Postmark's AI features. "
             "Select <b>Models</b> to add providers, store API keys in your system "
-            "keychain, and test connections. Use <b>Budgets</b> to set per-connection "
-            "spending limits."
+            "keychain, and test connections. Use <b>Agents</b> for parallel-run "
+            "behaviour and <b>Budgets</b> to set per-connection spending limits."
         )
         intro.setObjectName("mutedLabel")
         intro.setTextFormat(Qt.TextFormat.RichText)
@@ -1582,6 +1612,11 @@ class SettingsDialog(QDialog):
             if idx == self._page_indices.get("ai_models"):
                 self._ensure_ai_models_page()
                 idx = self._page_indices["ai_models"]
+            if idx == self._page_indices.get("ai_agents"):
+                self._ensure_ai_agents_page()
+                idx = self._page_indices["ai_agents"]
+                if self._ai_agents_controller is not None:
+                    self._ai_agents_controller.reload()
             if idx == self._page_indices.get("ai_budgets"):
                 self._ensure_ai_budget_page()
                 idx = self._page_indices["ai_budgets"]
@@ -1648,6 +1683,8 @@ class SettingsDialog(QDialog):
         """Stop background workers before the dialog closes."""
         if self._ai_controller is not None:
             self._ai_controller.cleanup()
+        if self._ai_agents_controller is not None:
+            self._ai_agents_controller.apply()
         if self._ai_budget_controller is not None:
             self._ai_budget_controller.apply()
         super().closeEvent(event)
@@ -1768,6 +1805,8 @@ class SettingsDialog(QDialog):
             refresh = getattr(parent, "_refresh_ai_chat_models_from_settings", None)
             if callable(refresh):
                 refresh()
+        if self._ai_agents_controller is not None:
+            self._ai_agents_controller.apply()
         if self._ai_budget_controller is not None:
             self._ai_budget_controller.apply()
 

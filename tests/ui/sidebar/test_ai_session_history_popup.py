@@ -11,7 +11,11 @@ from PySide6.QtWidgets import QApplication, QInputDialog, QMessageBox, QPushButt
 from services.ai.chat.session_service import AiChatSessionDict, AiChatSessionService
 from ui.sidebar.ai.chat_sessions.history.actions_popup import SessionHistoryActionsPopup
 from ui.sidebar.ai.chat_sessions.history.delegate import session_row_menu_rect
-from ui.sidebar.ai.chat_sessions.history.model import ACTIVE_SESSION_ROLE, RELATIVE_TIME_ROLE
+from ui.sidebar.ai.chat_sessions.history.model import (
+    ACTIVE_SESSION_ROLE,
+    RELATIVE_TIME_ROLE,
+    RUNNING_ROLE,
+)
 from ui.sidebar.ai.chat_sessions.history_popup import AiSessionHistoryPopup
 from ui.sidebar.ai.chat_sessions.time_format import format_relative_time
 from ui.styling.theme import AI_SESSION_HISTORY_POPUP_WIDTH_EM
@@ -65,6 +69,31 @@ def test_search_filters_by_title(qapp: QApplication, qtbot) -> None:
     popup._search.setText("python")
     qtbot.wait(50)
     assert popup._model.rowCount() == 1
+
+
+def test_running_session_row_shows_running_indicator(qapp: QApplication, qtbot) -> None:
+    """Rows for in-flight agent runs set RUNNING_ROLE and animate a spinner."""
+    popup = AiSessionHistoryPopup()
+    qtbot.addWidget(popup)
+    anchor = QPushButton("anchor")
+    qtbot.addWidget(anchor)
+    running_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    popup.show_for(
+        anchor,
+        [_session(running_id, "Alpha"), _session("b", "Beta")],
+        lambda _id: None,
+    )
+    popup.set_running_session_ids(frozenset({running_id}))
+    index = popup._model.index(0, 0)
+    assert popup._model.data(index, RUNNING_ROLE) is True
+    assert "Running" not in str(popup._model.data(index, RELATIVE_TIME_ROLE))
+    assert popup._model.data(popup._model.index(1, 0), RUNNING_ROLE) is False
+    assert popup._running_spinner_timer.isActive()
+    frame0 = popup._delegate.spin_frame()
+    qtbot.wait(200)
+    assert popup._delegate.spin_frame() != frame0
+    popup.set_running_session_ids(frozenset())
+    assert not popup._running_spinner_timer.isActive()
 
 
 def test_active_session_row_is_highlighted(qapp: QApplication, qtbot) -> None:
