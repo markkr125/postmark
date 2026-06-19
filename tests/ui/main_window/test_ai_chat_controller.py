@@ -157,9 +157,15 @@ def test_sync_ai_session_title_uses_active_session(qapp: QApplication, qtbot) ->
     sidebar = RightSidebar()
     qtbot.addWidget(sidebar)
     host = _ChatControllerHost(AiChatPanel(), session_id="sess-1", sidebar=sidebar)
-    with patch(
-        "ui.main_window.ai_chat_controller.AiChatSessionService.get_session",
-        return_value=_session_row("sess-1", "Go HTTP client"),
+    with (
+        patch(
+            "ui.main_window.ai_chat_controller.AiChatSessionService.get_session",
+            return_value=_session_row("sess-1", "Go HTTP client"),
+        ),
+        patch(
+            "ui.main_window.ai_chat_controller.AiChatSessionService.flyout_title_for_session",
+            return_value="Go HTTP client",
+        ),
     ):
         host._sync_ai_session_title()
     title = sidebar._flyout.findChild(QLabel, "aiChatSessionTitle")
@@ -177,8 +183,8 @@ def test_on_ai_title_ready_updates_flyout_title(qapp: QApplication, qtbot) -> No
             "ui.main_window.ai_chat_controller.AiChatSessionService.rename_session",
         ) as rename,
         patch(
-            "ui.main_window.ai_chat_controller.AiChatSessionService.get_session",
-            return_value=_session_row("sess-1", "Generated title"),
+            "ui.main_window.ai_chat_controller.AiChatSessionService.flyout_title_for_session",
+            return_value="Generated title",
         ),
     ):
         host._on_ai_title_ready("sess-1", "Generated title")

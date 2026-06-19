@@ -98,10 +98,18 @@ class _AiChatControllerMixin(_AiChatRunsMixin, _AiChatTurnFinalizeMixin, _AiChat
             queued,
         )
 
+    def _persist_active_chat_session_id(self, session_id: str | None) -> None:
+        """Write the session to reopen after restart (cleared on **New chat**)."""
+        AiConfig.set_chat_session_id(session_id or "")
+
     def _sync_ai_session_title(self, session: AiChatSessionDict | None = None) -> None:
         """Refresh the flyout conversation title for the active session."""
         if session is not None:
-            self._right_sidebar.set_ai_session_title(session["title"])
+            display = AiChatSessionService.flyout_title_for_session(
+                session["id"],
+                user_renamed=session["id"] in self._manual_ai_session_titles,
+            )
+            self._right_sidebar.set_ai_session_title(display)
             self._right_sidebar.set_ai_session_title_rename_enabled(True)
             return
         session_id = self._active_ai_session_id
@@ -114,7 +122,11 @@ class _AiChatControllerMixin(_AiChatRunsMixin, _AiChatTurnFinalizeMixin, _AiChat
             self._right_sidebar.set_ai_session_title("New chat")
             self._right_sidebar.set_ai_session_title_rename_enabled(False)
             return
-        self._right_sidebar.set_ai_session_title(session["title"])
+        display = AiChatSessionService.flyout_title_for_session(
+            session_id,
+            user_renamed=session_id in self._manual_ai_session_titles,
+        )
+        self._right_sidebar.set_ai_session_title(display)
         self._right_sidebar.set_ai_session_title_rename_enabled(True)
 
     def _on_ai_session_title_renamed(self, title: str) -> None:
@@ -151,7 +163,7 @@ class _AiChatControllerMixin(_AiChatRunsMixin, _AiChatTurnFinalizeMixin, _AiChat
         panel._cancel_inline_edit_if_active()
         panel.cancel_transcript_load()
         self._active_ai_session_id = None
-        AiConfig.set_chat_session_id("")
+        self._persist_active_chat_session_id(None)
         self._right_sidebar.ai_chat_panel.clear()
         self._right_sidebar.ai_chat_panel._reset_context_usage_chrome()
         self._sync_ai_session_title()
@@ -183,6 +195,7 @@ class _AiChatControllerMixin(_AiChatRunsMixin, _AiChatTurnFinalizeMixin, _AiChat
         """Load *session_id* into the panel and persist it as the active chat."""
         if session_id == self._active_ai_session_id:
             return
+        self._persist_active_chat_session_id(session_id)
         self._session_loader.cancel()
         self._session_load_generation += 1
         generation = self._session_load_generation
@@ -262,7 +275,7 @@ class _AiChatControllerMixin(_AiChatRunsMixin, _AiChatTurnFinalizeMixin, _AiChat
         session = load["session"]
         page = load["page"]
         self._active_ai_session_id = session["id"]
-        AiConfig.set_chat_session_id(session["id"])
+        self._persist_active_chat_session_id(session["id"])
         self._apply_session_chrome(session)
         panel.begin_virtual_session(session["id"], page, session_model_id=session.get("model_id"))
         panel.load_transcript_async(
@@ -298,6 +311,7 @@ class _AiChatControllerMixin(_AiChatRunsMixin, _AiChatTurnFinalizeMixin, _AiChat
             )
             session_id = session["id"]
             self._active_ai_session_id = session_id
+            self._persist_active_chat_session_id(session_id)
             self._sync_ai_session_title()
             panel.begin_virtual_session(
                 session_id,

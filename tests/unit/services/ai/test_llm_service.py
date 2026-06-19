@@ -9,7 +9,10 @@ import pytest
 
 from services.ai.ai_config import AiModelEntry
 from services.ai.llm_service import AiLlmService, resolve_litellm_model
-from services.ai.reasoning_effort import chat_reasoning_effort_for_litellm
+from services.ai.reasoning_effort import (
+    chat_reasoning_effort_for_litellm,
+    minimum_reasoning_effort_for,
+)
 
 
 def _entry(**kw: object) -> AiModelEntry:
@@ -340,3 +343,23 @@ def test_chat_reasoning_effort_maps_xhigh_to_high_for_harmony_offline() -> None:
         "auth_ref": "",
     }
     assert chat_reasoning_effort_for_litellm(entry, "xhigh", streaming=False) == "high"
+
+
+def test_minimum_reasoning_effort_for_harmony_is_low() -> None:
+    """Harmony Ollama models cannot disable thinking; lowest is ``low``."""
+    entry = _entry(provider="ollama", model="ollama/gpt-oss:20b")
+    assert minimum_reasoning_effort_for(entry) == "low"
+
+
+def test_minimum_reasoning_effort_for_leveled_model() -> None:
+    """Leveled models pick the lowest token from the supported set."""
+    entry = _entry(
+        reasoning_efforts=["medium", "high", "minimal"],
+        reasoning_default="medium",
+    )
+    assert minimum_reasoning_effort_for(entry) == "minimal"
+
+
+def test_minimum_reasoning_effort_defaults_to_off() -> None:
+    """Models without leveled reasoning use boolean ``off``."""
+    assert minimum_reasoning_effort_for(_entry()) == "off"

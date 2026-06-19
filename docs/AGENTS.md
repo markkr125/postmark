@@ -26,6 +26,9 @@ Every documentation page must be useful for **both** audiences:
 - **AI agents** — structured headings, complete function signatures,
   grep-friendly identifiers, explicit cross-references.
 
+End-user how-to for the in-app assistant lives under [`user-guide/AGENTS.md`](user-guide/AGENTS.md)
+— not in `api-reference/` or `architecture/`.
+
 ## When to update docs
 
 Update the relevant `docs/` pages whenever you:

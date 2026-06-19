@@ -19,6 +19,7 @@ from services.ai.ops.model_filters import (
 from services.ai.provider_catalog import ModelSpec, litellm_context_tier_thresholds
 from services.ai.reasoning_effort import (
     default_effort_for,
+    fill_gpt5_reasoning_gaps,
     normalize_efforts,
     ollama_reasoning_from_show,
     ollama_thinking_from_show,
@@ -161,7 +162,7 @@ def litellm_reasoning(model_id: str) -> tuple[bool, tuple[str, ...], str]:
         logger.debug("get_model_info reasoning(%s): %s", model_id, exc)
     if supports and "medium" not in efforts:
         efforts.append("medium")
-    normalized = normalize_efforts(tuple(efforts))
+    normalized = fill_gpt5_reasoning_gaps(normalize_efforts(tuple(efforts)), model_id)
     default = default_effort_for(normalized) if normalized else "medium"
     return True, normalized, default
 

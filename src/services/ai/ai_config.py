@@ -20,6 +20,7 @@ from services.ai.reasoning_effort import (
     OLLAMA_BOOLEAN_LEVELS,
     clamp_effort,
     default_effort_for,
+    fill_gpt5_reasoning_gaps,
     is_boolean_thinking_efforts,
     normalize_efforts,
 )
@@ -32,6 +33,7 @@ _KEY_MODELS = "ai/models"
 _KEY_DEFAULT = "ai/default_model"
 _KEY_CHAT_MODEL = "ai/chat_model_id"
 _KEY_CHAT_SESSION = "ai/chat_session_id"
+_KEY_CHAT_SESSION_CLEARED = "ai/chat_session_cleared"
 _AUTH_KINDS = ("token", "none")
 
 
@@ -204,6 +206,12 @@ class AiConfig:
                 row["reasoning"] = False
                 row["reasoning_efforts"] = []
                 migrated = True
+            elif efforts_tuple:
+                filled = fill_gpt5_reasoning_gaps(normalize_efforts(efforts_tuple), model)
+                if filled != efforts_tuple:
+                    row["reasoning_efforts"] = list(filled)
+                    efforts_tuple = filled
+                    migrated = True
             default_eff = raw_entry.get("reasoning_default")
             if isinstance(default_eff, str) and default_eff.strip():
                 row["reasoning_default"] = default_eff.strip().lower()
@@ -351,10 +359,24 @@ class AiConfig:
         return str(s.value(_KEY_CHAT_SESSION, "") or "").strip()
 
     @staticmethod
-    def set_chat_session_id(session_id: str) -> None:
-        """Persist the active AI chat session id (``""`` to clear)."""
+    def is_chat_session_restore_cleared() -> bool:
+        """Return True after **New chat** cleared the restore target."""
         s = _get_settings()
-        s.setValue(_KEY_CHAT_SESSION, session_id or "")
+        return bool(s.value(_KEY_CHAT_SESSION_CLEARED, False))
+
+    @staticmethod
+    def set_chat_session_id(session_id: str) -> None:
+        """Persist the active chat session id.
+
+        Passing ``""`` marks restore as intentionally blank (**New chat**).
+        """
+        s = _get_settings()
+        if session_id:
+            s.setValue(_KEY_CHAT_SESSION, session_id)
+            s.remove(_KEY_CHAT_SESSION_CLEARED)
+        else:
+            s.remove(_KEY_CHAT_SESSION)
+            s.setValue(_KEY_CHAT_SESSION_CLEARED, True)
         s.sync()
 
     @staticmethod

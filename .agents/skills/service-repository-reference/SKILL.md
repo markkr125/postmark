@@ -268,10 +268,13 @@ All methods are `@staticmethod`.  No database layer.
 | `AiConfig.get_default_model_id()` | Legacy default row id or `""` |
 | `AiConfig.set_default_model_id(model_id)` | Persist/clear legacy default id |
 | `AiConfig.get_chat_model_id()` / `set_chat_model_id(model_id)` | Last AI chat composer model (`ai/chat_model_id`) |
-| `AiConfig.get_chat_session_id()` / `set_chat_session_id(session_id)` | Last active AI chat session (`ai/chat_session_id`; cleared on **New chat**) |
+| `AiConfig.get_chat_session_id()` / `set_chat_session_id(session_id)` | Last active AI chat session (`ai/chat_session_id`; **New chat** sets `ai/chat_session_cleared`; set on session activate, load finish, first send, and window close) |
+| `AiConfig.is_chat_session_restore_cleared()` | True when **New chat** intentionally blanked restore on next startup |
 | `AiConfig.save_all(entries)` | Persist models; clears legacy default id |
 | `AiConfig.set_model_reasoning_effort(model_id, effort)` | Persist per-model reasoning effort (clamped to `reasoning_efforts`) |
 | `chat_reasoning_effort_for_litellm(entry, effort, *, streaming=True)` | Map UI effort to LiteLLM; returns `None` for Ollama + streaming (avoids broken `think` param) |
+| `minimum_reasoning_effort_for(entry)` | Lowest supported reasoning/thinking token for lightweight tasks (title worker) |
+| `fill_gpt5_reasoning_gaps(efforts, model_id)` | GPT-5+ only: insert ``low`` between ``none``/``medium``, ``high`` between ``medium``/``xhigh`` |
 | `chat_reasoning_summary_for_llm(entry, *, usage_id, streaming)` | Return `"detailed"` for streaming `postmark-chat-*` on non-Ollama reasoning models (OpenAI Responses summaries for Thought UI) |
 | `AiLlmService.build_llm(entry, *, stream=False, reasoning_effort=None, run_context_tokens=None, thinking_enabled=None, …)` | Build `openhands.sdk.LLM`; `postmark-chat-*` usage rewrites Ollama models to `ollama_chat/…` (`/api/chat`); passes `reasoning_effort=None` for Ollama chat (overrides OpenHands default `high`); sets `reasoning_summary="detailed"` for OpenAI-style reasoning chat runs; Ollama chat sets `litellm_extra_body` via `ollama_chat_litellm_extra_body` (`num_ctx`, `think`) and `num_retries=0`; Ollama entries set `extra_headers={"Content-Type": "application/json"}` for strict reverse-proxies; resolves Ollama `base_url` |
 | `AiLlmService.test(entry)` | Ping completion; returns `(ok, detail)`; never raises |
@@ -389,7 +392,8 @@ OpenHands SDK disk state under `session_disk_dir(id)`. Worker thread builds
 | `send_snapshot_from_message` / `infer_send_snapshot_fallback` | Restore per-send model/mode/agent for inline edit |
 | `edit_user_message_and_rewind(session_id, user_message_id, new_content, send_snapshot)` | Update user row, delete later messages, rewind SDK disk prefix, sync session composer settings |
 | `delete_message` | Delete one message row and recompute session `last_preview` |
-| `build_conversation(session_id, entry, agent_id, *, callbacks, token_callbacks, composer=None, stream=True)` | OpenHands `Conversation` (worker only); title worker passes `stream=False` |
+| `build_conversation(session_id, entry, agent_id, *, callbacks, token_callbacks, composer=None, stream=True)` | OpenHands `Conversation` (worker only) |
+| `generate_session_title(session_id, entry, *, max_length=50)` | Standalone title LLM from first SQLite user message (`thinking_enabled="off"`, `minimum_reasoning_effort_for`); `usage_id=postmark-chat-title-{session_id}`; no conversation resume |
 | `extract_final_parts(conversation)` / `extract_final_text(conversation)` | Current turn's agent message split into thinking + answer (text = answer only) |
 | `extract_latest_turn_parts(conversation)` / `extract_richest_parts(conversation)` | Richest thinking + answer from the **current turn** only (reverse-scan to last user ``MessageEvent``; fallback = last agent message) |
 | `resolve_assistant_parts(conversation, thinking_buffer, content_buffer)` | Merge current-turn event extraction with per-run stream buffers |
@@ -399,7 +403,11 @@ OpenHands SDK disk state under `session_disk_dir(id)`. Worker thread builds
 | `fork_session_at_user_message(source_session_id, user_message_id)` | New session with prefix **before** the user row (empty + no disk copy when first message); returns ``AiChatUserForkResult`` with ``composer_draft`` = user message text |
 
 TypedDicts: `AiChatSessionDict`, `AiChatMessageDict` (optional `model_id`, `prompt_tokens`, `completion_tokens`, `reasoning_tokens` on assistant rows; optional `send_*` fields on user rows), `UserMessageSendSnapshot`, `AiChatUserForkResult` (`session`, `composer_draft`). Agent/tool registries:
-`PostmarkAgentDef`, `DEFAULT_AGENT_ID` (`postmark-assistant`, no tools in v1).
+`PostmarkAgentDef`, `DEFAULT_AGENT_ID` (`postmark-assistant`, `postmark_wiki_query` tool, `max_iteration_per_run=5`).
+
+| Tool | Module | Purpose |
+|------|--------|---------|
+| `postmark_wiki_query` | `services/ai/chat/tools/wiki_query.py` | Read-only user KB lookup (`execute_wiki_query` in `app_wiki/query.py`) |
 
 ### ContextUsageService (`services/ai/chat/context_usage.py`, SDK helpers in `context_usage_sdk.py`)
 

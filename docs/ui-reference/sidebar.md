@@ -131,6 +131,7 @@ When the AI panel is open, the flyout header is three stacked rows **above**
 1. **Headline** — ``sidebarTitleLabel`` (static **AI assistant**) plus **gear** on the right.
 2. **Conversation title** — text-hugging ``aiChatSessionTitleInline`` (``aiChatSessionTitle`` +
    hover pencil) inside ``aiChatSessionTitleBar``; elided single line with full-text tooltip on
+   hover (legacy 48-char DB previews are repaired from the first user message on load);
    the left; when any sessions have in-flight agent runs, an accent ``aiChatActiveRunsBadge``
    pill (``{n} active``) appears before the **session history** (clock, checkable
    ``iconButton`` — selected while the history popover is open) and **new chat** (plus icon) ``iconButton``s on the right. Hover shows a
@@ -153,9 +154,10 @@ loads the session. Sessions load asynchronously via ``SessionListLoader`` when
 the popover opens; search re-queries ``AiChatSessionService.list_sessions(search=…)``
 off the GUI thread. The row for the **currently open** session is highlighted via
 ``ACTIVE_SESSION_ROLE`` in the list model. New chat
-clears the transcript and persisted ``ai/chat_session_id`` (SQLite row created
-on first send). On startup, ``MainWindow`` reloads the last active session from
-``ai/chat_session_id`` when set. The gear emits ``RightSidebar.ai_settings_requested``;
+clears the transcript and marks restore as blank via ``ai/chat_session_cleared``
+(SQLite row created on first send, which also writes ``ai/chat_session_id``).
+On startup, ``MainWindow`` reloads the stored session, or the latest session
+when no id was ever persisted (legacy). The gear emits ``RightSidebar.ai_settings_requested``;
 ``MainWindow`` opens Settings on the **AI** category and refreshes the model
 picker when the dialog closes.
 

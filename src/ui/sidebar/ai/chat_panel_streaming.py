@@ -450,8 +450,6 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
         self._stream_layout_flush_in_progress = False
         self._messages.updateGeometry()
         self._scroll.updateGeometry()  # type: ignore[attr-defined]
-        self._apply_streaming_viewport_spacer()  # type: ignore[attr-defined]
-
         if self._open_stream_generation > 0 and self._scroll_lock_enabled:  # type: ignore[attr-defined]
             self._queue_stream_follow_passes()  # type: ignore[attr-defined]
         self._invalidate_sticky_extents()  # type: ignore[attr-defined]

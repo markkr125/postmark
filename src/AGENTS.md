@@ -86,7 +86,10 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   `SnippetGenerator` follow the same `@staticmethod` pattern.
 - **`services/ai`** — `AiConfig` persists configured LLM models in QSettings
   (`ai/models` JSON list; `ai/chat_model_id` for composer selection;
-  `ai/chat_session_id` for last active chat session; legacy
+  `ai/chat_session_id` for last active chat session (written on first send,
+  session activate, load finish, and window close; **New chat** sets
+  `ai/chat_session_cleared`; when no id was ever saved, startup falls back to
+  the latest session); legacy
   `ai/default_model` cleared on save). `AiModelEntry` TypedDict
   holds per-row metadata (`label` = model name, `provider_display_name` =
   provider group header, `enabled` default false, `context`, `text`, `insert`,
@@ -152,8 +155,10 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   `edit_user_message_and_rewind` updates the user row, deletes later messages,
   and rewinds SDK disk state before the controller resubmits on the same bubble.
   Postmark agent/tool registries
-  (`agent_registry.py`, `tool_registry.py`) ship `DEFAULT_AGENT_ID` with no
-  custom tools in v1.
+  (`agent_registry.py`, `tool_registry.py`, `tools/wiki_query.py`) ship
+  `DEFAULT_AGENT_ID` with `postmark_wiki_query` (reads `docs/user-guide/` +
+  allowlisted `docs/scripting/` via `app_wiki/query.py`; index in
+  `data/app-wiki/index.md`). `max_iteration_per_run` is 5 for wiki tool loops.
   MainWindow wiring: `_AiChatControllerMixin` (`ai_chat_controller.py`) with
   `_AiChatRunsMixin`, `_AiChatTurnFinalizeMixin`, `_AiChatTitleMixin`.
   Settings UI: tree branch **AI** (overview) → **Models** and **Budgets** children;

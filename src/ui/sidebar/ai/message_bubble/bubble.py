@@ -568,6 +568,17 @@ class ChatMessageBubble(QWidget):
         anchor_y, delta_px = compensation
         panel._compensate_scroll_for_messages_growth(self, anchor_y, delta_px)  # type: ignore[attr-defined]
 
+    def _scroll_locked_stream_active(self) -> bool:
+        """Return whether auto-follow is driving the viewport for an active stream."""
+        panel = self._ancestor_chat_panel()
+        if panel is None:
+            return False
+        return bool(
+            self.is_content_streaming()
+            and getattr(panel, "_scroll_lock_enabled", False)
+            and getattr(panel, "_open_stream_generation", 0) > 0
+        )
+
     def _on_thought_layout_changed(self) -> None:
         """Propagate thought expand/collapse to the transcript scroll layer."""
         if self._defer_layout_height_changed:
@@ -578,7 +589,8 @@ class ChatMessageBubble(QWidget):
         else:
             self._commit_stream_row_layout()
         self.updateGeometry()
-        self._apply_row_scroll_compensation()
+        if not self._scroll_locked_stream_active():
+            self._apply_row_scroll_compensation()
         self.layout_height_changed.emit()
 
     def _on_user_message_layout_changed(self) -> None:

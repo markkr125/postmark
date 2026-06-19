@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from services.ai.ops.model_metadata import litellm_reasoning
 from services.ai.reasoning_effort import (
+    fill_gpt5_reasoning_gaps,
     ollama_reasoning_from_show,
     ollama_thinking_from_show,
 )
@@ -44,6 +45,49 @@ def test_litellm_reasoning_with_levels() -> None:
     assert "low" in efforts
     assert "high" in efforts
     assert default == "medium"
+
+
+def test_litellm_reasoning_gpt5_none_medium_injects_low() -> None:
+    """GPT-5 with none+medium flags gets ``low`` inserted between them."""
+    fake = MagicMock()
+    fake.supports_reasoning.return_value = True
+
+    def fake_get_model_info(model: str) -> dict[str, bool]:
+        return {"supports_none_reasoning_effort": True}
+
+    with (
+        patch("litellm.get_model_info", fake_get_model_info),
+        patch("litellm.supports_reasoning", return_value=True),
+    ):
+        ok, efforts, default = litellm_reasoning("openai/gpt-5")
+    assert ok is True
+    assert efforts == ("none", "low", "medium")
+    assert default == "medium"
+
+
+def test_litellm_reasoning_gpt5_medium_xhigh_injects_high() -> None:
+    """GPT-5 with medium+xhigh flags gets ``high`` inserted between them."""
+    fake = MagicMock()
+    fake.supports_reasoning.return_value = True
+
+    def fake_get_model_info(model: str) -> dict[str, bool]:
+        return {
+            "supports_none_reasoning_effort": True,
+            "supports_xhigh_reasoning_effort": True,
+        }
+
+    with (
+        patch("litellm.get_model_info", fake_get_model_info),
+        patch("litellm.supports_reasoning", return_value=True),
+    ):
+        ok, efforts, _default = litellm_reasoning("openai/gpt-5.4-mini")
+    assert ok is True
+    assert efforts == ("none", "low", "medium", "high", "xhigh")
+
+
+def test_fill_gpt5_reasoning_gaps_ignores_non_gpt5() -> None:
+    """Gap fill applies only to GPT-5 family models."""
+    assert fill_gpt5_reasoning_gaps(("none", "medium"), "openai/gpt-4o") == ("none", "medium")
 
 
 def test_litellm_reasoning_import_error() -> None:

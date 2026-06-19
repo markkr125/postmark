@@ -19,7 +19,11 @@ from services.ai.chat.compaction import (
     CHAT_CONDENSER_MINIMUM_PROGRESS,
     condenser_max_tokens,
 )
-from services.ai.chat.session_service import AiChatSessionService, UserMessageSendSnapshot
+from services.ai.chat.session_service import (
+    AiChatSessionService,
+    UserMessageSendSnapshot,
+    _TITLE_PREVIEW_LEN,
+)
 
 
 def _entry(**kw: object) -> AiModelEntry:
@@ -153,6 +157,41 @@ class _FakeConversation:
 
     def __init__(self, events: list[object]) -> None:
         self.state = types.SimpleNamespace(events=events)
+
+
+def test_flyout_title_repairs_legacy_preview_and_returns_full_first_message() -> None:
+    """Flyout header expands old 48-char preview titles from the first user message."""
+    session_id = str(uuid.uuid4())
+    long_message = (
+        "how do i create scripts in this app? can you give an example for a pre request script?"
+    )
+    legacy_title = long_message[: _TITLE_PREVIEW_LEN - 1] + "…"
+    create_session(session_id=session_id, title=legacy_title, model_id="m1", mode="agent")
+    AiChatSessionService.record_user_message(session_id, long_message)
+
+    display = AiChatSessionService.flyout_title_for_session(session_id)
+    assert display == long_message
+    row = AiChatSessionService.get_session(session_id)
+    assert row is not None
+    assert row["title"] == long_message
+
+
+def test_flyout_title_respects_user_rename() -> None:
+    """After manual rename, flyout shows the stored title instead of the first message."""
+    session_id = str(uuid.uuid4())
+    create_session(session_id=session_id, title="Custom", model_id="m1", mode="agent")
+    AiChatSessionService.record_user_message(session_id, "A much longer first user message here")
+
+    assert AiChatSessionService.flyout_title_for_session(session_id, user_renamed=True) == "Custom"
+
+
+def test_new_session_title_stores_full_first_message() -> None:
+    """Initial session title keeps the full first user message (not a 48-char preview)."""
+    long_message = (
+        "how do i create scripts in this app? can you give an example for a pre request script?"
+    )
+    session = AiChatSessionService.new_session(_entry(), "agent", first_message=long_message)
+    assert session["title"] == long_message
 
 
 def test_new_session_and_messages() -> None:
@@ -296,8 +335,10 @@ def test_build_conversation_passes_sdk_contract(
     assert kw["callbacks"] == [event_cb]
 
     agent_kw = captured["agent_kw"]
-    assert agent_kw["tools"] == []
+    assert len(agent_kw["tools"]) == 1
+    assert agent_kw["tools"][0].name == "postmark_wiki_query"
     assert agent_kw["system_prompt"]
+    assert "postmark_wiki_query" in agent_kw["system_prompt"]
     assert agent_kw["include_default_tools"] == []
     assert agent_kw["condenser"] is not None
     assert agent_kw["condenser"].max_size == CHAT_CONDENSER_MAX_EVENTS
@@ -305,8 +346,54 @@ def test_build_conversation_passes_sdk_contract(
     assert agent_kw["condenser"].minimum_progress == CHAT_CONDENSER_MINIMUM_PROGRESS
     assert agent_kw["llm"].stream is True
     assert agent_kw["condenser"].llm.stream is False
-    assert kw["max_iteration_per_run"] == 3
+    assert kw["max_iteration_per_run"] == 5
     assert conv is not None
+
+
+def test_generate_session_title_uses_first_user_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Title generation reads the first user message; no tools, thinking off."""
+    import services.ai.chat.session_service as svc_mod
+
+    captured: dict[str, object] = {}
+
+    def _fake_build_llm(*_args: object, **kwargs: object) -> object:
+        captured["thinking_enabled"] = kwargs.get("thinking_enabled")
+        captured["reasoning_effort"] = kwargs.get("reasoning_effort")
+        captured["stream"] = kwargs.get("stream")
+        captured["usage_id"] = kwargs.get("usage_id")
+        return object()
+
+    monkeypatch.setattr(svc_mod.AiLlmService, "build_llm", staticmethod(_fake_build_llm))
+
+    import openhands.sdk.conversation.title_utils as title_utils
+
+    def _fake_title(message: str, _llm: object, max_length: int = 50) -> str:
+        _ = max_length
+        return f"Title: {message[:12]}"
+
+    monkeypatch.setattr(title_utils, "generate_title_from_message", _fake_title)
+
+    session_id = str(uuid.uuid4())
+    create_session(session_id=session_id, title="x", model_id="m1", mode="agent")
+    AiChatSessionService.record_user_message(session_id, "How do I create a collection?")
+
+    title = AiChatSessionService.generate_session_title(session_id, _entry())
+    assert title == "Title: How do I cre"
+    assert captured["thinking_enabled"] == "off"
+    assert captured["reasoning_effort"] == "off"
+    assert captured["stream"] is False
+    # Chat usage prefix so Ollama tuning (num_retries=0, ollama_chat routing) applies.
+    assert str(captured["usage_id"]).startswith("postmark-chat")
+
+
+def test_generate_session_title_requires_user_message() -> None:
+    """No user message raises a clear error before any SDK call."""
+    session_id = str(uuid.uuid4())
+    create_session(session_id=session_id, title="x", model_id="m1", mode="agent")
+    with pytest.raises(ValueError, match="No user message"):
+        AiChatSessionService.generate_session_title(session_id, _entry())
 
 
 def test_build_conversation_uses_model_context_for_condenser(
@@ -347,9 +434,19 @@ def test_build_conversation_uses_model_context_for_condenser(
 
 
 def test_resolve_restore_session_id_returns_none_when_unset() -> None:
-    """An empty stored id means the composer should start blank."""
+    """An explicit **New chat** clear leaves the composer blank on restart."""
     AiConfig.set_chat_session_id("")
+    assert AiConfig.is_chat_session_restore_cleared()
     assert AiChatSessionService.resolve_restore_session_id() is None
+
+
+def test_resolve_restore_session_id_falls_back_when_never_persisted() -> None:
+    """Legacy sessions with no stored id still reopen the latest chat."""
+    session_id = str(uuid.uuid4())
+    create_session(session_id=session_id, title="Latest", model_id="m1", mode="agent")
+    assert AiConfig.get_chat_session_id() == ""
+    assert not AiConfig.is_chat_session_restore_cleared()
+    assert AiChatSessionService.resolve_restore_session_id() == session_id
 
 
 def test_resolve_restore_session_id_returns_stored() -> None:

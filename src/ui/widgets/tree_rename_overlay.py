@@ -6,24 +6,29 @@ from collections.abc import Callable
 
 from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtGui import QKeyEvent, QMouseEvent
-from PySide6.QtWidgets import QApplication, QLineEdit
+from PySide6.QtWidgets import QApplication, QWidget
 from shiboken6 import Shiboken
 
 
 class TreeRenameClickAway(QObject):
-    """Commit or cancel a single active rename ``QLineEdit`` on outside click / Escape."""
+    """Commit or cancel a single active rename editor on outside click / Escape.
+
+    The tracked editor is any ``QWidget`` (a ``QLineEdit`` in the collection
+    tree, a ``QPlainTextEdit`` for AI session-title rename); only generic widget
+    API is used.
+    """
 
     def __init__(self, parent: QObject | None = None) -> None:
         """Install an application-wide event filter when the app exists."""
         super().__init__(parent)
-        self._line_edit: QLineEdit | None = None
+        self._line_edit: QWidget | None = None
         self._on_commit: Callable[[], None] | None = None
         self._on_cancel: Callable[[], None] | None = None
         app = QApplication.instance()
         if app is not None:
             app.installEventFilter(self)
 
-    def _valid_edit(self) -> QLineEdit | None:
+    def _valid_edit(self) -> QWidget | None:
         """Return the active editor when its C++ object is still alive."""
         edit = self._line_edit
         if edit is None or not Shiboken.isValid(edit):
@@ -38,7 +43,7 @@ class TreeRenameClickAway(QObject):
 
     def arm(
         self,
-        line_edit: QLineEdit,
+        line_edit: QWidget,
         *,
         on_commit: Callable[[], None],
         on_cancel: Callable[[], None],

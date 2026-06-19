@@ -80,9 +80,9 @@ class AiChatSessionTitle(QWidget):
         self._rename_edit: QLineEdit | None = None
         self._click_away: TreeRenameClickAway | None = None
 
-        slot_layout = QHBoxLayout(self)
-        slot_layout.setContentsMargins(0, 0, 0, 0)
-        slot_layout.setSpacing(0)
+        self._slot_layout = QHBoxLayout(self)
+        self._slot_layout.setContentsMargins(0, 0, 0, 0)
+        self._slot_layout.setSpacing(0)
 
         self._inline = _AiChatSessionTitleInline(
             self._set_hovered,
@@ -121,15 +121,14 @@ class AiChatSessionTitle(QWidget):
         self._inline_layout.addWidget(self._label, 0)
         self._inline_layout.addWidget(self._pencil_slot, 0)
 
-        slot_layout.addWidget(
+        self._slot_layout.addWidget(
             self._inline,
             0,
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
         )
-        slot_layout.addStretch(1)
+        self._slot_layout.addStretch(1)
 
-        self._label.setToolTip(self._full_text)
-        self._inline.setToolTip(self._full_text)
+        self._apply_tooltips()
         self._apply_elide()
 
     def set_full_text(self, title: str) -> None:
@@ -138,8 +137,7 @@ class AiChatSessionTitle(QWidget):
             return
         cleaned = title.strip()
         self._full_text = cleaned or _AI_SESSION_TITLE_PLACEHOLDER
-        self._label.setToolTip(self._full_text)
-        self._inline.setToolTip(self._full_text)
+        self._apply_tooltips()
         self._apply_elide()
 
     def set_rename_enabled(self, enabled: bool) -> None:
@@ -150,8 +148,8 @@ class AiChatSessionTitle(QWidget):
     def resizeEvent(self, event: QResizeEvent) -> None:
         """Re-elide when the flyout width changes."""
         super().resizeEvent(event)
-        if self._editing:
-            self._inline.setFixedWidth(max(0, self.width()))
+        if self._editing and self._rename_edit is not None:
+            self._rename_edit.setMinimumWidth(self._rename_edit_width())
             return
         self._apply_elide()
 
@@ -181,25 +179,29 @@ class AiChatSessionTitle(QWidget):
         for widget in (self._inline, self._label, self._pencil_slot, self._pencil):
             widget.setCursor(cursor)
 
+    def _rename_edit_width(self) -> int:
+        """Return the width available for the full-width rename editor."""
+        return max(120, self.width())
+
     def _begin_rename(self) -> None:
-        """Swap the elided label for an inline editor."""
+        """Swap the elided label for a full-width inline editor."""
         if not self._rename_enabled or self._editing:
             return
         self._editing = True
         self._pre_edit_text = self._full_text
         self._inline.set_click_enabled(False)
-        self._pencil.hide()
+        self._inline.hide()
 
-        edit = QLineEdit(self._inline)
+        edit = QLineEdit(self)
         edit.setObjectName("aiChatSessionTitleEdit")
+        edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         edit_text = self._full_text
         if edit_text == _AI_SESSION_TITLE_PLACEHOLDER:
             edit_text = ""
         edit.setText(edit_text)
+        edit.setMinimumWidth(self._rename_edit_width())
         self._rename_edit = edit
-        self._label.hide()
-        self._inline_layout.insertWidget(0, edit, 1)
-        self._inline.setFixedWidth(max(0, self.width()))
+        self._slot_layout.insertWidget(0, edit, 1)
         edit.selectAll()
         edit.setFocus()
         self._arm_rename_edit(edit)
@@ -253,11 +255,20 @@ class AiChatSessionTitle(QWidget):
         self._editing = False
         self._rename_edit = None
         if edit is not None:
-            self._inline_layout.removeWidget(edit)
+            self._slot_layout.removeWidget(edit)
             edit.deleteLater()
-        self._label.show()
+        self._inline.show()
+        self._pencil.hide()
         self._inline.set_click_enabled(self._rename_enabled)
+        self._inline.setMinimumWidth(0)
+        self._inline.setMaximumWidth(16777215)
         self._apply_elide()
+
+    def _apply_tooltips(self) -> None:
+        """Expose the full stored title on hover."""
+        self.setToolTip(self._full_text)
+        self._label.setToolTip(self._full_text)
+        self._inline.setToolTip(self._full_text)
 
     def _apply_elide(self) -> None:
         """Elide the title and shrink the inline group to the visible text width."""

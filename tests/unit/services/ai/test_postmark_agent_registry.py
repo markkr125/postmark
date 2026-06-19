@@ -15,9 +15,11 @@ from services.ai.chat.tool_registry import resolve_tools
 def test_default_agent_registered() -> None:
     """The default Postmark assistant agent is always present."""
     defn = get_agent_def(DEFAULT_AGENT_ID)
-    assert defn.tool_names == ()
+    assert defn.tool_names == ("postmark_wiki_query",)
     assert defn.include_default_tools == ()
     assert defn.system_prompt
+    assert "postmark_wiki_query" in defn.system_prompt
+    assert defn.max_iteration_per_run == 5
     assert DEFAULT_AGENT_ID in {d.id for d in list_agent_defs()}
 
 

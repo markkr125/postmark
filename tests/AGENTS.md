@@ -247,6 +247,9 @@ tests/
 │       │   ├── test_session_transcript_window.py  # Tail/older turn slicing
 │       │   ├── test_llm_service.py
 │       │   ├── test_postmark_agent_registry.py
+│       │   ├── test_build_app_wiki.py
+│       │   ├── test_wiki_query_tool.py
+│       │   ├── test_pm_api_quickref.py
 │       │   ├── test_provider_ops.py
 │       │   ├── test_model_filters.py
 │       │   ├── test_model_metadata.py
@@ -292,6 +295,7 @@ tests/
     ├── conftest.py                # _no_fetch (autouse) + helper functions
    ├── main_window/
    │   └── test_ai_chat_controller.py  # AI chat controller + concurrent run registry paths
+   │   └── test_main_window_ai_session_restore.py  # Persist + reopen last chat session on startup
    │   └── test_ai_chat_registry_streaming.py  # E2E registry→controller→panel incremental streaming
    │   └── test_ai_concurrent_runs.py  # E2E New chat / session switch + parallel send flows
    │   └── test_session_history_switch.py  # MainWindow session history switch during transcript load

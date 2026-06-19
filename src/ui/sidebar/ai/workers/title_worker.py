@@ -39,36 +39,18 @@ class AiChatTitleWorker(QObject):
 
     @Slot()
     def run(self) -> None:
-        """Build a conversation and call ``generate_title()``."""
-        conv = None
+        """Generate a title from the first user message (no conversation resume)."""
         try:
             entry = self._entry
             if entry is None or not self._session_id:
                 self.failed.emit("Title worker not configured")
                 return
-            conv = AiChatSessionService.build_conversation(
-                self._session_id,
-                entry,
-                self._agent_id,
-                stream=False,
-            )
-            title = conv.generate_title()
+            title = AiChatSessionService.generate_session_title(self._session_id, entry)
             cleaned = title.strip() if isinstance(title, str) else ""
-            if conv is not None:
-                try:
-                    conv.close()
-                except Exception:
-                    logger.exception("AI title conversation close failed")
-                conv = None
             if cleaned:
                 self.title_ready.emit(cleaned)
             else:
                 self.failed.emit("Empty title")
         except Exception as exc:
             logger.exception("AI title generation failed")
-            if conv is not None:
-                try:
-                    conv.close()
-                except Exception:
-                    logger.exception("AI title conversation close failed")
             self.failed.emit(str(exc))

@@ -29,11 +29,13 @@ After any code change, review and update:
    widgets, parsers
 7. **`AGENTS.md` files** — stale references to renamed or deleted code
 8. **Docs pages** — affected API reference, UI reference, or guide pages
+9. **App wiki** — when user-visible workflows change, update [`docs/user-guide/`](../user-guide/) per [`AGENTS.md`](../user-guide/AGENTS.md); run `poetry run python scripts/build_app_wiki.py`; commit `data/app-wiki/`; run `python scripts/check_md_links.py`
 
 ## Which Docs Pages to Update
 
 | Change | Pages to Update |
 |--------|-----------------|
+| User-visible UI workflow | `docs/user-guide/**/*.md` (+ rebuild app wiki) |
 | New repository function | `api-reference/database/*.md` |
 | New service method | `api-reference/services/*.md` |
 | New TypedDict | `api-reference/typedicts.md` |

@@ -26,45 +26,8 @@ class _AiChatTitleMixin:
     _manual_ai_session_titles: set[str]
 
     def _maybe_generate_session_title(self, session_id: str) -> None:
-        """Generate a title off-GUI after the first user/assistant exchange."""
-        messages = AiChatSessionService.get_messages(session_id)
-        if len(messages) != 2:
-            return
-
-        session = AiChatSessionService.get_session(session_id)
-        if session is None:
-            return
-
-        entry = self._right_sidebar.ai_chat_panel.current_model_entry()
-        if entry is None:
-            return
-        if self._ai_title_thread is not None and self._ai_title_thread.isRunning():
-            return
-
-        self._title_run_session_id = session_id
-        worker = AiChatTitleWorker()
-        worker.set_run(
-            session_id=session_id,
-            entry=entry,
-            agent_id=session["agent_id"],
-        )
-        thread = QThread()
-        worker.moveToThread(thread)
-        thread.started.connect(worker.run)
-        queued = Qt.ConnectionType.QueuedConnection
-        worker.title_ready.connect(self._deliver_ai_title_worker_ready, queued)
-        worker.title_ready.connect(thread.quit, queued)
-        worker.failed.connect(thread.quit, queued)
-        self._ai_title_thread_generation += 1
-        title_generation = self._ai_title_thread_generation
-        thread.finished.connect(
-            lambda t=thread, w=worker, g=title_generation: self._release_ai_title_thread(t, w, g),
-            queued,
-        )
-
-        self._ai_title_thread = thread
-        self._ai_title_worker = worker
-        thread.start()
+        """No-op: flyout header uses the full first user message; history rows elide locally."""
+        _ = session_id
 
     @Slot(str)
     def _deliver_ai_title_worker_ready(self, title: str) -> None:

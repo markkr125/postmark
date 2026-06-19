@@ -58,6 +58,31 @@ def normalize_efforts(values: tuple[str, ...] | list[str]) -> tuple[str, ...]:
     return tuple(ordered)
 
 
+def is_gpt5_plus_model(model_id: str) -> bool:
+    """True for OpenAI GPT-5 family models (``gpt-5``, ``gpt-5.4-mini``, etc.)."""
+    bare = model_id.split("/", 1)[-1].lower()
+    return bare.startswith("gpt-5") or bare.startswith("gpt5")
+
+
+def fill_gpt5_reasoning_gaps(
+    efforts: tuple[str, ...],
+    model_id: str,
+) -> tuple[str, ...]:
+    """Inject intermediate GPT-5 leveled efforts that LiteLLM flags omit.
+
+    - ``none`` then ``medium`` without ``low`` → insert ``low``
+    - ``medium`` then ``xhigh`` without ``high`` → insert ``high``
+    """
+    if not is_gpt5_plus_model(model_id) or not efforts:
+        return efforts
+    expanded = list(efforts)
+    if "none" in expanded and "medium" in expanded and "low" not in expanded:
+        expanded.append("low")
+    if "medium" in expanded and "xhigh" in expanded and "high" not in expanded:
+        expanded.append("high")
+    return normalize_efforts(tuple(expanded))
+
+
 def default_effort_for(efforts: tuple[str, ...]) -> str:
     """Pick a sensible default from *efforts* (prefer ``medium``)."""
     if not efforts:
@@ -70,6 +95,27 @@ def default_effort_for(efforts: tuple[str, ...]) -> str:
         return "off"
     mid = len(efforts) // 2
     return efforts[mid]
+
+
+def minimum_reasoning_effort_for(entry: AiModelEntry | dict[str, object]) -> str:
+    """Return the lowest supported reasoning/thinking effort for *entry*.
+
+    Used for lightweight tasks (e.g. session title generation) where thinking
+    should be off and any leveled reasoning should be minimized.
+    """
+    if is_ollama_harmony_model(entry):
+        return OLLAMA_HARMONY_LEVELS[0]
+    levels = leveled_reasoning_efforts(entry)
+    if levels:
+        return normalize_efforts(levels)[0]
+    raw = entry.get("reasoning_efforts")
+    if isinstance(raw, list) and raw:
+        efforts = tuple(
+            str(e).strip().lower() for e in raw if isinstance(e, str) and str(e).strip()
+        )
+        if efforts:
+            return normalize_efforts(efforts)[0]
+    return "off"
 
 
 def clamp_effort(effort: str | None, efforts: tuple[str, ...], default: str) -> str:
@@ -246,10 +292,13 @@ __all__ = [
     "chat_reasoning_summary_for_llm",
     "clamp_effort",
     "default_effort_for",
+    "fill_gpt5_reasoning_gaps",
     "format_reasoning_effort",
     "is_boolean_thinking_efforts",
+    "is_gpt5_plus_model",
     "is_ollama_harmony_model",
     "leveled_reasoning_efforts",
+    "minimum_reasoning_effort_for",
     "normalize_efforts",
     "ollama_chat_litellm_extra_body",
     "ollama_reasoning_from_show",

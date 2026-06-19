@@ -29,6 +29,10 @@
 >    signals, TypedDicts, widgets, parsers, or architectural patterns.
 >    Update [`docs/AGENTS.md`](docs/AGENTS.md) when documentation authoring rules change.
 >    See `docs/contributing/updating-docs.md` for the full checklist.
+> 9. **App wiki** — when user-visible workflows or allowlisted scripting docs change,
+>    update [`docs/user-guide/`](docs/user-guide/) per [`docs/user-guide/AGENTS.md`](docs/user-guide/AGENTS.md),
+>    run `poetry run python scripts/build_app_wiki.py`, commit `data/app-wiki/`,
+>    and run `python scripts/check_md_links.py`.
 
 This file and the nested `AGENTS.md` files below form a single source of
 truth.
@@ -142,10 +146,14 @@ docs/                              # Project documentation (see docs/README.md)
 │   ├── database/                  # ORM models, repository functions
 │   └── services/                  # Service methods, HTTP, auth, parsers
 ├── ui-reference/                  # Widget classes, styling, navigation
-├── guides/                        # How-to guides (import parser, auth, widget, tests, signals)
+├── guides/                        # How-to guides (import parser, auth, widget, tests, signals, app-wiki)
+├── user-guide/                    # End-user how-to (in-app AI knowledge base source)
 └── contributing/                  # Coding conventions, testing, updating docs
 data/
+├── app-wiki/                      # Generated index + WIKI.md + scripting-api quickref (build_app_wiki.py)
 └── snippets/                      # Script editor snippet JSON (javascript, python; see README.md)
+scripts/
+└── build_app_wiki.py              # Regenerate data/app-wiki/ from docs/user-guide + allowlisted scripting
 src/
 ├── main.py                        # Entry point — configure_before_qapplication + QApplication + init_db()
 ├── qt_app_init.py                 # Hi-DPI bootstrap (before first QApplication; tests + app)
@@ -214,8 +222,16 @@ src/
 │   │   ├── ops/                   # setup_provider, fetch_provider_models, model_metadata
 │   │   ├── llm_service.py         # AiLlmService — build/test openhands.sdk.LLM
 │   │   └── chat/                  # Multi-session AI chat (OpenHands Conversation)
-│   │       ├── agent_registry.py  # PostmarkAgentDef + DEFAULT_AGENT_ID
+│   │       ├── agent_registry.py  # PostmarkAgentDef + DEFAULT_AGENT_ID + postmark_wiki_query
 │   │       ├── tool_registry.py   # register_postmark_tool / resolve_tools
+│   │       ├── app_wiki/          # User KB paths, index build, query executor
+│   │       │   ├── config.py      # Allowlisted doc roots + SCRIPTING_ALLOWLIST
+│   │       │   ├── build_index.py # Generate data/app-wiki/index.md
+│   │       │   ├── quickref.py    # scripting-api quickref from pm.d.ts/pm.pyi
+│   │       │   ├── query.py       # execute_wiki_query (read-only)
+│   │       │   └── schema.py      # WIKI.md body for tool workflow
+│   │       ├── tools/             # OpenHands custom tools
+│   │       │   └── wiki_query.py  # postmark_wiki_query Action/Observation/Executor
 │   │       ├── response_text.py   # Turn-scoped thinking/answer extraction from SDK messages + stream chunks
 │   │       ├── compaction.py      # CHAT_CONDENSER_MAX_* constants for LLMSummarizingCondenser
 │   │       ├── context_usage.py   # ContextUsageService + breakdown TypedDicts + SQLite fallback
@@ -665,6 +681,9 @@ tests/
 │       │   ├── test_message_usage.py
 │       │   ├── test_session_transcript_window.py
 │       │   ├── test_postmark_agent_registry.py
+│       │   ├── test_build_app_wiki.py
+│       │   ├── test_wiki_query_tool.py
+│       │   ├── test_pm_api_quickref.py
 │       │   ├── test_model_metadata.py
 │       │   └── test_llm_service.py
 │       └── http/                  # HTTP service tests
@@ -680,9 +699,10 @@ tests/
     ├── conftest.py                # _no_fetch (autouse) + helpers
     ├── main_window/
     │   └── test_ai_chat_controller.py  # AI chat controller + concurrent run registry paths
-    │   └── test_ai_chat_controller.py # AI chat controller stop/fail finalize paths
+    │   └── test_main_window_ai_session_restore.py  # Persist + reopen last chat session on startup
     │   └── test_ai_chat_registry_streaming.py # E2E incremental streaming via ChatRunRegistry
     │   └── test_ai_concurrent_runs.py  # E2E concurrent runs: New chat, session switch, docked send
+    │   └── test_session_history_switch.py  # MainWindow session history switch during transcript load
     ├── test_main_window.py
     ├── test_main_window_tabs_navigation.py # Wrapped tab deck shortcuts + search tests
     ├── test_main_window_tab_nav_history.py # Go menu tab activation back/forward

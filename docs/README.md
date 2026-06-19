@@ -19,6 +19,13 @@
 | [Installation](getting-started/installation.md) | Prerequisites, Poetry setup, dev dependencies |
 | [Running](getting-started/running.md) | Launch the app, dev commands, VS Code task |
 
+### User Guide (end users)
+
+| Page | Description |
+|------|-------------|
+| [User Guide index](user-guide/README.md) | How to use Postmark — collections, scripts, settings, AI chat |
+| [Maintainer: app wiki](guides/app-wiki.md) | Rebuild `data/app-wiki/`, tool sources, sync checklist |
+
 ### Architecture
 
 | Page | Description |

@@ -66,7 +66,7 @@ from services.ai.chat.transcript_window import (
 )
 from services.ai.llm_service import AiLlmService, resolve_llm_base_url
 from services.ai.provider_catalog import effective_run_context_tokens
-from services.ai.reasoning_effort import _is_ollama_model
+from services.ai.reasoning_effort import _is_ollama_model, minimum_reasoning_effort_for
 
 if TYPE_CHECKING:
     from openhands.sdk import BaseConversation
@@ -186,16 +186,81 @@ def _allow_short_context_when_needed(entry: AiModelEntry):
             os.environ[key] = prev
 
 
-def _fallback_title(text: str) -> str:
-    """Truncate the first user message for a session title."""
+_SESSION_TITLE_MAX_LEN = 255
+
+
+def _preview_snippet(text: str) -> str:
+    """Truncate text for ``last_preview`` and history snippets."""
     stripped = text.strip().replace("\n", " ")
     if len(stripped) <= _TITLE_PREVIEW_LEN:
-        return stripped or "New chat"
+        return stripped
     return stripped[: _TITLE_PREVIEW_LEN - 1] + "…"
+
+
+def _session_title_from_message(text: str) -> str:
+    """Derive the initial session title from the first user message (full text, capped at DB width)."""
+    stripped = text.strip().replace("\n", " ")
+    if not stripped:
+        return "New chat"
+    if len(stripped) <= _SESSION_TITLE_MAX_LEN:
+        return stripped
+    return stripped[:_SESSION_TITLE_MAX_LEN]
+
+
+def _first_user_message_text(session_id: str) -> str:
+    """Return the first non-empty user message in *session_id*."""
+    for row in list_messages(session_id):
+        if row.get("role") != "user":
+            continue
+        content = str(row.get("content") or "").strip()
+        if content:
+            return content
+    return ""
+
+
+def is_legacy_preview_title(title: str, first_message: str) -> bool:
+    """Return whether *title* is the old 48-character preview chop of *first_message*."""
+    stored = title.strip()
+    if not stored:
+        return False
+    first_line = first_message.strip().replace("\n", " ")
+    if not first_line or stored == first_line:
+        return False
+    if stored == _preview_snippet(first_line):
+        return True
+    if stored.endswith("...") and first_line.startswith(stored[:-3].rstrip()):
+        return True
+    trimmed = stored.rstrip("…").rstrip(".")
+    return len(stored) <= _TITLE_PREVIEW_LEN + 3 and first_line.startswith(trimmed)
+
+
+def _resolve_flyout_title(session_id: str, *, user_renamed: bool = False) -> str:
+    """Return the title shown in the flyout header (full first prompt unless user renamed)."""
+    session_row = get_session_by_id(session_id)
+    if session_row is None:
+        return "New chat"
+    stored = str(session_row.get("title") or "").strip()
+    first_user = _first_user_message_text(session_id)
+    full_first = _session_title_from_message(first_user) if first_user else ""
+
+    if user_renamed and stored:
+        return stored
+
+    if first_user:
+        if is_legacy_preview_title(stored, first_user) and stored != full_first:
+            rename_session(session_id, full_first)
+        return full_first
+
+    return stored or "New chat"
 
 
 class AiChatSessionService:
     """Bridge between the UI, SQLite index, and OpenHands Conversation."""
+
+    @staticmethod
+    def flyout_title_for_session(session_id: str, *, user_renamed: bool = False) -> str:
+        """Return the flyout header title (full first user message unless renamed)."""
+        return _resolve_flyout_title(session_id, user_renamed=user_renamed)
 
     @staticmethod
     def new_session(
@@ -207,7 +272,7 @@ class AiChatSessionService:
     ) -> AiChatSessionDict:
         """Create a new session row (SDK conversation is lazy)."""
         session_id = str(uuid.uuid4())
-        title = _fallback_title(first_message) if first_message else "New chat"
+        title = _session_title_from_message(first_message) if first_message else "New chat"
         row = create_session(
             session_id=session_id,
             title=title,
@@ -429,15 +494,19 @@ class AiChatSessionService:
         """Return the session id to load on startup, or ``None`` for an empty panel.
 
         Uses the persisted active session when it still exists. When that row was
-        deleted, falls back to the most recently updated session. An empty stored
-        id (e.g. after **New chat**) leaves the panel empty.
+        deleted, falls back to the most recently updated session. After **New chat**
+        the restore target is explicitly cleared. When no id was ever persisted
+        (legacy builds), falls back to the latest session so existing chats reopen.
         """
-        stored = AiConfig.get_chat_session_id()
-        if not stored:
+        if AiConfig.is_chat_session_restore_cleared():
             return None
-        session = AiChatSessionService.get_session(stored)
-        if session is not None and not session.get("archived"):
-            return stored
+        stored = AiConfig.get_chat_session_id()
+        if stored:
+            session = AiChatSessionService.get_session(stored)
+            if session is not None and not session.get("archived"):
+                return stored
+            sessions = AiChatSessionService.list_sessions()
+            return sessions[0]["id"] if sessions else None
         sessions = AiChatSessionService.list_sessions()
         return sessions[0]["id"] if sessions else None
 
@@ -874,6 +943,52 @@ class AiChatSessionService:
                 delete_on_close=False,
             ),
         )
+
+    @staticmethod
+    def generate_session_title(
+        session_id: str,
+        entry: AiModelEntry,
+        *,
+        max_length: int = 50,
+    ) -> str:
+        """Generate a title from the first user message (worker thread only).
+
+        Title generation only needs the first user message and an LLM. It builds
+        a standalone LLM and calls the SDK title helper directly — it does NOT
+        resume the session's persisted Conversation, so it carries no agent
+        tools and never triggers OpenHands' resume tool-verification. Thinking is
+        forced off and reasoning effort is clamped to the model minimum.
+        """
+        from openhands.sdk.conversation.title_utils import generate_title_from_message
+
+        first_user = next(
+            (
+                m["content"]
+                for m in AiChatSessionService.get_messages(session_id)
+                if m.get("role") == "user" and (m.get("content") or "").strip()
+            ),
+            "",
+        )
+        if not first_user.strip():
+            msg = "No user message available for title generation"
+            raise ValueError(msg)
+
+        # Use the ``postmark-chat`` usage prefix so the title LLM inherits the
+        # chat tuning in ``build_llm`` — most importantly ``num_retries=0`` for
+        # Ollama (otherwise a flaky endpoint retries 5x with backoff for minutes)
+        # plus the ``ollama_chat`` routing and ``num_ctx``. Thinking is off and
+        # reasoning is minimized so OpenHands does not default to ``high``.
+        usage_id = f"postmark-chat-title-{session_id}"
+        with _allow_short_context_when_needed(entry):
+            llm = AiLlmService.build_llm(
+                entry,
+                usage_id=usage_id,
+                stream=False,
+                thinking_enabled="off",
+                reasoning_effort=minimum_reasoning_effort_for(entry),
+                run_context_tokens=effective_run_context_tokens(entry),
+            )
+        return generate_title_from_message(first_user, llm, max_length)
 
     @staticmethod
     def _cast_session(row: dict[str, Any]) -> AiChatSessionDict:

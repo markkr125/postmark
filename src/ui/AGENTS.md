@@ -287,7 +287,7 @@ standard object names:
 | `aiChatActiveRunsBadge` | `QLabel` | Accent pill between session title and history button; ``{n} active`` when ``ChatRunRegistry.count_running() > 0``; updated via ``RightSidebar.set_ai_active_run_count`` |
 | `aiChatSessionTitleSlot` | `QWidget` | Expanding left-aligned host for the inline title group; empty space to the right is not hoverable |
 | `aiChatSessionTitleInline` | `QWidget` | Tight group around elided ``aiChatSessionTitle`` + ``aiChatSessionTitlePencil``; gentle ``ai_session_title_hover_bg`` pill on hover (`titleHovered` dynamic property) |
-| `aiChatSessionTitle` | `QLabel` | Elided session title from ``ai_chat_sessions.title``; placeholder ``New chat`` when no active session; updated via ``RightSidebar.set_ai_session_title`` |
+| `aiChatSessionTitle` | `QLabel` | Elided single-line session title; full text in tooltip; click to rename; placeholder ``New chat`` when no active session; updated via ``RightSidebar.set_ai_session_title`` |
 | `aiChatSessionTitlePencil` | `QLabel` | Muted ``pencil-simple`` icon shown on hover immediately after the title text when rename is enabled |
 | `aiChatSessionTitleEdit` | `QLineEdit` | Inline rename editor; Enter, Escape, or click-away saves via ``RightSidebar.ai_session_title_renamed`` |
 | `aiChatPanel` | `QWidget` | Right-sidebar AI assistant chat (transcript + composer) |

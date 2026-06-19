@@ -27,6 +27,7 @@ from ui.sidebar.ai.message_bubble import ChatMessageBubble
 _FOLLOW_THRESHOLD_PX = 2
 _TURN_SCROLL_MARGIN_PX = 8
 _RESIZE_SETTLE_MS = 75
+_STREAMING_SPACER_MIN_DELTA_PX = 12
 
 
 class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
@@ -452,9 +453,15 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
             return
         extent = self._streaming_turn_extent_px()
         if extent <= 0:
+            if self._streaming_viewport_spacer is not None and self._open_stream_generation > 0:
+                return
             self._clear_streaming_viewport_spacer()
             return
         target_h = max(0, viewport_h - extent)
+        if self._streaming_viewport_spacer is not None:
+            current_h = self._streaming_viewport_spacer.height()
+            if abs(target_h - current_h) < _STREAMING_SPACER_MIN_DELTA_PX:
+                return
         if self._streaming_viewport_spacer is None:
             spacer = QWidget(self._messages)
             spacer.setObjectName("aiChatStreamingViewportSpacer")

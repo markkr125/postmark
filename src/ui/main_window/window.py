@@ -981,6 +981,8 @@ class MainWindow(
     # ------------------------------------------------------------------
     def closeEvent(self, event: QCloseEvent) -> None:
         """Persist session and clean up all tabs before closing."""
+        if self._active_ai_session_id:
+            self._persist_active_chat_session_id(self._active_ai_session_id)
         if self._debug_protocol is not None:
             self._debug_protocol.stop()
             self._debug_protocol = None

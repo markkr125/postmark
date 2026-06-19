@@ -411,6 +411,43 @@ class TestRightSidebar:
         assert label.toolTip() == "renamed chat"
         assert sidebar._flyout.findChild(QLineEdit, "aiChatSessionTitleEdit") is None
 
+    def test_ai_session_title_rename_shows_full_text_not_elision(
+        self, qapp: QApplication, qtbot
+    ) -> None:
+        """Rename editor spans the title bar so long titles are not truncated with ellipsis."""
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QLineEdit, QSplitter, QWidget
+
+        long_title = (
+            "how do i create scripts in this app? can you guide me through the full workflow"
+        )
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        filler = QWidget()
+        filler.setMinimumWidth(400)
+        splitter.addWidget(filler)
+        sidebar = RightSidebar()
+        sidebar.install_in_splitter(splitter)
+        splitter.resize(800, 600)
+        qtbot.addWidget(splitter)
+        splitter.show()
+        rail_w = sidebar.width()
+        splitter.setSizes([400, sidebar._panel_hint_width, rail_w])
+        qapp.processEvents()
+
+        sidebar.open_panel("ai")
+        sidebar.set_ai_session_title(long_title)
+        sidebar.set_ai_session_title_rename_enabled(True)
+        qtbot.waitExposed(splitter)
+
+        title_widget = sidebar._flyout._ai_session_title_label
+        title_widget._begin_rename()
+        edit = sidebar._flyout.findChild(QLineEdit, "aiChatSessionTitleEdit")
+        assert edit is not None
+        assert edit.text() == long_title
+        assert edit.width() >= title_widget.width() - 8
+        qtbot.keyClick(edit, Qt.Key.Key_Escape)
+        qtbot.wait(10)
+
     def test_toggle_ai_panel_closes_active(self, qapp: QApplication, qtbot) -> None:
         """Toggling the AI rail button closes the panel when it is already open."""
         sidebar = RightSidebar()
