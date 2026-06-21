@@ -15,6 +15,7 @@ from services.scripting.secret_store import (
     NoopSecretStore,
     backend_status,
     get_default_store,
+    get_secret,
     reset_default_store,
 )
 
@@ -135,6 +136,33 @@ class TestDefaultStoreSelection:
         try:
             store = get_default_store()
             assert store.backend_id == "keyring"
+        finally:
+            reset_default_store()
+
+    def test_get_secret_falls_back_to_encrypted_file_when_keyring_misses(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Tokens saved before keyring became usable remain readable."""
+        reset_default_store()
+        keyring_data: dict[str, str] = {}
+        fake = MagicMock()
+        fake.set_password.side_effect = lambda _service, ref, secret: keyring_data.__setitem__(
+            ref, secret
+        )
+        fake.get_password.side_effect = lambda _service, ref: keyring_data.get(ref)
+        fake.delete_password.side_effect = lambda _service, ref: keyring_data.pop(ref, None)
+        monkeypatch.setattr("services.scripting.secret_store._keyring_lib", fake)
+        monkeypatch.setattr("services.scripting.secret_store._KEYRING_AVAILABLE", True)
+        monkeypatch.setattr("services.scripting.secret_store._CRYPTO_AVAILABLE", True)
+        monkeypatch.setattr("services.scripting.secret_store._user_config_dir", lambda: tmp_path)
+        monkeypatch.setattr(
+            "services.scripting.secret_store._stable_machine_id",
+            lambda: b"test-machine",
+        )
+        EncryptedFileSecretStore().put("ai:ollama", "tok-legacy")
+        try:
+            assert get_default_store().backend_id == "keyring"
+            assert get_secret("ai:ollama") == "tok-legacy"
         finally:
             reset_default_store()
 

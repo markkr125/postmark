@@ -32,7 +32,7 @@ from services.ai.provider_catalog import (
     provider_by_key,
     provider_group_label,
 )
-from services.scripting.secret_store import get_default_store
+from services.scripting.secret_store import get_secret
 from ui.dialogs.secret_entry_dialog import SecretEntryDialog
 from ui.dialogs.settings.ai_page_actions import (
     ModelsListPreviewLoader,
@@ -293,7 +293,7 @@ class AiProviderDialog(QDialog):
         """Provider type, URL, and API key — excludes display name and Ollama default context."""
         key_material = ""
         if self._auth_kind == "token" and self._auth_ref:
-            key_material = get_default_store().get(self._auth_ref) or ""
+            key_material = get_secret(self._auth_ref) or ""
         return (
             self._current_provider_key(),
             self._collect_base_url(),
@@ -418,8 +418,10 @@ class AiProviderDialog(QDialog):
         label = self._cred_edits.get("api_key_label")
         if not isinstance(label, QLabel):
             return
-        has_key = self._auth_kind != "none" and bool(self._auth_ref)
-        if not has_key and get_default_store().get(f"ai:{self._entry_id}"):
+        has_key = (
+            self._auth_kind != "none" and bool(self._auth_ref) and bool(get_secret(self._auth_ref))
+        )
+        if not has_key and get_secret(f"ai:{self._entry_id}"):
             self._auth_kind, self._auth_ref = "token", f"ai:{self._entry_id}"
             has_key = True
         label.setText("Key set" if has_key else "No key set")

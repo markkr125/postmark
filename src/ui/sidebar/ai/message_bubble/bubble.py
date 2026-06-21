@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal, NamedTuple
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QSize, Signal
 from PySide6.QtWidgets import QFrame, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from services.ai.ai_config import AiModelEntry
@@ -61,7 +61,10 @@ class ChatMessageBubble(QWidget):
         super().__init__(parent)
         self._role: ChatRole = role
         self._message_id: int | None = None
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        self.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed,
+        )
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 6, 0, 6)
@@ -84,7 +87,6 @@ class ChatMessageBubble(QWidget):
         self._usage_entry: AiModelEntry | None = None
         self._answer_visible = bool(text.strip())
         self._answer_started = bool(text.strip())
-        self._stream_row_floor_px = 0
         self._defer_layout_height_changed = False
         self._layout_height_pending = False
         self._scroll_compensation_capture: tuple[int, int] | None = None
@@ -96,7 +98,7 @@ class ChatMessageBubble(QWidget):
             frame.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
             frame.setSizePolicy(
                 QSizePolicy.Policy.Expanding,
-                QSizePolicy.Policy.Minimum,
+                QSizePolicy.Policy.Fixed,
             )
             frame_layout = QVBoxLayout(frame)
             frame_layout.setContentsMargins(12, 6, 12, 6)
@@ -158,14 +160,67 @@ class ChatMessageBubble(QWidget):
         self._answer_started = True
         if self._thought_section.has_text():
             self._thought_section.finalize_thinking(collapse=True)
-        self._stream_row_floor_px = 0
-        self.setMinimumHeight(0)
-        self._commit_stream_row_layout()
 
     @property
     def role(self) -> ChatRole:
         """Return the message role."""
         return self._role
+
+    def sizeHint(self) -> QSize:
+        """Return the preferred row height."""
+        if self._role == "user":
+            return self._user_message_layout_hint()
+        return super().sizeHint()
+
+    def minimumSizeHint(self) -> QSize:
+        """Return the minimum row height."""
+        if self._role == "user":
+            return self._user_message_layout_hint()
+        return super().minimumSizeHint()
+
+    def _transcript_row_layout_width(self) -> int:
+        """Return the horizontal layout budget for this row inside ``_messages``."""
+        parent = self.parentWidget()
+        width = 0
+        if parent is not None and parent.width() > 0:
+            width = parent.width()
+            layout = parent.layout()
+            if layout is not None:
+                margins = layout.contentsMargins()
+                width = max(1, width - margins.left() - margins.right())
+        if self.width() > 0:
+            width = min(width, self.width()) if width > 0 else self.width()
+        if width <= 0:
+            width = max(1, super().sizeHint().width())
+        return max(1, width)
+
+    def _user_message_layout_hint(self) -> QSize:
+        """Return measured user-row size from wrapped text, not slack-inflated layout."""
+        width = self._transcript_row_layout_width()
+        label_width = self._user_message_label_width(width)
+        if self._user_section is None:
+            return QSize(max(1, width), 1)
+        label_h = self._user_section.natural_label_height_for_width(label_width)
+        chrome = self._user_message_chrome_height(label_width)
+        outer = self.layout()
+        if outer is None:
+            return QSize(max(1, width), chrome + label_h)
+        margins = outer.contentsMargins()
+        height = chrome + label_h + margins.top() + margins.bottom()
+        laid_out = self.height()
+        if laid_out > 0 and laid_out <= height + 24:
+            height = laid_out
+        return QSize(max(1, width), height)
+
+    def sync_user_message_height_constraint(self) -> None:
+        """Clamp transcript user rows to their measured content height."""
+        if self._role != "user":
+            return
+        self.setMinimumHeight(0)
+        self.setMaximumHeight(_QWIDGET_MAX_HEIGHT)
+        hint = self._user_message_layout_hint()
+        self.setFixedHeight(hint.height())
+        self.updateGeometry()
 
     @property
     def message_id(self) -> int | None:
@@ -303,6 +358,7 @@ class ChatMessageBubble(QWidget):
         if self._user_footer is None:
             return
         self._user_footer.set_footer_mode(mode)
+        self.sync_user_message_height_constraint()
 
     def user_footer_mode(self) -> UserMessageFooterMode:
         """Return the user footer mode, or ``actions`` for non-user rows."""
@@ -312,7 +368,6 @@ class ChatMessageBubble(QWidget):
 
     def begin_streaming(self) -> None:
         """Mark the answer body as receiving streamed markdown."""
-        self._stream_row_floor_px = 0
         if self._role == "assistant":
             self.set_assistant_turn_complete(False)
         if self._markdown_body is not None:
@@ -387,6 +442,7 @@ class ChatMessageBubble(QWidget):
             return
         body = self._markdown_body
         complete = self.is_turn_complete()
+        was_visible = footer.isVisible()
         if body is not None:
             body.set_paint_footer_rule(complete)
         if complete:
@@ -394,6 +450,8 @@ class ChatMessageBubble(QWidget):
         else:
             footer.hide()
         self.updateGeometry()
+        if footer.isVisible() != was_visible:
+            self.layout_height_changed.emit()
 
     def end_streaming(self, *, render: bool = True) -> None:
         """Mark streaming complete on the answer body."""
@@ -485,15 +543,10 @@ class ChatMessageBubble(QWidget):
         self._commit_stream_row_layout()
 
     def _commit_stream_row_layout(self) -> None:
-        """Keep total assistant row height monotonic while streaming."""
+        """Refresh assistant row geometry during streaming."""
         if not self.is_content_streaming():
             return
         self.updateGeometry()
-        natural_h = self.sizeHint().height()
-        self._stream_row_floor_px = max(self._stream_row_floor_px, natural_h)
-        target_min = max(self._stream_row_floor_px, self.minimumHeight())
-        if self.minimumHeight() != target_min:
-            self.setMinimumHeight(target_min)
 
     def set_defer_layout_height_changed(self, defer: bool) -> None:
         """Batch ``layout_height_changed`` emissions during a stream flush."""
@@ -581,23 +634,29 @@ class ChatMessageBubble(QWidget):
 
     def _on_thought_layout_changed(self) -> None:
         """Propagate thought expand/collapse to the transcript scroll layer."""
-        if self._defer_layout_height_changed:
+        deferred = self._defer_layout_height_changed
+        if deferred:
             self._layout_height_pending = True
-            return
         if not self.is_content_streaming():
             self.clear_stream_layout_floor()
         else:
             self._commit_stream_row_layout()
         self.updateGeometry()
-        if not self._scroll_locked_stream_active():
+        if self._scroll_locked_stream_active():
+            panel = self._ancestor_chat_panel()
+            if panel is not None and hasattr(panel, "_follow_streaming_turn_layout"):
+                panel._follow_streaming_turn_layout()  # type: ignore[attr-defined]
+        elif not deferred:
             self._apply_row_scroll_compensation()
-        self.layout_height_changed.emit()
+        if not deferred:
+            self.layout_height_changed.emit()
 
     def _on_user_message_layout_changed(self) -> None:
         """Propagate user prompt expand/collapse to the transcript scroll layer."""
         if self._defer_layout_height_changed:
             self._layout_height_pending = True
             return
+        self.sync_user_message_height_constraint()
         self.updateGeometry()
         self._apply_row_scroll_compensation()
         self._sync_transcript_user_toggle_to_sticky()
@@ -634,8 +693,7 @@ class ChatMessageBubble(QWidget):
         self.layout_height_changed.emit()
 
     def clear_stream_layout_floor(self) -> None:
-        """Release monotonic row height constraints after streaming ends."""
-        self._stream_row_floor_px = 0
+        """Release any streaming row height constraints after streaming ends."""
         self.setMinimumHeight(0)
 
     def user_message_frame_height(self) -> int:
@@ -657,6 +715,7 @@ class ChatMessageBubble(QWidget):
             self._markdown_body.flush_deferred_reflow()
         if self._user_section is not None:
             self._user_section.flush_deferred_reflow()
+            self.sync_user_message_height_constraint()
         self.updateGeometry()
 
     def prepare_sticky_overlay(self) -> None:
@@ -738,13 +797,32 @@ class ChatMessageBubble(QWidget):
         total_height = chrome_height + label_height
         return UserMessageStickyMetrics(label_height, chrome_height, total_height, clamped)
 
-    def _user_message_label_width(self, content_width: int) -> int:
-        """Return inner label column width for a proposed bubble width."""
+    def _user_frame_layout_margins(self) -> tuple[int, int, int, int]:
+        """Return ``(left, top, right, bottom)`` margins on the user bubble frame layout."""
         frame = self._user_frame
         if frame is None:
-            return max(1, content_width)
+            return (0, 0, 0, 0)
+        layout = frame.layout()
+        if layout is not None:
+            margins = layout.contentsMargins()
+            return (
+                margins.left(),
+                margins.top(),
+                margins.right(),
+                margins.bottom(),
+            )
         margins = frame.contentsMargins()
-        return max(1, content_width - margins.left() - margins.right())
+        return (
+            margins.left(),
+            margins.top(),
+            margins.right(),
+            margins.bottom(),
+        )
+
+    def _user_message_label_width(self, content_width: int) -> int:
+        """Return inner label column width for a proposed bubble width."""
+        left, _, right, _ = self._user_frame_layout_margins()
+        return max(1, content_width - left - right)
 
     def _user_message_chrome_height(self, label_width: int) -> int:
         """Return non-label chrome height for sticky sizing at *label_width*."""
@@ -752,8 +830,8 @@ class ChatMessageBubble(QWidget):
         frame = self._user_frame
         if frame is None:
             return chrome
-        margins = frame.contentsMargins()
-        chrome += margins.top() + margins.bottom()
+        _, top, _, bottom = self._user_frame_layout_margins()
+        chrome += top + bottom
         visible_rows = 1
         if self._user_footer is not None:
             chrome += self._user_footer.sizeHint().height()

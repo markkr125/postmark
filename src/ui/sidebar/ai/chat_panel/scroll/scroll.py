@@ -8,6 +8,7 @@ from typing import Any
 from PySide6.QtCore import QEventLoop, QPoint, QSignalBlocker, Qt, QTimer
 from PySide6.QtWidgets import (
     QApplication,
+    QLayout,
     QPushButton,
     QScrollArea,
     QScrollBar,
@@ -26,6 +27,7 @@ from ui.sidebar.ai.message_bubble import ChatMessageBubble
 
 _FOLLOW_THRESHOLD_PX = 2
 _TURN_SCROLL_MARGIN_PX = 8
+_STICKY_ABOVE_VIEWPORT_SCROLL_SLACK_PX = 32
 _RESIZE_SETTLE_MS = 75
 _STREAMING_SPACER_MIN_DELTA_PX = 12
 
@@ -61,6 +63,24 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
     _sticky_sync_deferred_during_resize: bool = False
     _edit_scroll_pending: bool = False
     _pending_edit_scroll_bubble: ChatMessageBubble | None = None
+    _messages_bottom_stretch_index: int = -1
+    _short_turn_spacer_reconcile_generation: int = 0
+
+    def _clamp_messages_to_viewport_width(self) -> None:
+        """Keep ``_messages`` exactly within the viewport column."""
+        hbar = self._scroll.horizontalScrollBar()
+        viewport = self._scroll.viewport()
+        vp_w = viewport.width()
+        if vp_w <= 0:
+            return
+        messages = self._messages
+        messages.setMinimumWidth(0)
+        messages.setMaximumWidth(vp_w)
+        if messages.width() != vp_w:
+            messages.resize(vp_w, messages.height())
+        messages.updateGeometry()
+        if hbar.maximum() > 0:
+            hbar.setValue(0)
 
     def _init_scroll_controller(self) -> None:
         """Connect scrollbar signals for scroll-lock follow (call from panel ``__init__``)."""
@@ -123,7 +143,7 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
         try:
             with QSignalBlocker(bar):
                 bar.setValue(value)
-            self._last_scroll_value = value
+            self._last_scroll_value = bar.value()
         finally:
             self._programmatic_scroll = False
 
@@ -189,25 +209,163 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
             target = self._scroll_value_for_bubble_top(bubble)
             self._set_bar_value(bar, target)
 
-    def _streaming_turn_extent_px(self) -> int:
+    def _messages_top_stretch_index(self) -> int:
+        """Return the layout index of the leading transcript slack stretch."""
+        layout = self._messages_layout
+        for index in range(layout.count()):
+            item = layout.itemAt(index)
+            if item is not None and item.spacerItem() is not None:
+                return index
+        return -1
+
+    def _set_messages_top_stretch_factor(self, _factor: int) -> None:
+        """Keep the leading spacer fixed so row positions are content-driven."""
+        index = self._messages_top_stretch_index()
+        if index < 0:
+            return
+        item = self._messages_layout.itemAt(index)
+        if item is None:
+            return
+        spacer = item.spacerItem()
+        if spacer is None:
+            return
+        spacer.changeSize(
+            0,
+            0,
+            QSizePolicy.Policy.Minimum,
+            QSizePolicy.Policy.Minimum,
+        )
+        self._messages_layout.setStretch(index, 0)
+        self._messages_layout.invalidate()
+
+    def _ensure_messages_bottom_stretch(self) -> int:
+        """Return the layout index of the trailing slack stretch (always the last item)."""
+        layout = self._messages_layout
+        if layout.count() > 0:
+            last_index = int(layout.count() - 1)
+            item = layout.itemAt(last_index)
+            if item is not None and item.spacerItem() is not None:
+                for index in range(last_index - 1, 0, -1):
+                    stray = layout.itemAt(index)
+                    if stray is not None and stray.spacerItem() is not None:
+                        layout.takeAt(index)
+                last_index = int(layout.count() - 1)
+                self._messages_bottom_stretch_index = last_index
+                return last_index
+        layout.addStretch(0)
+        for stray_index in range(layout.count() - 2, 0, -1):
+            stray = layout.itemAt(stray_index)
+            if stray is not None and stray.spacerItem() is not None:
+                layout.takeAt(stray_index)
+        index = int(layout.count() - 1)
+        self._messages_bottom_stretch_index = index
+        return index
+
+    def _set_messages_bottom_stretch_factor(self, factor: int) -> None:
+        """Let only the trailing spacer absorb viewport slack below transcript rows."""
+        index = self._ensure_messages_bottom_stretch()
+        item = self._messages_layout.itemAt(index)
+        if item is None:
+            return
+        spacer = item.spacerItem()
+        if spacer is None:
+            return
+        policy = QSizePolicy.Policy.Expanding if factor > 0 else QSizePolicy.Policy.Minimum
+        spacer.changeSize(
+            0,
+            0,
+            QSizePolicy.Policy.Minimum,
+            policy,
+        )
+        self._messages_layout.setStretch(index, max(0, factor))
+        self._messages_layout.invalidate()
+
+    def _reset_messages_bottom_stretch_index(self) -> None:
+        """Drop cached bottom-stretch index after transcript layout teardown."""
+        self._messages_bottom_stretch_index = -1
+
+    def _use_turn_anchor_layout(self) -> bool:
+        """Return whether the transcript should pack turns from the top."""
+        if self._turn_scroll_anchor is None:
+            return False
+        if self._open_stream_generation > 0:
+            return True
+        return self._streaming_viewport_spacer is not None
+
+    def _sync_messages_top_stretch(self) -> None:
+        """Pack transcript rows at the top and leave slack after the transcript."""
+        self._set_messages_top_stretch_factor(0)
+        self._set_messages_bottom_stretch_factor(1)
+
+    def _assistant_row_extent_height(self, bubble: ChatMessageBubble) -> int:
+        """Return the laid-out assistant row height used for turn-extent math."""
+        laid_out = bubble.height()
+        hint = bubble.sizeHint().height()
+        if laid_out > 0:
+            return laid_out
+        return hint
+
+    def _turn_bottom_y_in_messages(self, assistant: ChatMessageBubble) -> int | None:
+        """Return the assistant row bottom edge Y in ``_messages`` coordinates."""
+        bubble_height = self._assistant_row_extent_height(assistant)
+        return map_widget_y_to_ancestor(assistant, self._messages, offset_y=bubble_height)
+
+    def _turn_scroll_headroom_px(self) -> int:
+        """Return extra layout height so the turn anchor can scroll to the viewport top."""
+        anchor = self._turn_scroll_anchor
+        if anchor is None:
+            return 0
+        y = map_widget_y_to_ancestor(anchor, self._messages)
+        if y is None:
+            return 0
+        return max(0, y - _TURN_SCROLL_MARGIN_PX) + (
+            _STICKY_ABOVE_VIEWPORT_SCROLL_SLACK_PX if y > _TURN_SCROLL_MARGIN_PX else 0
+        )
+
+    def _target_streaming_spacer_height(
+        self,
+        assistant: ChatMessageBubble | None = None,
+    ) -> int:
+        """Return spacer height so transcript minimum height matches one viewport."""
+        viewport_h = self._scroll.viewport().height()
+        if viewport_h <= 0:
+            return 0
+        bubble = assistant if assistant is not None else self._streaming_bubble
+        if bubble is None:
+            return 0
+        self._messages_layout.activate()
+        content_min = self._messages.minimumSizeHint().height()
+        if self._streaming_viewport_spacer is not None:
+            content_min -= self._streaming_viewport_spacer.height()
+        headroom = self._turn_scroll_headroom_px()
+        if headroom <= 0:
+            return 0
+        target = max(0, viewport_h - content_min + headroom)
+        if self._streaming_viewport_spacer is None and target > 0:
+            layout = self._messages_layout
+            target = max(0, target - layout.spacing())
+        return target
+
+    def _streaming_turn_extent_px(self, assistant: ChatMessageBubble | None = None) -> int:
         """Return height from the turn anchor top to the bottom of the assistant row."""
         anchor = self._turn_scroll_anchor
-        bubble = self._streaming_bubble
+        bubble = assistant if assistant is not None else self._streaming_bubble
         if anchor is None or bubble is None:
             return 0
         top = map_widget_y_to_ancestor(anchor, self._messages)
-        bottom = map_widget_y_to_ancestor(bubble, self._messages, offset_y=bubble.height())
+        bubble_height = self._assistant_row_extent_height(bubble)
+        bottom = map_widget_y_to_ancestor(bubble, self._messages, offset_y=bubble_height)
         if top is None or bottom is None:
             return 0
         return max(0, bottom - top)
 
     def _request_turn_bottom_scroll(self) -> None:
-        """Schedule a single coalesced scroll to the start of a new user turn."""
+        """Scroll to the start of a new user turn after layout settles."""
         self._arm_scroll_lock()
         if self._turn_scroll_pending:
             return
         self._turn_scroll_pending = True
-        QTimer.singleShot(0, self._flush_turn_bottom_scroll)
+        self._flush_turn_bottom_scroll()
 
     def _flush_turn_bottom_scroll(self) -> None:
         """Scroll to the turn anchor after user + assistant bubbles are laid out."""
@@ -221,15 +379,57 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
         self._scroll.updateGeometry()
         QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
         bar = self._scroll.verticalScrollBar()
-        target = self._scroll_value_for_turn_start()
+        if getattr(self, "_stream_content_started", False):
+            target = self._stream_follow_target()
+        else:
+            target = self._scroll_value_for_turn_start()
         self._set_bar_value(bar, target)
+        if self._turn_scroll_anchor is not None:
+            anchor_top = self._widget_top_in_viewport(self._turn_scroll_anchor)
+            if anchor_top < 0 or anchor_top > _TURN_SCROLL_MARGIN_PX + 6:
+                QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
+                self._apply_streaming_viewport_spacer()
+                self._messages.updateGeometry()
+                self._scroll.updateGeometry()
+                if getattr(self, "_stream_content_started", False):
+                    target = self._stream_follow_target()
+                else:
+                    target = self._scroll_value_for_turn_start()
+                self._set_bar_value(bar, target)
         if self._turn_scroll_anchor is not None and target == 0 and bar.maximum() > 100:
             QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
-            target = self._scroll_value_for_turn_start()
+            if getattr(self, "_stream_content_started", False):
+                target = self._stream_follow_target()
+            else:
+                target = self._scroll_value_for_turn_start()
             self._set_bar_value(bar, target)
         self._turn_scroll_pending = False
+        self._reconcile_streaming_viewport_overflow()
+        self._clamp_messages_to_viewport_width()
         self._invalidate_sticky_extents()
         self._sync_sticky_turn_prompt()
+        self._reconcile_short_turn_spacer_after_layout(self._short_turn_spacer_reconcile_generation)
+        self._reconcile_streaming_viewport_overflow()
+
+    def _schedule_short_turn_spacer_reconcile(self) -> None:
+        """Re-trim the viewport spacer after a deferred layout pass settles."""
+        if self._open_stream_generation == 0 and self._streaming_viewport_spacer is None:
+            return
+        self._short_turn_spacer_reconcile_generation += 1
+        generation = self._short_turn_spacer_reconcile_generation
+        QTimer.singleShot(0, lambda g=generation: self._reconcile_short_turn_spacer_after_layout(g))
+
+    def _reconcile_short_turn_spacer_after_layout(self, generation: int | None = None) -> None:
+        """Refresh spacer height once row geometry catches up with turn scroll."""
+        if generation is not None and generation != self._short_turn_spacer_reconcile_generation:
+            return
+        if not isValid(self._scroll):
+            return
+        if self._streaming_viewport_spacer is None and self._open_stream_generation == 0:
+            return
+        self._apply_streaming_viewport_spacer()
+        self._reconcile_streaming_viewport_overflow()
+        self._clamp_messages_to_viewport_width()
 
     def _widget_top_in_viewport(self, widget: QWidget) -> int:
         """Return *widget* top edge Y in viewport coordinates (scroll-offset aware)."""
@@ -301,9 +501,10 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
         if self._open_stream_generation > 0:
             if value < previous:
                 clamped_by_range_shrink = previous > bar.maximum()
-                if clamped_by_range_shrink or self._scroll_range_shrunk_recent:
+                if clamped_by_range_shrink:
                     self._scroll_range_shrunk_recent = False
                 else:
+                    self._scroll_range_shrunk_recent = False
                     self._scroll_lock_enabled = False
             elif at_bottom:
                 self._scroll_lock_enabled = True
@@ -317,6 +518,10 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
     def _stream_follow_target(self) -> int:
         """Return the scroll offset to follow while streaming with lock on."""
         bar = self._scroll.verticalScrollBar()
+        if self._turn_scroll_anchor is None or self._open_stream_generation == 0:
+            return bar.maximum()
+        if not getattr(self, "_stream_content_started", False):
+            return min(bar.maximum(), self._scroll_value_for_turn_start())
         viewport_h = self._scroll.viewport().height()
         if viewport_h > 0 and self._streaming_turn_extent_px() < viewport_h:
             return min(bar.maximum(), self._scroll_value_for_turn_start())
@@ -375,6 +580,7 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
         if (still_off_target or range_grew) and not self._stream_follow_retry_pending:
             self._stream_follow_retry_pending = True
             QTimer.singleShot(16, self._flush_stream_follow_retry)
+        self._reconcile_short_turn_height_when_fits()
 
     def _flush_stream_follow_retry(self) -> None:
         """Apply one late follow pass when range or height grew after the frame pass."""
@@ -384,6 +590,7 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
         if self._open_stream_generation == 0 or not self._scroll_lock_enabled:
             return
         self._apply_stream_follow()
+        self._reconcile_short_turn_height_when_fits()
 
     def _apply_stream_follow(self) -> None:
         """Pin the viewport to the active stream follow target (synchronous)."""
@@ -397,6 +604,29 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
             return
         self._set_bar_value(bar, target)
         self._sync_sticky_turn_prompt()
+
+    def _follow_streaming_turn_layout(self) -> None:
+        """Refresh spacer height and scroll after in-turn layout shrink or growth."""
+        if self._open_stream_generation == 0 or not self._scroll_lock_enabled:
+            return
+        anchor = self._turn_scroll_anchor
+        anchor_vp_before = self._widget_top_in_viewport(anchor) if anchor is not None else 0
+        self._apply_streaming_viewport_spacer()
+        self._messages.updateGeometry()
+        self._scroll.updateGeometry()
+        self._reconcile_streaming_viewport_overflow()
+        self._apply_stream_follow()
+        if anchor is not None:
+            anchor_vp_after = self._widget_top_in_viewport(anchor)
+            delta = anchor_vp_after - anchor_vp_before
+            if abs(delta) > _FOLLOW_THRESHOLD_PX:
+                bar = self._scroll.verticalScrollBar()
+                self._set_bar_value(
+                    bar,
+                    max(bar.minimum(), min(bar.maximum(), bar.value() + delta)),
+                )
+        self._queue_stream_follow_passes()
+        self._reconcile_short_turn_height_when_fits()
 
     def _scroll_to_bottom(self, *, force: bool = False) -> None:
         """Scroll the transcript to the bottom (forced paths only)."""
@@ -443,52 +673,287 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
         self._arm_scroll_lock()
         self._sync_sticky_turn_prompt()
 
-    def _apply_streaming_viewport_spacer(self) -> None:
+    def _completed_turn_assistant(self) -> ChatMessageBubble | None:
+        """Return the assistant row paired with the active turn anchor."""
+        anchor = self._turn_scroll_anchor
+        if anchor is None:
+            return None
+        return self._assistant_bubble_for_turn(anchor)
+
+    def _is_short_turn_extent(self, assistant: ChatMessageBubble) -> bool:
+        """Return whether *assistant* and its user anchor fit within one viewport."""
+        viewport_h = self._scroll.viewport().height()
+        if viewport_h <= 0:
+            return False
+        extent = self._streaming_turn_extent_px(assistant)
+        return extent > 0 and extent < viewport_h
+
+    def _reconcile_completed_turn_viewport_spacer(
+        self,
+        assistant: ChatMessageBubble | None = None,
+    ) -> bool:
+        """Refresh or remove the completed-turn spacer after late layout growth."""
+        if self._open_stream_generation > 0:
+            return False
+        bubble = assistant if assistant is not None else self._completed_turn_assistant()
+        if bubble is None or self._turn_scroll_anchor is None:
+            self._clear_streaming_viewport_spacer()
+            return False
+        if self._is_short_turn_extent(bubble):
+            self._apply_streaming_viewport_spacer(bubble)
+            return True
+        self._clear_streaming_viewport_spacer()
+        return False
+
+    def _settle_completed_short_turn_scroll(
+        self,
+        assistant: ChatMessageBubble | None = None,
+    ) -> bool:
+        """Recompute the completed-turn spacer and re-anchor short turns after layout."""
+        self._messages.updateGeometry()
+        self._scroll.updateGeometry()
+        for _ in range(2):
+            QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
+        short_turn = self._reconcile_completed_turn_viewport_spacer(assistant)
+        self._messages.updateGeometry()
+        self._scroll.updateGeometry()
+        QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
+        if short_turn:
+            self._trim_completed_turn_spacer_overflow()
+            self._reconcile_short_turn_transcript_height()
+        self._messages.updateGeometry()
+        self._scroll.updateGeometry()
+        QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
+        if short_turn and self._scroll_lock_enabled:
+            bar = self._scroll.verticalScrollBar()
+            self._set_bar_value(bar, self._scroll_value_for_turn_start())
+            self._arm_scroll_lock()
+        self._sync_sticky_turn_prompt()
+        if short_turn:
+            self._reconcile_short_turn_transcript_height()
+        return short_turn
+
+    def _max_transcript_min_height_px(self) -> int:
+        """Return the largest allowed ``_messages`` minimum height for the viewport."""
+        viewport_h = self._scroll.viewport().height()
+        if viewport_h <= 0:
+            return 0
+        return viewport_h + self._turn_scroll_headroom_px()
+
+    def _reconcile_short_turn_transcript_height(self) -> None:
+        """Clamp tiny short-turn layout slack without persisting into later turns."""
+        bubble = self._streaming_bubble or self._completed_turn_assistant()
+        viewport_h = self._scroll.viewport().height()
+        if (
+            bubble is not None
+            and isValid(bubble)
+            and viewport_h > 0
+            and self._is_short_turn_extent(bubble)
+        ):
+            self._messages_layout.activate()
+            overflow = self._messages.minimumSizeHint().height() - viewport_h
+            layout = self._messages_layout
+            spacing = layout.spacing() if layout is not None else 0
+            slack = spacing + _TURN_SCROLL_MARGIN_PX
+            bar = self._scroll.verticalScrollBar()
+            if overflow <= slack or bar.maximum() <= slack:
+                self._messages_layout.setSizeConstraint(QLayout.SizeConstraint.SetFixedSize)
+                self._messages.setFixedHeight(viewport_h)
+                self._messages.setMinimumHeight(viewport_h)
+                self._messages.setMaximumHeight(viewport_h)
+                self._messages.updateGeometry()
+                self._scroll.updateGeometry()
+                if self._turn_scroll_headroom_px() <= 0:
+                    bar.setRange(0, 0)
+                self._clamp_messages_to_viewport_width()
+                return
+        self._restore_messages_auto_height()
+        self._clamp_messages_to_viewport_width()
+
+    def _restore_messages_auto_height(self) -> None:
+        """Return the transcript host to normal scroll-area managed height."""
+        self._messages_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinAndMaxSize)
+        self._messages.setMinimumHeight(0)
+        self._messages.setMaximumHeight(16777215)
+        self._messages.updateGeometry()
+        self._scroll.updateGeometry()
+
+    def _reconcile_short_turn_height_when_fits(self) -> None:
+        """Clamp transcript height when a short turn only has layout slack overflow."""
+        bubble = self._streaming_bubble
+        if bubble is None or not self._is_short_turn_extent(bubble):
+            return
+        viewport_h = self._scroll.viewport().height()
+        if viewport_h <= 0:
+            return
+        self._messages_layout.activate()
+        overflow = self._messages.minimumSizeHint().height() - viewport_h
+        layout = self._messages_layout
+        spacing = layout.spacing() if layout is not None else 0
+        slack = spacing + _TURN_SCROLL_MARGIN_PX
+        bar = self._scroll.verticalScrollBar()
+        if overflow <= slack or bar.maximum() <= slack:
+            self._reconcile_short_turn_transcript_height()
+            self._clamp_messages_to_viewport_width()
+
+    def _trim_viewport_spacer_overflow(self) -> None:
+        """Shrink the viewport spacer when layout minimum exceeds the viewport."""
+        spacer = self._streaming_viewport_spacer
+        if spacer is None:
+            return
+        max_min = self._max_transcript_min_height_px()
+        if max_min <= 0:
+            return
+        self._messages_layout.activate()
+        overflow = self._messages.minimumSizeHint().height() - max_min
+        if overflow <= 0:
+            return
+        if overflow > spacer.height():
+            if spacer.height() > 0:
+                spacer.setFixedHeight(0)
+                self._messages.adjustSize()
+                self._messages.updateGeometry()
+                self._scroll.updateGeometry()
+                return
+            self._apply_streaming_viewport_spacer()
+            return
+        spacer.setFixedHeight(spacer.height() - overflow)
+        self._messages.adjustSize()
+        self._messages.updateGeometry()
+        self._scroll.updateGeometry()
+
+    def _reconcile_streaming_viewport_overflow(self) -> None:
+        """Shrink the viewport spacer until the transcript fits one viewport."""
+        for _ in range(4):
+            before = (
+                self._streaming_viewport_spacer.height() if self._streaming_viewport_spacer else 0
+            )
+            self._trim_viewport_spacer_overflow()
+            if self._streaming_viewport_spacer is None:
+                self._reconcile_short_turn_transcript_height()
+                return
+            if self._streaming_viewport_spacer.height() == before:
+                break
+            max_min = self._max_transcript_min_height_px()
+            if self._messages.minimumSizeHint().height() <= max_min:
+                break
+        self._reconcile_short_turn_transcript_height()
+        bubble = self._streaming_bubble or self._completed_turn_assistant()
+        if bubble is not None and self._is_short_turn_extent(bubble):
+            layout = self._messages_layout
+            spacing = layout.spacing() if layout is not None else 0
+            slack = spacing + _TURN_SCROLL_MARGIN_PX
+            bar = self._scroll.verticalScrollBar()
+            if 0 < bar.maximum() <= slack:
+                self._reconcile_short_turn_transcript_height()
+
+    def _trim_completed_turn_spacer_overflow(self) -> None:
+        """Shrink the retained short-turn spacer when layout minimum exceeds the viewport."""
+        self._trim_viewport_spacer_overflow()
+
+    def _apply_streaming_viewport_spacer(
+        self,
+        assistant: ChatMessageBubble | None = None,
+    ) -> None:
         """Reserve space so the turn anchor can sit at the viewport top while streaming."""
         viewport_h = self._scroll.viewport().height()
         if viewport_h <= 0:
             return
-        if self._turn_scroll_anchor is None or self._streaming_bubble is None:
+        bar = self._scroll.verticalScrollBar()
+        preserve_anchor = (
+            self._open_stream_generation > 0
+            and self._scroll_lock_enabled
+            and self._turn_scroll_anchor is not None
+        )
+        blocker: QSignalBlocker | None = None
+        old_programmatic = self._programmatic_scroll
+        if preserve_anchor:
+            self._smooth_scroller.cancel(sync_value=bar.value())
+            self._programmatic_scroll = True
+            blocker = QSignalBlocker(bar)
+        try:
+            self._apply_streaming_viewport_spacer_unblocked(assistant, viewport_h)
+        finally:
+            if blocker is not None:
+                if self._open_stream_generation > 0 and self._scroll_lock_enabled:
+                    target = self._stream_follow_target()
+                    bar.setValue(target)
+                    self._last_scroll_value = bar.value()
+                self._programmatic_scroll = old_programmatic
+                del blocker
+
+    def _apply_streaming_viewport_spacer_unblocked(
+        self,
+        assistant: ChatMessageBubble | None,
+        viewport_h: int,
+    ) -> None:
+        """Apply streaming spacer geometry within the caller's scroll transaction."""
+        bubble = assistant if assistant is not None else self._streaming_bubble
+        if self._turn_scroll_anchor is None or bubble is None:
             self._clear_streaming_viewport_spacer()
             return
-        extent = self._streaming_turn_extent_px()
-        if extent <= 0:
+        self._sync_messages_top_stretch()
+        extent = self._streaming_turn_extent_px(bubble)
+        turn_bottom = self._turn_bottom_y_in_messages(bubble)
+        if extent <= 0 or turn_bottom is None:
             if self._streaming_viewport_spacer is not None and self._open_stream_generation > 0:
                 return
             self._clear_streaming_viewport_spacer()
             return
-        target_h = max(0, viewport_h - extent)
+        if extent >= viewport_h:
+            self._clear_streaming_viewport_spacer()
+            return
+        target_h = self._target_streaming_spacer_height(bubble)
+        if target_h <= 2:
+            self._clear_streaming_viewport_spacer()
+            self._reconcile_short_turn_transcript_height()
+            return
         if self._streaming_viewport_spacer is not None:
             current_h = self._streaming_viewport_spacer.height()
-            if abs(target_h - current_h) < _STREAMING_SPACER_MIN_DELTA_PX:
+            exact_active_stream = self._open_stream_generation > 0 and self._scroll_lock_enabled
+            if (
+                exact_active_stream is False
+                and self._open_stream_generation > 0
+                and abs(target_h - current_h) < _STREAMING_SPACER_MIN_DELTA_PX
+            ):
+                self._reconcile_streaming_viewport_overflow()
                 return
         if self._streaming_viewport_spacer is None:
             spacer = QWidget(self._messages)
             spacer.setObjectName("aiChatStreamingViewportSpacer")
             spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             spacer.setFixedHeight(target_h)
-            bottom_virtual = getattr(self, "_bottom_virtual_spacer", None)
-            if bottom_virtual is not None:
-                insert_index = self._messages_layout.indexOf(bottom_virtual)
-                self._messages_layout.insertWidget(insert_index, spacer)
-            else:
-                self._messages_layout.addWidget(spacer)
+            insert_index = self._ensure_messages_bottom_stretch()
+            self._messages_layout.insertWidget(insert_index, spacer)
             self._streaming_viewport_spacer = spacer
+            self._messages_bottom_stretch_index = -1
+            if self._use_turn_anchor_layout():
+                self._set_messages_bottom_stretch_factor(1)
         else:
             self._streaming_viewport_spacer.setFixedHeight(target_h)
+        self._reconcile_streaming_viewport_overflow()
 
     def _clear_streaming_viewport_spacer(self) -> None:
         """Remove the streaming viewport spacer from the transcript layout."""
         spacer = self._streaming_viewport_spacer
         if spacer is None:
+            if self._open_stream_generation == 0:
+                self._restore_messages_auto_height()
+            self._sync_messages_top_stretch()
             return
         self._messages_layout.removeWidget(spacer)
         spacer.setParent(None)
         spacer.deleteLater()
         self._streaming_viewport_spacer = None
+        if self._open_stream_generation == 0:
+            self._restore_messages_auto_height()
+        self._sync_messages_top_stretch()
 
     def _update_scroll_down_button_visibility(self) -> None:
         """Show the scroll-down affordance when the user has scrolled away."""
+        if self._open_stream_generation > 0 and self._scroll_lock_enabled:
+            self._scroll_down_btn.hide()
+            return
         show = not self._scroll_lock_enabled and not self._is_pinned_to_bottom()
         self._scroll_down_btn.setVisible(show)
         if show:

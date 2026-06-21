@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
 
-from PySide6.QtCore import QObject, Qt, QThread, Slot
+from PySide6.QtCore import QObject, QThread, Slot
 
 from services.ai.chat.session_service import AiChatSessionService
 from ui.main_window.ai_chat_host_protocol import _AiChatHostProtocol

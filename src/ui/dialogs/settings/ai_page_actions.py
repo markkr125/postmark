@@ -31,6 +31,7 @@ from services.ai.provider_catalog import (
     persisted_cost_fields,
     provider_by_key,
 )
+from services.scripting.secret_store import get_secret
 from ui.styling.icons import phi, phi_menu
 from ui.styling.theme import TREE_ROW_HEIGHT
 from ui.styling.theme_manager import _APP, _ORG
@@ -110,6 +111,8 @@ def validate_provider_credentials(
         if field.field_id == "api_key":
             if auth_kind == "none" or not auth_ref:
                 return "API key is required."
+            if not get_secret(auth_ref):
+                return "API key is not available. Re-enter the provider API key."
         elif field.field_id == "base_url" and not base_url.strip():
             return "Base URL is required."
         elif field.field_id == "api_version" and not api_version.strip():

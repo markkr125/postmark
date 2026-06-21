@@ -288,6 +288,21 @@ def get_default_store() -> SecretStore:
     return _default_store
 
 
+def get_secret(ref: str) -> str | None:
+    """Return a secret by ref, checking legacy fallback storage when needed."""
+    key = ref.strip()
+    if not key:
+        return None
+    store = get_default_store()
+    value = store.get(key)
+    if value:
+        return value
+    if store.backend_id != "encrypted_file" and _CRYPTO_AVAILABLE:
+        # Older sessions may have saved secrets before keyring became usable.
+        return EncryptedFileSecretStore().get(key)
+    return None
+
+
 def reset_default_store() -> None:
     """Clear the cached store (tests only)."""
     global _default_store
@@ -326,5 +341,6 @@ __all__ = [
     "SecretStore",
     "backend_status",
     "get_default_store",
+    "get_secret",
     "reset_default_store",
 ]

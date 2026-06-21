@@ -36,6 +36,7 @@ class _Host(_AiChatControllerMixin):
         )
         self._active_ai_session_id = None
         self._session_load_generation = 0
+        self._manual_ai_session_titles = set()
         from PySide6.QtWidgets import QWidget
 
         self._session_loader = AiChatSessionLoader(QWidget())

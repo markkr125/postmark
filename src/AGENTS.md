@@ -106,7 +106,9 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   API omits it. API keys
   use `auth_ref`
   pointing at
-  `ai:<uuid>` in `secret_store` (never in QSettings). `sdk_env.ensure_openhands_env`
+  `ai:<uuid>` in `secret_store` (never in QSettings); AI callers resolve
+  tokens through `secret_store.get_secret()` so keyring misses still fall back
+  to legacy encrypted-file storage. `sdk_env.ensure_openhands_env`
   runs at startup (`qt_app_init`) and before SDK import — suppresses OpenHands
   banner/Rich logging and SQLAlchemy INFO noise. `AiLlmService` builds
   and tests `openhands.sdk.LLM` instances (lazy SDK import); streaming

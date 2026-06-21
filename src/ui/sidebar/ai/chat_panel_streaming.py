@@ -10,11 +10,12 @@ import re
 from datetime import datetime
 from typing import Any, cast
 
-from PySide6.QtCore import QEventLoop, Qt, QTimer, Slot
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtCore import QEventLoop, QSignalBlocker, Qt, QTimer, Slot
+from PySide6.QtWidgets import QApplication, QLayout, QWidget
 from shiboken6 import Shiboken
 
 from ui.sidebar.ai.chat_panel.scroll import _ChatPanelScrollMixin
+from ui.sidebar.ai.chat_panel.scroll.scroll import _TURN_SCROLL_MARGIN_PX
 from ui.sidebar.ai.transcript.window import _ChatPanelTranscriptWindowMixin
 from ui.sidebar.ai.message_bubble import ChatMessageBubble, ChatRole
 
@@ -187,6 +188,15 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
             return
         if getattr(self, "_resize_active", False):
             return
+        sender = self.sender()  # type: ignore[attr-defined]
+        if self._open_stream_generation == 0:
+            assistant = self._completed_turn_assistant()  # type: ignore[attr-defined]
+            if assistant is not None and (
+                sender is assistant or self._streaming_viewport_spacer is not None  # type: ignore[attr-defined]
+            ):
+                short_turn = self._reconcile_completed_turn_viewport_spacer(assistant)  # type: ignore[attr-defined]
+                if short_turn and self._scroll_lock_enabled:  # type: ignore[attr-defined]
+                    self._scroll_to_turn_start(force=True)  # type: ignore[attr-defined]
         self._invalidate_sticky_extents()  # type: ignore[attr-defined]
         self._schedule_sticky_sync()  # type: ignore[attr-defined]
 
@@ -226,13 +236,21 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
 
     def _on_streaming_bubble_layout_changed(self) -> None:
         """Follow after deferred markdown/bubble height settles."""
-        if self._stream_layout_flush_in_progress:
+        if self._stream_layout_flush_in_progress or self._programmatic_scroll:  # type: ignore[attr-defined]
             return
+        bubble = self._streaming_bubble
         if self._open_stream_generation > 0 and self._scroll_lock_enabled:  # type: ignore[attr-defined]
             self._apply_streaming_viewport_spacer()  # type: ignore[attr-defined]
+            self._reconcile_streaming_viewport_overflow()  # type: ignore[attr-defined]
+            if bubble is not None and self._is_short_turn_extent(bubble):  # type: ignore[attr-defined]
+                self._reconcile_short_turn_transcript_height()  # type: ignore[attr-defined]
             self._messages.updateGeometry()
             self._scroll.updateGeometry()  # type: ignore[attr-defined]
+            self._apply_stream_follow()  # type: ignore[attr-defined]
+            self._scroll_range_shrunk_recent = False  # type: ignore[attr-defined]
             self._queue_stream_follow_passes()  # type: ignore[attr-defined]
+        elif bubble is not None and self._is_short_turn_extent(bubble):  # type: ignore[attr-defined]
+            self._reconcile_streaming_viewport_overflow()  # type: ignore[attr-defined]
         self._invalidate_sticky_extents()  # type: ignore[attr-defined]
         self._schedule_sticky_sync()  # type: ignore[attr-defined]
 
@@ -274,7 +292,9 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
         message_id: int | None = None,
     ) -> ChatMessageBubble:
         """Append a message bubble to the transcript."""
-        self._empty_label.hide()
+        if role == "user" and self._open_stream_generation == 0:
+            self._clear_streaming_viewport_spacer()  # type: ignore[attr-defined]
+        self._collapse_empty_label_for_transcript()
         bubble = ChatMessageBubble(
             role,
             text,
@@ -292,6 +312,8 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
         if role == "user" and bubble._user_footer is not None:
             bubble._user_footer.stop_requested.connect(self.stop_requested.emit)  # type: ignore[attr-defined]
             self._wire_user_bubble_actions(bubble)  # type: ignore[attr-defined]
+            bubble.sync_user_message_height_constraint()
+            QTimer.singleShot(0, bubble.sync_user_message_height_constraint)
         if role == "assistant":
             self._wire_assistant_bubble_actions(bubble)  # type: ignore[attr-defined]
         if not self._defer_transcript_hooks:
@@ -312,6 +334,7 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
 
     def _ensure_transcript_layout_skeleton(self) -> None:
         """Restore stretch, empty label, and virtual spacers after transcript teardown."""
+        self._reset_messages_bottom_stretch_index()  # type: ignore[attr-defined]
         layout = self._messages_layout
         first = layout.itemAt(0) if layout.count() > 0 else None
         if first is None or first.spacerItem() is None:
@@ -365,21 +388,39 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
 
     def begin_assistant_stream(self) -> None:
         """Create one empty assistant bubble for streaming."""
-        self._reset_pending_chunks()
-        self._clear_sticky_turn_prompt()  # type: ignore[attr-defined]
-        self._invalidate_sticky_turn_pairs()  # type: ignore[attr-defined]
-        self._stream_generation += 1
-        self._open_stream_generation = self._stream_generation
-        self._stream_content_started = False
-        self._turn_scroll_anchor = self._find_last_user_bubble()
-        self._activate_streaming_turn_user_footer(self._turn_scroll_anchor)
-        self._streaming_bubble = self.add_message("assistant", "", thinking="")
-        self._streaming_bubble.begin_streaming()
-        self._attach_streaming_bubble_height_hook(self._streaming_bubble)
-        self._apply_streaming_viewport_spacer()  # type: ignore[attr-defined]
-        self._streaming_bubble.show_activity(_ACTIVITY_DEFAULT_MESSAGE)
-        self._start_activity_timer()
-        self._request_turn_bottom_scroll()  # type: ignore[attr-defined]
+        bar = self._scroll.verticalScrollBar()
+        blocker = QSignalBlocker(bar)
+        old_programmatic = self._programmatic_scroll
+        self._programmatic_scroll = True
+        try:
+            self._reset_pending_chunks()
+            self._clear_sticky_turn_prompt()  # type: ignore[attr-defined]
+            self._invalidate_sticky_turn_pairs()  # type: ignore[attr-defined]
+            self._stream_generation += 1
+            self._open_stream_generation = self._stream_generation
+            self._stream_content_started = False
+            self._turn_scroll_anchor = self._find_last_user_bubble()
+            self._arm_scroll_lock()  # type: ignore[attr-defined]
+            self._activate_streaming_turn_user_footer(self._turn_scroll_anchor)
+            self._streaming_bubble = self.add_message("assistant", "", thinking="")
+            self._streaming_bubble.begin_streaming()
+            self._attach_streaming_bubble_height_hook(self._streaming_bubble)
+            self._streaming_bubble.show_activity(_ACTIVITY_DEFAULT_MESSAGE)
+            self._apply_streaming_viewport_spacer()  # type: ignore[attr-defined]
+            self._start_activity_timer()
+            self._request_turn_bottom_scroll()  # type: ignore[attr-defined]
+        finally:
+            if self._open_stream_generation > 0 and self._scroll_lock_enabled:  # type: ignore[attr-defined]
+                self._reconcile_short_turn_transcript_height()  # type: ignore[attr-defined]
+                target = self._stream_follow_target()  # type: ignore[attr-defined]
+                bar.setValue(target)
+                self._last_scroll_value = bar.value()  # type: ignore[attr-defined]
+                self._stream_follow_dirty = False  # type: ignore[attr-defined]
+                self._stream_follow_frame_pending = False  # type: ignore[attr-defined]
+                self._stream_follow_retry_pending = False  # type: ignore[attr-defined]
+                QTimer.singleShot(0, self._finalize_short_turn_flush_layout)
+            self._programmatic_scroll = old_programmatic
+            del blocker
 
     def resume_assistant_stream(
         self,
@@ -427,6 +468,10 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
         else:
             self._streaming_bubble = bubble
 
+        scroll_blocker: QSignalBlocker | None = None
+        if self._open_stream_generation > 0 and self._scroll_lock_enabled:  # type: ignore[attr-defined]
+            scroll_blocker = QSignalBlocker(self._scroll.verticalScrollBar())  # type: ignore[attr-defined]
+
         self._cancel_activity_timer()
         if thinking_delta or content_delta:
             bubble.hide_activity()
@@ -446,17 +491,95 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
         finally:
             self._messages.setUpdatesEnabled(True)
 
+        anchor = self._turn_scroll_anchor
+        anchor_vp_before = (
+            self._widget_top_in_viewport(anchor)  # type: ignore[attr-defined]
+            if anchor is not None
+            else None
+        )
+
         bubble.set_defer_layout_height_changed(False)
         self._stream_layout_flush_in_progress = False
+        bubble.flush_stream_layout()
+        self._short_turn_spacer_reconcile_generation += 1  # type: ignore[attr-defined]
+        with contextlib.suppress(RuntimeError):
+            self._messages_layout.activate()
         self._messages.updateGeometry()
         self._scroll.updateGeometry()  # type: ignore[attr-defined]
         if self._open_stream_generation > 0 and self._scroll_lock_enabled:  # type: ignore[attr-defined]
-            self._queue_stream_follow_passes()  # type: ignore[attr-defined]
+            self._follow_streaming_turn_layout()  # type: ignore[attr-defined]
+            self._reconcile_streaming_viewport_overflow()  # type: ignore[attr-defined]
+        elif (
+            anchor_vp_before is not None and anchor is not None and self._scroll_lock_enabled  # type: ignore[attr-defined]
+        ):
+            anchor_vp_after = self._widget_top_in_viewport(anchor)  # type: ignore[attr-defined]
+            delta = anchor_vp_after - anchor_vp_before
+            if abs(delta) > 2:
+                bar = self._scroll.verticalScrollBar()  # type: ignore[attr-defined]
+                self._set_bar_value(  # type: ignore[attr-defined]
+                    bar,
+                    max(bar.minimum(), min(bar.maximum(), bar.value() + delta)),
+                )
         self._invalidate_sticky_extents()  # type: ignore[attr-defined]
         self._sync_sticky_turn_prompt()  # type: ignore[attr-defined]
+        if self._open_stream_generation > 0:  # type: ignore[attr-defined]
+            self._schedule_short_turn_spacer_reconcile()  # type: ignore[attr-defined]
+            self._reconcile_short_turn_spacer_after_layout(  # type: ignore[attr-defined]
+                self._short_turn_spacer_reconcile_generation  # type: ignore[attr-defined]
+            )
+            for _ in range(2):
+                QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
+            self._reconcile_streaming_viewport_overflow()  # type: ignore[attr-defined]
+            self._clamp_messages_to_viewport_width()  # type: ignore[attr-defined]
+            QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
+            self._finalize_short_turn_flush_layout()
+            QTimer.singleShot(0, self._finalize_short_turn_flush_layout)
+            QTimer.singleShot(16, self._finalize_short_turn_flush_layout)
+        if scroll_blocker is not None:
+            if self._open_stream_generation > 0 and self._scroll_lock_enabled:  # type: ignore[attr-defined]
+                bar = self._scroll.verticalScrollBar()  # type: ignore[attr-defined]
+                target = self._stream_follow_target()  # type: ignore[attr-defined]
+                bar.setValue(target)
+                self._last_scroll_value = bar.value()  # type: ignore[attr-defined]
+            del scroll_blocker
         schedule = getattr(self, "_schedule_context_usage_refresh", None)
         if callable(schedule):
             schedule()
+
+    def _finalize_short_turn_flush_layout(self) -> None:
+        """Clamp short-turn transcript height after coalesced flush layout settles."""
+        if self._open_stream_generation == 0:  # type: ignore[attr-defined]
+            return
+        bubble = self._streaming_bubble
+        if bubble is None:
+            return
+        viewport_h = self._scroll.viewport().height()  # type: ignore[attr-defined]
+        if viewport_h <= 0:
+            return
+        bar = self._scroll.verticalScrollBar()  # type: ignore[attr-defined]
+        blocker: QSignalBlocker | None = None
+        if self._scroll_lock_enabled:  # type: ignore[attr-defined]
+            blocker = QSignalBlocker(bar)
+        try:
+            self._messages_layout.activate()
+            overflow = self._messages.minimumSizeHint().height() - viewport_h
+            layout = self._messages_layout
+            spacing = layout.spacing() if layout is not None else 0
+            slack = spacing + _TURN_SCROLL_MARGIN_PX
+            if overflow <= slack or bar.maximum() <= slack:
+                if self._is_short_turn_extent(bubble):  # type: ignore[attr-defined]
+                    self._reconcile_short_turn_height_when_fits()  # type: ignore[attr-defined]
+                return
+            if not self._is_short_turn_extent(bubble):  # type: ignore[attr-defined]
+                self._messages_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinAndMaxSize)
+                self._messages.setMinimumHeight(0)
+                self._messages.setMaximumHeight(16777215)
+        finally:
+            if blocker is not None:
+                target = self._stream_follow_target()  # type: ignore[attr-defined]
+                bar.setValue(target)
+                self._last_scroll_value = bar.value()  # type: ignore[attr-defined]
+                del blocker
 
     def streaming_assistant_thinking(self) -> str:
         """Return thinking text accumulated in the active assistant bubble."""
@@ -508,12 +631,34 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
         self.restore_composer_text(user_text)  # type: ignore[attr-defined]
         self._sync_transcript_empty_state()
 
+    def _collapse_empty_label_for_transcript(self) -> None:
+        """Hide the empty-state label without reserving transcript layout height."""
+        label = self._empty_label
+        layout = self._messages_layout
+        if layout.indexOf(label) >= 0:
+            layout.removeWidget(label)
+        label.hide()
+
+    def _restore_empty_label_layout(self) -> None:
+        """Restore empty-state label sizing when the transcript is cleared."""
+        from PySide6.QtWidgets import QSizePolicy
+
+        label = self._empty_label
+        label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        label.setMaximumHeight(16777215)
+        label.setMinimumHeight(0)
+        label.setFixedHeight(-1)
+        layout = self._messages_layout
+        if layout.indexOf(label) < 0:
+            layout.insertWidget(1, label)
+
     def _sync_transcript_empty_state(self) -> None:
         """Show or hide the empty-state label based on rendered bubbles."""
         if self._first_loaded_bubble() is None:
+            self._restore_empty_label_layout()
             self._empty_label.show()
         else:
-            self._empty_label.hide()
+            self._collapse_empty_label_for_transcript()
 
     def apply_assistant_final(self, content: str, *, thinking: str = "") -> None:
         """Replace the latest assistant bubble with the final thinking and answer."""
@@ -561,17 +706,16 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
         self._deactivate_streaming_turn_user_footer()
 
         content_started = self._stream_content_started
+        assistant_for_spacer = bubble
         if bubble is not None:
             bubble.clear_stream_layout_floor()
-        self._clear_streaming_viewport_spacer()  # type: ignore[attr-defined]
-        self._messages.updateGeometry()
-        self._scroll.updateGeometry()  # type: ignore[attr-defined]
-        QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
 
         self._streaming_bubble = None
         self._detach_streaming_bubble_height_hook()
         self._stream_content_started = False
         self._open_stream_generation = 0
+        short_completed_turn = self._settle_completed_short_turn_scroll(assistant_for_spacer)  # type: ignore[attr-defined]
+
         self._invalidate_sticky_turn_pairs()  # type: ignore[attr-defined]
         self._invalidate_sticky_extents()  # type: ignore[attr-defined]
 
@@ -580,7 +724,9 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
         self._sync_sticky_turn_prompt()  # type: ignore[attr-defined]
         self._schedule_virtual_transcript_pass()
         if self._scroll_lock_enabled:  # type: ignore[attr-defined]
-            if content_started:
+            if short_completed_turn:
+                QTimer.singleShot(0, lambda: self._scroll_to_turn_start(force=True))
+            elif content_started:
                 QTimer.singleShot(0, lambda: self._scroll_to_bottom(force=True))
             else:
                 QTimer.singleShot(0, lambda: self._scroll_to_turn_start(force=True))

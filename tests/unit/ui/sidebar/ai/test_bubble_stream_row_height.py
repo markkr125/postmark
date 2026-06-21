@@ -7,8 +7,8 @@ from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
 from ui.sidebar.ai.message_bubble import ChatMessageBubble
 
 
-def test_bubble_row_height_monotonic_when_activity_hides(qapp: QApplication, qtbot) -> None:
-    """Hiding the activity row does not shrink the streaming row floor."""
+def test_thought_collapse_does_not_pin_row_minimum_height(qapp: QApplication, qtbot) -> None:
+    """Collapsing thought at answer start does not pin a monotonic row minimum."""
     host = QWidget()
     layout = QVBoxLayout(host)
     bubble = ChatMessageBubble("assistant", "")
@@ -19,13 +19,11 @@ def test_bubble_row_height_monotonic_when_activity_hides(qapp: QApplication, qtb
     qtbot.waitExposed(host)
 
     bubble.begin_streaming()
-    bubble.show_activity("Thinking…")
+    bubble.append_thinking("thinking line\n" * 8)
     qapp.processEvents()
-    floor_with_activity = bubble.minimumHeight()
-
-    bubble.hide_activity()
-    bubble._commit_stream_row_layout()
-    assert bubble.minimumHeight() >= floor_with_activity
+    bubble.append_content("answer line\n")
+    qapp.processEvents()
+    assert bubble.minimumHeight() == 0
 
 
 def test_deferred_stream_flush_emits_one_layout_height_signal(qapp: QApplication, qtbot) -> None:

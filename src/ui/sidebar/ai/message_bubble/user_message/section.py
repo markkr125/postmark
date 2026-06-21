@@ -96,6 +96,9 @@ class UserMessageSection(QWidget):
 
     def natural_label_height_for_width(self, width: int) -> int:
         """Return uncapped wrapped label height at *width*."""
+        label_w = self._label.width()
+        if label_w > 0:
+            return self._natural_label_height(label_w)
         return self._natural_label_height(max(1, width))
 
     def collapsed_label_height_for_width(self, width: int) -> int | None:

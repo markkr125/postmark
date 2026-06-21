@@ -40,7 +40,7 @@ class _WrappingLabel(QLabel):
         """Configure wrap, expansion, and selectable text."""
         super().__init__(text, parent)
         self.setWordWrap(True)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self._measured_text_width = -1
         self._measured_height: int | None = None

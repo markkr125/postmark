@@ -23,7 +23,7 @@ from services.ai.provider_catalog import (
     ProviderSpec,
     provider_by_key,
 )
-from services.scripting.secret_store import get_default_store
+from services.scripting.secret_store import get_secret
 
 logger = logging.getLogger(__name__)
 
@@ -237,7 +237,7 @@ def fetch_provider_models_live(
     timeout = http_timeout if http_timeout is not None else MODEL_LIST_TIMEOUT_SEC
     api_key = ""
     if auth_kind == "token" and auth_ref:
-        api_key = get_default_store().get(auth_ref) or ""
+        api_key = get_secret(auth_ref) or ""
     try:
         live = _fetch_live_models(
             spec,
@@ -277,7 +277,7 @@ def fetch_provider_models(
     timeout = http_timeout if http_timeout is not None else MODEL_LIST_TIMEOUT_SEC
     api_key = ""
     if auth_kind == "token" and auth_ref:
-        api_key = get_default_store().get(auth_ref) or ""
+        api_key = get_secret(auth_ref) or ""
     fetch = spec.models_fetch
     ai_log(f"Fetching models for {provider_key} (timeout {timeout}s)")
     try:

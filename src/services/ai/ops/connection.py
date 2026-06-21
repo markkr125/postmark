@@ -7,6 +7,7 @@ from services.ai.ai_logging import log as ai_log
 from services.ai.llm_service import AiLlmService
 from services.ai.ops.models import fetch_provider_models, fetch_provider_models_live
 from services.ai.sdk_env import CONNECTION_TEST_TIMEOUT_SEC
+from services.scripting.secret_store import get_secret
 from services.ai.provider_catalog import (
     ModelSpec,
     probe_model_for_provider,
@@ -31,6 +32,13 @@ def credential_validation_error(
         auth_kind == "none" or not auth_ref
     ):
         return "API key is required for this provider."
+    if (
+        auth_kind == "token"
+        and auth_ref
+        and any(f.field_id == "api_key" and f.required for f in spec.credential_fields)
+        and not get_secret(auth_ref)
+    ):
+        return "API key is not available. Re-enter the provider API key."
     if (
         any(f.field_id == "base_url" and f.required for f in spec.credential_fields)
         and not base_url.strip()

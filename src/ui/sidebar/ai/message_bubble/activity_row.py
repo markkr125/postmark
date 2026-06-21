@@ -15,7 +15,7 @@ class AssistantActivityRow(QWidget):
         """Build a muted activity row hidden until streaming starts."""
         super().__init__(parent)
         self.setObjectName("aiChatActivityRow")
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 8)

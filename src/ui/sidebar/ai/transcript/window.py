@@ -96,13 +96,15 @@ class _ChatPanelTranscriptWindowMixin(_ChatPanelTranscriptLoadMixin):
 
     def _ensure_virtual_spacers(self) -> None:
         """Insert top/bottom virtual spacers after the empty-state label."""
-        if (
-            self._top_virtual_spacer is None
-            or self._messages_layout.indexOf(self._top_virtual_spacer) < 0
-        ):
+        layout = self._messages_layout
+        top_stretch_index = cast(Any, self)._messages_top_stretch_index()  # type: ignore[attr-defined]
+        if top_stretch_index < 0:
+            top_stretch_index = 0
+        if self._top_virtual_spacer is None or layout.indexOf(self._top_virtual_spacer) < 0:
             self._top_virtual_spacer = _VirtualTranscriptSpacer(self._messages)
-            index = self._messages_layout.indexOf(self._empty_label) + 1
-            self._messages_layout.insertWidget(index, self._top_virtual_spacer)
+            empty_index = layout.indexOf(self._empty_label)
+            insert_index = empty_index + 1 if empty_index >= 0 else top_stretch_index + 1
+            layout.insertWidget(insert_index, self._top_virtual_spacer)
         if (
             self._bottom_virtual_spacer is None
             or self._messages_layout.indexOf(self._bottom_virtual_spacer) < 0

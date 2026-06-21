@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from PySide6.QtCore import Qt, QThread, Signal, Slot
+from PySide6.QtCore import QEvent, QObject, Qt, QThread, Signal, Slot, QSize
 from PySide6.QtGui import QHideEvent, QResizeEvent, QShowEvent
 from PySide6.QtWidgets import QLabel, QLayout, QPushButton, QScrollArea, QVBoxLayout, QWidget
 
@@ -24,6 +24,57 @@ from ui.styling.icons import phi
 _EMPTY_STATE_TEXT = "Ask anything about your API requests."
 _CHAT_SCROLL_PADDING_LEFT = 8
 _CHAT_SCROLL_PADDING_RIGHT = 8
+
+
+class _TranscriptMessages(QWidget):
+    """Scroll-area content host that never requests a width wider than the viewport."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        """Build the transcript layout host."""
+        super().__init__(parent)
+        self._viewport_resize_filter_installed = False
+
+    def showEvent(self, event: QShowEvent) -> None:
+        """Watch viewport width so minimum size stays within the visible column."""
+        super().showEvent(event)
+        self._ensure_viewport_resize_filter()
+
+    def _ensure_viewport_resize_filter(self) -> None:
+        """Install a resize filter on the scroll viewport once parented."""
+        viewport = self.parentWidget()
+        if viewport is None or self._viewport_resize_filter_installed:
+            return
+        viewport.installEventFilter(self)
+        self._viewport_resize_filter_installed = True
+        self._sync_width_to_viewport()
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        """Keep the transcript host width matched to the viewport column."""
+        if watched is self.parentWidget() and event.type() == QEvent.Type.Resize:
+            self._sync_width_to_viewport()
+        return False
+
+    def _sync_width_to_viewport(self) -> None:
+        """Resize and uncap the transcript host to the current viewport width."""
+        viewport = self.parentWidget()
+        vp_w = viewport.width() if viewport is not None else 0
+        if vp_w <= 0:
+            return
+        self.setMinimumWidth(0)
+        self.setMaximumWidth(vp_w)
+        if self.width() != vp_w:
+            self.resize(vp_w, self.height())
+        self.updateGeometry()
+
+    def minimumSizeHint(self) -> QSize:
+        """Cap horizontal minimum so a vertical scrollbar cannot force horizontal scroll."""
+        hint = super().minimumSizeHint()
+        viewport = self.parentWidget()
+        if viewport is not None:
+            viewport_w = viewport.width()
+            if viewport_w > 0:
+                return QSize(min(hint.width(), viewport_w), hint.height())
+        return hint
 
 
 class AiChatPanel(
@@ -75,9 +126,10 @@ class AiChatPanel(
         self._scroll = QScrollArea()
         self._scroll.setObjectName("aiChatScroll")
         self._scroll.setWidgetResizable(True)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._scroll.setFrameShape(QScrollArea.Shape.NoFrame)
 
-        self._messages = QWidget()
+        self._messages = _TranscriptMessages()
         self._messages_layout = QVBoxLayout(self._messages)
         self._messages_layout.setContentsMargins(
             _CHAT_SCROLL_PADDING_LEFT,

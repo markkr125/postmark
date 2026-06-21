@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from datetime import datetime
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, cast
 
 from PySide6.QtCore import QPoint, QTimer
 from PySide6.QtWidgets import QPushButton, QScrollArea, QWidget
@@ -238,18 +238,42 @@ class _ChatPanelStickyPromptMixin:  # type: ignore[misc]
         viewport_h = self._scroll.viewport().height()
         return user_top_y >= -_STICKY_PROMPT_MARGIN_PX and user_top_y < viewport_h
 
+    def _turn_user_clearly_visible_in_viewport(
+        self,
+        extent: StickyTurnExtent,
+        scroll_val: int,
+    ) -> bool:
+        """Return whether a turn's user row is fully on-screen (not merely clipping)."""
+        user = extent.user
+        if user is not None and isValid(user):
+            user_top = int(cast(Any, self)._widget_top_in_viewport(user))
+            user_bottom = user_top + user.height()
+        else:
+            viewport_h = self._scroll.viewport().height()
+            user_top = extent.user_top_messages - scroll_val
+            user_bottom = extent.user_bottom_messages - scroll_val
+            return bool(user_top >= 0 and user_bottom > 0 and user_top < viewport_h)
+        viewport_h = self._scroll.viewport().height()
+        return bool(user_top >= 0 and user_bottom > 0 and user_top < viewport_h)
+
     def _sticky_turn_for_viewport(self, sticky_h_estimate: int) -> StickyTurnExtent | None:
         """Return the newest eligible user/assistant turn for the current viewport."""
         scroll_val = self._scroll.verticalScrollBar().value()
-        for extent in reversed(self._ensure_sticky_turn_extents()):
+        extents = self._ensure_sticky_turn_extents()
+        for index, extent in enumerate(reversed(extents)):
             user_y = extent.user_top_messages - scroll_val
             if self._user_prompt_visible_near_viewport_top(user_y):
-                return None
+                if index == 0:
+                    return None
+                continue
             assistant_top_y = extent.assistant_top_messages - scroll_val
             assistant_bottom_y = extent.assistant_bottom_messages - scroll_val
             if not self._assistant_intersects_viewport(assistant_top_y, assistant_bottom_y):
                 continue
-            if assistant_bottom_y <= sticky_h_estimate + _STICKY_PROMPT_TOP_PX:
+            if (
+                assistant_bottom_y <= sticky_h_estimate + _STICKY_PROMPT_TOP_PX
+                and user_y >= -_STICKY_PROMPT_MARGIN_PX
+            ):
                 continue
             return extent
         return None

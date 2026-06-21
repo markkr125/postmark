@@ -67,23 +67,12 @@ def _install_fake_sdk(
     monkeypatch.setitem(sys.modules, "openhands.sdk", mod)
 
 
-class _Store:
-    backend_id = "spy"
-
-    def put(self, r: str, s: str) -> None: ...
-
-    def get(self, r: str) -> str | None:
-        return "sk-test"
-
-    def delete(self, r: str) -> None: ...
-
-
 def test_build_llm_composes_fields(monkeypatch: pytest.MonkeyPatch) -> None:
     """build_llm passes model, base_url, api_version, and max_output_tokens."""
     _install_fake_sdk(monkeypatch)
     import services.ai.llm_service as svc
 
-    monkeypatch.setattr(svc, "get_default_store", lambda: _Store())
+    monkeypatch.setattr(svc, "get_secret", lambda _ref: "sk-test")
     llm = AiLlmService.build_llm(_entry(), max_output_tokens=16)
     kw = getattr(llm, "kw", {})
     assert kw["model"] == "openai/gpt-4o"
@@ -101,7 +90,7 @@ def test_build_llm_openai_chat_requests_reasoning_summary(
     _install_fake_sdk(monkeypatch)
     import services.ai.llm_service as svc
 
-    monkeypatch.setattr(svc, "get_default_store", lambda: _Store())
+    monkeypatch.setattr(svc, "get_secret", lambda _ref: "sk-test")
     entry = _entry(
         model="openai/gpt-5.4-mini",
         reasoning_efforts=["low", "medium", "high"],
@@ -125,7 +114,7 @@ def test_build_llm_ollama_chat_skips_reasoning_summary(
 
     import services.ai.llm_service as svc
 
-    monkeypatch.setattr(svc, "get_default_store", lambda: _Store())
+    monkeypatch.setattr(svc, "get_secret", lambda _ref: "sk-test")
     os.environ["ALLOW_SHORT_CONTEXT_WINDOWS"] = "true"
     entry = _entry(
         provider="ollama",
@@ -149,7 +138,7 @@ def test_build_llm_ollama_extra_headers(monkeypatch: pytest.MonkeyPatch) -> None
 
     import services.ai.llm_service as svc
 
-    monkeypatch.setattr(svc, "get_default_store", lambda: _Store())
+    monkeypatch.setattr(svc, "get_secret", lambda _ref: "sk-test")
     os.environ["ALLOW_SHORT_CONTEXT_WINDOWS"] = "true"
     entry = _entry(
         provider="ollama",
@@ -167,7 +156,7 @@ def test_test_success(monkeypatch: pytest.MonkeyPatch) -> None:
     _install_fake_sdk(monkeypatch, text="pong")
     import services.ai.llm_service as svc
 
-    monkeypatch.setattr(svc, "get_default_store", lambda: _Store())
+    monkeypatch.setattr(svc, "get_secret", lambda _ref: "sk-test")
     ok, detail = AiLlmService.test(_entry())
     assert ok is True
     assert "pong" in detail
@@ -178,7 +167,7 @@ def test_test_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     _install_fake_sdk(monkeypatch, raise_exc=RuntimeError("boom"))
     import services.ai.llm_service as svc
 
-    monkeypatch.setattr(svc, "get_default_store", lambda: _Store())
+    monkeypatch.setattr(svc, "get_secret", lambda _ref: "sk-test")
     ok, detail = AiLlmService.test(_entry())
     assert ok is False
     assert "boom" in detail
@@ -190,7 +179,7 @@ def test_build_llm_clears_reasoning_for_ollama_streaming(monkeypatch: pytest.Mon
 
     import services.ai.llm_service as svc
 
-    monkeypatch.setattr(svc, "get_default_store", lambda: _Store())
+    monkeypatch.setattr(svc, "get_secret", lambda _ref: "sk-test")
     os.environ["ALLOW_SHORT_CONTEXT_WINDOWS"] = "true"
     entry = _entry(
         provider="ollama",
@@ -237,7 +226,7 @@ def test_build_llm_ollama_chat_does_not_pass_reasoning_effort_to_litellm(
 
     import services.ai.llm_service as svc
 
-    monkeypatch.setattr(svc, "get_default_store", lambda: _Store())
+    monkeypatch.setattr(svc, "get_secret", lambda _ref: "sk-test")
     os.environ["ALLOW_SHORT_CONTEXT_WINDOWS"] = "true"
     entry = _entry(
         provider="ollama",
@@ -281,7 +270,7 @@ def test_build_llm_ollama_chat_passes_context_and_thinking(
 
     import services.ai.llm_service as svc
 
-    monkeypatch.setattr(svc, "get_default_store", lambda: _Store())
+    monkeypatch.setattr(svc, "get_secret", lambda _ref: "sk-test")
     os.environ["ALLOW_SHORT_CONTEXT_WINDOWS"] = "true"
     entry = _entry(
         provider="ollama",
@@ -310,7 +299,7 @@ def test_build_llm_ollama_chat_harmony_passes_think_level(
 
     import services.ai.llm_service as svc
 
-    monkeypatch.setattr(svc, "get_default_store", lambda: _Store())
+    monkeypatch.setattr(svc, "get_secret", lambda _ref: "sk-test")
     os.environ["ALLOW_SHORT_CONTEXT_WINDOWS"] = "true"
     entry = _entry(
         provider="ollama",

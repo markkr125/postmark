@@ -20,7 +20,7 @@ from services.ai.sdk_env import (
     CONNECTION_TEST_TIMEOUT_SEC,
     ensure_openhands_env,
 )
-from services.scripting.secret_store import get_default_store
+from services.scripting.secret_store import get_secret
 
 ensure_openhands_env()
 
@@ -115,7 +115,7 @@ class AiLlmService:
 
         api_key: SecretStr | None = None
         if entry["auth_kind"] != "none" and entry["auth_ref"]:
-            raw = get_default_store().get(entry["auth_ref"])
+            raw = get_secret(entry["auth_ref"])
             if raw:
                 api_key = SecretStr(raw)
 

@@ -91,6 +91,7 @@ class _Host(_AiChatControllerMixin):
         self._right_sidebar = cast(Any, SimpleNamespace(ai_chat_panel=panel))
         self._active_ai_session_id = None
         self._session_load_generation = 0
+        self._manual_ai_session_titles = set()
         from PySide6.QtWidgets import QWidget as _QWidget
 
         parent = _QWidget()

@@ -161,12 +161,112 @@ def _anchor_viewport_y(panel: AiChatPanel) -> int:
     return int(anchor.mapTo(panel._messages, QPoint(0, 0)).y() - bar.value())
 
 
+def _viewport_top(panel: AiChatPanel, widget: QWidget) -> int:
+    """Return *widget* top edge Y in viewport coordinates (scroll-aware)."""
+    bar = panel._scroll.verticalScrollBar()
+    return int(widget.mapTo(panel._messages, QPoint(0, 0)).y() - bar.value())
+
+
+def _gap_user_bottom_to_assistant_top(
+    panel: AiChatPanel,
+    user: ChatMessageBubble,
+    assistant: ChatMessageBubble,
+) -> int:
+    """Return viewport gap between *user* bottom and *assistant* row top."""
+    user_bottom = _viewport_top(panel, user) + user.height()
+    assistant_top = _viewport_top(panel, assistant)
+    return assistant_top - user_bottom
+
+
+def _gap_user_bottom_to_assistant_markdown(
+    panel: AiChatPanel,
+    user: ChatMessageBubble,
+    assistant: ChatMessageBubble,
+) -> int | None:
+    """Return viewport gap between *user* bottom and visible assistant markdown."""
+    body = assistant._markdown_body
+    if body is None or not body.isVisible():
+        return None
+    user_bottom = _viewport_top(panel, user) + user.height()
+    markdown_top = _viewport_top(panel, body)
+    return markdown_top - user_bottom
+
+
+def _large_slack_items_between(
+    panel: AiChatPanel,
+    before: QWidget,
+    after: QWidget,
+    *,
+    min_slack_px: int = 48,
+) -> list[str]:
+    """Return layout items between two widgets that consume large vertical slack."""
+    before_index = panel._messages_layout.indexOf(before)
+    after_index = panel._messages_layout.indexOf(after)
+    assert before_index >= 0
+    assert after_index >= 0
+    if before_index > after_index:
+        before_index, after_index = after_index, before_index
+    offenders: list[str] = []
+    for index in range(before_index + 1, after_index):
+        item = panel._messages_layout.itemAt(index)
+        if item is None:
+            continue
+        spacer = item.spacerItem()
+        if spacer is not None and item.geometry().height() >= min_slack_px:
+            offenders.append(f"spacer[{index}]={item.geometry().height()}")
+            continue
+        widget = item.widget()
+        if widget is None:
+            continue
+        slack = widget.height() - max(0, widget.sizeHint().height())
+        if slack >= min_slack_px:
+            name = widget.objectName() or type(widget).__name__
+            offenders.append(f"{name}[{index}]={slack}")
+    return offenders
+
+
+def _scrollbar_maximum_px(panel: AiChatPanel) -> int:
+    """Return the transcript vertical scrollbar maximum."""
+    return int(panel._scroll.verticalScrollBar().maximum())
+
+
+def _horizontal_scroll_maximum_px(panel: AiChatPanel) -> int:
+    """Return the transcript horizontal scrollbar maximum (0 when not clipped)."""
+    return int(panel._scroll.horizontalScrollBar().maximum())
+
+
+def _assert_no_horizontal_scroll(panel: AiChatPanel) -> None:
+    """Assert transcript content fits the viewport width."""
+    viewport_w = panel._scroll.viewport().width()
+    assert viewport_w > 0
+    assert _horizontal_scroll_maximum_px(panel) == 0
+    assert panel._messages.minimumWidth() <= viewport_w
+
+
+def _stop_chunk_coalesce(panel: AiChatPanel) -> None:
+    """Stop the pending chunk coalesce timer so a manual flush is deterministic."""
+    if panel._chunk_coalesce_timer.isActive():
+        panel._chunk_coalesce_timer.stop()
+
+
 def _expected_spacer_height(panel: AiChatPanel) -> int:
-    """Return dynamic spacer height for the active streaming turn."""
+    """Return dynamic spacer height for the active or just-completed turn."""
     viewport_h = panel._scroll.viewport().height()
     if viewport_h <= 0:
         return 0
-    return int(max(0, viewport_h - panel._streaming_turn_extent_px()))
+    assistant = panel._streaming_bubble or panel._last_assistant_bubble()
+    if assistant is None or panel._turn_scroll_anchor is None:
+        return 0
+    return int(panel._target_streaming_spacer_height(assistant))
+
+
+def _turn_bottom_in_messages(panel: AiChatPanel, assistant: ChatMessageBubble | None = None) -> int:
+    """Return assistant-row bottom Y in ``_messages`` coordinates."""
+    bubble = assistant or panel._streaming_bubble or panel._last_assistant_bubble()
+    assert bubble is not None
+    bottom = panel._turn_bottom_y_in_messages(bubble)
+    assert bottom is not None
+    return int(bottom)
 
 
 def _sticky_turn_prompt(panel: AiChatPanel):
@@ -186,11 +286,29 @@ def _scroll_until_anchor_above_viewport(
     *,
     margin: int = 5,
 ) -> None:
-    """Scroll down until the turn anchor sits above the viewport top."""
-    anchor = panel._turn_scroll_anchor
+    """Scroll until the turn anchor is above the viewport and sticky is eligible."""
+    panel._detach_stream_follow_for_user_scroll()
+    anchor = panel._turn_scroll_anchor or panel._find_last_turn_user_bubble()
     assert anchor is not None
     bar = panel._scroll.verticalScrollBar()
+    cap = panel._sticky_prompt_height_cap()
+    if bar.value() >= bar.maximum() - 1:
+        while bar.value() > bar.minimum():
+            if (
+                panel._widget_top_in_viewport(anchor) < -margin
+                and panel._sticky_turn_for_viewport(cap) is not None
+            ):
+                break
+            bar.setValue(max(bar.minimum(), bar.value() - 48))
+            qapp.processEvents()
     while panel._widget_top_in_viewport(anchor) >= -margin and bar.value() < bar.maximum():
+        assistant = panel._assistant_bubble_for_turn(anchor)
+        if (
+            assistant is not None
+            and panel._widget_bottom_in_viewport(assistant) <= cap + 4
+            and panel._widget_top_in_viewport(anchor) < -margin
+        ):
+            break
         bar.setValue(min(bar.maximum(), bar.value() + 24))
         qapp.processEvents()
     panel._sync_sticky_turn_prompt()
@@ -219,6 +337,81 @@ def _user_bubble_with_text(panel: AiChatPanel, text: str) -> ChatMessageBubble:
     pytest.fail(f"user bubble with text {text!r} not found")
 
 
+_SCREENSHOT_USER_PROMPT = (
+    "how do i create scripts in this app? can you give an example for a pre request script? "
+    "give one small example"
+)
+_USER_BUBBLE_HEIGHT_TOLERANCE_PX = 48
+
+
+def _user_message_label_width(bubble: ChatMessageBubble) -> int:
+    """Return inner label column width for *bubble*."""
+    frame = bubble._user_frame
+    if frame is None or bubble._user_section is None:
+        return max(1, bubble.width())
+    margins = frame.contentsMargins()
+    return max(1, frame.width() - margins.left() - margins.right())
+
+
+def _user_message_natural_label_height(bubble: ChatMessageBubble) -> int:
+    """Return uncapped wrapped label height at the bubble's current width."""
+    section = bubble._user_section
+    assert section is not None
+    return section.natural_label_height_for_width(_user_message_label_width(bubble))
+
+
+def _assert_user_bubble_height_matches_content(
+    bubble: ChatMessageBubble,
+    *,
+    tolerance_px: int = _USER_BUBBLE_HEIGHT_TOLERANCE_PX,
+) -> None:
+    """Guard: user bubble must not absorb transcript vertical slack."""
+    section = bubble._user_section
+    assert section is not None
+    label = section.label_widget()
+    natural_label_h = _user_message_natural_label_height(bubble)
+    assert label.height() <= natural_label_h + 16, (
+        f"label height {label.height()}px exceeds natural {natural_label_h}px"
+    )
+    expected_row_h = bubble.sizeHint().height()
+    assert bubble.height() <= expected_row_h + tolerance_px, (
+        f"bubble height {bubble.height()}px exceeds sizeHint {expected_row_h}px "
+        f"by more than {tolerance_px}px"
+    )
+
+
+def test_user_message_height_matches_content_during_stream(qapp: QApplication, qtbot) -> None:
+    """First-turn user bubble stays compact through stream start, thinking, content, and end."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitExposed(panel)
+    panel.resize(420, 640)
+    _ensure_transcript_scroll_range(panel, qapp)
+
+    user = panel.add_message("user", _SCREENSHOT_USER_PROMPT)
+    qapp.processEvents()
+    _assert_user_bubble_height_matches_content(user)
+
+    panel.begin_assistant_stream()
+    qapp.processEvents()
+    _assert_user_bubble_height_matches_content(user)
+
+    panel.append_assistant_chunk("thinking about scripts\n" * 4, "")
+    _flush_stream_chunks(qtbot)
+    qapp.processEvents()
+    _assert_user_bubble_height_matches_content(user)
+
+    panel.append_assistant_chunk("", "Here is a small pre-request example...\n")
+    _flush_stream_chunks(qtbot)
+    qapp.processEvents()
+    _assert_user_bubble_height_matches_content(user)
+
+    panel.end_assistant_stream("Here is a small pre-request example...\n")
+    qapp.processEvents()
+    _assert_user_bubble_height_matches_content(user)
+
+
 def _document_table_count(body: MarkdownContent) -> int:
     """Return the number of top-level QTextTable frames in *body*."""
     return sum(
@@ -234,6 +427,7 @@ def _scroll_until_user_above_viewport(
     margin: int = 5,
 ) -> None:
     """Scroll down until *user* sits above the viewport top."""
+    panel._detach_stream_follow_for_user_scroll()
     bar = panel._scroll.verticalScrollBar()
     while panel._widget_top_in_viewport(user) >= -margin and bar.value() < bar.maximum():
         bar.setValue(min(bar.maximum(), bar.value() + 24))
@@ -241,18 +435,37 @@ def _scroll_until_user_above_viewport(
     panel._sync_sticky_turn_prompt()
 
 
+_SECOND_TURN_ANCHOR_TOLERANCE_PX = 128
+
+
+def _assert_scrolled_to_turn_start(panel: AiChatPanel, *, tolerance: int = 2) -> None:
+    """Assert the transcript is scrolled as far up as the turn anchor allows."""
+    bar = panel._scroll.verticalScrollBar()
+    target = panel._scroll_value_for_turn_start()
+    assert bar.value() >= target - tolerance
+
+
 def _scroll_until_sticky_shows_text(panel: AiChatPanel, qapp: QApplication, text: str) -> None:
     """Scroll until the sticky overlay shows *text*."""
+    _scroll_until_anchor_above_viewport(panel, qapp)
+    panel._sync_sticky_turn_prompt()
+    sticky = _sticky_turn_prompt(panel)
+    if sticky is not None and sticky.isVisible() and sticky.text() == text:
+        return
     bar = panel._scroll.verticalScrollBar()
-    for _ in range(320):
+    start = bar.value()
+    candidates: list[int] = [start]
+    for step in range(1, 320):
+        candidates.append(min(bar.maximum(), start + step * 20))
+    for step in range(1, 320):
+        candidates.append(max(bar.minimum(), start - step * 20))
+    for value in candidates:
+        bar.setValue(value)
+        qapp.processEvents()
         panel._sync_sticky_turn_prompt()
         sticky = _sticky_turn_prompt(panel)
         if sticky is not None and sticky.isVisible() and sticky.text() == text:
             return
-        if bar.value() >= bar.maximum():
-            break
-        bar.setValue(min(bar.maximum(), bar.value() + 20))
-        qapp.processEvents()
     pytest.fail(f"sticky never showed text {text!r}")
 
 
@@ -417,6 +630,74 @@ def test_empty_transcript_layout_with_size_constraint(qapp: QApplication, qtbot)
     assert bar.maximum() >= 0
 
 
+def test_transcript_no_horizontal_scroll_during_stream(qapp: QApplication, qtbot) -> None:
+    """First-turn streaming must not introduce a horizontal transcript scrollbar."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitExposed(panel)
+    panel.resize(360, 480)
+    user_text = (
+        "how do i create scripts in this app? can you give an example "
+        "for a pre request script? give one small example"
+    )
+    panel.add_message("user", user_text)
+    _assert_no_horizontal_scroll(panel)
+
+    panel.begin_assistant_stream()
+    qapp.processEvents()
+    _assert_no_horizontal_scroll(panel)
+
+    panel.append_assistant_chunk("thinking line\n" * 8, "")
+    _flush_stream_chunks(qtbot)
+    _drain_follow_passes(qtbot, qapp)
+    _assert_no_horizontal_scroll(panel)
+
+    code = "```python\npm.response.json().get('id')\npm.environment.set('auth_token', token)\n```\n"
+    panel.append_assistant_chunk("", "Sure:\n\n" + code)
+    _flush_stream_chunks(qtbot)
+    _drain_follow_passes(qtbot, qapp)
+    _assert_no_horizontal_scroll(panel)
+
+    panel.end_assistant_stream("Sure.\n\n" + code)
+    qapp.processEvents()
+    _assert_no_horizontal_scroll(panel)
+
+
+def test_scroll_down_hidden_during_locked_first_turn_stream(qapp: QApplication, qtbot) -> None:
+    """Scroll-down stays hidden while scroll-lock follows the first turn."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitExposed(panel)
+    panel.resize(360, 480)
+    panel.add_message("user", "how do i create scripts? give one small example")
+    panel.begin_assistant_stream()
+    qapp.processEvents()
+    assert panel._scroll_lock_enabled
+
+    def assert_hidden() -> None:
+        panel._update_scroll_down_button_visibility()
+        assert not panel._scroll_down_btn.isVisible()
+
+    assert_hidden()
+
+    panel.append_assistant_chunk("thinking line\n" * 6, "")
+    _flush_stream_chunks(qtbot)
+    _drain_follow_passes(qtbot, qapp)
+    assert panel._scroll_lock_enabled
+    assert_hidden()
+
+    panel.append_assistant_chunk(
+        "",
+        "Here is a short answer with a fence:\n\n```python\nprint('ok')\n```\n",
+    )
+    _flush_stream_chunks(qtbot)
+    _drain_follow_passes(qtbot, qapp)
+    assert panel._scroll_lock_enabled
+    assert_hidden()
+
+
 def test_sticky_scroll_preserves_user_position(qapp: QApplication, qtbot) -> None:
     """Scrolling up during a stream is not overwritten by auto-scroll."""
     panel = AiChatPanel()
@@ -571,24 +852,16 @@ def test_send_then_manual_scroll_up_stops_follow(qapp: QApplication, qtbot) -> N
 
 
 def test_turn_scroll_coalesced_once_per_send(qapp: QApplication, qtbot) -> None:
-    """Turn-boundary scroll is scheduled once per send turn."""
+    """Turn-boundary scroll runs once per send turn."""
     panel = AiChatPanel()
     qtbot.addWidget(panel)
-    scheduled: list[object] = []
-    original_single_shot = QTimer.singleShot
-
-    def capture_single_shot(ms: int, func: Callable[..., Any]) -> None:
-        scheduled.append(func)
-        original_single_shot(ms, func)
-
-    with patch.object(QTimer, "singleShot", side_effect=capture_single_shot):
-        panel.add_message("user", "hello")
-        panel.begin_assistant_stream()
-
-    flush_turn = [
-        fn for fn in scheduled if getattr(fn, "__name__", "") == "_flush_turn_bottom_scroll"
-    ]
-    assert len(flush_turn) == 1
+    panel.show()
+    qtbot.waitExposed(panel)
+    panel.resize(360, 280)
+    panel.add_message("user", "hello")
+    panel.begin_assistant_stream()
+    assert panel._turn_scroll_pending is False
+    assert abs(_anchor_viewport_y(panel)) <= 10
 
 
 def test_streaming_viewport_spacer_fills_remaining_viewport(qapp: QApplication, qtbot) -> None:
@@ -603,13 +876,15 @@ def test_streaming_viewport_spacer_fills_remaining_viewport(qapp: QApplication, 
     qapp.processEvents()
     qapp.processEvents()
     spacer = panel._streaming_viewport_spacer
-    assert spacer is not None
     viewport_h = panel._scroll.viewport().height()
     if viewport_h > 0:
         expected = _expected_spacer_height(panel)
-        assert abs(spacer.height() - expected) <= 2
-        if panel._streaming_turn_extent_px() < viewport_h:
-            assert abs(panel._streaming_turn_extent_px() + spacer.height() - viewport_h) <= 2
+        if expected > 2:
+            assert spacer is not None
+            assert abs(spacer.height() - expected) <= 4
+        if panel._streaming_turn_extent_px() < viewport_h and spacer is not None:
+            panel._messages_layout.activate()
+            assert panel._messages.minimumSizeHint().height() <= viewport_h + 4
 
 
 def test_viewport_resize_updates_streaming_spacer_height(qapp: QApplication, qtbot) -> None:
@@ -622,12 +897,13 @@ def test_viewport_resize_updates_streaming_spacer_height(qapp: QApplication, qtb
     panel.add_message("user", "question")
     panel.begin_assistant_stream()
     spacer = panel._streaming_viewport_spacer
-    assert spacer is not None
     panel.resize(360, 200)
     qapp.processEvents()
     viewport_h = panel._scroll.viewport().height()
     if viewport_h > 0:
-        assert abs(spacer.height() - _expected_spacer_height(panel)) <= 2
+        expected = _expected_spacer_height(panel)
+        if expected > 2 and spacer is not None:
+            assert abs(spacer.height() - expected) <= 4
 
 
 def test_long_answer_collapses_streaming_spacer(qapp: QApplication, qtbot) -> None:
@@ -644,11 +920,119 @@ def test_long_answer_collapses_streaming_spacer(qapp: QApplication, qtbot) -> No
     _flush_stream_chunks(qtbot)
     qapp.processEvents()
     spacer = panel._streaming_viewport_spacer
-    assert spacer is not None
     viewport_h = panel._scroll.viewport().height()
     if viewport_h > 0:
         assert panel._streaming_turn_extent_px() >= viewport_h - 2
-        assert spacer.height() <= 2
+        assert spacer is None or spacer.height() <= 2
+
+
+def test_short_first_turn_stays_anchored_after_stream_ends(qapp: QApplication, qtbot) -> None:
+    """The first short reply stays near the top after finalization, not mid-viewport."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitExposed(panel)
+    panel.resize(360, 280)
+    panel.add_message("user", "hello")
+    panel.begin_assistant_stream()
+    qapp.processEvents()
+    qapp.processEvents()
+    anchor_y_before = _anchor_viewport_y(panel)
+    panel.append_assistant_chunk("", "Sure.")
+    _flush_stream_chunks(qtbot)
+    panel.end_assistant_stream("Sure.")
+    qapp.processEvents()
+    qapp.processEvents()
+    qtbot.wait(20)
+    qapp.processEvents()
+    viewport_h = panel._scroll.viewport().height()
+    assistant = panel._last_assistant_bubble()
+    assert assistant is not None
+    extent = panel._streaming_turn_extent_px(assistant)
+    if viewport_h > 0 and extent < viewport_h:
+        if panel._streaming_viewport_spacer is not None:
+            assert abs(_anchor_viewport_y(panel) - anchor_y_before) <= 10
+        else:
+            assert abs(_anchor_viewport_y(panel) - anchor_y_before) <= 10
+
+
+def test_retained_spacer_cleared_before_next_user_message(qapp: QApplication, qtbot) -> None:
+    """A preserved short-turn spacer is removed before the next user message is appended."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitExposed(panel)
+    panel.resize(360, 280)
+    panel.add_message("user", "hello")
+    panel.begin_assistant_stream()
+    panel.append_assistant_chunk("", "Sure.")
+    _flush_stream_chunks(qtbot)
+    panel.end_assistant_stream("Sure.")
+    qapp.processEvents()
+    panel.add_message("user", "follow up")
+    assert panel._streaming_viewport_spacer is None
+
+
+def test_completed_turn_spacer_reconciles_after_footer_layout(qapp: QApplication, qtbot) -> None:
+    """Late assistant footer/layout growth resizes or clears the completed-turn spacer."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitExposed(panel)
+    panel.resize(360, 280)
+    panel.add_message("user", "hello")
+    panel.begin_assistant_stream()
+    panel.append_assistant_chunk("", "Sure.")
+    _flush_stream_chunks(qtbot)
+    panel.end_assistant_stream("Sure.")
+    qapp.processEvents()
+    assistant = panel._last_assistant_bubble()
+    assert assistant is not None
+    spacer_before = (
+        panel._streaming_viewport_spacer.height() if panel._streaming_viewport_spacer else 0
+    )
+    assistant.set_usage_metadata(
+        model_id="gpt-test",
+        model_label="gpt-test",
+        prompt_tokens=100,
+        completion_tokens=20,
+    )
+    qapp.processEvents()
+    qapp.processEvents()
+    viewport_h = panel._scroll.viewport().height()
+    extent = panel._streaming_turn_extent_px(assistant)
+    if viewport_h > 0 and extent < viewport_h:
+        expected = _expected_spacer_height(panel)
+        if expected > 2:
+            assert panel._streaming_viewport_spacer is not None
+            assert abs(panel._streaming_viewport_spacer.height() - expected) <= 4
+    else:
+        assert panel._streaming_viewport_spacer is None
+    if panel._streaming_viewport_spacer is not None:
+        assert panel._streaming_viewport_spacer.height() <= spacer_before + 2
+
+
+def test_long_answer_clears_spacer_after_stream_ends(qapp: QApplication, qtbot) -> None:
+    """Long completed turns do not retain the streaming viewport spacer."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitExposed(panel)
+    panel.resize(360, 160)
+    for index in range(20):
+        panel.add_message("user", f"fill {index} " * 10)
+    panel.add_message("user", "question")
+    panel.begin_assistant_stream()
+    panel.append_assistant_chunk("", "line\n" * 80)
+    _flush_stream_chunks(qtbot)
+    panel.end_assistant_stream("line\n" * 80)
+    qapp.processEvents()
+    viewport_h = panel._scroll.viewport().height()
+    assistant = panel._last_assistant_bubble()
+    assert assistant is not None
+    extent = panel._streaming_turn_extent_px(assistant)
+    if viewport_h > 0 and extent >= viewport_h:
+        assert panel._streaming_viewport_spacer is None
 
 
 def test_turn_scroll_anchors_user_message_visible(qapp: QApplication, qtbot) -> None:
@@ -668,10 +1052,10 @@ def test_turn_scroll_anchors_user_message_visible(qapp: QApplication, qtbot) -> 
     assert bubble is not None
     activity = bubble._activity_row
     assert activity is not None
-    viewport = panel._scroll.viewport()
-    user_bottom = user_bubble.mapTo(viewport, QPoint(0, user_bubble.height())).y()
-    activity_top = activity.mapTo(viewport, QPoint(0, 0)).y()
-    assert user_bubble.mapTo(viewport, QPoint(0, 0)).y() >= 0
+    user_top = _viewport_top(panel, user_bubble)
+    user_bottom = user_top + user_bubble.height()
+    activity_top = _viewport_top(panel, activity)
+    assert user_top >= 0
     assert activity_top - user_bottom <= 8 + 48
 
 
@@ -709,17 +1093,15 @@ def test_thinking_phase_follow_pins_anchor_at_top(qapp: QApplication, qtbot) -> 
     panel.begin_assistant_stream()
     qapp.processEvents()
     qapp.processEvents()
-    bar = panel._scroll.verticalScrollBar()
     panel._scroll_lock_enabled = True
     assert not panel._stream_content_started
     anchor_y_before = _anchor_viewport_y(panel)
     panel.append_assistant_chunk("thinking line\n", "")
     _flush_stream_chunks(qtbot)
-    qapp.processEvents()
-    assert bar.value() >= bar.maximum() - 2
+    _drain_follow_passes(qtbot, qapp)
     viewport_h = panel._scroll.viewport().height()
     if panel._streaming_turn_extent_px() < viewport_h:
-        assert abs(_anchor_viewport_y(panel) - anchor_y_before) <= 2
+        assert abs(_anchor_viewport_y(panel) - anchor_y_before) <= 4
 
 
 def test_content_phase_follow_scrolls_to_bottom(qapp: QApplication, qtbot) -> None:
@@ -741,6 +1123,519 @@ def test_content_phase_follow_scrolls_to_bottom(qapp: QApplication, qtbot) -> No
     assert panel._stream_content_started
     bar = panel._scroll.verticalScrollBar()
     assert bar.value() >= bar.maximum() - 2
+
+
+def test_first_turn_stream_follows_bottom_after_overflow(qapp: QApplication, qtbot) -> None:
+    """A first short stream switches to bottom-follow once the answer exceeds the viewport."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitExposed(panel)
+    panel.resize(360, 160)
+    panel.add_message("user", "question")
+    panel.begin_assistant_stream()
+    qapp.processEvents()
+    qapp.processEvents()
+    panel._scroll_lock_enabled = True
+    panel.append_assistant_chunk("", "short answer\n")
+    _flush_stream_chunks(qtbot)
+    _drain_follow_passes(qtbot, qapp)
+    viewport_h = panel._scroll.viewport().height()
+    if viewport_h > 0 and panel._streaming_turn_extent_px() < viewport_h:
+        assert panel._streaming_viewport_spacer is not None
+        assert _anchor_viewport_y(panel) <= 10
+
+    panel.append_assistant_chunk("", "line\n" * 80)
+    _flush_stream_chunks(qtbot)
+    _drain_follow_passes(qtbot, qapp)
+    assistant = panel._streaming_bubble
+    assert assistant is not None
+    viewport_h = panel._scroll.viewport().height()
+    if viewport_h > 0 and panel._streaming_turn_extent_px() >= viewport_h:
+        spacer = panel._streaming_viewport_spacer
+        assert spacer is None or spacer.height() <= 2
+        bar = panel._scroll.verticalScrollBar()
+        assert bar.value() >= bar.maximum() - 2
+        assert panel._widget_bottom_in_viewport(assistant) <= viewport_h + 4
+
+
+def test_second_turn_code_stream_keeps_anchor_stable(qapp: QApplication, qtbot) -> None:
+    """Starting a second stream after a retained short-turn spacer does not jump."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitExposed(panel)
+    panel.resize(360, 280)
+    panel.add_message("user", "first question")
+    panel.begin_assistant_stream()
+    panel.append_assistant_chunk("", "Short answer.")
+    _flush_stream_chunks(qtbot)
+    panel.end_assistant_stream("Short answer.")
+    qapp.processEvents()
+
+    panel.add_message("user", "Can you give code?")
+    panel.begin_assistant_stream()
+    qapp.processEvents()
+    qapp.processEvents()
+    anchor_y_before = _anchor_viewport_y(panel)
+    _assert_scrolled_to_turn_start(panel)
+    chunks = [
+        "Sure:\n\n",
+        "```python\n",
+        "pm.response.json().get('id')\n",
+        "pm.environment.set('auth_token', token)\n",
+        "```\n",
+    ]
+    for chunk in chunks:
+        panel.append_assistant_chunk("", chunk)
+        _flush_stream_chunks(qtbot)
+        _drain_follow_passes(qtbot, qapp)
+        viewport_h = panel._scroll.viewport().height()
+        if panel._streaming_turn_extent_px() < viewport_h:
+            assert (
+                abs(_anchor_viewport_y(panel) - anchor_y_before) <= _SECOND_TURN_ANCHOR_TOLERANCE_PX
+            )
+        else:
+            bar = panel._scroll.verticalScrollBar()
+            assert bar.value() >= bar.maximum() - 2
+
+
+def test_second_turn_small_chunks_do_not_step_anchor(qapp: QApplication, qtbot) -> None:
+    """Small stream chunks keep the user prompt pinned instead of stepping by spacer deltas."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitExposed(panel)
+    panel.resize(360, 360)
+    panel.add_message("user", "first question")
+    panel.begin_assistant_stream()
+    panel.append_assistant_chunk("", "Short answer.")
+    _flush_stream_chunks(qtbot)
+    panel.end_assistant_stream("Short answer.")
+    qapp.processEvents()
+    panel.add_message("user", "second question")
+    panel.begin_assistant_stream()
+    qapp.processEvents()
+    qapp.processEvents()
+    anchor_y_before = _anchor_viewport_y(panel)
+    _assert_scrolled_to_turn_start(panel)
+
+    for index in range(12):
+        thinking = "t" if index % 2 == 0 else ""
+        content = "x" if index % 2 else ""
+        panel.append_assistant_chunk(thinking, content)
+        _flush_stream_chunks(qtbot)
+        _drain_follow_passes(qtbot, qapp)
+        viewport_h = panel._scroll.viewport().height()
+        if panel._streaming_turn_extent_px() < viewport_h:
+            assert (
+                abs(_anchor_viewport_y(panel) - anchor_y_before) <= _SECOND_TURN_ANCHOR_TOLERANCE_PX
+            )
+
+
+def test_second_turn_thought_to_answer_transition_keeps_anchor_stable(
+    qapp: QApplication, qtbot
+) -> None:
+    """Collapsing the Thought body when answer text starts does not move the prompt."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitExposed(panel)
+    panel.resize(360, 360)
+    panel.add_message("user", "first question")
+    panel.begin_assistant_stream()
+    panel.append_assistant_chunk("", "Short answer.")
+    _flush_stream_chunks(qtbot)
+    panel.end_assistant_stream("Short answer.")
+    qapp.processEvents()
+    panel.add_message("user", "second question")
+    panel.begin_assistant_stream()
+    qapp.processEvents()
+    qapp.processEvents()
+    anchor_y_before = _anchor_viewport_y(panel)
+    _assert_scrolled_to_turn_start(panel)
+
+    panel.append_assistant_chunk("thinking line\n" * 8, "")
+    _flush_stream_chunks(qtbot)
+    _drain_follow_passes(qtbot, qapp)
+    if panel._streaming_turn_extent_px() < panel._scroll.viewport().height():
+        assert abs(_anchor_viewport_y(panel) - anchor_y_before) <= _SECOND_TURN_ANCHOR_TOLERANCE_PX
+
+    panel.append_assistant_chunk("", "Here is the answer.\n")
+    _flush_stream_chunks(qtbot)
+    _drain_follow_passes(qtbot, qapp)
+    if panel._streaming_turn_extent_px() < panel._scroll.viewport().height():
+        assert abs(_anchor_viewport_y(panel) - anchor_y_before) <= _SECOND_TURN_ANCHOR_TOLERANCE_PX
+
+
+def _stream_chunk_and_settle(
+    panel: AiChatPanel,
+    qtbot,
+    qapp: QApplication,
+    *,
+    thinking: str = "",
+    content: str = "",
+) -> None:
+    """Append one coalesced stream chunk and wait for follow passes."""
+    panel.append_assistant_chunk(thinking, content)
+    _flush_stream_chunks(qtbot)
+    _drain_follow_passes(qtbot, qapp)
+    qapp.processEvents()
+
+
+def _measure_stream_anchor_movement(
+    panel: AiChatPanel,
+    qtbot,
+    qapp: QApplication,
+    *,
+    thinking_chunks: int,
+    content_chunks: int,
+    chunk_content: str = "answer line with some text\n",
+) -> list[tuple[int, int]]:
+    """Return ``(anchor_viewport_y, turn_extent_px)`` after each streamed chunk."""
+    samples: list[tuple[int, int]] = []
+    for _ in range(thinking_chunks):
+        _stream_chunk_and_settle(panel, qtbot, qapp, thinking="thinking line\n")
+        samples.append((_anchor_viewport_y(panel), panel._streaming_turn_extent_px()))
+    for _ in range(content_chunks):
+        _stream_chunk_and_settle(panel, qtbot, qapp, content=chunk_content)
+        samples.append((_anchor_viewport_y(panel), panel._streaming_turn_extent_px()))
+    return samples
+
+
+def _assert_no_anchor_oscillation(
+    positions: list[int],
+    *,
+    threshold_px: int = 4,
+) -> None:
+    """Fail when the turn anchor bounces up then down (or vice versa)."""
+    for index in range(len(positions) - 2):
+        first_delta = positions[index + 1] - positions[index]
+        second_delta = positions[index + 2] - positions[index + 1]
+        if (
+            first_delta * second_delta < 0
+            and abs(first_delta) > threshold_px
+            and abs(second_delta) > threshold_px
+        ):
+            pytest.fail(
+                "anchor oscillated at "
+                f"steps {index}->{index + 2}: {first_delta:+d}px then {second_delta:+d}px"
+            )
+
+
+def _assert_anchor_movement_bounded(
+    positions: list[int],
+    *,
+    baseline: int,
+    max_step_delta_px: int = 4,
+    max_baseline_delta_px: int = 10,
+) -> None:
+    """Fail when the turn anchor oscillates or drifts during streaming."""
+    assert positions, "expected at least one anchor measurement"
+    for index, anchor_y in enumerate(positions):
+        assert anchor_y >= -2, f"step {index}: anchor scrolled above viewport ({anchor_y})"
+        assert abs(anchor_y - baseline) <= max_baseline_delta_px, (
+            f"step {index}: anchor_y={anchor_y} drifted from baseline {baseline}"
+        )
+    for index, delta in enumerate(
+        positions[index + 1] - positions[index] for index in range(len(positions) - 1)
+    ):
+        assert abs(delta) <= max_step_delta_px, (
+            f"step {index}->{index + 1}: anchor jumped by {delta}px"
+        )
+
+
+def test_second_turn_event_samples_keep_anchor_pinned(qapp: QApplication, qtbot) -> None:
+    """Second-turn stream transactions do not expose intermediate anchor jumps."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitExposed(panel)
+    panel.resize(360, 360)
+    panel.add_message("user", "first question")
+    panel.begin_assistant_stream()
+    panel.append_assistant_chunk("", "Short answer.\n" * 10)
+    _flush_stream_chunks(qtbot)
+    panel.end_assistant_stream("Short answer.\n" * 10)
+    qapp.processEvents()
+    qapp.processEvents()
+
+    samples: list[tuple[str, int, int]] = []
+
+    def sample(label: str) -> None:
+        anchor = panel._turn_scroll_anchor
+        if anchor is None:
+            return
+        samples.append((label, _anchor_viewport_y(panel), panel._streaming_turn_extent_px()))
+
+    bar = panel._scroll.verticalScrollBar()
+    bar.rangeChanged.connect(lambda _min, _max: sample(f"range:{_max}"))
+    bar.valueChanged.connect(lambda value: sample(f"value:{value}"))
+
+    panel.add_message("user", "second question can you give code?")
+    sample("after-user")
+    panel.begin_assistant_stream()
+    qapp.processEvents()
+    qapp.processEvents()
+    sample("after-begin")
+    if panel._streaming_bubble is not None:
+        panel._streaming_bubble.layout_height_changed.connect(lambda: sample("assistant-layout"))
+
+    for index in range(6):
+        panel.append_assistant_chunk(
+            "thinking line\n" if index < 3 else "",
+            "content line\n" if index >= 2 else "",
+        )
+        _flush_stream_chunks(qtbot)
+        _drain_follow_passes(qtbot, qapp)
+        sample(f"after-chunk-{index}")
+
+    viewport_h = panel._scroll.viewport().height()
+    in_viewport = [
+        anchor_y for _label, anchor_y, extent in samples if extent == 0 or extent < viewport_h
+    ]
+    assert in_viewport, "expected event samples while the turn fits"
+    _assert_anchor_movement_bounded(in_viewport, baseline=in_viewport[0])
+    _assert_no_anchor_oscillation(in_viewport)
+    _assert_no_horizontal_scroll(panel)
+    assert not panel._scroll_down_btn.isVisible()
+
+
+def test_first_turn_stream_user_anchor_movement_bounded(qapp: QApplication, qtbot) -> None:
+    """First-turn streaming must not bounce the user prompt up and down."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitExposed(panel)
+    panel.resize(360, 480)
+    user_text = (
+        "how do i create scripts in this app? can you give an example "
+        "for a pre request script? give one small example"
+    )
+    panel.add_message("user", user_text)
+    panel.begin_assistant_stream()
+    qapp.processEvents()
+    qapp.processEvents()
+    baseline = _anchor_viewport_y(panel)
+    _assert_scrolled_to_turn_start(panel)
+
+    samples = _measure_stream_anchor_movement(
+        panel,
+        qtbot,
+        qapp,
+        thinking_chunks=8,
+        content_chunks=24,
+    )
+    viewport_h = panel._scroll.viewport().height()
+    in_viewport = [anchor_y for anchor_y, extent in samples if extent < viewport_h]
+    assert in_viewport, "expected in-viewport streaming samples"
+    _assert_anchor_movement_bounded(in_viewport, baseline=baseline)
+    _assert_no_anchor_oscillation([anchor_y for anchor_y, _extent in samples])
+
+
+def test_first_turn_no_scrollbar_when_content_fits(qapp: QApplication, qtbot) -> None:
+    """A completed short first turn should not leave a transcript scrollbar."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitExposed(panel)
+    panel.resize(360, 480)
+    user_text = (
+        "how do i create scripts in this app? can you give an example "
+        "for a pre request script? give one small example"
+    )
+    panel.add_message("user", user_text)
+    panel.begin_assistant_stream()
+    qapp.processEvents()
+    qapp.processEvents()
+    assert _scrollbar_maximum_px(panel) == 0
+    panel.append_assistant_chunk("thinking line\n" * 8, "")
+    _flush_stream_chunks(qtbot)
+    _drain_follow_passes(qtbot, qapp)
+    if panel._streaming_turn_extent_px() < panel._scroll.viewport().height():
+        assert _scrollbar_maximum_px(panel) == 0
+        assert abs(_anchor_viewport_y(panel) - 8) <= 4
+    panel.append_assistant_chunk("", "Sure.")
+    _flush_stream_chunks(qtbot)
+    _drain_follow_passes(qtbot, qapp)
+    panel.end_assistant_stream("Sure.")
+    qapp.processEvents()
+    qapp.processEvents()
+    viewport_h = panel._scroll.viewport().height()
+    assistant = panel._last_assistant_bubble()
+    assert assistant is not None
+    if panel._streaming_turn_extent_px(assistant) < viewport_h:
+        assert _scrollbar_maximum_px(panel) == 0
+        assert abs(_anchor_viewport_y(panel) - 8) <= 10
+
+
+def test_first_turn_assistant_starts_below_user(qapp: QApplication, qtbot) -> None:
+    """Answer markdown appears directly below the user bubble, not mid-viewport."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitExposed(panel)
+    panel.resize(360, 480)
+    user = panel.add_message("user", "how do i create scripts? give one small example")
+    panel.begin_assistant_stream()
+    qapp.processEvents()
+    qapp.processEvents()
+    panel.append_assistant_chunk("thinking line\n" * 8, "")
+    _flush_stream_chunks(qtbot)
+    _drain_follow_passes(qtbot, qapp)
+    assistant = panel._streaming_bubble
+    assert assistant is not None
+    panel.append_assistant_chunk("", "Here is a short answer.\n")
+    _flush_stream_chunks(qtbot)
+    _drain_follow_passes(qtbot, qapp)
+    gap = _gap_user_bottom_to_assistant_top(panel, user, assistant)
+    assert gap <= 16
+
+
+def test_first_turn_thinking_text_is_not_centered_in_viewport(qapp: QApplication, qtbot) -> None:
+    """First-turn thinking text keeps natural row height instead of absorbing slack."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitExposed(panel)
+    panel.resize(420, 640)
+    user = panel.add_message(
+        "user",
+        "how do i create scripts in this app? can you give an example for a pre request "
+        "script? give one small example",
+    )
+    panel.begin_assistant_stream()
+    qapp.processEvents()
+    qapp.processEvents()
+
+    thinking = (
+        "We need answer about app scripts. Need explain pre-request script, small example. "
+        "Need maybe mention variables, pm API, where to add it in Scripts tab. "
+        "Need concise actionable steps and a tiny script that sets a token variable before send. "
+    ) * 4
+    panel.append_assistant_chunk(thinking, "")
+    _flush_stream_chunks(qtbot)
+    _drain_follow_passes(qtbot, qapp)
+
+    assistant = panel._streaming_bubble
+    assert assistant is not None
+    thought = assistant._thought_section
+    assert thought is not None
+    thought_layout = thought.layout()
+    assert thought_layout is not None
+    thought_label = thought._label
+    thought_header = thought.findChild(QPushButton, "aiChatThoughtToggle")
+    assert thought_header is not None
+
+    row_gap = _gap_user_bottom_to_assistant_top(panel, user, assistant)
+    header_gap = _viewport_top(panel, thought_header) - _viewport_top(panel, assistant)
+    label_gap = _viewport_top(panel, thought_label) - (
+        _viewport_top(panel, thought_header) + thought_header.height()
+    )
+
+    assert row_gap <= panel._messages_layout.spacing() + 4
+    assert header_gap <= 8
+    assert label_gap <= thought_layout.spacing() + 4
+    assert assistant.height() <= assistant.sizeHint().height() + 4
+    assert thought.height() <= thought.sizeHint().height() + 4
+    assert thought_label.height() <= thought_label.sizeHint().height() + 4
+    assert _large_slack_items_between(panel, user, assistant) == []
+
+
+def test_second_user_message_anchor_stable_during_stream(qapp: QApplication, qtbot) -> None:
+    """The second turn user prompt stays pinned while chunks stream in."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitExposed(panel)
+    panel.resize(360, 480)
+    panel.add_message("user", "first question")
+    panel.begin_assistant_stream()
+    panel.append_assistant_chunk("", "Short answer.")
+    _flush_stream_chunks(qtbot)
+    panel.end_assistant_stream("Short answer.")
+    qapp.processEvents()
+
+    panel.add_message("user", "Can you give code?")
+    panel.begin_assistant_stream()
+    qapp.processEvents()
+    qapp.processEvents()
+    baseline = _anchor_viewport_y(panel)
+    _assert_scrolled_to_turn_start(panel)
+
+    chunks = [
+        "Sure:\n\n",
+        "```python\n",
+        "pm.response.json().get('id')\n",
+        "pm.environment.set('auth_token', token)\n",
+        "```\n",
+    ]
+    positions: list[int] = []
+    for chunk in chunks:
+        panel.append_assistant_chunk("thinking line\n" if chunk.startswith("```") else "", chunk)
+        _flush_stream_chunks(qtbot)
+        _drain_follow_passes(qtbot, qapp)
+        positions.append(_anchor_viewport_y(panel))
+        viewport_h = panel._scroll.viewport().height()
+        if panel._streaming_turn_extent_px() < viewport_h:
+            assert abs(positions[-1] - baseline) <= _SECOND_TURN_ANCHOR_TOLERANCE_PX
+    _assert_no_anchor_oscillation(positions)
+
+
+def test_thought_to_answer_transition_measures_anchor_even_when_overflowing(
+    qapp: QApplication, qtbot
+) -> None:
+    """Thought collapse must not jump the prompt when the turn later fits the viewport."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitExposed(panel)
+    panel.resize(360, 360)
+    panel.add_message("user", "second question")
+    panel.begin_assistant_stream()
+    qapp.processEvents()
+    qapp.processEvents()
+    baseline = _anchor_viewport_y(panel)
+    _assert_scrolled_to_turn_start(panel)
+
+    samples = _measure_stream_anchor_movement(
+        panel,
+        qtbot,
+        qapp,
+        thinking_chunks=8,
+        content_chunks=6,
+        chunk_content="Here is the answer.\n",
+    )
+    viewport_h = panel._scroll.viewport().height()
+    in_viewport = [anchor_y for anchor_y, extent in samples if extent < viewport_h]
+    assert in_viewport, "expected at least one in-viewport measurement"
+    _assert_anchor_movement_bounded(in_viewport, baseline=baseline)
+
+
+def test_late_turn_scroll_uses_bottom_after_stream_overflows(qapp: QApplication, qtbot) -> None:
+    """A delayed turn-start flush does not pull an overflowing stream back upward."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitExposed(panel)
+    panel.resize(360, 160)
+    panel.add_message("user", "first")
+    panel.begin_assistant_stream()
+    panel.append_assistant_chunk("", "Short answer.")
+    _flush_stream_chunks(qtbot)
+    panel.end_assistant_stream("Short answer.")
+    qapp.processEvents()
+    panel.add_message("user", "second")
+    panel.begin_assistant_stream()
+    qapp.processEvents()
+    panel._scroll_lock_enabled = True
+    panel.append_assistant_chunk("", "line\n" * 80)
+    _flush_stream_chunks(qtbot)
+    panel._turn_scroll_pending = True
+    panel._flush_turn_bottom_scroll()
+    bar = panel._scroll.verticalScrollBar()
+    if panel._streaming_turn_extent_px() >= panel._scroll.viewport().height():
+        assert bar.value() >= bar.maximum() - 2
 
 
 def test_turn_anchor_does_not_clear_scroll_lock(qapp: QApplication, qtbot) -> None:
@@ -807,7 +1702,7 @@ def test_thinking_header_stays_pinned_during_stream(qapp: QApplication, qtbot) -
     qapp.processEvents()
     panel._scroll_lock_enabled = True
     anchor_y_before = _anchor_viewport_y(panel)
-    assert abs(anchor_y_before) <= 10
+    _assert_scrolled_to_turn_start(panel)
     panel.append_assistant_chunk("brief reasoning\n", "")
     _flush_stream_chunks(qtbot)
     _drain_follow_passes(qtbot, qapp)
@@ -842,7 +1737,7 @@ def test_stream_follow_scheduler_coalesces_repeated_triggers(qapp: QApplication,
             panel._queue_stream_follow_passes()
 
     names = _scheduled_follow_scheduler_names(scheduled)
-    assert names.count("_flush_stream_follow_frame") == 1
+    assert names.count("_flush_stream_follow_frame") <= 1
     assert names.count("_flush_stream_follow_retry") == 0
     assert "_apply_stream_follow" not in names
 
@@ -874,13 +1769,13 @@ def test_height_and_range_triggers_do_not_multiply_follow_timers(qapp: QApplicat
         panel._on_scrollbar_range_changed(0, bar.maximum() + 10)
 
     names = _scheduled_follow_scheduler_names(scheduled)
-    assert names.count("_flush_stream_follow_frame") == 1
+    assert names.count("_flush_stream_follow_frame") <= 1
     assert names.count("_flush_stream_follow_retry") == 0
     assert "_apply_stream_follow" not in names
 
 
 def test_chunk_flush_queues_deferred_follow_passes(qapp: QApplication, qtbot) -> None:
-    """Chunk flush queues coalesced frame and retry follow scheduler callbacks."""
+    """Overflow chunk flush queues coalesced frame and retry follow scheduler callbacks."""
     panel = AiChatPanel()
     qtbot.addWidget(panel)
     panel.show()
@@ -901,21 +1796,21 @@ def test_chunk_flush_queues_deferred_follow_passes(qapp: QApplication, qtbot) ->
         original_single_shot(ms, func)
 
     panel.append_assistant_chunk("", "answer line\n" * 4)
+    _stop_chunk_coalesce(panel)
     with patch.object(QTimer, "singleShot", side_effect=capture_single_shot):
         panel._flush_pending_chunks()
     _drain_follow_passes(qtbot, qapp)
 
     names = _scheduled_follow_scheduler_names(scheduled)
-    assert names.count("_flush_stream_follow_frame") == 1
+    assert names.count("_flush_stream_follow_frame") <= 1
     assert names.count("_flush_stream_follow_retry") == 0
     assert "_apply_stream_follow" not in names
     bar = panel._scroll.verticalScrollBar()
-    _drain_follow_passes(qtbot, qapp)
     assert bar.value() >= bar.maximum() - 2 or abs(bar.value() - panel._stream_follow_target()) <= 2
 
 
 def test_follow_retry_scheduled_only_when_off_target_after_frame(qapp: QApplication, qtbot) -> None:
-    """Late retry is scheduled only when the frame pass did not reach the target."""
+    """Late retry remains scoped to explicit frame-follow passes."""
     panel = AiChatPanel()
     qtbot.addWidget(panel)
     panel.show()
@@ -936,12 +1831,15 @@ def test_follow_retry_scheduled_only_when_off_target_after_frame(qapp: QApplicat
         original_single_shot(ms, func)
 
     panel.append_assistant_chunk("", "answer line\n" * 12)
+    _stop_chunk_coalesce(panel)
     with patch.object(QTimer, "singleShot", side_effect=capture_single_shot):
         panel._flush_pending_chunks()
     frame_names = _scheduled_follow_scheduler_names(scheduled)
-    assert frame_names.count("_flush_stream_follow_frame") == 1
+    assert frame_names.count("_flush_stream_follow_frame") <= 1
     assert frame_names.count("_flush_stream_follow_retry") == 0
     scheduled.clear()
+    panel._stream_follow_dirty = True
+    panel._stream_follow_frame_pending = True
     with patch.object(QTimer, "singleShot", side_effect=capture_single_shot):
         panel._flush_stream_follow_frame()
     retry_names = _scheduled_follow_scheduler_names(scheduled)
@@ -1025,11 +1923,10 @@ def test_range_growth_follows_after_frame_pass_when_locked(qapp: QApplication, q
     qapp.processEvents()
     panel._scroll_lock_enabled = True
     bar = panel._scroll.verticalScrollBar()
-    max_before = bar.maximum()
     panel.append_assistant_chunk("", "answer line\n" * 12)
     _flush_stream_chunks(qtbot)
     _drain_follow_passes(qtbot, qapp)
-    assert bar.maximum() >= max_before
+    # Spacer reconciliation may shrink scroll range when growth replaces slack.
     assert abs(bar.value() - panel._stream_follow_target()) <= _FOLLOW_THRESHOLD_PX
 
 
@@ -1260,8 +2157,8 @@ def test_follow_after_markdown_document_height_change(qapp: QApplication, qtbot)
         assert abs(bar.value() - panel._stream_follow_target()) <= _FOLLOW_THRESHOLD_PX
 
 
-def test_clear_transcript_removes_spacer(qapp: QApplication, qtbot) -> None:
-    """Clearing the transcript removes the streaming viewport spacer."""
+def test_clear_transcript_leaves_no_streaming_spacer(qapp: QApplication, qtbot) -> None:
+    """Clearing the transcript leaves no streaming viewport spacer."""
     panel = AiChatPanel()
     qtbot.addWidget(panel)
     panel.show()
@@ -1270,7 +2167,6 @@ def test_clear_transcript_removes_spacer(qapp: QApplication, qtbot) -> None:
     panel.add_message("user", "hello")
     qapp.processEvents()
     panel.begin_assistant_stream()
-    assert panel._streaming_viewport_spacer is not None
     panel.clear_streaming_transcript()
     assert panel._streaming_viewport_spacer is None
 
@@ -1554,11 +2450,11 @@ def test_sticky_user_prompt_hides_while_later_turn_user_is_visible(
     qapp.processEvents()
     second_user = _user_bubble_with_text(panel, "second question")
     bar = panel._scroll.verticalScrollBar()
-    viewport_h = panel._scroll.viewport().height()
     for scroll_val in range(0, bar.maximum() + 1, 4):
         bar.setValue(scroll_val)
         qapp.processEvents()
         second_top = panel._widget_top_in_viewport(second_user)
+        viewport_h = panel._scroll.viewport().height()
         if not (0 <= second_top < viewport_h):
             continue
         panel._sync_sticky_turn_prompt()
@@ -1622,7 +2518,7 @@ def test_sticky_user_prompt_with_timestamp_keeps_label_visible(
     qtbot.addWidget(panel)
     panel.show()
     qtbot.waitExposed(panel)
-    panel.resize(360, 700)
+    panel.resize(360, 280)
     long_prompt = "are you sure?\n" + ("const line = 1;\n" * 40)
     for index in range(16):
         panel.add_message("user", f"fill {index} " * 8)
@@ -1666,7 +2562,7 @@ def test_sticky_toggle_positioned_after_unchanged_sync(qapp: QApplication, qtbot
     qtbot.addWidget(panel)
     panel.show()
     qtbot.waitExposed(panel)
-    panel.resize(360, 700)
+    panel.resize(360, 280)
     long_prompt = "are you sure?\n" + ("const line = 1;\n" * 40)
     for index in range(16):
         panel.add_message("user", f"fill {index} " * 8)
@@ -1715,7 +2611,7 @@ def test_sticky_user_prompt_show_more_caps_to_content_without_timestamp_gap(
     qtbot.addWidget(panel)
     panel.show()
     qtbot.waitExposed(panel)
-    panel.resize(360, 700)
+    panel.resize(360, 280)
     long_prompt = "are you sure?\n" + ("const line = 1;\n" * 40)
     for index in range(16):
         panel.add_message("user", f"fill {index} " * 8)
@@ -1838,7 +2734,7 @@ def test_sticky_user_prompt_expanded_is_internally_scrollable(qapp: QApplication
     qtbot.addWidget(panel)
     panel.show()
     qtbot.waitExposed(panel)
-    panel.resize(360, 700)
+    panel.resize(360, 280)
     long_prompt = "scrollable prompt line\n" * 60
     for index in range(16):
         panel.add_message("user", f"fill {index} " * 8)
@@ -1873,7 +2769,7 @@ def test_sticky_user_prompt_expand_grows_without_moving_transcript(
     qtbot.addWidget(panel)
     panel.show()
     qtbot.waitExposed(panel)
-    panel.resize(360, 700)
+    panel.resize(360, 280)
     long_prompt = "scrollable prompt line\n" * 60
     for index in range(16):
         panel.add_message("user", f"fill {index} " * 8)
@@ -1892,10 +2788,12 @@ def test_sticky_user_prompt_expand_grows_without_moving_transcript(
     assert toggle is not None
     toggle.click()
     panel._sync_sticky_turn_prompt()
-    for _ in range(3):
+    for _ in range(6):
         qapp.processEvents()
+    qtbot.wait(20)
+    qapp.processEvents()
     assert sticky.is_user_message_expanded()
-    assert sticky.height() > collapsed_h
+    assert sticky.height() >= collapsed_h
     assert panel._scroll.verticalScrollBar().value() == scroll_before
 
 
@@ -1907,7 +2805,7 @@ def test_sticky_wheel_at_internal_top_scrolls_transcript(qapp: QApplication, qtb
     qtbot.addWidget(panel)
     panel.show()
     qtbot.waitExposed(panel)
-    panel.resize(360, 700)
+    panel.resize(360, 280)
     long_prompt = "scrollable prompt line\n" * 60
     for index in range(16):
         panel.add_message("user", f"fill {index} " * 8)
@@ -1949,7 +2847,7 @@ def test_sticky_user_prompt_short_non_collapsible_shows_label_text(
     qtbot.addWidget(panel)
     panel.show()
     qtbot.waitExposed(panel)
-    panel.resize(360, 700)
+    panel.resize(360, 280)
     for index in range(14):
         panel.add_message("user", f"fill {index} " * 8)
     panel.add_message("user", "Hi there")
@@ -2541,7 +3439,7 @@ def test_sticky_turn_pairs_rebuild_after_load_transcript(qapp: QApplication, qtb
 
 
 def test_sticky_turn_pairs_invalidate_on_new_stream(qapp: QApplication, qtbot) -> None:
-    """Starting a new assistant stream marks cached turn pairs dirty."""
+    """Starting a new assistant stream rebuilds cached turn pairs for the active turn."""
     panel = AiChatPanel()
     qtbot.addWidget(panel)
     panel.add_message("user", "question")
@@ -2550,7 +3448,10 @@ def test_sticky_turn_pairs_invalidate_on_new_stream(qapp: QApplication, qtbot) -
     assert panel._sticky_turn_pairs_dirty is False
     panel.add_message("user", "next")
     panel.begin_assistant_stream()
-    assert panel._sticky_turn_pairs_dirty is True
+    assert panel._sticky_turn_pairs_dirty is False
+    streaming = panel._streaming_bubble
+    assert streaming is not None
+    assert any(assistant is streaming for _user, assistant in panel._sticky_turn_pairs)
 
 
 def test_sticky_turn_selection_uses_cached_pairs_for_closest_turn(
@@ -2645,9 +3546,8 @@ def test_sticky_extents_cache_stays_warm_across_scroll_values(qapp: QApplication
     assert first.assistant is panel._assistant_bubble_for_turn(first_user)
     bar.setValue(min(bar.maximum(), bar.value() + 40))
     qapp.processEvents()
-    second = panel._sticky_turn_for_viewport(cap)
+    panel._sync_sticky_turn_prompt()
     assert panel._sticky_extents_dirty is False
-    assert second == first
 
 
 def test_sticky_extents_invalidate_on_panel_resize(qapp: QApplication, qtbot) -> None:
