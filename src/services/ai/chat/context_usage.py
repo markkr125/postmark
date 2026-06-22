@@ -125,19 +125,26 @@ def _tool_schema_payload(tool: object) -> object:
 
 
 def count_system_and_tools(
-    agent_id: str, model: str, *, char_only: bool = False
+    agent_id: str, model: str, *, char_only: bool = False, send_mode: str | None = None
 ) -> tuple[int, int]:
     """Tokenize the agent system prompt and serialized tool schemas."""
+    from services.ai.chat.mode_profiles import resolve_chat_mode
+
     defn = get_agent_def(agent_id)
-    system_tokens = estimate_text_tokens(defn.system_prompt or "", model, char_only=char_only)
+    mode = resolve_chat_mode(send_mode)
+    system_tokens = estimate_text_tokens(
+        (defn.system_prompt or "") + mode.system_prompt_suffix,
+        model,
+        char_only=char_only,
+    )
     tools_tokens = 0
-    tools = resolve_tools(defn.tool_names)
-    if tools or defn.include_default_tools:
+    tools = resolve_tools(mode.tool_names)
+    if tools or mode.include_default_tools:
         try:
             payload = json.dumps(
                 {
                     "tools": [_tool_schema_payload(tool) for tool in tools],
-                    "include_default_tools": list(defn.include_default_tools),
+                    "include_default_tools": list(mode.include_default_tools),
                 },
                 sort_keys=True,
             )
@@ -232,13 +239,21 @@ def build_breakdown(
     agent_id: str,
     sdk_metrics: ContextUsageSdkMetrics | None = None,
     char_only: bool = False,
+    send_mode: str | None = None,
 ) -> ContextUsageBreakdown:
     """Assemble category buckets and totals for the context ring."""
+    from services.ai.chat.context_usage_sdk import count_subagent_tokens_from_events
+
     total_tokens = effective_run_context_tokens(entry) if entry is not None else 0
     model = _model_name(entry)
     tokens = _empty_categories()
 
-    system_tokens, tools_tokens = count_system_and_tools(agent_id, model, char_only=char_only)
+    system_tokens, tools_tokens = count_system_and_tools(
+        agent_id,
+        model,
+        char_only=char_only,
+        send_mode=send_mode,
+    )
     tokens["system_prompt"] = system_tokens
     tokens["tools"] = tools_tokens
 
@@ -285,6 +300,12 @@ def build_breakdown(
     if is_estimated:
         tokens["conversation"] = transcript_tokens + draft_tokens + stream_tokens
 
+    session_events = iter_session_events(session_id) if session_id else []
+    subagent_tokens = count_subagent_tokens_from_events(session_events, model)
+    if subagent_tokens > 0:
+        tokens["subagents"] = subagent_tokens
+        tokens["conversation"] = max(0, tokens["conversation"] - subagent_tokens)
+
     categories = _assemble_categories(tokens)
     used_tokens = sum(category["tokens"] for category in categories)
     if total_tokens > 0:
@@ -330,6 +351,7 @@ def build_breakdown_for_session(
     streaming_content: str = "",
     sdk_metrics: ContextUsageSdkMetrics | None = None,
     char_only: bool = False,
+    send_mode: str | None = None,
 ) -> ContextUsageBreakdown:
     """Load full SQLite transcript for *session_id* and build a breakdown."""
     messages: list[AiChatMessageDict] = []
@@ -345,6 +367,7 @@ def build_breakdown_for_session(
         agent_id=agent_id,
         sdk_metrics=sdk_metrics,
         char_only=char_only,
+        send_mode=send_mode,
     )
 
 
@@ -417,6 +440,7 @@ class ContextUsageService:
         entry: AiModelEntry | None,
         agent_id: str = DEFAULT_AGENT_ID,
         sdk_metrics: ContextUsageSdkMetrics | None = None,
+        send_mode: str | None = None,
     ) -> ContextUsageBreakdown:
         """Assemble a Cursor-style breakdown from transcript and SDK state."""
         return build_breakdown(
@@ -428,6 +452,7 @@ class ContextUsageService:
             entry=entry,
             agent_id=agent_id,
             sdk_metrics=sdk_metrics,
+            send_mode=send_mode,
         )
 
     @staticmethod
@@ -440,6 +465,7 @@ class ContextUsageService:
         streaming_thinking: str = "",
         streaming_content: str = "",
         sdk_metrics: ContextUsageSdkMetrics | None = None,
+        send_mode: str | None = None,
     ) -> ContextUsageBreakdown:
         """Load full session rows from SQLite and build the context breakdown."""
         return build_breakdown_for_session(
@@ -450,6 +476,7 @@ class ContextUsageService:
             streaming_thinking=streaming_thinking,
             streaming_content=streaming_content,
             sdk_metrics=sdk_metrics,
+            send_mode=send_mode,
         )
 
     @staticmethod

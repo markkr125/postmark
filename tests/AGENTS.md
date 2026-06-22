@@ -42,6 +42,8 @@
    RestrictedPython subprocess tests use ``pytest.mark.xdist_group("restricted_python_sandbox")``
    and ``tests/conftest.py`` caps xdist workers at 8, reaps child zombies after
    each test, and tears down sandbox subprocesses via detached process groups.
+   Full-suite parallelism uses ``--dist loadgroup`` (see ``pyproject.toml``) so
+   xdist groups serialize across files.
 6. **The `_no_fetch` fixture is autouse in `tests/ui/`** — it prevents
    `CollectionWidget` from spawning a background thread.  You do not need
    to apply it manually.
@@ -242,6 +244,13 @@ tests/
 │       │   ├── test_provider_display_name.py
 │       │   ├── test_chat_response_text.py
 │       │   ├── test_chat_session_service.py
+│       │   ├── test_context_redaction.py
+│       │   ├── test_mode_profiles.py
+│       │   ├── test_app_context_snapshot.py
+│       │   ├── test_app_context_search.py
+│       │   ├── test_app_context_tool.py
+│       │   ├── test_postmark_chat_visualizer.py  # PostmarkChatVisualizer event → research payload
+│       │   ├── test_chat_stop_subagent.py  # Cancellable arun + registry cancel research cleanup
 │       │   ├── test_context_usage.py
 │       │   ├── test_message_usage.py
 │       │   ├── test_session_transcript_window.py  # Tail/older turn slicing
@@ -294,6 +303,7 @@ tests/
 └── ui/                            # PySide6 widget tests (need qapp + qtbot)
     ├── conftest.py                # _no_fetch (autouse) + helper functions
    ├── main_window/
+   │   ├── test_app_context_refresh.py  # Debounced live snapshot refresh mixin
    │   └── test_ai_chat_controller.py  # AI chat controller + concurrent run registry paths
    │   └── test_main_window_ai_session_restore.py  # Persist + reopen last chat session on startup
    │   └── test_ai_chat_registry_streaming.py  # E2E registry→controller→panel incremental streaming
@@ -343,6 +353,7 @@ tests/
    ├── sidebar/                   # Sidebar widget tests
    │   ├── conftest.py  # pytestmark xdist_group sidebar_qt (all sidebar UI tests)
    │   ├── test_ai_chat_panel.py
+   │   ├── test_chat_inject_prefix.py  # Worker prefix not in SQLite user text
    │   ├── test_chat_panel_streaming.py
    │   ├── test_chat_panel_smooth_scroll.py
    │   ├── test_chat_panel_resize.py
@@ -366,6 +377,8 @@ tests/
    │       ├── test_inline_edit_sticky_host.py  # Inline edit composer reparented into sticky overlay
    │       ├── test_context_usage_integration.py
    │       ├── test_context_thread_safety.py
+   │       ├── test_research_activity_popup.py  # Workspace research progress flyout
+   │       ├── test_chat_panel_research.py  # Research flyout toggle + grace timer on AiChatPanel
    │       └── test_context_usage_worker.py
    │   ├── test_sidebar.py
    │   ├── test_left_sidebar.py

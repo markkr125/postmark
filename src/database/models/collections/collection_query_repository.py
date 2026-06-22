@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import func as sa_func
+from sqlalchemy import or_
 from sqlalchemy import select
 
 from database.database import get_session
@@ -518,3 +519,134 @@ def get_script_chain(request_id: int) -> list[dict[str, Any]]:
         )
 
         return ancestor_layers
+
+
+def search_collections(term: str, *, limit: int = 20) -> list[dict[str, Any]]:
+    """Return collection folders whose name matches *term* (case-insensitive)."""
+    pattern = f"%{term.strip()}%"
+    if not term.strip():
+        return []
+    with get_session() as session:
+        stmt = (
+            select(CollectionModel.id, CollectionModel.name, CollectionModel.parent_id)
+            .where(CollectionModel.name.ilike(pattern))
+            .limit(limit)
+        )
+        return [
+            {"id": cid, "name": cname, "parent_id": pid}
+            for cid, cname, pid in session.execute(stmt).all()
+        ]
+
+
+def search_requests(
+    term: str,
+    *,
+    limit: int = 30,
+    include_content: bool = False,
+) -> list[dict[str, Any]]:
+    """Return requests matching *term* in metadata (and optionally body)."""
+    pattern = f"%{term.strip()}%"
+    if not term.strip():
+        return []
+    with get_session() as session:
+        cols = [
+            RequestModel.id,
+            RequestModel.name,
+            RequestModel.method,
+            RequestModel.url,
+            RequestModel.collection_id,
+        ]
+        clauses = [
+            RequestModel.name.ilike(pattern),
+            RequestModel.url.ilike(pattern),
+            RequestModel.method.ilike(pattern),
+        ]
+        if include_content:
+            cols.extend([RequestModel.description, RequestModel.body])
+            clauses.extend(
+                [
+                    RequestModel.description.ilike(pattern),
+                    RequestModel.body.ilike(pattern),
+                ]
+            )
+        stmt = select(*cols).where(or_(*clauses)).limit(limit)
+        rows = session.execute(stmt).all()
+        results: list[dict[str, Any]] = []
+        for row in rows:
+            if include_content:
+                rid, name, method, url, coll_id, desc, body = row
+                results.append(
+                    {
+                        "id": rid,
+                        "name": name,
+                        "method": method,
+                        "url": url,
+                        "collection_id": coll_id,
+                        "description": desc,
+                        "body_snippet": (body or "")[:120],
+                    }
+                )
+            else:
+                rid, name, method, url, coll_id = row
+                results.append(
+                    {
+                        "id": rid,
+                        "name": name,
+                        "method": method,
+                        "url": url,
+                        "collection_id": coll_id,
+                    }
+                )
+        return results
+
+
+def search_saved_responses(
+    term: str,
+    *,
+    limit: int = 20,
+    include_body: bool = False,
+) -> list[dict[str, Any]]:
+    """Return saved responses whose name matches *term*."""
+    from .model.saved_response_model import SavedResponseModel
+
+    pattern = f"%{term.strip()}%"
+    if not term.strip():
+        return []
+    with get_session() as session:
+        stmt = select(SavedResponseModel).where(SavedResponseModel.name.ilike(pattern))
+        stmt = stmt.limit(limit)
+        rows = list(session.execute(stmt).scalars().all())
+        out: list[dict[str, Any]] = []
+        for sr in rows:
+            item = {
+                "id": sr.id,
+                "request_id": sr.request_id,
+                "name": sr.name,
+                "code": sr.code,
+            }
+            if include_body and sr.body:
+                item["body_snippet"] = (sr.body or "")[:120]
+            out.append(item)
+        return out
+
+
+def collection_tree_summary(collection_id: int) -> dict[str, Any]:
+    """Return request/folder counts for *collection_id* and descendants."""
+    with get_session() as session:
+        all_ids = _get_descendant_collection_ids(session, collection_id)
+        coll = session.get(CollectionModel, collection_id)
+        if coll is None:
+            return {"id": collection_id, "name": "", "request_count": 0, "folder_count": 0}
+        req_stmt = (
+            select(sa_func.count())
+            .select_from(RequestModel)
+            .where(RequestModel.collection_id.in_(all_ids))
+        )
+        request_count = int(session.execute(req_stmt).scalar_one())
+        folder_count = max(0, len(all_ids) - 1)
+        return {
+            "id": collection_id,
+            "name": coll.name,
+            "request_count": request_count,
+            "folder_count": folder_count,
+        }

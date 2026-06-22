@@ -74,6 +74,13 @@ Key TypedDicts by service:
 See [TypedDict Catalogue](../api-reference/typedicts.md) for complete
 field definitions.
 
+## AI chat app context
+
+Workspace snapshot bridge, `postmark_app_context` tool, mode profiles, live
+refresh, and research sub-agent wiring live under `services/ai/chat/app_context/`
+and `ui/main_window/app_context_*.py`. See
+[AI chat app context](ai-chat-app-context.md).
+
 ## Import Parser Sub-system
 
 The import pipeline has its own sub-package under `services/import_parser/`

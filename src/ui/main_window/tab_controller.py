@@ -258,6 +258,9 @@ class _TabControllerMixin:
         editor.dirty_changed.connect(self._on_editor_dirty_changed)
         editor.request_changed.connect(self._on_editor_request_changed)
         editor.scripts_tab_active_changed.connect(self._on_editor_scripts_tab_changed)
+        wire_refresh = getattr(self, "wire_request_editor_app_context_refresh", None)
+        if callable(wire_refresh):
+            wire_refresh(editor)
         viewer.save_response_requested.connect(self._on_save_response)
         viewer.replay_history_link_clicked.connect(self._on_replay_history_link_clicked)
         viewer.save_availability_changed.connect(self._on_viewer_save_availability_changed)
@@ -617,6 +620,10 @@ class _TabControllerMixin:
         if sync_tree:
             self._sync_tree_selection(ctx)
 
+        schedule_refresh = getattr(self, "schedule_app_context_refresh", None)
+        if callable(schedule_refresh):
+            schedule_refresh()
+
     def _flush_tab_change(self) -> None:
         """Immediately run pending debounced tab-change work.
 
@@ -875,6 +882,9 @@ class _TabControllerMixin:
         editor.dirty_changed.connect(self._on_editor_dirty_changed)
         editor.request_changed.connect(self._on_editor_request_changed)
         editor.scripts_tab_active_changed.connect(self._on_editor_scripts_tab_changed)
+        wire_refresh = getattr(self, "wire_request_editor_app_context_refresh", None)
+        if callable(wire_refresh):
+            wire_refresh(editor)
         viewer.save_response_requested.connect(self._on_save_response)
         viewer.replay_history_link_clicked.connect(self._on_replay_history_link_clicked)
         viewer.save_availability_changed.connect(self._on_viewer_save_availability_changed)

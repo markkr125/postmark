@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import contextlib
-from dataclasses import dataclass
+import json
+from dataclasses import dataclass, field
 
 from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
 
@@ -17,6 +18,15 @@ from services.ai.chat.chat_run_limits import (
 from ui.sidebar.ai.workers.chat_worker import AiChatWorker
 
 MAX_CONCURRENT_CHAT_RUNS = DEFAULT_MAX_CONCURRENT_CHAT_RUNS
+
+
+@dataclass
+class ResearchTurnState:
+    """Research progress + findings for one assistant turn."""
+
+    progress_lines: list[str] = field(default_factory=list)
+    findings_text: str = ""
+    is_active: bool = False
 
 
 @dataclass
@@ -43,6 +53,8 @@ class ChatRunHandle:
     content_buffer: str = ""
     pending_sdk_metrics: object | None = None
     status_text: str = ""
+    send_mode: str = "agent"
+    research_state: ResearchTurnState | None = None
 
 
 class _WorkerSignalBridge(QObject):
@@ -82,6 +94,11 @@ class _WorkerSignalBridge(QObject):
     def on_status(self, status: str) -> None:
         """Forward SDK activity status from the worker thread."""
         self._registry._on_status(self._session_id, self._run_generation, status)
+
+    @Slot(str)
+    def on_research(self, payload: str) -> None:
+        """Forward research UI updates from the worker thread."""
+        self._registry._on_research(self._session_id, self._run_generation, payload)
 
     @Slot(object)
     def on_usage(self, metrics: object) -> None:
@@ -131,6 +148,7 @@ class ChatRunRegistry(QObject):
     running_sessions_changed = Signal()
     chunk_received = Signal(str, int, str, str)
     status_changed = Signal(str, int, str)
+    research_updated = Signal(str, int, str)
     usage_updated = Signal(str, int, object)
     context_compacted = Signal(str, int)
     assistant_finished = Signal(str, int, str, str)
@@ -223,6 +241,9 @@ class ChatRunRegistry(QObject):
         queued = Qt.ConnectionType.QueuedConnection
         worker.chunk_received.connect(bridge.on_chunk, queued)
         worker.status_changed.connect(bridge.on_status, queued)
+        research_signal = getattr(worker, "research_updated", None)
+        if research_signal is not None:
+            research_signal.connect(bridge.on_research, queued)
         worker.usage_updated.connect(bridge.on_usage, queued)
         worker.context_compacted.connect(bridge.on_compacted, queued)
         worker.assistant_finished.connect(bridge.on_finished, queued)
@@ -237,6 +258,7 @@ class ChatRunRegistry(QObject):
             worker=worker,
             thread_generation=thread_generation,
             bridge=bridge,
+            send_mode=str((composer or {}).get("send_mode") or "agent"),
         )
         self._handles[session_id] = handle
         self.running_sessions_changed.emit()
@@ -246,8 +268,17 @@ class ChatRunRegistry(QObject):
     def cancel(self, session_id: str) -> None:
         """Interrupt the worker for *session_id*, if running."""
         handle = self._handles.get(session_id)
-        if handle is not None:
-            handle.worker.cancel()
+        if handle is None:
+            return
+        if handle.research_state is not None and handle.research_state.is_active:
+            handle.research_state.is_active = False
+            stopped = json.dumps({"phase": "stopped", "status": "", "findings": ""})
+            self.research_updated.emit(
+                session_id,
+                handle.context.run_generation,
+                stopped,
+            )
+        handle.worker.cancel()
 
     def cancel_all(self) -> None:
         """Interrupt every in-flight worker (app shutdown)."""
@@ -290,6 +321,31 @@ class ChatRunRegistry(QObject):
         handle.status_text = status
         self.status_changed.emit(session_id, run_generation, status)
 
+    def _on_research(self, session_id: str, run_generation: int, payload: str) -> None:
+        """Update research state and fan out to the panel."""
+        handle = self._handles.get(session_id)
+        if handle is None or handle.context.run_generation != run_generation:
+            return
+        if handle.research_state is None:
+            handle.research_state = ResearchTurnState(is_active=True)
+        state = handle.research_state
+        try:
+            data = json.loads(payload)
+        except json.JSONDecodeError:
+            data = {"phase": "status", "status": payload, "findings": ""}
+        phase = str(data.get("phase") or "")
+        status = str(data.get("status") or "")
+        findings = str(data.get("findings") or "")
+        if status and status not in state.progress_lines:
+            state.progress_lines.append(status)
+            state.is_active = True
+        if phase == "findings" and findings:
+            state.findings_text = findings
+            state.is_active = False
+        elif phase == "stopped":
+            state.is_active = False
+        self.research_updated.emit(session_id, run_generation, payload)
+
     def _on_usage(self, session_id: str, run_generation: int, metrics: object) -> None:
         handle = self._handles.get(session_id)
         if handle is None or handle.context.run_generation != run_generation:
@@ -315,6 +371,9 @@ class ChatRunRegistry(QObject):
         with contextlib.suppress(TypeError, RuntimeError):
             worker.chunk_received.disconnect()
             worker.status_changed.disconnect()
+            research_signal = getattr(worker, "research_updated", None)
+            if research_signal is not None:
+                research_signal.disconnect()
             worker.usage_updated.disconnect()
             worker.context_compacted.disconnect()
             worker.assistant_finished.disconnect()
@@ -334,4 +393,5 @@ __all__ = [
     "AiChatRunContext",
     "ChatRunHandle",
     "ChatRunRegistry",
+    "ResearchTurnState",
 ]

@@ -194,6 +194,29 @@ User clicks Save (or Ctrl+S)
     6. Refresh collection tree to show new request
 ```
 
+## 7. AI Chat App Context
+
+Live workspace snapshot + tool reads during an assistant turn. Full detail:
+[AI chat app context](ai-chat-app-context.md).
+
+```text
+Send message (active session)
+  --> write_app_context_snapshot(session_id, send_mode)
+  --> build_message_prefix (worker; not stored in SQLite)
+  --> AiChatWorker.run() -> conv.arun()
+
+User switches tab / env / tree (active session still running)
+  --> schedule_app_context_refresh (250 ms debounce)
+  --> write_app_context_snapshot again
+
+postmark_app_context tool call (any time in turn)
+  --> read app_context_snapshot.json from session workspace
+
+Stop during workspace_researcher task
+  --> UI: Stopping… + research phase=stopped
+  --> conv.interrupt() + timeout (CHAT_STOP_SUBAGENT_TIMEOUT_S)
+```
+
 ## Script Execution Flow
 
 ```text

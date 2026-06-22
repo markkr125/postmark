@@ -246,20 +246,6 @@ def test_build_conversation_passes_composer_to_llm(
         lambda: tmp_path / "postmark",
     )
 
-    import services.ai.llm_service as llm_svc
-
-    class _Store:
-        backend_id = "noop"
-
-        def put(self, r: str, s: str) -> None: ...
-
-        def get(self, r: str) -> str | None:
-            return None
-
-        def delete(self, r: str) -> None: ...
-
-    monkeypatch.setattr(llm_svc, "get_default_store", lambda: _Store())
-
     session_id = str(uuid.uuid4())
     conv = AiChatSessionService.build_conversation(
         session_id,
@@ -295,20 +281,6 @@ def test_build_conversation_passes_sdk_contract(
         lambda: tmp_path / "postmark",
     )
 
-    import services.ai.llm_service as llm_svc
-
-    class _Store:
-        backend_id = "noop"
-
-        def put(self, r: str, s: str) -> None: ...
-
-        def get(self, r: str) -> str | None:
-            return None
-
-        def delete(self, r: str) -> None: ...
-
-    monkeypatch.setattr(llm_svc, "get_default_store", lambda: _Store())
-
     session_id = str(uuid.uuid4())
     token_calls: list[str] = []
     event_calls: list[str] = []
@@ -335,8 +307,7 @@ def test_build_conversation_passes_sdk_contract(
     assert kw["callbacks"] == [event_cb]
 
     agent_kw = captured["agent_kw"]
-    assert len(agent_kw["tools"]) == 1
-    assert agent_kw["tools"][0].name == "postmark_wiki_query"
+    assert "postmark_wiki_query" in [t.name for t in agent_kw["tools"]]
     assert agent_kw["system_prompt"]
     assert "postmark_wiki_query" in agent_kw["system_prompt"]
     assert agent_kw["include_default_tools"] == []
@@ -348,6 +319,51 @@ def test_build_conversation_passes_sdk_contract(
     assert agent_kw["condenser"].llm.stream is False
     assert kw["max_iteration_per_run"] == 5
     assert conv is not None
+
+
+def test_build_conversation_ask_mode_omits_task_tool(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    """Ask mode resolves tools without TaskToolSet."""
+    captured = _install_fake_sdk(monkeypatch)
+    monkeypatch.setattr(
+        "database.data_paths.postmark_user_data_dir",
+        lambda: tmp_path / "postmark",
+    )
+
+    AiChatSessionService.build_conversation(
+        str(uuid.uuid4()),
+        _entry(),
+        DEFAULT_AGENT_ID,
+        composer={"send_mode": "ask"},
+    )
+    tools = captured["agent_kw"]["tools"]
+    names = [t.name for t in tools]
+    assert "postmark_app_context" in names
+    assert not any("task" in n for n in names)
+
+
+def test_build_conversation_agent_mode_includes_task_tool(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    """Agent mode resolves TaskToolSet alongside Postmark tools."""
+    captured = _install_fake_sdk(monkeypatch)
+    monkeypatch.setattr(
+        "database.data_paths.postmark_user_data_dir",
+        lambda: tmp_path / "postmark",
+    )
+
+    AiChatSessionService.build_conversation(
+        str(uuid.uuid4()),
+        _entry(),
+        DEFAULT_AGENT_ID,
+        composer={"send_mode": "agent"},
+    )
+    tools = captured["agent_kw"]["tools"]
+    names = [t.name for t in tools]
+    assert any("task" in n for n in names)
 
 
 def test_generate_session_title_uses_first_user_message(
@@ -406,20 +422,6 @@ def test_build_conversation_uses_model_context_for_condenser(
         "database.data_paths.postmark_user_data_dir",
         lambda: tmp_path / "postmark",
     )
-
-    import services.ai.llm_service as llm_svc
-
-    class _Store:
-        backend_id = "noop"
-
-        def put(self, r: str, s: str) -> None: ...
-
-        def get(self, r: str) -> str | None:
-            return None
-
-        def delete(self, r: str) -> None: ...
-
-    monkeypatch.setattr(llm_svc, "get_default_store", lambda: _Store())
 
     session_id = str(uuid.uuid4())
     AiChatSessionService.build_conversation(

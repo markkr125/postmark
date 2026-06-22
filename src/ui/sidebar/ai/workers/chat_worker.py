@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from typing import TYPE_CHECKING
 
@@ -14,10 +15,13 @@ from services.ai.chat.response_text import (
     merge_stream_text,
     resolve_assistant_parts,
 )
+from database.data_paths import session_disk_dir
+from services.ai.chat.app_context.inject import build_message_prefix
 from services.ai.chat.compaction import (
     CHAT_CONDENSER_DIAGNOSTIC_USAGE_FRACTION,
     log_compaction_diagnostics,
 )
+from services.ai.chat.postmark_chat_visualizer import PostmarkChatVisualizer
 from services.ai.chat.context_usage import (
     ContextUsageService,
     metrics_from_conversation,
@@ -33,7 +37,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _STOPPED_MESSAGE = "Stopped"
+_STOPPING_STATUS = "Stopping…"
 _SUMMARIZING_STATUS = "Summarizing earlier messages…"
+CHAT_STOP_SUBAGENT_TIMEOUT_S = 5.0
+CHAT_STOP_POLL_INTERVAL_S = 0.05
 _COMPACTION_EVENT_NAMES = frozenset(
     {"Condensation", "CondensationRequest", "CondensationSummaryEvent"}
 )
@@ -84,6 +91,7 @@ class AiChatWorker(QObject):
     assistant_finished = Signal(str, str)
     failed = Signal(str, str, str)
     status_changed = Signal(str)
+    research_updated = Signal(str)
     context_compacted = Signal()
     usage_updated = Signal(object)
 
@@ -135,6 +143,32 @@ class AiChatWorker(QObject):
             conv.interrupt()
         except Exception:
             logger.exception("AI chat interrupt failed")
+
+    async def _run_until_done_or_stop(self, conv: BaseConversation) -> None:
+        """Run ``arun`` until completion or stop, with a sub-agent timeout."""
+        task = asyncio.create_task(conv.arun())
+        while not task.done():
+            if self._stop_requested:
+                try:
+                    conv.interrupt()
+                except Exception:
+                    logger.exception("AI chat interrupt failed")
+                try:
+                    await asyncio.wait_for(
+                        asyncio.shield(task),
+                        timeout=CHAT_STOP_SUBAGENT_TIMEOUT_S,
+                    )
+                except TimeoutError:
+                    task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await task
+                break
+            await asyncio.sleep(CHAT_STOP_POLL_INTERVAL_S)
+        try:
+            await task
+        except asyncio.CancelledError:
+            if not self._stop_requested:
+                raise
 
     def _emit_failure(
         self,
@@ -192,6 +226,11 @@ class AiChatWorker(QObject):
                     else:
                         self.status_changed.emit(text)
 
+            visualizer = PostmarkChatVisualizer(
+                on_status=self.status_changed.emit,
+                on_research=self.research_updated.emit,
+            )
+
             conv = AiChatSessionService.build_conversation(
                 self._session_id,
                 entry,
@@ -199,6 +238,7 @@ class AiChatWorker(QObject):
                 callbacks=[event_cb],
                 token_callbacks=[token_cb],
                 composer=self._composer,
+                visualizer=visualizer,
             )
             self._conv = conv
             if self._stop_requested:
@@ -232,7 +272,11 @@ class AiChatWorker(QObject):
                     diagnostics=diagnostics,
                 )
 
-            conv.send_message(self._text)
+            prefix = build_message_prefix(
+                (self._composer or {}).get("send_mode"),
+                session_disk_dir(self._session_id),
+            )
+            conv.send_message(prefix + self._text)
             if self._stop_requested:
                 self._emit_failure(conv, _STOPPED_MESSAGE)
                 return
@@ -246,7 +290,8 @@ class AiChatWorker(QObject):
             except Exception:
                 baseline_cost = 0.0
 
-            asyncio.run(conv.arun())
+            # Poll stop during arun; interrupt + timeout unblocks nested TaskTool runs.
+            asyncio.run(self._run_until_done_or_stop(conv))
 
             if self._stop_requested:
                 self._emit_failure(conv, _STOPPED_MESSAGE)

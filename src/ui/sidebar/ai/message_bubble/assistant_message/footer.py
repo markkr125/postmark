@@ -20,6 +20,7 @@ class AssistantMessageFooterRow(QWidget):
 
     fork_requested = Signal()
     copy_requested = Signal()
+    research_clicked = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Build a metadata row shown when the assistant turn is complete."""
@@ -36,6 +37,14 @@ class AssistantMessageFooterRow(QWidget):
         self._usage_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         row.addWidget(self._usage_label, 1)
 
+        self._research_btn = QPushButton("Research")
+        self._research_btn.setObjectName("aiChatResearchFooterButton")
+        self._research_btn.setFlat(True)
+        self._research_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._research_btn.clicked.connect(self.research_clicked.emit)
+        self._research_btn.hide()
+        row.addWidget(self._research_btn, 0, Qt.AlignmentFlag.AlignRight)
+
         self._menu_btn = QPushButton()
         self._menu_btn.setObjectName("aiChatAssistantMessageMenu")
         self._menu_btn.setFlat(True)
@@ -48,7 +57,28 @@ class AssistantMessageFooterRow(QWidget):
         row.addWidget(self._menu_btn, 0, Qt.AlignmentFlag.AlignRight)
 
         self._fork_enabled = True
+        self._research_visible = False
         self.hide()
+
+    def set_research_visible(self, visible: bool) -> None:
+        """Show or hide the Research chip (may appear before the turn completes)."""
+        self._research_visible = visible
+        self._research_btn.setVisible(visible)
+        if visible:
+            has_usage = bool(self._usage_label.text().strip())
+            self._usage_label.setVisible(has_usage)
+            self._menu_btn.setVisible(has_usage)
+        else:
+            self._usage_label.show()
+            self._menu_btn.show()
+
+    def is_research_visible(self) -> bool:
+        """Return whether the Research chip is shown."""
+        return self._research_visible
+
+    def research_button(self) -> QPushButton:
+        """Return the Research chip button."""
+        return self._research_btn
 
     def set_fork_enabled(self, enabled: bool) -> None:
         """Enable or disable the fork action for this footer."""
@@ -57,6 +87,10 @@ class AssistantMessageFooterRow(QWidget):
     def set_usage_text(self, text: str) -> None:
         """Set the left-side model and cost label."""
         self._usage_label.setText(text)
+        if self._research_visible and not text.strip():
+            self._usage_label.hide()
+        else:
+            self._usage_label.show()
 
     def menu_button(self) -> QPushButton:
         """Return the three-dot menu button."""

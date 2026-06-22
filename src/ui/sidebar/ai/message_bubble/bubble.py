@@ -43,6 +43,7 @@ class ChatMessageBubble(QWidget):
     layout_height_changed = Signal()
     fork_requested = Signal()
     copy_requested = Signal()
+    research_toggle_requested = Signal()
     user_fork_requested = Signal()
     user_edit_requested = Signal()
 
@@ -80,6 +81,7 @@ class ChatMessageBubble(QWidget):
         self._markdown_body: MarkdownContent | None = None
         self._assistant_footer: AssistantMessageFooterRow | None = None
         self._assistant_turn_complete = False
+        self._research_footer_visible = False
         self._usage_model_id: str | None = None
         self._usage_prompt_tokens: int | None = None
         self._usage_completion_tokens: int | None = None
@@ -116,6 +118,7 @@ class ChatMessageBubble(QWidget):
         else:
             self.setObjectName("aiChatAssistantRow")
             self._activity_row = AssistantActivityRow(self)
+            self._activity_row.clicked.connect(self.research_toggle_requested.emit)
             outer.addWidget(self._activity_row)
 
             self._thought_section = ThoughtSection(self)
@@ -140,6 +143,7 @@ class ChatMessageBubble(QWidget):
             self._assistant_footer = AssistantMessageFooterRow(self)
             self._assistant_footer.fork_requested.connect(self.fork_requested.emit)
             self._assistant_footer.copy_requested.connect(self.copy_requested.emit)
+            self._assistant_footer.research_clicked.connect(self.research_toggle_requested.emit)
             outer.addWidget(self._assistant_footer)
             if text.strip() or thinking.strip():
                 self._assistant_turn_complete = True
@@ -429,11 +433,36 @@ class ChatMessageBubble(QWidget):
         """Return whether this assistant row may show the footer."""
         if self._role != "assistant":
             return False
+        if self._research_footer_visible and not self._assistant_turn_complete:
+            return True
         if not self._assistant_turn_complete:
             return False
         if self.is_content_streaming():
             return False
         return not self.is_activity_visible()
+
+    def activity_row_widget(self) -> AssistantActivityRow | None:
+        """Return the activity row widget when present."""
+        return self._activity_row
+
+    def assistant_footer_widget(self) -> AssistantMessageFooterRow | None:
+        """Return the assistant footer row when present."""
+        return self._assistant_footer
+
+    def set_research_footer_visible(self, visible: bool) -> None:
+        """Show the footer Research chip during an in-flight research turn."""
+        if self._role != "assistant":
+            return
+        self._research_footer_visible = visible
+        footer = self._assistant_footer
+        if footer is not None:
+            footer.set_research_visible(visible)
+        if self._activity_row is not None:
+            self._activity_row.set_click_to_toggle(
+                visible or self._activity_row.is_activity_visible()
+            )
+            self._activity_row.set_research_chip_visible(visible and not self.is_activity_visible())
+        self._sync_assistant_footer_visibility()
 
     def _sync_assistant_footer_visibility(self) -> None:
         """Show or hide the assistant footer based on turn completion state."""
@@ -444,7 +473,7 @@ class ChatMessageBubble(QWidget):
         complete = self.is_turn_complete()
         was_visible = footer.isVisible()
         if body is not None:
-            body.set_paint_footer_rule(complete)
+            body.set_paint_footer_rule(complete and self._assistant_turn_complete)
         if complete:
             footer.show()
         else:
@@ -501,6 +530,7 @@ class ChatMessageBubble(QWidget):
         """Show the waiting spinner and status caption (assistant only)."""
         if self._activity_row is not None:
             self.set_assistant_turn_complete(False)
+            self._activity_row.set_click_to_toggle(True)
             self._activity_row.show_activity(message)
             self.updateGeometry()
             self._commit_stream_row_layout()
@@ -514,6 +544,10 @@ class ChatMessageBubble(QWidget):
         """Hide the waiting spinner row (assistant only)."""
         if self._activity_row is not None:
             self._activity_row.hide_activity()
+            if self._research_footer_visible:
+                self._activity_row.set_click_to_toggle(True)
+            else:
+                self._activity_row.set_click_to_toggle(False)
             self.updateGeometry()
             self._commit_stream_row_layout()
 

@@ -272,6 +272,7 @@ class TestSnippetSettingsPopup:
 
     def test_on_settings_changed_callback(self, qapp: QApplication, qtbot) -> None:
         """Changing a value fires the on_settings_changed callback."""
+        QSettings().remove("snippet")
         popup = SnippetSettingsPopup()
         qtbot.addWidget(popup)
         called = []

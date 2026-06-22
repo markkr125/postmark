@@ -222,8 +222,16 @@ src/
 │   │   ├── ops/                   # setup_provider, fetch_provider_models, model_metadata
 │   │   ├── llm_service.py         # AiLlmService — build/test openhands.sdk.LLM
 │   │   └── chat/                  # Multi-session AI chat (OpenHands Conversation)
-│   │       ├── agent_registry.py  # PostmarkAgentDef + DEFAULT_AGENT_ID + postmark_wiki_query
+│   │       ├── agent_registry.py  # PostmarkAgentDef + DEFAULT_AGENT_ID; lazy defaults; ensure_app_context_stack (wiki + task + workspace_researcher)
 │   │       ├── tool_registry.py   # register_postmark_tool / resolve_tools
+│   │       ├── mode_profiles.py   # ChatModeProfile + resolve_chat_mode (Agent / Ask / Plan tool lists)
+│   │       ├── context_redaction.py # redact_text / redact_headers / redact_env_values for app context
+│   │       ├── postmark_chat_visualizer.py # ConversationVisualizerBase → status + research callbacks
+│   │       ├── app_context/       # GUI snapshot bridge + format/search/inject for postmark_app_context
+│   │       │   ├── snapshot.py    # AppContextSnapshot TypedDict + SNAPSHOT_FILENAME
+│   │       │   ├── build.py       # format_app_context focus dispatch
+│   │       │   ├── search.py      # search_app_context + repo-backed scopes
+│   │       │   └── inject.py      # build_message_prefix compact/rich/preflight tiers
 │   │       ├── app_wiki/          # User KB paths, index build, query executor
 │   │       │   ├── config.py      # Allowlisted doc roots + SCRIPTING_ALLOWLIST
 │   │       │   ├── build_index.py # Generate data/app-wiki/index.md
@@ -231,7 +239,8 @@ src/
 │   │       │   ├── query.py       # execute_wiki_query (read-only)
 │   │       │   └── schema.py      # WIKI.md body for tool workflow
 │   │       ├── tools/             # OpenHands custom tools
-│   │       │   └── wiki_query.py  # postmark_wiki_query Action/Observation/Executor
+│   │       │   ├── wiki_query.py  # postmark_wiki_query Action/Observation/Executor
+│   │       │   └── app_context.py # postmark_app_context read-only workspace tool
 │   │       ├── response_text.py   # Turn-scoped thinking/answer extraction from SDK messages + stream chunks
 │   │       ├── compaction.py      # CHAT_CONDENSER_MAX_* constants for LLMSummarizingCondenser
 │   │       ├── context_usage.py   # ContextUsageService + breakdown TypedDicts + SQLite fallback
@@ -319,6 +328,7 @@ src/
 │   │   ├── http_service.py        # HttpService (httpx) + response TypedDicts
 │   │   ├── graphql_schema_service.py  # GraphQL introspection + schema parsing
 │   │   ├── auth_handler.py        # Shared auth header injection (all 12 auth types)
+│   │   ├── auth_secret_fields.py  # Auth field names treated as secrets for context redaction
 │   │   ├── oauth2_service.py      # OAuth 2.0 token exchange (4 grant types)
 │   │   ├── snippet_generator/     # Code snippet generation sub-package (23 languages)
 │   │   │   ├── generator.py       # SnippetGenerator, SnippetOptions, LanguageEntry, registry
@@ -342,6 +352,8 @@ src/
     │   ├── draft_controller.py    # _DraftControllerMixin — draft tab open/save
     │   ├── tab_controller.py      # _TabControllerMixin — tab open/close/switch
     │   ├── ai_chat_controller.py  # _AiChatControllerMixin — AI chat sessions + worker wiring
+    │   ├── app_context_snapshot.py # _AppContextSnapshotMixin — write app_context_snapshot.json before start_run
+    │   ├── app_context_refresh.py  # _AppContextRefreshMixin — debounced live snapshot refresh (active session)
     │   ├── ai_chat_host_protocol.py # _AiChatHostProtocol — typing for composed mixins
     │   ├── ai_chat_runs.py        # _AiChatRunsMixin — ChatRunRegistry signal routing + re-attach
     │   ├── ai_chat_turn_finalize.py # _AiChatTurnFinalizeMixin — persist/stop/fail assistant turns
@@ -360,6 +372,8 @@ src/
     │   ├── sidebar_widget.py      # RightSidebar (icon rail) + _FlyoutPanel
     │   ├── ai/                    # AI assistant chat panel
     │   │   ├── agent_mode_popup.py  # AgentModeButton + AiAgentModePopup (Agent / Ask / Plan)
+    │   │   ├── research_activity_popup.py # AiResearchActivityPopup — workspace research progress flyout
+    │   │   ├── chat_panel_research.py  # _ChatPanelResearchMixin — research flyout toggle + grace timer
     │   │   ├── chat_panel/        # AiChatPanel sub-package (panel, composer, context ring, scroll/)
     │   │   │   ├── panel.py       # AiChatPanel — transcript + composer
     │   │   │   ├── inline_edit.py # _ChatPanelInlineEditMixin — inline user-message edit
@@ -677,6 +691,11 @@ tests/
 │       │   ├── test_chat_run_registry_streaming.py
 │       │   ├── test_ai_config.py
 │       │   ├── test_chat_session_service.py
+│       │   ├── test_context_redaction.py
+│       │   ├── test_mode_profiles.py
+│       │   ├── test_app_context_snapshot.py
+│       │   ├── test_app_context_search.py
+│       │   ├── test_app_context_tool.py
 │       │   ├── test_context_usage.py
 │       │   ├── test_message_usage.py
 │       │   ├── test_session_transcript_window.py
@@ -714,6 +733,7 @@ tests/
     │   └── test_icons.py
     ├── sidebar/                   # Sidebar widget tests
     │   ├── test_ai_chat_panel.py
+    │   ├── test_chat_inject_prefix.py  # Auto-inject prefix not stored in SQLite user text
     │   ├── test_ai_chat_worker.py
     │   ├── test_ai_session_history_popup.py
     │   ├── test_ai_active_run_badge.py
@@ -815,7 +835,7 @@ poetry run mypy src/ tests/                # type checker clean
 
 > **CRITICAL — Do not disable pytest parallelism for full-suite runs.**
 > Use plain `poetry run pytest` so `pyproject.toml` addopts apply (`-n auto`,
-> `--dist loadfile`, `--timeout=120`, `--max-worker-restart=8`). Worker count is
+> `--dist loadgroup`, `--timeout=120`, `--max-worker-restart=8`). Worker count is
 > capped at 8 via ``pytest_xdist_auto_num_workers`` in ``tests/conftest.py``.
 > in about **2–3 minutes**.
 > **Never** run the full suite with `-n0` or `--numprocesses=0` for routine

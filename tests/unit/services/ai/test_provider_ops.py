@@ -137,20 +137,9 @@ def test_test_provider_delegates_to_llm_service(monkeypatch: pytest.MonkeyPatch)
         lambda **kwargs: (),
     )
 
-    class _Store:
-        backend_id = "spy"
-
-        def put(self, r: str, s: str) -> None: ...
-
-        def get(self, r: str) -> str | None:
-            return "sk"
-
-        def delete(self, r: str) -> None: ...
-
     monkeypatch.setattr(
-        "services.ai.ops.connection.get_default_store",
-        lambda: _Store(),
-        raising=False,
+        "services.ai.ops.connection.get_secret",
+        lambda _ref: "sk",
     )
 
     ok, detail = verify_provider_connection(
@@ -173,18 +162,8 @@ def test_openai_setup_lists_without_llm_ping(monkeypatch: pytest.MonkeyPatch) ->
         return True, "nope"
 
     monkeypatch.setattr("services.ai.ops.connection.AiLlmService.test", _no_ping)
-
-    class _Store:
-        backend_id = "spy"
-
-        def put(self, r: str, s: str) -> None: ...
-
-        def get(self, r: str) -> str | None:
-            return "sk-test"
-
-        def delete(self, r: str) -> None: ...
-
-    monkeypatch.setattr("services.ai.ops.models.get_default_store", lambda: _Store())
+    monkeypatch.setattr("services.ai.ops.connection.get_secret", lambda _ref: "sk-test")
+    monkeypatch.setattr("services.ai.ops.models.get_secret", lambda _ref: "sk-test")
 
     class _Resp:
         def raise_for_status(self) -> None: ...

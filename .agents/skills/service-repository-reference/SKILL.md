@@ -359,9 +359,11 @@ threshold but does not block sends.
 |--------|---------|
 | `ChatRunRegistry` | Start/cancel runs; fan-out worker signals with `session_id` + `run_generation` |
 | `_WorkerSignalBridge` | Per-run `@Slot` QObject wiring worker→registry (no lambdas on `QueuedConnection`) |
-| `ChatRunHandle` | Per-run buffers (`thinking_buffer`, `content_buffer`, `status_text`, `pending_sdk_metrics`) + `bridge` |
+| `ChatRunHandle` | Per-run buffers (`thinking_buffer`, `content_buffer`, `status_text`, `pending_sdk_metrics`, `research_state`) + `bridge` |
+| `ResearchTurnState` | `is_active`, `progress_lines`, `findings_text` — reattached on session switch |
 | `AiChatRunContext` | `session_id`, `user_message_id`, `user_text`, `run_generation`, `model_id` |
 | `running_sessions_changed` | Qt signal when the running set changes (header badge + history `RUNNING_ROLE`) |
+| `research_updated(session_id, run_generation, payload)` | JSON research progress/findings from `PostmarkChatVisualizer` |
 
 | Method | Purpose |
 |--------|---------|
@@ -408,6 +410,20 @@ TypedDicts: `AiChatSessionDict`, `AiChatMessageDict` (optional `model_id`, `prom
 | Tool | Module | Purpose |
 |------|--------|---------|
 | `postmark_wiki_query` | `services/ai/chat/tools/wiki_query.py` | Read-only user KB lookup (`execute_wiki_query` in `app_wiki/query.py`) |
+| `postmark_app_context` | `services/ai/chat/tools/app_context.py` | Read-only workspace snapshot + search (`app_context/build.py`, `search.py`; GUI snapshot via `_AppContextSnapshotMixin`) |
+
+| `CHAT_STOP_SUBAGENT_TIMEOUT_S` | `5.0` | Max wait after `interrupt()` before cancelling `arun` asyncio task |
+| `CHAT_STOP_POLL_INTERVAL_S` | `0.05` | Poll interval in `_run_until_done_or_stop` |
+
+### MainWindow app context refresh (`ui/main_window/app_context_refresh.py`)
+
+| Method | Purpose |
+|--------|---------|
+| `schedule_app_context_refresh()` | Debounced rewrite of snapshot for active running session |
+| `flush_app_context_refresh()` | Immediate rewrite (session focus path) |
+| `refresh_active_session_snapshot()` | No-op unless `_active_ai_session_id` is running |
+
+`ChatRunHandle.send_mode` stores composer mode for refresh without reading the worker.
 
 ### ContextUsageService (`services/ai/chat/context_usage.py`, SDK helpers in `context_usage_sdk.py`)
 
@@ -416,12 +432,13 @@ Static helpers that power the composer context ring and breakdown popup.
 | Method | Purpose |
 |--------|---------|
 | `estimate_text_tokens(text, model)` | Tokenize one text payload using LiteLLM `token_counter`, with `len(text) // 4` fallback |
-| `count_system_and_tools(agent_id, model)` | Count agent system prompt + serialized tool schema tokens |
+| `count_system_and_tools(agent_id, model, *, char_only=False, send_mode=None)` | Count agent system prompt + serialized tool schema tokens (mode profile affects suffix + tool set) |
 | `count_transcript_messages(messages, model)` | Count all SQLite transcript `content` + `thinking` rows |
 | `count_summarized_events(session_id, model)` | Read OpenHands `Condensation` summaries from `session_disk_dir(id)/events/` |
 | `measure_sdk_view(session_id, entry)` | Build OpenHands SDK `View` from persisted events and count the actual LLM-view tokens |
+| `count_subagent_tokens_from_events(events, model)` | Estimate tokens from persisted `TaskObservation` events (`context_usage_sdk.py`) |
 | `collect_compaction_diagnostics(...)` | Compare SQLite transcript estimates, SDK event/token counts, and condenser thresholds/reasons |
-| `build_breakdown(...)` | Assemble the 8 Cursor-style buckets and totals, preferring SDK `View` tokens when SDK events exist and using SQLite as fallback |
+| `build_breakdown(..., send_mode=None)` | Assemble the 8 Cursor-style buckets and totals; `send_mode` selects mode profile for system/tools; subtracts `subagents` from `conversation` when TaskObservation events exist |
 | `build_breakdown_for_session(session_id, ...)` | Load the full SQLite session transcript, then call `build_breakdown` |
 | `metrics_from_conversation(conv, session_id, *, baseline_accumulated_cost=None)` | SDK cumulative usage + per-turn ``turn_cost_usd`` delta |
 

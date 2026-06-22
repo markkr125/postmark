@@ -47,6 +47,7 @@ class _AiChatRunsMixin:
         queued = Qt.ConnectionType.QueuedConnection
         self._chat_run_registry.chunk_received.connect(self._on_registry_chunk_received, queued)
         self._chat_run_registry.status_changed.connect(self._on_registry_status_changed, queued)
+        self._chat_run_registry.research_updated.connect(self._on_registry_research_updated, queued)
         self._chat_run_registry.usage_updated.connect(self._on_registry_usage_updated, queued)
         self._chat_run_registry.context_compacted.connect(
             self._on_registry_context_compacted,
@@ -138,6 +139,11 @@ class _AiChatRunsMixin:
             panel.set_run_busy(True)
             panel.begin_assistant_stream()
 
+        send_mode = (composer or {}).get("send_mode") or "agent"
+        write_snapshot = getattr(self, "write_app_context_snapshot", None)
+        if callable(write_snapshot):
+            write_snapshot(session_id, str(send_mode))
+
         handle = self._chat_run_registry.start_run(
             session_id=session_id,
             run_generation=run_generation,
@@ -167,10 +173,14 @@ class _AiChatRunsMixin:
             handle.thinking_buffer,
             handle.content_buffer,
             status=handle.status_text,
+            research_state=handle.research_state,
         )
         metrics = handle.pending_sdk_metrics
         if metrics is not None:
             panel.deliver_context_usage_metrics(metrics)
+        flush_refresh = getattr(self, "flush_app_context_refresh", None)
+        if callable(flush_refresh):
+            flush_refresh()
 
     @Slot(str, int, str, str)
     def _on_registry_chunk_received(
@@ -203,6 +213,21 @@ class _AiChatRunsMixin:
         if handle is None or handle.context.run_generation != run_generation:
             return
         self._right_sidebar.ai_chat_panel.deliver_activity_status(status)
+
+    @Slot(str, int, str)
+    def _on_registry_research_updated(
+        self,
+        session_id: str,
+        run_generation: int,
+        payload: str,
+    ) -> None:
+        """Forward research UI updates to the visible session panel."""
+        if session_id != self._active_ai_session_id:
+            return
+        handle = self._chat_run_registry.run_for(session_id)
+        if handle is None or handle.context.run_generation != run_generation:
+            return
+        self._right_sidebar.ai_chat_panel.deliver_research_update(payload)
 
     @Slot(str, int, object)
     def _on_registry_usage_updated(
@@ -440,6 +465,10 @@ class _AiChatRunsMixin:
         else:
             host._finalize_stream_stop_optimistic(ctx)
             host._mark_run_stopped(ctx.run_generation, pre_stream=False)
+            panel.deliver_activity_status("Stopping…")
+            cancel_grace = getattr(panel, "_cancel_research_grace_timer", None)
+            if callable(cancel_grace):
+                cancel_grace()
 
         self._chat_run_registry.cancel(ctx.session_id)
 

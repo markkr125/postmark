@@ -37,6 +37,9 @@ _STATUS_LABEL_MAP: dict[str, str] = {
     "planning": "Planning…",
     "waiting": "Waiting…",
     "loading": "Loading…",
+    "researching workspace…": "Researching workspace…",
+    "searching workspace…": "Searching workspace…",
+    "searching docs…": "Searching docs…",
 }
 
 
@@ -259,6 +262,7 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
         if self._streaming_bubble is None:
             self._streaming_bubble = self.add_message("assistant", "", thinking="")
             self._streaming_bubble.begin_streaming()
+            cast(Any, self)._wire_streaming_bubble_research(self._streaming_bubble)
         self._attach_streaming_bubble_height_hook(self._streaming_bubble)
         if self._turn_scroll_anchor is None:
             self._turn_scroll_anchor = self._find_last_user_bubble()
@@ -388,6 +392,8 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
 
     def begin_assistant_stream(self) -> None:
         """Create one empty assistant bubble for streaming."""
+        cast(Any, self)._init_research_state()
+        cast(Any, self)._cancel_research_grace_timer()
         bar = self._scroll.verticalScrollBar()
         blocker = QSignalBlocker(bar)
         old_programmatic = self._programmatic_scroll
@@ -404,6 +410,7 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
             self._activate_streaming_turn_user_footer(self._turn_scroll_anchor)
             self._streaming_bubble = self.add_message("assistant", "", thinking="")
             self._streaming_bubble.begin_streaming()
+            cast(Any, self)._wire_streaming_bubble_research(self._streaming_bubble)
             self._attach_streaming_bubble_height_hook(self._streaming_bubble)
             self._streaming_bubble.show_activity(_ACTIVITY_DEFAULT_MESSAGE)
             self._apply_streaming_viewport_spacer()  # type: ignore[attr-defined]
@@ -428,6 +435,7 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
         content: str,
         *,
         status: str = "",
+        research_state: object | None = None,
     ) -> None:
         """Reattach streaming UI for a session with an in-flight background run."""
         self.begin_assistant_stream()
@@ -436,6 +444,20 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
             self._flush_pending_chunks()
         elif status:
             cast(Any, self).deliver_activity_status(status)
+        if research_state is not None:
+            from services.ai.chat.run_registry import ResearchTurnState
+
+            if isinstance(research_state, ResearchTurnState):
+                cast(Any, self).sync_research_from_handle(
+                    is_active=research_state.is_active,
+                    findings_text=research_state.findings_text,
+                )
+                if research_state.progress_lines:
+                    self._research_progress_lines = list(research_state.progress_lines)
+                    popup = cast(Any, self)._ensure_research_popup()
+                    popup.set_progress_lines(self._research_progress_lines)
+                    if research_state.findings_text.strip():
+                        popup.set_findings_text(research_state.findings_text)
 
     @Slot(str, str)
     def append_assistant_chunk(self, thinking_delta: str, content_delta: str) -> None:
@@ -746,8 +768,16 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
     def set_activity_status(self, raw_status: str) -> None:
         """Update the activity caption from an SDK status event."""
         bubble = self._resolve_streaming_bubble()
-        if bubble is None or not bubble.is_activity_visible():
+        if bubble is None:
             return
         label = format_activity_status(raw_status)
-        if label is not None:
-            bubble.set_activity_message(label)
+        if label is None:
+            return
+        if not bubble.is_activity_visible():
+            if "research" in label.lower() or "searching" in label.lower():
+                bubble.show_activity(label)
+            return
+        bubble.set_activity_message(label)
+
+
+__all__ = ["_ChatPanelStreamingMixin"]

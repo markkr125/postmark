@@ -7,11 +7,17 @@ application-wide Qt Style Sheet string from a ThemePalette.
 from __future__ import annotations
 
 from ui.styling.icons import phi_qss_image_url
-from ui.styling.theme import (BADGE_BORDER_RADIUS, BADGE_FONT_SIZE,
-                              BADGE_HEIGHT, BADGE_MIN_WIDTH, DARK_PALETTE,
-                              LIGHT_PALETTE,
-                              SCRIPT_OUTPUT_TAB_PANE_BOTTOM_PAD_PX,
-                              TREE_ROW_HEIGHT, ThemePalette)
+from ui.styling.theme import (
+    BADGE_BORDER_RADIUS,
+    BADGE_FONT_SIZE,
+    BADGE_HEIGHT,
+    BADGE_MIN_WIDTH,
+    DARK_PALETTE,
+    LIGHT_PALETTE,
+    SCRIPT_OUTPUT_TAB_PANE_BOTTOM_PAD_PX,
+    TREE_ROW_HEIGHT,
+    ThemePalette,
+)
 
 
 def build_global_qss(p: ThemePalette) -> str:
@@ -1788,6 +1794,39 @@ def build_global_qss(p: ThemePalette) -> str:
     QPushButton[objectName="aiChatAssistantMessageMenu"]:hover {{
         background: {"rgba(255,255,255,0.08)" if p is DARK_PALETTE else "rgba(0,0,0,0.06)"};
         color: {p["text"]};
+    }}
+    QPushButton[objectName="aiChatResearchFooterButton"],
+    QPushButton[objectName="aiChatResearchChip"] {{
+        background: transparent;
+        border: none;
+        padding: 0 4px;
+        color: {p["accent"]};
+        font-size: 11px;
+        font-weight: 600;
+    }}
+    QPushButton[objectName="aiChatResearchFooterButton"]:hover,
+    QPushButton[objectName="aiChatResearchChip"]:hover {{
+        color: {p["text"]};
+        text-decoration: underline;
+    }}
+    QFrame[objectName="aiResearchActivityPopup"] {{
+        background: {p["bg"]};
+        border: 1px solid {p["border"]};
+        border-radius: 8px;
+    }}
+    QLabel[objectName="aiResearchProgressHeader"],
+    QLabel[objectName="aiResearchFindingsHeader"] {{
+        color: {p["text_muted"]};
+        font-size: 11px;
+        font-weight: 600;
+    }}
+    QTextEdit[objectName="aiResearchProgressLog"],
+    QTextEdit[objectName="aiResearchFindingsBody"] {{
+        background: {p["input_bg"]};
+        border: 1px solid {p["border"]};
+        border-radius: 6px;
+        color: {p["text"]};
+        font-size: 12px;
     }}
     QFrame[objectName="aiAssistantMessageActionsPopup"] {{
         background: {p["bg"]};

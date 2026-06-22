@@ -50,14 +50,12 @@ from database.models.ai_chat.ai_chat_repository import (
 )
 from services.ai.ai_config import AiConfig, AiModelEntry
 from services.ai.ai_logging import log as ai_log
-from services.ai.chat.agent_registry import DEFAULT_MAX_ITERATIONS, get_agent_def
 from services.ai.chat.compaction import (
     CHAT_CONDENSER_MAX_EVENTS,
     CHAT_CONDENSER_MINIMUM_PROGRESS,
     condenser_max_tokens,
 )
 from services.ai.chat.response_text import extract_final_text as _extract_final_text
-from services.ai.chat.tool_registry import resolve_tools
 from services.ai.chat.transcript_window import (
     INITIAL_TAIL_TURNS,
     NEWER_PAGE_TURNS,
@@ -70,6 +68,7 @@ from services.ai.reasoning_effort import _is_ollama_model, minimum_reasoning_eff
 
 if TYPE_CHECKING:
     from openhands.sdk import BaseConversation
+    from openhands.sdk.conversation.visualizer import ConversationVisualizerBase
     from openhands.sdk.event.base import Event
     from openhands.sdk.llm.streaming import LLMStreamChunk
     from services.ai.chat.context_usage import ContextUsageSdkMetrics
@@ -136,6 +135,7 @@ class ComposerRunContext(TypedDict, total=False):
     run_context_tokens: int | None
     thinking_enabled: str | None
     reasoning_effort: str | None
+    send_mode: str | None
 
 
 class AiChatUserForkResult(TypedDict):
@@ -865,6 +865,7 @@ class AiChatSessionService:
         token_callbacks: list[Callable[[LLMStreamChunk], None]] | None = None,
         composer: ComposerRunContext | None = None,
         stream: bool = True,
+        visualizer: ConversationVisualizerBase | None = None,
     ) -> BaseConversation:
         """Construct an OpenHands Conversation (worker thread only).
 
@@ -878,6 +879,12 @@ class AiChatSessionService:
         from openhands.sdk.context.condenser import LLMSummarizingCondenser
         from openhands.sdk.workspace import LocalWorkspace
 
+        from services.ai.chat.agent_registry import ensure_app_context_stack, get_agent_def
+        from services.ai.chat.mode_profiles import resolve_chat_mode
+        from services.ai.chat.tool_registry import resolve_tools
+
+        ensure_app_context_stack()
+        mode = resolve_chat_mode((composer or {}).get("send_mode"))
         def_ = get_agent_def(agent_id)
         disk = session_disk_dir(session_id)
         disk.mkdir(parents=True, exist_ok=True)
@@ -922,14 +929,29 @@ class AiChatSessionService:
 
         agent = Agent(
             llm=llm,
-            tools=resolve_tools(def_.tool_names),
-            system_prompt=def_.system_prompt,
-            include_default_tools=list(def_.include_default_tools),
+            tools=resolve_tools(mode.tool_names),
+            system_prompt=(def_.system_prompt or "") + mode.system_prompt_suffix,
+            include_default_tools=list(mode.include_default_tools),
             condenser=condenser,
         )
         workspace = LocalWorkspace(working_dir=str(disk))
-        max_iter = max(def_.max_iteration_per_run or DEFAULT_MAX_ITERATIONS, 3)
+        max_iter = max(mode.max_iteration_per_run, 3)
 
+        if visualizer is not None:
+            return cast(
+                "BaseConversation",
+                Conversation(
+                    agent=agent,
+                    workspace=workspace,
+                    persistence_dir=str(user_ai_conversations_root()),
+                    conversation_id=uuid.UUID(session_id),
+                    callbacks=callbacks or [],
+                    token_callbacks=token_callbacks or [],
+                    max_iteration_per_run=max_iter,
+                    delete_on_close=False,
+                    visualizer=visualizer,
+                ),
+            )
         return cast(
             "BaseConversation",
             Conversation(

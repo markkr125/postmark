@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from database.database import get_session
 
@@ -98,3 +98,56 @@ def get_local_script_breadcrumb(script_id: int) -> list[dict[str, Any]]:
             current_folder_id = folder.parent_id
         path.insert(0, {"id": 0, "name": "Local scripts", "type": "local_scripts_root"})
         return path
+
+
+def search_local_scripts(
+    term: str,
+    *,
+    limit: int = 30,
+    include_content: bool = False,
+) -> list[dict[str, Any]]:
+    """Return local scripts matching *term* in name/path (and optionally content)."""
+    pattern = f"%{term.strip()}%"
+    if not term.strip():
+        return []
+    with get_session() as session:
+        cols = [
+            LocalScriptModel.id,
+            LocalScriptModel.name,
+            LocalScriptModel.language,
+            LocalScriptModel.module_format,
+            LocalScriptModel.folder_id,
+        ]
+        if include_content:
+            cols.append(LocalScriptModel.content)
+        clauses = [LocalScriptModel.name.ilike(pattern)]
+        if include_content:
+            clauses.append(LocalScriptModel.content.ilike(pattern))
+        stmt = select(*cols).where(or_(*clauses)).limit(limit)
+        rows = session.execute(stmt).all()
+        results: list[dict[str, Any]] = []
+        for row in rows:
+            if include_content:
+                sid, name, language, module_format, folder_id, content = row
+                results.append(
+                    {
+                        "id": sid,
+                        "name": name,
+                        "language": language,
+                        "module_format": module_format,
+                        "folder_id": folder_id,
+                        "content_snippet": (content or "")[:120],
+                    }
+                )
+            else:
+                sid, name, language, module_format, folder_id = row
+                results.append(
+                    {
+                        "id": sid,
+                        "name": name,
+                        "language": language,
+                        "module_format": module_format,
+                        "folder_id": folder_id,
+                    }
+                )
+        return results

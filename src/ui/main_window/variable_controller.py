@@ -107,6 +107,9 @@ class _VariableControllerMixin:
                     ),
                 )
         self._refresh_sidebar()
+        schedule_refresh = getattr(self, "schedule_app_context_refresh", None)
+        if callable(schedule_refresh):
+            schedule_refresh()
 
     def _on_environments_data_changed(self) -> None:
         """Sidebar + variable maps after edits in the environments manager tab."""

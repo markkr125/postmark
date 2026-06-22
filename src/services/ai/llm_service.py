@@ -22,8 +22,6 @@ from services.ai.sdk_env import (
 )
 from services.scripting.secret_store import get_secret
 
-ensure_openhands_env()
-
 if TYPE_CHECKING:
     from openhands.sdk import LLM
 
@@ -110,6 +108,7 @@ class AiLlmService:
         thinking_enabled: str | None = None,
     ) -> LLM:
         """Build an ``openhands.sdk.LLM`` from *entry* (resolving the stored key)."""
+        ensure_openhands_env()
         from openhands.sdk import LLM  # lazy: heavy dependency
         from pydantic import SecretStr
 

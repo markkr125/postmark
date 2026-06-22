@@ -183,6 +183,10 @@ def test_on_ai_title_ready_updates_flyout_title(qapp: QApplication, qtbot) -> No
             "ui.main_window.ai_chat_controller.AiChatSessionService.rename_session",
         ) as rename,
         patch(
+            "ui.main_window.ai_chat_controller.AiChatSessionService.get_session",
+            return_value=_session_row("sess-1", "Generated title"),
+        ),
+        patch(
             "ui.main_window.ai_chat_controller.AiChatSessionService.flyout_title_for_session",
             return_value="Generated title",
         ),
@@ -206,6 +210,10 @@ def test_on_ai_session_title_renamed_persists_title(qapp: QApplication, qtbot) -
         patch(
             "ui.main_window.ai_chat_controller.AiChatSessionService.get_session",
             return_value=_session_row("sess-1", "Custom title"),
+        ),
+        patch(
+            "ui.main_window.ai_chat_controller.AiChatSessionService.flyout_title_for_session",
+            return_value="Custom title",
         ),
     ):
         host._on_ai_session_title_renamed("Custom title")
@@ -940,7 +948,13 @@ def test_reattach_replays_background_buffers(qapp: QApplication, qtbot) -> None:
 
     resume_calls: list[tuple[str, str, str]] = []
 
-    def _resume(thinking: str, content: str, *, status: str = "") -> None:
+    def _resume(
+        thinking: str,
+        content: str,
+        *,
+        status: str = "",
+        research_state: object | None = None,
+    ) -> None:
         resume_calls.append((thinking, content, status))
 
     panel.resume_assistant_stream = _resume  # type: ignore[method-assign]

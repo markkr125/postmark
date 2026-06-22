@@ -409,6 +409,23 @@ update the caption only while the row is visible (sanitized via
 ``format_activity_status`` in ``chat_panel_streaming.py``). After 15 seconds
 without a token, the caption escalates to ``Taking longer than expected…``.
 
+#### Workspace research flyout
+
+During **Agent** / **Plan** ``workspace_researcher`` sub-runs:
+
+| Widget | `objectName` | Role |
+|--------|--------------|------|
+| Activity row | ``aiChatActivityRow`` | Clickable while research runs; shows spinner + status |
+| Research chip | ``aiChatResearchChip`` | Inline **Research** on activity row (toggle flyout) |
+| Footer chip | ``aiChatResearchFooterButton`` | **Research** on assistant footer after findings |
+| Flyout | ``aiResearchActivityPopup`` | Progress log + findings (`aiResearchProgressLog`, `aiResearchFindingsBody`) |
+
+``ChatRunRegistry.research_updated`` → ``AiChatPanel.deliver_research_update``.
+Findings use a 2 s grace timer before the activity row hides; the footer chip
+stays. Stop emits ``phase=stopped`` and shows **Stopping…** on the activity row.
+
+See [AI chat app context](../architecture/ai-chat-app-context.md).
+
 **Implementation (Qt-specific).** Web chat UIs often use ``textarea`` + ``scrollHeight``;
 here the equivalent is:
 

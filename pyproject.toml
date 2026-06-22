@@ -20,7 +20,8 @@ jedi-language-server = "^0.45"
 ruff = "^0.9"
 keyring = ">=24.0,<26"
 cryptography = ">=42.0,<49"
-openhands-sdk = "^1.24.0"
+openhands-sdk = "1.24.0"
+openhands-tools = "1.24.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0"
@@ -95,5 +96,5 @@ reportTypedDictNotRequiredAccess = "error"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src", "tests"]
-addopts = "-n auto --dist loadfile --timeout=120 --max-worker-restart=8"
+addopts = "-n auto --dist loadgroup --timeout=120 --max-worker-restart=8"
 
