@@ -473,6 +473,27 @@ class RightSidebar(QWidget):
         if self._active_panel in {"snippet", "saved_responses", "request_history"}:
             self._close_panel()
 
+    def show_local_script_panels(
+        self,
+        variables: dict[str, VariableDetail],
+        has_environment: bool = True,
+    ) -> None:
+        """Configure the sidebar for a local script tab."""
+        self._available_panels = {"ai", "variables"}
+        self._default_panel = "variables"
+        self._var_btn.setEnabled(True)
+        self._snippet_btn.hide()
+        self._saved_btn.hide()
+        self._history_btn.hide()
+
+        self._variables_panel.load_variables(
+            variables,
+            has_environment=has_environment,
+        )
+
+        if self._active_panel in {"snippet", "saved_responses", "request_history"}:
+            self._close_panel()
+
     def set_saved_response_context(
         self,
         *,

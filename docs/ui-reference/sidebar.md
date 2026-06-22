@@ -121,7 +121,8 @@ Always-visible fixed-width icon rail.
 Panel key for session restore / `open_panel`: `"ai"`. The AI rail button is always
 enabled; `_toggle_panel("ai")` opens without checking `_available_panels`, while
 `open_panel("ai")` requires `"ai"` in `_available_panels` (always true after
-`clear()`, and included in request/folder contexts).
+`clear()`, and included in request/folder/local-script contexts via
+`show_request_panels`, `show_folder_panels`, or `show_local_script_panels`).
 
 #### AI flyout chrome layout
 
@@ -260,8 +261,9 @@ snippets). The block chrome is a sharp-cornered ``1px`` single flat table frame
 does not paint a second inner box around the code area). Header row shows the
 language label with a bottom rule; a **Copy** link on the right of the header row
 (``postmark-code-copy:<index>`` anchor copies the raw fenced source to the
-clipboard, shows a pointing-hand cursor and accent underline on hover, then
-**Copied** in accent for two seconds). Code rows are full-width cells with
+clipboard; hover and **Copied** feedback use in-place ``QTextCharFormat`` updates on the
+static HTML Copy anchor (accent colour + underline on hover; **Copied** label for
+two seconds) — the document HTML is not re-rendered on hover. Code rows are full-width cells with
 ``border-collapse:separate``. Inline `` `code` `` spans get a
 muted pill style. Fenced-block chrome uses inline styles from ``ThemePalette``
 (QSS does not apply inside rich-text HTML). ``ThemeManager.theme_changed``

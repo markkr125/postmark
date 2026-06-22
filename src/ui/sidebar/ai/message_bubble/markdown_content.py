@@ -5,13 +5,14 @@ from __future__ import annotations
 import math
 import weakref
 
-from PySide6.QtCore import QEvent, QPointF, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import (
     QAbstractTextDocumentLayout,
     QColor,
     QCursor,
     QDesktopServices,
     QEnterEvent,
+    QFont,
     QGuiApplication,
     QHoverEvent,
     QKeySequence,
@@ -19,6 +20,7 @@ from PySide6.QtGui import (
     QPainter,
     QPalette,
     QPen,
+    QTextCharFormat,
     QTextCursor,
     QTextDocument,
     QTextTable,
@@ -27,18 +29,20 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QApplication, QMenu, QScrollArea, QSizePolicy, QWidget
 from shiboken6 import isValid
 
-from ui.sidebar.ai.markdown.copy_chrome import CodeCopyChrome
 from ui.sidebar.ai.markdown.fence_split import fenced_code_sources
 from ui.sidebar.ai.markdown.highlight_code import (
+    COPY_LINK_FONT_PX,
     clear_highlight_cache,
     code_copy_href,
+    copy_anchor_spans,
+    copy_block_header_hit_rects,
     copy_block_index_at_document_pos,
     parse_code_copy_block_index,
 )
 from ui.sidebar.ai.markdown.render import render_chat_markdown_html
 from ui.sidebar.ai.markdown.streaming_render import StreamingMarkdownCache
 from ui.sidebar.ai.message_bubble.wrapping_label import forward_wheel_to_ancestor_scroll_area
-from ui.styling.theme import COLOR_ASSISTANT_FOOTER_SEPARATOR
+from ui.styling.theme import COLOR_ASSISTANT_FOOTER_SEPARATOR, current_palette
 from ui.styling.theme_manager import ThemeManager
 
 _markdown_bodies: weakref.WeakSet[MarkdownContent] = weakref.WeakSet()
@@ -117,6 +121,8 @@ class MarkdownContent(QWidget):
         self._press_position: QPointF | None = None
         self._copy_confirmed_index: int | None = None
         self._copy_hover_index: int | None = None
+        self._copy_hit_rects: dict[int, QRectF] = {}
+        self._copy_anchor_spans: dict[int, tuple[int, int]] = {}
         self._copy_confirm_timer = QTimer(self)
         self._copy_confirm_timer.setSingleShot(True)
         self._copy_confirm_timer.timeout.connect(self._clear_copy_confirmation)
@@ -210,37 +216,80 @@ class MarkdownContent(QWidget):
             self._clear_selection()
         self._invalidate_measured_height()
         self._document.setHtml(html)
-        self.update()
+        self._rebuild_copy_hit_rects()
+        if self._copy_hover_index is not None or self._copy_confirmed_index is not None:
+            self._sync_copy_link_appearance()
+        else:
+            self.update()
 
-    def _copy_chrome(self) -> CodeCopyChrome:
-        """Return active fenced-code copy-link chrome state."""
-        return CodeCopyChrome(
-            confirmed_index=self._copy_confirmed_index,
-            hover_index=self._copy_hover_index,
-        )
+    def _copy_anchor_char_format(
+        self,
+        block_index: int,
+        color: QColor,
+        *,
+        underline: bool,
+    ) -> QTextCharFormat:
+        """Return anchor char format for a fenced-code Copy control."""
+        fmt = QTextCharFormat()
+        fmt.setForeground(color)
+        fmt.setFontUnderline(underline)
+        fmt.setAnchor(True)
+        fmt.setAnchorHref(code_copy_href(block_index))
+        font = QFont("sans-serif")
+        font.setPixelSize(COPY_LINK_FONT_PX)
+        fmt.setFont(font)
+        return fmt
+
+    def _sync_copy_link_appearance(self) -> None:
+        """Apply hover/copied accent and underline via in-place char formats."""
+        if not self._copy_anchor_spans:
+            self._copy_anchor_spans = copy_anchor_spans(self._document)
+        if not self._copy_anchor_spans:
+            self.update()
+            return
+
+        palette = current_palette()
+        muted = QColor(palette["text_muted"])
+        accent = QColor(palette["accent"])
+        needs_rescan = False
+
+        for block_index, (start, end) in list(self._copy_anchor_spans.items()):
+            cursor = QTextCursor(self._document)
+            cursor.setPosition(start)
+            cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+            confirmed = block_index == self._copy_confirmed_index
+            hovered = block_index == self._copy_hover_index and not confirmed
+            label = "Copied" if confirmed else "Copy"
+            active = accent if (confirmed or hovered) else muted
+
+            if cursor.selectedText() != label:
+                cursor.insertText(
+                    label,
+                    self._copy_anchor_char_format(block_index, active, underline=hovered),
+                )
+                needs_rescan = True
+                continue
+
+            fmt = QTextCharFormat()
+            fmt.setForeground(active)
+            fmt.setFontUnderline(hovered)
+            cursor.mergeCharFormat(fmt)
+
+        if needs_rescan:
+            self._copy_anchor_spans = copy_anchor_spans(self._document)
+        self.update()
 
     def _clear_copy_confirmation(self) -> None:
         """Revert a confirmed Copy label after the feedback timeout."""
         if self._copy_confirmed_index is None:
             return
         self._copy_confirmed_index = None
-        self._refresh_copy_chrome()
+        self._sync_copy_link_appearance()
 
-    def _refresh_copy_chrome(self) -> None:
-        """Re-render copy-link labels without disturbing text selection."""
-        text_width = max(1, self._content_width())
-        if self._streaming:
-            html = self._stream_cache.render_document_html(
-                self._markdown,
-                copy_chrome=self._copy_chrome(),
-            )
-        else:
-            html = render_chat_markdown_html(self._markdown, copy_chrome=self._copy_chrome())
-        self._set_document_html(html, preserve_selection=True)
-        self._document.setTextWidth(text_width)
-        self._sync_height(force=True)
-        if self.underMouse():
-            self._sync_hover_cursor(QPointF(self.mapFromGlobal(QCursor.pos())))
+    def _rebuild_copy_hit_rects(self) -> None:
+        """Refresh Copy-link hit rectangles and anchor spans after layout changes."""
+        self._copy_hit_rects = copy_block_header_hit_rects(self._document)
+        self._copy_anchor_spans = copy_anchor_spans(self._document)
 
     def _interactive_anchor_at(self, pos: QPointF) -> str | None:
         """Return the anchor href under *pos* when it should show a hand cursor."""
@@ -285,20 +334,20 @@ class MarkdownContent(QWidget):
         if not self.rect().contains(local.toPoint()):
             if self._copy_hover_index is not None:
                 self._copy_hover_index = None
-                self._refresh_copy_chrome()
+                self._sync_copy_link_appearance()
             self.setCursor(Qt.CursorShape.IBeamCursor)
             return
         self._update_copy_hover(local)
 
     def _update_copy_hover(self, pos: QPointF) -> None:
-        """Track hover over fenced-code Copy links for cursor and label styling."""
+        """Track hover over fenced-code Copy links for cursor and link styling."""
         hover_index = self._copy_block_index_at(pos)
         if hover_index == self._copy_hover_index:
             self._sync_hover_cursor(pos)
             return
         self._copy_hover_index = hover_index
-        self._refresh_copy_chrome()
         self._sync_hover_cursor(pos)
+        self._sync_copy_link_appearance()
 
     def _invalidate_measured_height(self) -> None:
         """Drop cached wrap height so the next measure recomputes."""
@@ -371,19 +420,12 @@ class MarkdownContent(QWidget):
 
     def _render_markdown(self) -> None:
         """Render stored markdown via the full HTML pipeline."""
-        self._set_document_html(
-            render_chat_markdown_html(self._markdown, copy_chrome=self._copy_chrome())
-        )
+        self._set_document_html(render_chat_markdown_html(self._markdown))
         self._sync_height(force=True)
 
     def _render_markdown_streaming(self) -> None:
         """Incrementally render stored markdown while a stream is open."""
-        self._set_document_html(
-            self._stream_cache.render_document_html(
-                self._markdown,
-                copy_chrome=self._copy_chrome(),
-            )
-        )
+        self._set_document_html(self._stream_cache.render_document_html(self._markdown))
         self._sync_height()
 
     def set_defer_height_changed(self, defer: bool) -> None:
@@ -461,9 +503,11 @@ class MarkdownContent(QWidget):
             self._stream_layout_floor_px = target
 
         if not force and self.height() == target and int(self._document.textWidth()) == width:
+            self._rebuild_copy_hit_rects()
             return
         self.setFixedHeight(target)
         self.updateGeometry()
+        self._rebuild_copy_hit_rects()
         if self._defer_height_changed:
             self._height_changed_pending = True
         else:
@@ -693,7 +737,7 @@ class MarkdownContent(QWidget):
         self._copy_confirmed_index = block_index
         self._copy_hover_index = None
         self._copy_confirm_timer.start(_COPY_CONFIRM_MS)
-        self._refresh_copy_chrome()
+        self._sync_copy_link_appearance()
         return True
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
@@ -735,7 +779,7 @@ class MarkdownContent(QWidget):
         """Clear copy-link hover styling when the pointer leaves the body."""
         if self._copy_hover_index is not None:
             self._copy_hover_index = None
-            self._refresh_copy_chrome()
+            self._sync_copy_link_appearance()
         self.setCursor(Qt.CursorShape.IBeamCursor)
         super().leaveEvent(event)
 

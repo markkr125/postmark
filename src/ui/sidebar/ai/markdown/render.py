@@ -7,7 +7,6 @@ from html import escape as html_escape
 
 from PySide6.QtGui import QTextDocument
 
-from ui.sidebar.ai.markdown.copy_chrome import CodeCopyChrome
 from ui.sidebar.ai.markdown.fence_split import (
     CodeSegment,
     MarkdownSegment,
@@ -71,11 +70,9 @@ def render_markdown_body_html(
     markdown: str,
     *,
     palette: ThemePalette | None = None,
-    copy_chrome: CodeCopyChrome | None = None,
 ) -> str:
     """Render assistant markdown to an HTML body fragment (no document wrapper)."""
     active = palette or current_palette()
-    chrome = copy_chrome or CodeCopyChrome()
     segments = split_fenced_blocks(markdown)
     parts: list[str] = []
     code_index = 0
@@ -86,7 +83,6 @@ def render_markdown_body_html(
                 segment,
                 palette=active,
                 block_index=block_index,
-                copy_chrome=chrome,
             )
         )
         if isinstance(segment, CodeSegment):
@@ -98,11 +94,10 @@ def render_chat_markdown_html(
     markdown: str,
     *,
     palette: ThemePalette | None = None,
-    copy_chrome: CodeCopyChrome | None = None,
 ) -> str:
     """Render assistant markdown to HTML with themed fenced code blocks."""
     active = palette or current_palette()
-    body = render_markdown_body_html(markdown, palette=active, copy_chrome=copy_chrome)
+    body = render_markdown_body_html(markdown, palette=active)
     text_color = html_escape(active["text"])
     return (
         f'<html><head></head><body style="color:{text_color};'
@@ -115,14 +110,12 @@ def render_segment_html(
     *,
     palette: ThemePalette,
     block_index: int | None = None,
-    copy_chrome: CodeCopyChrome | None = None,
 ) -> str:
     """Render one prose or code segment."""
     return _render_segment(
         segment,
         palette=palette,
         block_index=block_index,
-        copy_chrome=copy_chrome,
     )
 
 
@@ -131,15 +124,12 @@ def _render_segment(
     *,
     palette: ThemePalette,
     block_index: int | None = None,
-    copy_chrome: CodeCopyChrome | None = None,
 ) -> str:
     """Render one prose or code segment."""
     if isinstance(segment, ProseSegment):
         return _prose_chunk_to_html(segment.text, palette=palette)
     if isinstance(segment, CodeSegment):
         index = 0 if block_index is None else block_index
-        chrome = copy_chrome or CodeCopyChrome()
-        copy_copied, copy_hovered = chrome.for_block(index)
         if segment.provisional:
             from ui.sidebar.ai.markdown.highlight_code import provisional_code_to_html
 
@@ -148,15 +138,11 @@ def _render_segment(
                 segment.lang,
                 palette=palette,
                 block_index=index,
-                copy_copied=copy_copied,
-                copy_hovered=copy_hovered,
             )
         return highlight_code_to_html(
             segment.code,
             segment.lang,
             palette=palette,
             block_index=index,
-            copy_copied=copy_copied,
-            copy_hovered=copy_hovered,
         )
     raise TypeError(f"Unsupported segment type: {type(segment)!r}")

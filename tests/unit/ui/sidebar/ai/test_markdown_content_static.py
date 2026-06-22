@@ -6,9 +6,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from PySide6.QtCore import QPoint, QPointF, Qt, QUrl
-from PySide6.QtGui import QColor, QEnterEvent, QImage, QMouseEvent
+from PySide6.QtGui import QColor, QEnterEvent, QImage, QMouseEvent, QTextCursor
 from PySide6.QtWidgets import QApplication, QTextBrowser
 
+from ui.sidebar.ai.markdown.highlight_code import COPY_LINK_FONT_PX, copy_anchor_spans
 from ui.sidebar.ai.message_bubble.markdown_content import MarkdownContent
 from ui.styling.theme import current_palette
 
@@ -90,7 +91,7 @@ def test_code_block_copy_link_puts_source_on_clipboard(qapp: QApplication, qtbot
 
 
 def test_code_block_copy_link_shows_copied_feedback(qapp: QApplication, qtbot) -> None:
-    """After copying, the header label switches to Copied briefly."""
+    """After copying, the painted chrome switches to Copied briefly."""
     source = "```python\nprint(1)\n```"
     body = MarkdownContent(source)
     qtbot.addWidget(body)
@@ -114,9 +115,14 @@ def test_code_block_copy_link_shows_copied_feedback(qapp: QApplication, qtbot) -
         )
         body.mouseReleaseEvent(event)
 
-    assert "Copied" in body.toHtml()
-    qtbot.waitUntil(lambda: "Copied" not in body.toHtml(), timeout=3000)
-    assert "postmark-code-copy:0" in body.toHtml()
+    assert body._copy_confirmed_index == 0
+    start, _end = copy_anchor_spans(body._document)[0]
+    cursor = QTextCursor(body._document)
+    cursor.setPosition(start)
+    cursor.setPosition(start + len("Copied"), QTextCursor.MoveMode.KeepAnchor)
+    assert cursor.selectedText() == "Copied"
+    assert cursor.charFormat().font().pixelSize() == COPY_LINK_FONT_PX
+    qtbot.waitUntil(lambda: body._copy_confirmed_index is None, timeout=3000)
 
 
 def _copy_link_hover_point(body: MarkdownContent) -> QPointF | None:
@@ -217,6 +223,90 @@ def test_copy_link_hover_sets_pointing_hand_cursor(qapp: QApplication, qtbot) ->
 
     assert body.cursor().shape() == Qt.CursorShape.PointingHandCursor
     assert body._copy_hover_index == 0
+
+
+def test_copy_link_cursor_stable_after_repaint(qapp: QApplication, qtbot) -> None:
+    """Copy hover keeps a pointing-hand cursor after a repaint."""
+    body = MarkdownContent("```python\nprint(1)\n```")
+    qtbot.addWidget(body)
+    body.resize(360, 200)
+    body.show()
+    qtbot.waitExposed(body)
+
+    hover_point = _copy_link_hover_point(body)
+    assert hover_point is not None
+
+    move = QMouseEvent(
+        QMouseEvent.Type.MouseMove,
+        hover_point,
+        hover_point,
+        Qt.MouseButton.NoButton,
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    body.mouseMoveEvent(move)
+    assert body.cursor().shape() == Qt.CursorShape.PointingHandCursor
+
+    body.update()
+    body._update_copy_hover(hover_point)
+
+    assert body.cursor().shape() == Qt.CursorShape.PointingHandCursor
+    assert body._copy_hover_index == 0
+
+    for _ in range(6):
+        body.mouseMoveEvent(move)
+        assert body.cursor().shape() == Qt.CursorShape.PointingHandCursor
+
+
+def test_copy_hover_on_first_body_does_not_affect_second(qapp: QApplication, qtbot) -> None:
+    """Hover chrome is per MarkdownContent; HTML stays static across assistant turns."""
+    source = "```python\nprint(1)\n```"
+    body1 = MarkdownContent(f"First answer\n\n{source}")
+    body2 = MarkdownContent(f"Second answer\n\n{source}")
+    qtbot.addWidget(body1)
+    qtbot.addWidget(body2)
+    for body in (body1, body2):
+        body.resize(360, 400)
+        body.show()
+        qtbot.waitExposed(body)
+
+    hover1 = _copy_link_hover_point(body1)
+    hover2 = _copy_link_hover_point(body2)
+    assert hover1 is not None
+    assert hover2 is not None
+
+    move1 = QMouseEvent(
+        QMouseEvent.Type.MouseMove,
+        hover1,
+        hover1,
+        Qt.MouseButton.NoButton,
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    body1.mouseMoveEvent(move1)
+    assert body1._copy_hover_index == 0
+    assert body1.cursor().shape() == Qt.CursorShape.PointingHandCursor
+    assert body2._copy_hover_index is None
+
+    move2 = QMouseEvent(
+        QMouseEvent.Type.MouseMove,
+        hover2,
+        hover2,
+        Qt.MouseButton.NoButton,
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    body2.mouseMoveEvent(move2)
+    assert body2._copy_hover_index == 0
+    assert body2.cursor().shape() == Qt.CursorShape.PointingHandCursor
+
+    from PySide6.QtCore import QEvent
+
+    body1.leaveEvent(QEvent(QEvent.Type.Leave))
+    assert body1._copy_hover_index is None
+    assert body1.cursor().shape() == Qt.CursorShape.IBeamCursor
+    assert "text-decoration:underline" not in body1.toHtml()
+    assert body2._copy_hover_index == 0
 
 
 def test_copy_link_hover_on_enter_without_mouse_move(qapp: QApplication, qtbot) -> None:

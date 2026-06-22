@@ -65,27 +65,13 @@ class TestHighlightCodeToHtml:
         assert ">Copy</a>" in html
         assert 'align="right"' in html
         assert "white-space:nowrap" in html
-        assert "cursor:pointer" in html
 
-    def test_header_copy_link_hovered(self) -> None:
-        html = highlight_code_to_html(
-            "pass",
-            "python",
-            palette=DARK_PALETTE,
-            copy_hovered=True,
-        )
-        assert "text-decoration:underline" in html
-        assert DARK_PALETTE["accent"] in html
-
-    def test_header_copy_link_copied(self) -> None:
-        html = highlight_code_to_html(
-            "pass",
-            "python",
-            palette=DARK_PALETTE,
-            copy_copied=True,
-        )
-        assert ">Copied</a>" in html
-        assert DARK_PALETTE["accent"] in html
+    def test_header_copy_link_html_is_static(self) -> None:
+        """Hover and copied chrome are painted by MarkdownContent, not baked into HTML."""
+        html = highlight_code_to_html("pass", "python", palette=DARK_PALETTE)
+        assert "text-decoration:underline" not in html
+        assert ">Copied</a>" not in html
+        assert DARK_PALETTE["text_muted"] in html
 
     def test_sharp_bordered_table_chrome(self) -> None:
         html = highlight_code_to_html("pass", "python", palette=DARK_PALETTE)

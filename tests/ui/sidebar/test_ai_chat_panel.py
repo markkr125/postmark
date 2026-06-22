@@ -9,10 +9,10 @@ from PySide6.QtWidgets import QApplication, QFrame, QLabel
 
 from services.ai.ai_config import AiConfig, AiModelEntry
 from services.ai.chat.session_service import AiChatMessageDict
+from tests.ui.sidebar.ai.conftest import load_transcript_sync
 from ui.sidebar.ai import AiChatPanel
 from ui.sidebar.ai.message_bubble import ChatMessageBubble
 from ui.sidebar.ai.message_bubble.markdown_content import MarkdownContent
-from tests.ui.sidebar.ai.conftest import load_transcript_sync
 
 
 def _flush_stream_chunks(qtbot) -> None:
@@ -557,7 +557,8 @@ def test_user_message_config_button_opens_actions_popover(qapp: QApplication, qt
     """Panel user rows open the display-only actions flyout from the config button."""
     from PySide6.QtWidgets import QPushButton
 
-    from ui.sidebar.ai.message_bubble.user_message.actions_popup import AiUserMessageActionsPopup
+    from ui.sidebar.ai.message_bubble.user_message.actions_popup import \
+        AiUserMessageActionsPopup
 
     panel = AiChatPanel()
     qtbot.addWidget(panel)
@@ -583,7 +584,8 @@ def test_streaming_turn_user_footer_shows_stop_only_on_active_turn(
     """Only the user bubble that started the current run shows stop while streaming."""
     from PySide6.QtWidgets import QPushButton
 
-    from ui.sidebar.ai.message_bubble.user_message.actions_popup import AiUserMessageActionsPopup
+    from ui.sidebar.ai.message_bubble.user_message.actions_popup import \
+        AiUserMessageActionsPopup
 
     panel = AiChatPanel()
     qtbot.addWidget(panel)

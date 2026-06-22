@@ -7,17 +7,22 @@ from html import escape as html_escape
 
 from pygments import token as T
 from PySide6.QtCore import QPointF, Qt, QRectF
-from PySide6.QtGui import QTextCursor, QTextDocument
+from PySide6.QtGui import (
+    QAbstractTextDocumentLayout,
+    QTextBlock,
+    QTextCursor,
+    QTextDocument,
+    QTextFragment,
+)
 
 from ui.styling.theme import ThemePalette
 from ui.widgets.code_editor.highlighter import get_lexer_for_language, token_color_for_type
 
 _HIGHLIGHT_CACHE_MAX_ENTRIES = 256
-_code_html_cache: OrderedDict[tuple[str, str, bool, int, bool, bool, tuple[str, ...]], str] = (
-    OrderedDict()
-)
+_code_html_cache: OrderedDict[tuple[str, str, bool, int, tuple[str, ...]], str] = OrderedDict()
 
 CODE_COPY_URL_PREFIX = "postmark-code-copy:"
+COPY_LINK_FONT_PX = 11
 _CODE_TABLE_COLS = 3
 
 
@@ -36,7 +41,86 @@ def parse_code_copy_block_index(anchor: str) -> int | None:
     return int(suffix)
 
 
-_COPY_HIT_PAD_PX = 8.0
+COPY_HIT_PAD_PX = 8.0
+_COPY_HIT_PAD_PX = COPY_HIT_PAD_PX
+
+
+def _copy_anchor_hit_rect(
+    layout: QAbstractTextDocumentLayout,
+    block: QTextBlock,
+    block_layout: object,
+    fragment: QTextFragment,
+    *,
+    pad_px: float,
+) -> tuple[int, QRectF] | None:
+    """Return ``(block_index, padded_rect)`` for a copy-link fragment, if any."""
+    char_format = fragment.charFormat()
+    if not char_format.isAnchor():
+        return None
+    block_index = parse_code_copy_block_index(char_format.anchorHref())
+    if block_index is None:
+        return None
+    block_rect = layout.blockBoundingRect(block)
+    pos_in_block = fragment.position() - block.position()
+    line = block_layout.lineForTextPosition(pos_in_block)  # type: ignore[attr-defined]
+    line_rect = line.naturalTextRect()
+    hit_rect = QRectF(
+        block_rect.left() + line_rect.left(),
+        block_rect.top() + line_rect.top(),
+        line_rect.width(),
+        line_rect.height(),
+    ).adjusted(-pad_px, -pad_px, pad_px, pad_px)
+    return block_index, hit_rect
+
+
+def copy_block_header_hit_rects(
+    document: QTextDocument,
+    *,
+    pad_px: float = _COPY_HIT_PAD_PX,
+) -> dict[int, QRectF]:
+    """Return document-local padded hit rectangles for fenced-code Copy links."""
+    layout = document.documentLayout()
+    rects: dict[int, QRectF] = {}
+    block = document.firstBlock()
+    while block.isValid():
+        block_layout = block.layout()
+        if block_layout is not None:
+            iterator = block.begin()
+            while not iterator.atEnd():
+                fragment = iterator.fragment()
+                if fragment.isValid():
+                    hit = _copy_anchor_hit_rect(
+                        layout,
+                        block,
+                        block_layout,
+                        fragment,
+                        pad_px=pad_px,
+                    )
+                    if hit is not None:
+                        rects[hit[0]] = hit[1]
+                iterator += 1
+        block = block.next()
+    return rects
+
+
+def copy_anchor_spans(document: QTextDocument) -> dict[int, tuple[int, int]]:
+    """Return document character spans ``(start, end)`` for each Copy anchor."""
+    spans: dict[int, tuple[int, int]] = {}
+    block = document.firstBlock()
+    while block.isValid():
+        iterator = block.begin()
+        while not iterator.atEnd():
+            fragment = iterator.fragment()
+            if fragment.isValid():
+                char_format = fragment.charFormat()
+                if char_format.isAnchor():
+                    block_index = parse_code_copy_block_index(char_format.anchorHref())
+                    if block_index is not None:
+                        start = fragment.position()
+                        spans[block_index] = (start, start + fragment.length())
+            iterator += 1
+        block = block.next()
+    return spans
 
 
 def copy_block_index_at_document_pos(
@@ -63,32 +147,9 @@ def copy_block_index_at_document_pos(
             block_index = parse_code_copy_block_index(char_format.anchorHref())
             if block_index is not None:
                 return block_index
-    block = document.firstBlock()
-    while block.isValid():
-        block_layout = block.layout()
-        if block_layout is not None:
-            block_rect = layout.blockBoundingRect(block)
-            iterator = block.begin()
-            while not iterator.atEnd():
-                fragment = iterator.fragment()
-                if fragment.isValid():
-                    char_format = fragment.charFormat()
-                    if char_format.isAnchor():
-                        block_index = parse_code_copy_block_index(char_format.anchorHref())
-                        if block_index is not None:
-                            pos_in_block = fragment.position() - block.position()
-                            line = block_layout.lineForTextPosition(pos_in_block)
-                            line_rect = line.naturalTextRect()
-                            hit_rect = QRectF(
-                                block_rect.left() + line_rect.left(),
-                                block_rect.top() + line_rect.top(),
-                                line_rect.width(),
-                                line_rect.height(),
-                            ).adjusted(-pad_px, -pad_px, pad_px, pad_px)
-                            if hit_rect.contains(pos):
-                                return block_index
-                iterator += 1
-        block = block.next()
+    for block_index, hit_rect in copy_block_header_hit_rects(document, pad_px=pad_px).items():
+        if hit_rect.contains(pos):
+            return block_index
     return None
 
 
@@ -131,7 +192,7 @@ def _palette_fingerprint(palette: ThemePalette) -> tuple[str, ...]:
     )
 
 
-def _cache_get(key: tuple[str, str, bool, int, bool, bool, tuple[str, ...]]) -> str | None:
+def _cache_get(key: tuple[str, str, bool, int, tuple[str, ...]]) -> str | None:
     """Return cached HTML and mark the entry recently used."""
     cached = _code_html_cache.get(key)
     if cached is not None:
@@ -139,7 +200,7 @@ def _cache_get(key: tuple[str, str, bool, int, bool, bool, tuple[str, ...]]) -> 
     return cached
 
 
-def _cache_put(key: tuple[str, str, bool, int, bool, bool, tuple[str, ...]], html: str) -> None:
+def _cache_put(key: tuple[str, str, bool, int, tuple[str, ...]], html: str) -> None:
     """Store HTML and evict the oldest entry when over capacity."""
     _code_html_cache[key] = html
     _code_html_cache.move_to_end(key)
@@ -217,31 +278,14 @@ def _perimeter_cell_style(
     return f"{''.join(parts)}{extra}"
 
 
-def _copy_link_html(
-    copy_href: str,
-    *,
-    palette: ThemePalette,
-    copied: bool = False,
-    hovered: bool = False,
-) -> str:
-    """Return a styled Copy anchor for the fenced-code header row."""
+def _copy_link_html(copy_href: str, *, palette: ThemePalette) -> str:
+    """Return the static Copy anchor for the fenced-code header row."""
     href = html_escape(copy_href, quote=True)
-    if copied:
-        color = html_escape(palette["accent"])
-        label = "Copied"
-        decoration = "none"
-    elif hovered:
-        color = html_escape(palette["accent"])
-        label = "Copy"
-        decoration = "underline"
-    else:
-        color = html_escape(palette["text_muted"])
-        label = "Copy"
-        decoration = "none"
+    color = html_escape(palette["text_muted"])
     return (
-        f'<a href="{href}" style="color:{color};text-decoration:{decoration};'
-        'cursor:pointer;font-family:sans-serif;font-size:11px;">'
-        f"{label}</a>"
+        f'<a href="{href}" style="color:{color};text-decoration:none;'
+        f'font-family:sans-serif;font-size:{COPY_LINK_FONT_PX}px;">'
+        "Copy</a>"
     )
 
 
@@ -251,8 +295,6 @@ def _render_code_block_table(
     display_lang: str,
     body_rows_html: str,
     copy_href: str,
-    copy_copied: bool = False,
-    copy_hovered: bool = False,
 ) -> str:
     """Wrap *body_rows_html* in a single flat table chrome (no nested tables)."""
     bg = palette["chat_code_bg"]
@@ -280,7 +322,7 @@ def _render_code_block_table(
         f'<td style="{lang_style}">{html_escape(display_lang)}</td>'
         f'<td width="99%" style="{spacer_style}"></td>'
         f'<td align="right" width="1%" style="{copy_style}">'
-        f"{_copy_link_html(copy_href, palette=palette, copied=copy_copied, hovered=copy_hovered)}"
+        f"{_copy_link_html(copy_href, palette=palette)}"
         f"</td>"
         f"</tr>"
     )
@@ -373,8 +415,6 @@ def provisional_code_to_html(
     *,
     palette: ThemePalette,
     block_index: int = 0,
-    copy_copied: bool = False,
-    copy_hovered: bool = False,
 ) -> str:
     """Render a growing fenced block without Pygments (streaming-safe)."""
     lexer_lang = normalize_language(lang)
@@ -401,8 +441,6 @@ def provisional_code_to_html(
         display_lang=display_lang,
         body_rows_html=body_row,
         copy_href=code_copy_href(block_index),
-        copy_copied=copy_copied,
-        copy_hovered=copy_hovered,
     )
 
 
@@ -413,8 +451,6 @@ def highlight_code_to_html(
     palette: ThemePalette,
     line_numbers: bool = False,
     block_index: int = 0,
-    copy_copied: bool = False,
-    copy_hovered: bool = False,
 ) -> str:
     """Render *code* as a themed HTML table with optional line numbers."""
     lexer_lang = normalize_language(lang)
@@ -423,8 +459,6 @@ def highlight_code_to_html(
         code,
         line_numbers,
         block_index,
-        copy_copied,
-        copy_hovered,
         _palette_fingerprint(palette),
     )
     cached = _cache_get(cache_key)
@@ -470,8 +504,6 @@ def highlight_code_to_html(
         display_lang=display_lang,
         body_rows_html="".join(rows),
         copy_href=code_copy_href(block_index),
-        copy_copied=copy_copied,
-        copy_hovered=copy_hovered,
     )
     _cache_put(cache_key, html)
     return html

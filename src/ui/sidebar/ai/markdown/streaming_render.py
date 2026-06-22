@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from html import escape as html_escape
 
-from ui.sidebar.ai.markdown.copy_chrome import CodeCopyChrome
 from ui.sidebar.ai.markdown.fence_split import (
     CodeSegment,
     MarkdownSegment,
@@ -136,21 +135,15 @@ class StreamingMarkdownCache:
         markdown: str,
         *,
         palette: ThemePalette | None = None,
-        copy_chrome: CodeCopyChrome | None = None,
     ) -> str:
         """Incrementally render *markdown* and return a full QTextBrowser HTML document."""
         active = palette or current_palette()
-        chrome = copy_chrome or CodeCopyChrome()
         segments = split_fenced_blocks(markdown)
         change_at = first_changed_segment_index(self._segments, segments)
         stable_html = self._segment_html[:change_at]
 
         rendered = list(stable_html)
         code_index = sum(1 for segment in segments[:change_at] if isinstance(segment, CodeSegment))
-        if chrome.confirmed_index is not None or chrome.hover_index is not None:
-            change_at = 0
-            rendered = []
-            code_index = 0
         for index in range(change_at, len(segments)):
             segment = segments[index]
             block_index = code_index if isinstance(segment, CodeSegment) else None
@@ -162,7 +155,6 @@ class StreamingMarkdownCache:
                         segment,
                         palette=active,
                         block_index=block_index,
-                        copy_chrome=chrome,
                     )
                 )
             if isinstance(segment, CodeSegment):

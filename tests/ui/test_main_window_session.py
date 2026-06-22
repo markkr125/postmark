@@ -344,6 +344,45 @@ class TestRestoreTabs:
         assert ctx.local_script_editor is not None
         assert ctx.local_script_editor.script_id == script.id
 
+    def test_restore_opens_ai_right_sidebar_on_local_script_tab(
+        self, qapp: QApplication, qtbot
+    ) -> None:
+        """_restore_tabs reopens the AI flyout when it was last open on a script tab."""
+        from database.models.local_scripts.local_script_repository import (
+            create_folder,
+            create_script,
+        )
+
+        folder = create_folder("Scripts")
+        script = create_script(folder.id, "Helper", language="javascript", content="// x")
+
+        tab_settings = TabSettingsManager(qapp)
+        tab_settings.save_open_tabs(
+            {
+                "tabs": [
+                    {
+                        "type": "local_script",
+                        "id": script.id,
+                        "name": "Helper",
+                        "language": "javascript",
+                        "module_format": "esm",
+                    }
+                ],
+                "active": 0,
+                "sidebar_panel": "ai",
+                "sidebar_width": 360,
+            }
+        )
+
+        window = MainWindow(tab_settings_manager=tab_settings)
+        qtbot.addWidget(window)
+
+        finish_main_window_startup(window)
+
+        assert window._right_sidebar.active_panel == "ai"
+        assert window._right_sidebar.panel_open
+        assert window._right_sidebar.flyout_width > 0
+
     def test_restore_opens_environments_tab_between_requests(
         self, qapp: QApplication, qtbot
     ) -> None:

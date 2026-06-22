@@ -369,6 +369,12 @@ class _VariableControllerMixin:
                 load_detail=history_load_detail,
                 from_deleted_request_history=from_deleted_request_history,
             )
+        elif ctx.tab_type == "local_script":
+            variables = EnvironmentService.build_combined_variable_detail_map(env_id, None)
+            self._right_sidebar.show_local_script_panels(
+                variables,
+                has_environment=has_env,
+            )
 
     def _on_editor_request_changed(self, _data: dict[str, Any] | None = None) -> None:
         """Slot for ``RequestEditorWidget.request_changed`` (debounced)."""
