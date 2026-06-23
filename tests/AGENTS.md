@@ -10,6 +10,9 @@
    (`pytest-timeout`) aborts stuck tests instead of blocking the run indefinitely.
    **``--max-worker-restart=8``** stops the session when xdist workers segfault
    repeatedly instead of replacing them forever.
+   **`tests/conftest.py`** sets ``QT_QPA_PLATFORM=offscreen`` by default so UI
+   tests do not pop windows on the developer desktop; use ``POSTMARK_TEST_VISIBLE=1``
+   or an explicit ``QT_QPA_PLATFORM`` when debugging layout on a real display.
 2. **Also run `poetry run ruff check src/ tests/`,
    `poetry run ruff format --check src/ tests/`, and
    `poetry run mypy src/ tests/`** — see [AGENTS.md](../AGENTS.md) for the

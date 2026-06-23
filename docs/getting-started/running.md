@@ -18,17 +18,23 @@ All commands use `poetry run` to ensure the correct virtual environment.
 Run after every code change — all four must pass with zero errors:
 
 ```bash
-poetry run pytest                          # all tests
+poetry run pytest                          # all tests (Qt offscreen by default)
 poetry run ruff check src/ tests/          # linter
 poetry run ruff format --check src/ tests/ # formatter
 poetry run mypy src/ tests/                # type checker
 ```
 
+UI tests render with `QT_QPA_PLATFORM=offscreen` (set in `tests/conftest.py`)
+so parallel runs do not open windows on your desktop. To debug layout on the
+real display, run `POSTMARK_TEST_VISIBLE=1 poetry run pytest` or set
+`QT_QPA_PLATFORM=xcb` (or `wayland`) before pytest.
+
 ### Individual commands
 
 | Command | Purpose |
 |---------|---------|
-| `poetry run pytest` | Run all tests (parallelised with pytest-xdist) |
+| `poetry run pytest` | Run all tests (parallelised with pytest-xdist; Qt uses offscreen — no desktop popups) |
+| `POSTMARK_TEST_VISIBLE=1 poetry run pytest` | Run tests on the real display when debugging widget layout |
 | `poetry run pytest tests/unit/` | Run only repository and service tests |
 | `poetry run pytest tests/ui/` | Run only UI widget tests |
 | `poetry run pytest -x` | Stop on first failure |

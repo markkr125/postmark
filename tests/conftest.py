@@ -8,6 +8,12 @@ import tempfile
 from collections.abc import Generator
 from pathlib import Path
 
+# Render Qt offscreen so parallel UI tests do not open windows on the developer
+# desktop (same as CI). Explicit QT_QPA_PLATFORM in the environment wins;
+# set POSTMARK_TEST_VISIBLE=1 to skip forcing offscreen when debugging widgets.
+if os.environ.get("POSTMARK_TEST_VISIBLE", "").lower() not in ("1", "true", "yes"):
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
 # Isolate QSettings before any other import constructs QSettings("Postmark", …).
 _settings_tmp = tempfile.mkdtemp(prefix="postmark_test_settings_")
 from PySide6.QtCore import QSettings  # noqa: E402
