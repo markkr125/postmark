@@ -25,6 +25,7 @@ from ui.sidebar.ai.chat_sessions.history.actions_popup import SessionHistoryActi
 from ui.sidebar.ai.chat_sessions.history.delegate import (
     SessionHistoryRowDelegate,
     session_row_menu_rect,
+    session_row_viewport_rect,
 )
 from ui.sidebar.ai.chat_sessions.history.model import FULL_TITLE_ROLE, SessionHistoryListModel
 from ui.sidebar.ai.chat_sessions.history.worker import SessionListLoader
@@ -368,7 +369,10 @@ class AiSessionHistoryPopup(QFrame):
             if not menu_index.isValid():
                 return
             row_rect = self._list.visualRect(menu_index)
-            menu_rect = session_row_menu_rect(row_rect)
+            viewport = self._list.viewport()
+            viewport_w = viewport.width() if Shiboken.isValid(viewport) else 0
+            content_rect = session_row_viewport_rect(row_rect, viewport_w)
+            menu_rect = session_row_menu_rect(content_rect, viewport_width=0)
             global_top_left = self._list.viewport().mapToGlobal(menu_rect.topLeft())
             global_rect = QRect(global_top_left, menu_rect.size())
             self._delegate.set_menu_open_row(row)

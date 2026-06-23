@@ -320,6 +320,45 @@ def test_show_for_many_sessions_populates_quickly(qapp: QApplication, qtbot) -> 
     assert elapsed < 2.0
 
 
+def test_long_title_menu_clickable_with_scrollbar(qapp: QApplication, qtbot) -> None:
+    """Long titles with a vertical scrollbar keep the ⋯ control inside the viewport."""
+    popup = AiSessionHistoryPopup()
+    qtbot.addWidget(popup)
+    popup.setMinimumHeight(120)
+    popup.resize(popup._width_for_anchor(QWidget()), 120)
+    anchor = QPushButton("anchor")
+    qtbot.addWidget(anchor)
+    long_title = (
+        "can you find me collectiones named request? how many collections are called "
+        "'DiagnosticCollection'?"
+    )
+    sessions = [_session(f"s{index}", long_title if index == 0 else f"Session {index}") for index in range(12)]
+    selected: list[str] = []
+    popup.show_for(anchor, sessions, selected.append)
+    qapp.processEvents()
+    assert popup._list.verticalScrollBar().maximum() > 0
+
+    index = popup._model.index(0, 0)
+    row_rect = popup._list.visualRect(index)
+    viewport_w = popup._list.viewport().width()
+    from ui.sidebar.ai.chat_sessions.history.delegate import (
+        session_row_menu_rect,
+        session_row_viewport_rect,
+    )
+
+    content_rect = session_row_viewport_rect(row_rect, viewport_w)
+    menu_rect = session_row_menu_rect(content_rect, viewport_width=0)
+    assert menu_rect.right() <= viewport_w
+    menu_center = menu_rect.center()
+    qtbot.mouseMove(popup._list.viewport(), pos=menu_center)
+    qtbot.wait(10)
+    qtbot.mouseClick(popup._list.viewport(), Qt.MouseButton.LeftButton, pos=menu_center)
+    qtbot.wait(10)
+    assert SessionHistoryActionsPopup.instance().isVisible()
+    assert selected == []
+    assert popup.isVisible()
+
+
 def test_menu_dots_click_opens_actions_not_session(qapp: QApplication, qtbot) -> None:
     """Clicking ⋯ opens the actions flyout without opening the session."""
     popup = AiSessionHistoryPopup()

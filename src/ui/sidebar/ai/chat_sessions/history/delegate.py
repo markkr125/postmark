@@ -15,7 +15,7 @@ from PySide6.QtCore import (
     Signal,
 )
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QIcon, QMouseEvent, QPainter, QPen
-from PySide6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem
+from PySide6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem, QAbstractItemView
 
 from ui.sidebar.ai.chat_sessions.history.model import (
     ACTIVE_SESSION_ROLE,
@@ -37,6 +37,7 @@ _TIME_FONT_PX = 10
 _MENU_ICON_PX = 16
 _MENU_RIGHT_GAP_PX = 6
 _MENU_HIT_PAD_PX = 4
+_MENU_GUTTER_PX = _MENU_RIGHT_GAP_PX + _MENU_ICON_PX + _MENU_HIT_PAD_PX
 _SPINNER_PX = 12
 _SPINNER_GAP_PX = 6
 _SPINNER_ARC_SPAN = 90 * 16
@@ -61,16 +62,25 @@ def _paint_running_spinner(painter: QPainter, rect: QRect, frame: int) -> None:
     painter.restore()
 
 
-def session_row_menu_rect(row_rect: QRect) -> QRect:
+def session_row_viewport_rect(row_rect: QRect, viewport_width: int) -> QRect:
+    """Return *row_rect* clipped to the list viewport (exclude scrollbar gutter)."""
+    if viewport_width <= 0:
+        return row_rect
+    width = min(row_rect.width(), viewport_width)
+    return QRect(row_rect.left(), row_rect.top(), width, row_rect.height())
+
+
+def session_row_menu_rect(row_rect: QRect, *, viewport_width: int = 0) -> QRect:
     """Return the ⋯ icon bounds at the trailing edge of *row_rect*."""
-    x = row_rect.right() - _MENU_RIGHT_GAP_PX - _MENU_ICON_PX
-    y = row_rect.top() + (row_rect.height() - _MENU_ICON_PX) // 2
+    content = session_row_viewport_rect(row_rect, viewport_width)
+    x = content.right() - _MENU_RIGHT_GAP_PX - _MENU_ICON_PX
+    y = content.top() + (content.height() - _MENU_ICON_PX) // 2
     return QRect(x, y, _MENU_ICON_PX, _MENU_ICON_PX)
 
 
-def session_row_menu_hit(row_rect: QRect, pos: QPoint) -> bool:
+def session_row_menu_hit(row_rect: QRect, pos: QPoint, *, viewport_width: int = 0) -> bool:
     """Return whether *pos* (viewport-local) is on the ⋯ control."""
-    hit = session_row_menu_rect(row_rect)
+    hit = session_row_menu_rect(row_rect, viewport_width=viewport_width)
     hit = hit.adjusted(
         -_MENU_HIT_PAD_PX,
         -_MENU_HIT_PAD_PX,
@@ -80,9 +90,18 @@ def session_row_menu_hit(row_rect: QRect, pos: QPoint) -> bool:
     return hit.contains(pos)
 
 
-def session_row_title_right(row_rect: QRect) -> int:
+def session_row_title_right(row_rect: QRect, *, viewport_width: int = 0) -> int:
     """Return the right edge for elided title text before the ⋯ gutter."""
-    return session_row_menu_rect(row_rect).left() - 4
+    content = session_row_viewport_rect(row_rect, viewport_width)
+    return session_row_menu_rect(content, viewport_width=0).left() - 4
+
+
+def _list_viewport_width(option: QStyleOptionViewItem) -> int:
+    """Return the QListView viewport width for row layout, when available."""
+    widget = option.widget
+    if not isinstance(widget, QAbstractItemView):
+        return 0
+    return widget.viewport().width()
 
 
 class SessionHistoryRowDelegate(QStyledItemDelegate):
@@ -117,6 +136,8 @@ class SessionHistoryRowDelegate(QStyledItemDelegate):
     ) -> None:
         """Draw hover/selection background, title, time, and optional ⋯ menu."""
         rect: QRect = option.rect  # type: ignore[assignment]
+        viewport_w = _list_viewport_width(option)
+        content_rect = session_row_viewport_rect(rect, viewport_w)
         title = str(index.data(FULL_TITLE_ROLE) or index.data(Qt.ItemDataRole.DisplayRole) or "")
         time_text = str(index.data(RELATIVE_TIME_ROLE) or "")
         is_active = bool(index.data(ACTIVE_SESSION_ROLE))
@@ -158,13 +179,17 @@ class SessionHistoryRowDelegate(QStyledItemDelegate):
             painter.restore()
             return
 
-        text_left = rect.left() + _H_PADDING_PX
+        text_left = content_rect.left() + _H_PADDING_PX
         if is_running:
-            spinner_top = rect.top() + (rect.height() - _SPINNER_PX) // 2
+            spinner_top = content_rect.top() + (content_rect.height() - _SPINNER_PX) // 2
             spinner_rect = QRect(text_left, spinner_top, _SPINNER_PX, _SPINNER_PX)
             _paint_running_spinner(painter, spinner_rect, self._spin_frame)
             text_left += _SPINNER_PX + _SPINNER_GAP_PX
-        text_right = session_row_title_right(rect) if show_menu else rect.right() - _H_PADDING_PX
+        text_right = (
+            session_row_title_right(content_rect, viewport_width=0)
+            if show_menu
+            else content_rect.right() - _MENU_GUTTER_PX
+        )
         text_width = max(0, text_right - text_left)
 
         title_font = QFont(painter.font())
@@ -173,7 +198,7 @@ class SessionHistoryRowDelegate(QStyledItemDelegate):
         painter.setPen(QPen(QColor(theme.COLOR_TEXT)))
         title_rect = QRect(
             text_left,
-            rect.top() + _V_PADDING_PX,
+            content_rect.top() + _V_PADDING_PX,
             text_width,
             18,
         )
@@ -197,7 +222,7 @@ class SessionHistoryRowDelegate(QStyledItemDelegate):
         painter.drawText(time_rect, Qt.AlignmentFlag.AlignVCenter, time_text)
 
         if show_menu:
-            menu_rect = session_row_menu_rect(rect)
+            menu_rect = session_row_menu_rect(content_rect, viewport_width=0)
             icon = phi("dots-three-bold", size=_MENU_ICON_PX, color=COLOR_TEXT)
             painter.drawPixmap(
                 menu_rect,
@@ -230,12 +255,14 @@ class SessionHistoryRowDelegate(QStyledItemDelegate):
 
         pos = mouse.position().toPoint()
         row_rect: QRect = option.rect  # type: ignore[assignment]
+        viewport_w = _list_viewport_width(option)
+        content_rect = session_row_viewport_rect(row_rect, viewport_w)
 
-        if session_row_menu_hit(row_rect, pos):
+        if session_row_menu_hit(content_rect, pos, viewport_width=0):
             self.menu_requested.emit(index)  # type: ignore[arg-type]
             return True
 
-        if row_rect.contains(pos):
+        if content_rect.contains(pos):
             self.row_activated.emit(index)  # type: ignore[arg-type]
             return True
 
@@ -257,4 +284,5 @@ __all__ = [
     "session_row_menu_hit",
     "session_row_menu_rect",
     "session_row_title_right",
+    "session_row_viewport_rect",
 ]
