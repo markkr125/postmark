@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QElapsedTimer, Qt, Signal
+from PySide6.QtCore import QElapsedTimer, Qt, Signal, QSize
+from PySide6.QtGui import QResizeEvent
 from PySide6.QtWidgets import QFrame, QPushButton, QSizePolicy, QVBoxLayout, QWidget
 
-from ui.sidebar.ai.message_bubble.wrapping_label import _WrappingLabel
+from ui.sidebar.ai.message_bubble.wrapping_label import _WrappingLabel, _QWIDGET_MAX_HEIGHT
 from ui.styling.icons import phi
+
+_THOUGHT_TEXT_INDENT_PX = 14
 
 
 class ThoughtSection(QFrame):
@@ -23,7 +26,7 @@ class ThoughtSection(QFrame):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 8)
-        layout.setSpacing(4)
+        layout.setSpacing(2)
 
         self._header = QPushButton()
         self._header.setObjectName("aiChatThoughtToggle")
@@ -34,6 +37,7 @@ class ThoughtSection(QFrame):
 
         self._label = _WrappingLabel()
         self._label.setObjectName("aiChatThoughtText")
+        self._label.setContentsMargins(_THOUGHT_TEXT_INDENT_PX, 0, 0, 0)
         layout.addWidget(self._label)
 
         self._expanded = False
@@ -63,6 +67,7 @@ class ThoughtSection(QFrame):
             self._expanded = True
         self._label.setVisible(has_text and self._expanded)
         self._refresh_header()
+        self._sync_label_geometry(force=not defer_geometry)
         if not defer_geometry:
             self.updateGeometry()
 
@@ -73,6 +78,7 @@ class ThoughtSection(QFrame):
         self.setVisible(has_text)
         self._header.setVisible(has_text)
         self._label.setVisible(has_text and self._expanded)
+        self._sync_label_geometry(force=True)
         self.updateGeometry()
 
     def set_duration_seconds(self, seconds: int | None) -> None:
@@ -104,12 +110,90 @@ class ThoughtSection(QFrame):
         self._header.setVisible(has_text)
         self._label.setVisible(has_text and self._expanded)
         self._refresh_header()
+        self._sync_label_geometry(force=True)
         self.updateGeometry()
         self._emit_layout_height_changed()
 
     def is_expanded(self) -> bool:
         """Return whether the thinking body is expanded."""
         return self._expanded
+
+    def sizeHint(self) -> QSize:
+        """Return height from measured wrapped text, not stale layout slack."""
+        width = self._block_layout_width()
+        if width <= 0:
+            return super().sizeHint()
+        return QSize(width, self.layout_height_hint())
+
+    def minimumSizeHint(self) -> QSize:
+        """Return the same compact hint as ``sizeHint``."""
+        return self.sizeHint()
+
+    def layout_height_hint(self) -> int:
+        """Return the preferred block height without nested layout queries."""
+        if not self.has_text():
+            return 0
+        layout = self.layout()
+        margins = layout.contentsMargins() if layout is not None else None
+        chrome = 0
+        if margins is not None:
+            chrome = margins.top() + margins.bottom()
+        spacing = layout.spacing() if layout is not None else 0
+        header_h = self._header.sizeHint().height()
+        if not self._expanded:
+            return chrome + header_h
+        width = self.width()
+        if width <= 0:
+            parent = self.parentWidget()
+            if parent is not None and parent.width() > 0:
+                width = parent.width()
+        label_h = self._label.heightForWidth(max(1, width)) if width > 0 else self._label.height()
+        if self._expanded and self._label.height() > 0:
+            label_h = max(label_h, self._label.height())
+        return chrome + header_h + spacing + max(1, label_h)
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        """Keep wrapped thinking text measured to the current block width."""
+        super().resizeEvent(event)
+        self._sync_label_geometry(force=True)
+        if self._expanded and self.has_text():
+            self.updateGeometry()
+
+    def _block_layout_width(self) -> int:
+        """Return the inner width available for the thinking label."""
+        width = self.width()
+        if width <= 0:
+            parent = self.parentWidget()
+            if parent is not None and parent.width() > 0:
+                width = parent.width()
+        return max(0, width)
+
+    def _sync_label_width(self) -> None:
+        """Clamp the thinking label to the current block width."""
+        width = self._block_layout_width()
+        if width > 0:
+            self._label.setMaximumWidth(width)
+
+    def _release_label_height_clamp(self) -> None:
+        """Allow the hidden label to reflow on the next expand."""
+        self._label.setMinimumHeight(0)
+        self._label.setMaximumHeight(_QWIDGET_MAX_HEIGHT)
+
+    def _sync_label_geometry(self, *, force: bool = False) -> None:
+        """Match label width and wrapped height to the current block width."""
+        self._sync_label_width()
+        if not (self._expanded and self.has_text()):
+            self._release_label_height_clamp()
+            return
+        width = self._block_layout_width()
+        if width <= 0:
+            return
+        if force:
+            self._label._invalidate_measured_height()
+        target = max(1, self._label.heightForWidth(width))
+        if self._label.height() != target:
+            self._label.setFixedHeight(target)
+        self._label.updateGeometry()
 
     def header_text(self) -> str:
         """Return the current thought header label."""
@@ -122,6 +206,7 @@ class ThoughtSection(QFrame):
         self._expanded = not self._expanded
         self._label.setVisible(self._expanded and self.has_text())
         self._refresh_header()
+        self._sync_label_geometry(force=True)
         self.updateGeometry()
         self._emit_layout_height_changed()
 

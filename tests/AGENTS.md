@@ -190,6 +190,7 @@ tests/
 │   │   │   ├── test_markdown_content_static.py
 │   │   │   ├── test_chat_time_format.py
 │   │   │   ├── test_thought_collapse_height.py
+│   │   │   ├── test_thought_layout_reentrancy.py
 │   │   │   ├── test_bubble_stream_row_height.py
 │   │   │   ├── test_chat_composer.py
 │   │   │   └── test_user_message_collapse.py

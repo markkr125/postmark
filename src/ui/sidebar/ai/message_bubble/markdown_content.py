@@ -113,6 +113,7 @@ class MarkdownContent(QWidget):
         self._cached_measured_height = -1
         self._reflow_deferred = False
         self._reflow_flush_pending = False
+        self._layout_query_depth = 0
         self._last_sync_width = -1
         self._paint_footer_rule = False
         self._painted_content_height_px = 0
@@ -406,6 +407,8 @@ class MarkdownContent(QWidget):
 
     def _ancestor_resize_coalescing(self) -> bool:
         """Return whether an ancestor chat panel is coalescing pane resize."""
+        if self._layout_query_depth > 1:
+            return False
         parent = self.parentWidget()
         while parent is not None:
             checker = getattr(parent, "is_resize_coalescing", None)
@@ -560,20 +563,38 @@ class MarkdownContent(QWidget):
         """Allow the transcript layout to size this body from width."""
         return True
 
+    def _fallback_height_for_width(self) -> int:
+        """Return a stable height when layout is already measuring this body."""
+        margins = self.contentsMargins()
+        if self._cached_measured_height >= 0:
+            return self._cached_measured_height + margins.top() + margins.bottom()
+        laid_out = self.height()
+        if laid_out > 0:
+            return laid_out
+        return 1
+
     def heightForWidth(self, width: int) -> int:
         """Return wrapped markdown height for *width*."""
-        if width <= 0:
-            return self.sizeHint().height()
-        if self._should_defer_reflow() and self._cached_measured_height >= 0:
+        if self._layout_query_depth > 0:
+            return self._fallback_height_for_width()
+        self._layout_query_depth += 1
+        try:
+            if width <= 0:
+                width = self.width()
+            if width <= 0:
+                return self._fallback_height_for_width()
+            if self._should_defer_reflow() and self._cached_measured_height >= 0:
+                margins = self.contentsMargins()
+                return self._cached_measured_height + margins.top() + margins.bottom()
             margins = self.contentsMargins()
-            return self._cached_measured_height + margins.top() + margins.bottom()
-        margins = self.contentsMargins()
-        text_width = max(1, width - margins.left() - margins.right())
-        if self._should_defer_reflow():
-            self._reflow_flush_pending = True
-            return max(1, self.height())
-        doc_h = self._cached_height_for_text_width(text_width)
-        return int(doc_h) + margins.top() + margins.bottom()
+            text_width = max(1, width - margins.left() - margins.right())
+            if self._should_defer_reflow():
+                self._reflow_flush_pending = True
+                return max(1, self.height())
+            doc_h = self._cached_height_for_text_width(text_width)
+            return int(doc_h) + margins.top() + margins.bottom()
+        finally:
+            self._layout_query_depth -= 1
 
     def _footer_rule_gap_px(self) -> int:
         """Return vertical space reserved below the document for the painted rule."""

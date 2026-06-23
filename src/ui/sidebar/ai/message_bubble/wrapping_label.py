@@ -46,6 +46,7 @@ class _WrappingLabel(QLabel):
         self._measured_height: int | None = None
         self._reflow_deferred = False
         self._reflow_flush_pending = False
+        self._layout_query_depth = 0
 
     def _invalidate_measured_height(self) -> None:
         """Drop cached wrap height so the next measure recomputes."""
@@ -112,17 +113,34 @@ class _WrappingLabel(QLabel):
         self._measured_height = height
         return height
 
+    def _fallback_height_for_width(self) -> int:
+        """Return a stable height when layout is already measuring this label."""
+        if self._measured_height is not None:
+            return self._clamp_to_max_height(self._measured_height)
+        laid_out = self.height()
+        if laid_out > 0:
+            return laid_out
+        return 1
+
     def heightForWidth(self, width: int) -> int:
         """Return wrapped text height for *width*."""
-        if width <= 0:
-            return self.sizeHint().height()
-        if self._reflow_deferred and self._measured_height is not None:
-            return self._measured_height
-        text_width = self._text_width_for_widget_width(width)
-        if self._reflow_deferred:
-            self._reflow_flush_pending = True
-            return max(1, self.height())
-        return self._clamp_to_max_height(self._cached_height_for_text_width(text_width))
+        if self._layout_query_depth > 0:
+            return self._fallback_height_for_width()
+        self._layout_query_depth += 1
+        try:
+            if width <= 0:
+                width = self.width()
+            if width <= 0:
+                return self._fallback_height_for_width()
+            if self._reflow_deferred and self._measured_height is not None:
+                return self._measured_height
+            text_width = self._text_width_for_widget_width(width)
+            if self._reflow_deferred:
+                self._reflow_flush_pending = True
+                return max(1, self.height())
+            return self._clamp_to_max_height(self._cached_height_for_text_width(text_width))
+        finally:
+            self._layout_query_depth -= 1
 
     def setText(self, text: str) -> None:
         """Replace text and invalidate cached height."""

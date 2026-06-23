@@ -1853,7 +1853,6 @@ def build_global_qss(p: ThemePalette) -> str:
         background: transparent;
         border: none;
         color: {p["text_muted"]};
-        padding-left: 14px;
     }}
     QWidget[objectName="aiChatComposer"] {{
         background: {p["composer_bg"]};

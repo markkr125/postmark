@@ -580,7 +580,7 @@ class ChatMessageBubble(QWidget):
             self._scroll_compensation_capture = None
             self._scroll_compensation_block = None
             return
-        self._scroll_compensation_capture = (anchor_y, block.sizeHint().height())
+        self._scroll_compensation_capture = (anchor_y, self._block_layout_height(block))
         self._scroll_compensation_block = block
 
     def consume_scroll_compensation(self) -> tuple[int, int] | None:
@@ -592,10 +592,20 @@ class ChatMessageBubble(QWidget):
         if capture is None or block is None:
             return None
         anchor_y, before_h = capture
-        delta_px = block.sizeHint().height() - before_h
+        delta_px = self._block_layout_height(block) - before_h
         if delta_px == 0:
             return None
         return anchor_y, delta_px
+
+    def _block_layout_height(self, block: QWidget) -> int:
+        """Return *block* height using laid-out or hint geometry only."""
+        laid_out = block.height()
+        if laid_out > 0:
+            return laid_out
+        hint_fn = getattr(block, "layout_height_hint", None)
+        if callable(hint_fn):
+            return max(1, int(hint_fn()))
+        return max(1, block.sizeHint().height())
 
     def _ancestor_chat_panel(self) -> QWidget | None:
         """Return the enclosing ``AiChatPanel``, if this row lives in one."""
