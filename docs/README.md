@@ -33,7 +33,6 @@
 | [Architecture Overview](architecture/overview.md) | 3-layer stack, dependency flow, communication patterns |
 | [Directory Structure](architecture/directory-structure.md) | Full annotated `src/` and `tests/` tree |
 | [Data Flow](architecture/data-flow.md) | Sequence diagrams for key operations |
-| [AI Chat App Context](architecture/ai-chat-app-context.md) | Snapshot bridge, live refresh, research sub-agent, Stop |
 | [Database Layer](architecture/database-layer.md) | SQLite engine, sessions, migration, model relationships |
 | [Script Runtime](architecture/script-runtime.md) | Subprocess lifecycle, IPC, Deno/Pyodide permissions |
 | [Service Layer](architecture/service-layer.md) | Static method pattern, TypedDict interchange |

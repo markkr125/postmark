@@ -172,12 +172,6 @@ def test_edit_display_name_only_skips_connection_test(
         "ui.dialogs.settings.ai_provider_workers.setup_provider",
         _setup,
     )
-
-    def _secret(ref: str) -> str | None:
-        return "sk-test" if ref == "ai:m1" else None
-
-    monkeypatch.setattr("ui.dialogs.settings.ai_provider_dialog.get_secret", _secret)
-    monkeypatch.setattr("ui.dialogs.settings.ai_page_actions.get_secret", _secret)
     entry: AiModelEntry = {
         "id": "m1",
         "provider": "openai",

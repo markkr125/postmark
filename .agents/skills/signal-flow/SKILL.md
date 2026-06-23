@@ -705,9 +705,6 @@ All connections made in `MainWindow.__init__` (and `_create_menus`):
 - `ai_chat_panel.message_submitted` → `_on_ai_message_submitted` (per-session send guard via `ChatRunRegistry`; concurrency cap blocks excess starts)
 - `ai_chat_panel.stop_requested` → `_on_ai_chat_stop` → `_handle_chat_stop` (cancels visible session only via `ChatRunRegistry.cancel`)
 - `ChatRunRegistry.running_sessions_changed` → `_sync_running_chrome` → `RightSidebar.set_ai_active_run_count` + history `RUNNING_ROLE`
-- `ChatRunRegistry.research_updated` → `_on_registry_research_updated` → `AiChatPanel.deliver_research_update` (activity row + `aiResearchActivityPopup`; 2s grace then footer **Research** chip)
-- Live snapshot refresh: tab/env/tree/sub-tab settled → `schedule_app_context_refresh` (250 ms debounce); session re-focus with running worker → `flush_app_context_refresh` → `refresh_active_session_snapshot` (active session only)
-- Stop during research: `_handle_chat_stop` → `deliver_activity_status("Stopping…")` + `ChatRunRegistry.cancel` → `research_updated` `phase=stopped` + `AiChatWorker._run_until_done_or_stop` (`CHAT_STOP_SUBAGENT_TIMEOUT_S`)
 - `ai_chat_panel.manage_models_requested` → `_on_open_ai_models_settings`
 - `ai_settings_requested` → `_on_open_ai_settings`
 

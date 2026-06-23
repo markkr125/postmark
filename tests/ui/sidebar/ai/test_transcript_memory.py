@@ -5,7 +5,6 @@ from __future__ import annotations
 import gc
 import resource
 import tracemalloc
-from pathlib import Path
 from typing import Any, cast
 
 from PySide6.QtWidgets import QApplication
@@ -73,28 +72,7 @@ def _heap_growth_bytes() -> int:
     return int(sum(stat.size_diff for stat in stats if stat.size_diff > 0))
 
 
-def _current_rss_kb() -> int:
-    """Return the process resident set size in KiB (Linux ``VmRSS`` when available)."""
-    try:
-        for line in Path("/proc/self/status").read_text(encoding="utf-8").splitlines():
-            if line.startswith("VmRSS:"):
-                return int(line.split()[1])
-    except OSError:
-        pass
-    return int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
-
-
 _HEAP_SNAP_BEFORE: tracemalloc.Snapshot | None = None
-
-
-def _fresh_panel(qtbot) -> AiChatPanel:
-    """Create a sized, exposed chat panel for isolated memory samples."""
-    panel = AiChatPanel()
-    qtbot.addWidget(panel)
-    panel.show()
-    panel.resize(360, 480)
-    qtbot.waitExposed(panel)
-    return panel
 
 
 def _measure_tail_load(panel: AiChatPanel, host: _Host, messages: list, qapp) -> dict[str, int]:
@@ -142,37 +120,6 @@ def _measure_full_load(panel: AiChatPanel, messages: list, qtbot, qapp) -> dict[
     }
 
 
-def _measure_tail_footprint(
-    panel: AiChatPanel, host: _Host, messages: list, qapp
-) -> dict[str, int]:
-    """Load a tail page and return live RSS + widget counts."""
-    payload = _tail_payload("mem", "Mem", messages[-INITIAL_TAIL_TURNS * 2 :], has_older=True)
-    host._session_load_generation = 1
-    host._on_session_load_finished(1, payload)
-    panel.flush_transcript_load()
-    run_gc_after_qt_flush(qapp)
-    for _ in range(3):
-        qapp.processEvents()
-    return {
-        "bubbles": _bubble_count(panel),
-        "rss_kb": _current_rss_kb(),
-    }
-
-
-def _measure_full_footprint(panel: AiChatPanel, messages: list, qtbot, qapp) -> dict[str, int]:
-    """Load the full transcript and return live RSS + widget counts."""
-    panel.load_transcript(messages)
-    panel.flush_transcript_load()
-    qtbot.wait(10)
-    run_gc_after_qt_flush(qapp)
-    for _ in range(3):
-        qapp.processEvents()
-    return {
-        "bubbles": _bubble_count(panel),
-        "rss_kb": _current_rss_kb(),
-    }
-
-
 def test_tail_load_bounded_widgets(qapp: QApplication, qtbot) -> None:
     """Tail load materializes far fewer bubbles than a full session."""
     messages = _long_messages(40)
@@ -192,17 +139,20 @@ def test_tail_load_bounded_widgets(qapp: QApplication, qtbot) -> None:
 
 
 def test_tail_load_lower_heap_than_full(qapp: QApplication, qtbot) -> None:
-    """Virtual tail load uses less resident memory than full materialization."""
+    """Virtual tail load uses less Python heap than full materialization."""
     messages = _long_messages(40)
-    tail_panel = _fresh_panel(qtbot)
-    tail = _measure_tail_footprint(tail_panel, _Host(tail_panel), messages, qapp)
-
-    full_panel = _fresh_panel(qtbot)
-    full = _measure_full_footprint(full_panel, messages, qtbot, qapp)
-
-    assert full["bubbles"] == 40
-    assert tail["bubbles"] < full["bubbles"]
-    assert tail["rss_kb"] < full["rss_kb"]
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    panel.resize(360, 480)
+    qtbot.waitExposed(panel)
+    host = _Host(panel)
+    tail = _measure_tail_load(panel, host, messages, qapp)
+    panel.clear()
+    gc.collect()
+    full = _measure_full_load(panel, messages, qtbot, qapp)
+    assert tail["heap"] < full["heap"]
+    assert full["heap"] - tail["heap"] >= 100 * 1024
 
 
 def test_tail_load_fewer_rendered_markdown_bodies(qapp: QApplication, qtbot) -> None:

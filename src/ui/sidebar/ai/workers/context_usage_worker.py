@@ -30,7 +30,6 @@ class ContextUsageWorker(QObject):
         self._streaming_thinking: str = ""
         self._streaming_content: str = ""
         self._sdk_metrics: ContextUsageSdkMetrics | None = None
-        self._send_mode: str | None = None
 
     def set_request(
         self,
@@ -43,7 +42,6 @@ class ContextUsageWorker(QObject):
         streaming_thinking: str = "",
         streaming_content: str = "",
         sdk_metrics: ContextUsageSdkMetrics | None = None,
-        send_mode: str | None = None,
     ) -> None:
         """Configure the next breakdown build (call before ``run``)."""
         self._session_id = session_id
@@ -54,7 +52,6 @@ class ContextUsageWorker(QObject):
         self._streaming_thinking = streaming_thinking
         self._streaming_content = streaming_content
         self._sdk_metrics = sdk_metrics
-        self._send_mode = send_mode
 
     @Slot()
     def run(self) -> None:
@@ -68,7 +65,6 @@ class ContextUsageWorker(QObject):
             streaming_thinking=self._streaming_thinking,
             streaming_content=self._streaming_content,
             sdk_metrics=self._sdk_metrics,
-            send_mode=self._send_mode,
         )
         self.finished.emit(breakdown)
 

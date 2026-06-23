@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -41,26 +40,6 @@ def _entry(**overrides: object) -> AiModelEntry:
     }
     entry.update(overrides)  # type: ignore[typeddict-item]
     return entry
-
-
-@pytest.fixture(autouse=True)
-def _stub_invalid_session_event_ids(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Return no SDK events for non-UUID session ids used in unit tests."""
-    import services.ai.chat.context_usage as context_usage_mod
-
-    original = context_usage_mod.iter_session_events
-
-    def _iter(session_id: str) -> list[object]:
-        try:
-            uuid.UUID(session_id)
-        except ValueError:
-            return []
-        return original(session_id)
-
-    monkeypatch.setattr(
-        "services.ai.chat.context_usage.iter_session_events",
-        _iter,
-    )
 
 
 def test_build_breakdown_keeps_cursor_eight_buckets(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -520,90 +499,3 @@ def test_metrics_from_conversation_returns_turn_cost_delta() -> None:
     assert result is not None
     assert abs(float(result["turn_cost_usd"]) - 0.0024) < 1e-12
     assert result["prompt_tokens"] == 3900
-
-
-def test_build_breakdown_passes_send_mode_to_system_tools(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Ask/plan send_mode changes the system+tools token estimate."""
-    captured: dict[str, object] = {}
-
-    def _capture_system_tools(
-        _agent_id: str, _model: str, *, char_only: bool = False, send_mode: str | None = None
-    ) -> tuple[int, int]:
-        captured["send_mode"] = send_mode
-        return (10, 5)
-
-    monkeypatch.setattr(
-        "services.ai.chat.context_usage.measure_sdk_view",
-        lambda *_args, **_kw: None,
-    )
-    monkeypatch.setattr(
-        "services.ai.chat.context_usage.count_system_and_tools",
-        _capture_system_tools,
-    )
-    monkeypatch.setattr(
-        "services.ai.chat.context_usage.count_transcript_messages",
-        lambda *_a, **_k: 0,
-    )
-    monkeypatch.setattr(
-        "services.ai.chat.context_usage.count_summarized_events",
-        lambda *_a, **_k: (0, False),
-    )
-    monkeypatch.setattr(
-        "services.ai.chat.context_usage.iter_session_events",
-        lambda *_a, **_k: [],
-    )
-
-    build_breakdown(
-        session_id=None,
-        messages=[],
-        entry=_entry(),
-        agent_id="postmark-assistant",
-        send_mode="ask",
-    )
-    assert captured["send_mode"] == "ask"
-
-
-def test_build_breakdown_populates_subagents_bucket(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """TaskObservation events move tokens into the subagents bucket."""
-    monkeypatch.setattr(
-        "services.ai.chat.context_usage.measure_sdk_view",
-        lambda *_args, **_kw: None,
-    )
-    monkeypatch.setattr(
-        "services.ai.chat.context_usage.count_system_and_tools",
-        lambda *_a, **_k: (0, 0),
-    )
-    monkeypatch.setattr(
-        "services.ai.chat.context_usage.count_transcript_messages",
-        lambda *_a, **_k: 20,
-    )
-    monkeypatch.setattr(
-        "services.ai.chat.context_usage.count_summarized_events",
-        lambda *_a, **_k: (0, False),
-    )
-
-    class TaskObservation:
-        text = "x" * 40
-
-    monkeypatch.setattr(
-        "services.ai.chat.context_usage.iter_session_events",
-        lambda _sid: [SimpleNamespace(observation=TaskObservation())],
-    )
-    monkeypatch.setattr(
-        "services.ai.chat.context_usage_sdk.count_subagent_tokens_from_events",
-        lambda _events, _model: 8,
-    )
-
-    breakdown = build_breakdown(
-        session_id="sess-1",
-        messages=[],
-        entry=_entry(),
-        agent_id="postmark-assistant",
-    )
-    token_by_id = {c["id"]: c["tokens"] for c in breakdown["categories"]}
-    assert token_by_id["subagents"] == 8
-    assert token_by_id["conversation"] == 12

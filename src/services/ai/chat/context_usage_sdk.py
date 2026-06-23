@@ -206,29 +206,9 @@ def collect_compaction_diagnostics(
     return diagnostics
 
 
-def count_subagent_tokens_from_events(events: list[Any], model: str) -> int:
-    """Estimate sub-agent output tokens from persisted TaskObservation events."""
-    if not events:
-        return 0
-    from services.ai.chat.context_usage import estimate_text_tokens
-
-    total = 0
-    for event in events:
-        observation = getattr(event, "observation", None)
-        if observation is None:
-            continue
-        if type(observation).__name__ != "TaskObservation":
-            continue
-        text = str(getattr(observation, "text", "") or getattr(observation, "content", "") or "")
-        if text.strip():
-            total += estimate_text_tokens(text, model)
-    return total
-
-
 __all__ = [
     "SdkViewSnapshot",
     "collect_compaction_diagnostics",
-    "count_subagent_tokens_from_events",
     "count_summarized_event_tokens",
     "measure_sdk_view",
     "sdk_view_snapshot_for_session",

@@ -339,7 +339,6 @@ class _AiChatControllerMixin(_AiChatRunsMixin, _AiChatTurnFinalizeMixin, _AiChat
             reasoning_effort=panel.current_reasoning_effort(),
             thinking_enabled=panel.current_thinking_enabled(),
             run_context_tokens=panel.current_run_context_tokens(),
-            send_mode=panel.current_mode(),
         )
         session_row = AiChatSessionService.get_session(session_id)
         agent_id = session_row["agent_id"] if session_row else DEFAULT_AGENT_ID
@@ -452,7 +451,6 @@ class _AiChatControllerMixin(_AiChatRunsMixin, _AiChatTurnFinalizeMixin, _AiChat
                 reasoning_effort=composer.current_reasoning_effort(),
                 thinking_enabled=composer.current_thinking_enabled(),
                 run_context_tokens=composer.current_run_context_tokens(),
-                send_mode=composer.current_mode(),
             ),
         )
 

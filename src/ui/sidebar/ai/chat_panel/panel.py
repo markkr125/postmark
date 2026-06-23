@@ -15,7 +15,6 @@ from ui.sidebar.ai.chat_panel.composer import AiChatComposer
 from ui.sidebar.ai.chat_panel.composer.budget_banner import AiChatBudgetBanner
 from ui.sidebar.ai.chat_panel.context_usage_panel import _ChatPanelContextUsageMixin
 from ui.sidebar.ai.chat_panel.inline_edit import _ChatPanelInlineEditMixin
-from ui.sidebar.ai.chat_panel_research import _ChatPanelResearchMixin
 from ui.sidebar.ai.chat_panel_streaming import _ChatPanelStreamingMixin
 from ui.sidebar.ai.chat_transcript_loading_row import ChatTranscriptLoadingOverlay
 from ui.sidebar.ai.message_bubble import ChatMessageBubble
@@ -81,7 +80,6 @@ class _TranscriptMessages(QWidget):
 class AiChatPanel(
     _ChatPanelInlineEditMixin,
     _ChatPanelStreamingMixin,
-    _ChatPanelResearchMixin,
     _ChatPanelContextUsageMixin,
     QWidget,
 ):  # type: ignore[misc]
@@ -102,7 +100,6 @@ class AiChatPanel(
     transcript_load_finished = Signal()
     _assistant_chunk_delivery_requested = Signal(str, str)
     _activity_status_delivery_requested = Signal(str)
-    _research_update_delivery_requested = Signal(str)
     _context_usage_metrics_delivery_requested = Signal(object)
     _context_usage_refresh_delivery_requested = Signal()
     _context_usage_schedule_requested = Signal()
@@ -213,12 +210,10 @@ class AiChatPanel(
 
         self._init_inline_edit_state()
         self._init_chat_streaming_state()
-        self._init_research_state()
         self._init_context_usage_state()
         queued = Qt.ConnectionType.QueuedConnection
         self._assistant_chunk_delivery_requested.connect(self._apply_assistant_chunk, queued)
         self._activity_status_delivery_requested.connect(self._apply_activity_status, queued)
-        self._research_update_delivery_requested.connect(self._apply_research_update, queued)
         self._context_usage_metrics_delivery_requested.connect(
             self._apply_context_usage_metrics,
             queued,
@@ -307,19 +302,6 @@ class AiChatPanel(
             self._activity_status_delivery_requested.emit(raw_status)
             return
         self._apply_activity_status(raw_status)
-
-    @Slot(str)
-    def deliver_research_update(self, payload: str) -> None:
-        """GUI-thread slot for research progress/findings updates."""
-        if QThread.currentThread() != self.thread():
-            self._research_update_delivery_requested.emit(payload)
-            return
-        self._apply_research_update(payload)
-
-    @Slot(str)
-    def _apply_research_update(self, payload: str) -> None:
-        """Apply research state to the streaming bubble and flyout."""
-        self.update_research_state(payload)
 
     @Slot(str)
     def _apply_activity_status(self, raw_status: str) -> None:

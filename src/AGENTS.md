@@ -157,22 +157,10 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   `edit_user_message_and_rewind` updates the user row, deletes later messages,
   and rewinds SDK disk state before the controller resubmits on the same bubble.
   Postmark agent/tool registries
-  (`agent_registry.py`, `tool_registry.py`, `tools/wiki_query.py`,
-  `tools/app_context.py`) ship `DEFAULT_AGENT_ID` with `postmark_wiki_query`
-  (reads `docs/user-guide/` + allowlisted `docs/scripting/` via `app_wiki/query.py`;
-  index in `data/app-wiki/index.md`). **App context:** before each chat run the
-  GUI writes `app_context_snapshot.json` under the session disk dir
-  (`_AppContextSnapshotMixin` in `ui/main_window/app_context_snapshot.py`);
-  live refresh while the active session runs (`_AppContextRefreshMixin` in
-  `app_context_refresh.py`, 250 ms debounce, active-session-only policy).
-  the worker prepends `build_message_prefix()` (never stored in SQLite user text).
-  `postmark_app_context` reads the snapshot + DB search helpers in
-  `app_context/`; Agent/Plan modes also register OpenHands `TaskToolSet` and
-  `workspace_researcher` (lazy `ensure_app_context_stack()`). Mode profiles in
-  `mode_profiles.py` (`resolve_chat_mode`) set tool lists and inject tiers for
-  Agent / Ask / Plan. `PostmarkChatVisualizer` forwards research status to the
-  panel flyout (`research_activity_popup.py`). `max_iteration_per_run` follows the
-  active mode profile (floor 3).
+  (`agent_registry.py`, `tool_registry.py`, `tools/wiki_query.py`) ship
+  `DEFAULT_AGENT_ID` with `postmark_wiki_query` (reads `docs/user-guide/` +
+  allowlisted `docs/scripting/` via `app_wiki/query.py`; index in
+  `data/app-wiki/index.md`). `max_iteration_per_run` is 5 for wiki tool loops.
   MainWindow wiring: `_AiChatControllerMixin` (`ai_chat_controller.py`) with
   `_AiChatRunsMixin`, `_AiChatTurnFinalizeMixin`, `_AiChatTitleMixin`.
   Settings UI: tree branch **AI** (overview) → **Models** and **Budgets** children;
@@ -197,9 +185,6 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
 - `RunHistoryService` follows the same `@staticmethod` pattern.  It wraps
   `run_history_repository` for run history CRUD (create, finish, add result,
   query runs/results, delete).
-- `services/__init__.py` re-exports core services; **AI symbols load lazily**
-  via `__getattr__` so RestrictedPython sandbox subprocesses that import
-  `services.scripting` do not pull OpenHands into every child process.
 - `RequestHistoryService` (`request_history_service.py`) persists HTTP **send**
   history: `gather_send_identity` at send start, `record_send` at the end of
   `on_send_finished` (skipped when `_suppress_history_record` is set during

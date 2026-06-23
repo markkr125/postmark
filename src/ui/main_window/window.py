@@ -33,8 +33,6 @@ from ui.collections.collection_widget import CollectionWidget
 from ui.environments.environment_sidebar_panel import EnvironmentSidebarPanel
 from ui.loading_screen import LoadingScreen
 from ui.main_window.ai_chat_controller import _AiChatControllerMixin
-from ui.main_window.app_context_refresh import _AppContextRefreshMixin
-from ui.main_window.app_context_snapshot import _AppContextSnapshotMixin
 from ui.main_window.draft_controller import _DraftControllerMixin
 from ui.main_window.history_navigation import _HistoryNavigationMixin
 from ui.main_window.send_pipeline import _SendPipelineMixin
@@ -61,8 +59,6 @@ logger = logging.getLogger(__name__)
 class MainWindow(
     _SendPipelineMixin,
     _AiChatControllerMixin,
-    _AppContextSnapshotMixin,
-    _AppContextRefreshMixin,
     _HistoryNavigationMixin,
     _VariableControllerMixin,
     _DraftControllerMixin,
@@ -249,8 +245,6 @@ class MainWindow(
         self.collection_widget.item_name_changed.connect(self._on_item_name_changed)
         self.local_scripts_widget.item_name_changed.connect(self._on_item_name_changed)
         self.local_scripts_widget.script_rename_requested.connect(self._on_local_script_tree_rename)
-
-        self.connect_app_context_refresh_signals()
 
         # Start the collection fetch *after* all signals are connected so
         # a fast-completing fetch cannot emit load_finished before we listen.

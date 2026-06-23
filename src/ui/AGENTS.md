@@ -321,13 +321,6 @@ standard object names:
 | `aiChatActivityRow` | `QWidget` | Spinner + status caption while waiting for the first stream token |
 | `aiChatActivitySpinner` | `QLabel` | Braille spinner in the activity row (reuses `busyChipSpinner` QSS) |
 | `aiChatActivityLabel` | `QLabel` | Muted activity caption (`Thinking…`, SDK status, long-wait escalation) |
-| `aiChatResearchChip` | `QPushButton` | Inline **Research** chip on the activity row (toggles `aiResearchActivityPopup`) |
-| `aiChatResearchFooterButton` | `QPushButton` | Footer **Research** chip on in-flight assistant turns |
-| `aiResearchActivityPopup` | `QFrame` | Workspace research progress + findings flyout (`AiResearchActivityPopup`) |
-| `aiResearchProgressHeader` | `QLabel` | **Progress** section label in the research flyout |
-| `aiResearchFindingsHeader` | `QLabel` | **Findings** section label in the research flyout |
-| `aiResearchProgressLog` | `QTextEdit` | Read-only progress log in the research flyout |
-| `aiResearchFindingsBody` | `QTextEdit` | Read-only findings body in the research flyout |
 | `aiChatTranscriptLoading` | `QWidget` (`ChatTranscriptLoadingOverlay`) | Viewport overlay with indeterminate line animation while a session transcript loads; hidden after `_finish_load_transcript_layout` |
 | `aiChatOlderLoadingRow` | `QWidget` (`TranscriptOlderLoadingRow`) | In-transcript top row with spinner + **Fetching older messages…** while a silent older page loads; hidden after `apply_older_page` |
 | `aiChatVirtualSpacer` | `QWidget` | Invisible fixed-height placeholder for evicted transcript rows (top/bottom virtual window); evicted user rows cache prompt metadata in `_evicted_turn_users` for sticky overlay |

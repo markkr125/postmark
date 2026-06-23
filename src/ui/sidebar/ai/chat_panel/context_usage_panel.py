@@ -165,7 +165,6 @@ class _ChatPanelContextUsageMixin:  # type: ignore[misc]
             if getattr(self, "_streaming_bubble", None)
             else "",
             "sdk_metrics": self._context_sdk_metrics,
-            "send_mode": self.current_mode(),
         }
 
     def _run_context_usage_refresh(self) -> None:
