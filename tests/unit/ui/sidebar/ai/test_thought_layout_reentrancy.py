@@ -100,6 +100,39 @@ def test_thought_expand_shows_full_wrapped_height(qapp: QApplication, qtbot) -> 
     assert label.text().rstrip().endswith("Provide steps.")
 
 
+def test_streaming_thought_height_grows_after_initial_one_line_clamp(
+    qapp: QApplication,
+    qtbot,
+) -> None:
+    """Streaming thought text must release the previous fixed-height clamp before measuring."""
+    host = QWidget()
+    layout = QVBoxLayout(host)
+    bubble = ChatMessageBubble("assistant", "")
+    layout.addWidget(bubble)
+    qtbot.addWidget(host)
+    host.resize(360, 400)
+    host.show()
+    qtbot.waitExposed(host)
+
+    section = bubble._thought_section
+    assert section is not None
+    label = section._label
+
+    section.append_text("Short thought.", defer_geometry=True)
+    one_line_height = label.height()
+    assert one_line_height <= label.fontMetrics().lineSpacing() + 4
+
+    section.append_text(
+        " We need to explain how to write scripts in Postmark, including request "
+        "scripts, test scripts, variables, examples, and how the user can run them.",
+        defer_geometry=True,
+    )
+    qapp.processEvents()
+
+    assert label.height() > one_line_height
+    assert label.height() >= label.heightForWidth(label.width()) - 2
+
+
 def test_thought_toggle_during_viewport_clamp_does_not_recurse(
     qapp: QApplication,
     qtbot,
@@ -122,7 +155,10 @@ def test_thought_toggle_during_viewport_clamp_does_not_recurse(
     panel._arm_scroll_lock()
     panel._turn_scroll_anchor = panel._find_last_turn_user_bubble()
     viewport_h = panel._scroll.viewport().height()
-    panel._messages_layout.setSizeConstraint(QLayout.SizeConstraint.SetFixedSize)
+    panel._messages_layout.setSizeConstraints(
+        QLayout.SizeConstraint.SetNoConstraint,
+        QLayout.SizeConstraint.SetFixedSize,
+    )
     panel._messages.setFixedHeight(viewport_h)
 
     toggle = bubble.findChild(QPushButton, "aiChatThoughtToggle")

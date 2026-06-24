@@ -571,7 +571,10 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
                     self._reconcile_short_turn_height_when_fits()  # type: ignore[attr-defined]
                 return
             if not self._is_short_turn_extent(bubble):  # type: ignore[attr-defined]
-                self._messages_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinAndMaxSize)
+                self._messages_layout.setSizeConstraints(
+                    QLayout.SizeConstraint.SetNoConstraint,
+                    QLayout.SizeConstraint.SetMinAndMaxSize,
+                )
                 self._messages.setMinimumHeight(0)
                 self._messages.setMaximumHeight(16777215)
         finally:

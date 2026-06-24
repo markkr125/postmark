@@ -5,8 +5,10 @@ from __future__ import annotations
 import re
 
 import pytest
+from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import QApplication
 
+from ui.sidebar.ai.markdown.highlight_code import copy_anchor_spans
 from ui.sidebar.ai.markdown.render import render_markdown_body_html
 from ui.sidebar.ai.message_bubble.markdown_content import MarkdownContent
 from ui.styling.theme import DARK_PALETTE
@@ -34,6 +36,33 @@ class TestMarkdownCodeBlockChrome:
         qtbot.addWidget(body)
         fragment = body.toHtml()
         assert _count_html_tables(fragment) == 2
+
+    def test_copied_feedback_preserves_other_fence_headers(
+        self,
+        qapp: QApplication,
+        qtbot,
+    ) -> None:
+        """Changing one Copy label must not shift and erase later fence headers."""
+        source = (
+            '```typescript\nconst a = 1;\n```\n\n```python\nprint(1)\n```\n\n```json\n{"a": 1}\n```'
+        )
+        body = MarkdownContent(source)
+        qtbot.addWidget(body)
+
+        body._copy_confirmed_index = 0
+        body._sync_copy_link_appearance()
+
+        text = body.document().toPlainText()
+        assert "typescript" in text
+        assert "python" in text
+        assert "json" in text
+
+        spans = copy_anchor_spans(body.document())
+        cursor = QTextCursor(body.document())
+        cursor.setPosition(spans[0][0])
+        cursor.setPosition(spans[0][1], QTextCursor.MoveMode.KeepAnchor)
+        assert cursor.selectedText() == "Copied"
+        assert len(spans) == 3
 
     def test_markdown_data_table_and_fence_coexist(self, qapp: QApplication, qtbot) -> None:
         """Prose pipe tables and fenced code blocks both render as separate tables."""

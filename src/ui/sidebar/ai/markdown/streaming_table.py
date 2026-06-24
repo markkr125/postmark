@@ -25,6 +25,14 @@ class _InlineMatch(NamedTuple):
     groups: tuple[str, ...]
 
 
+class _OpenInlineTail(NamedTuple):
+    """One open inline token that may still close later in the stream."""
+
+    start: int
+    marker: str
+    kind: str
+
+
 def markdown_table_cells(line: str) -> list[str]:
     """Split one pipe-table row into trimmed cell strings."""
     stripped = line.strip()
@@ -124,6 +132,28 @@ def _first_inline_match(text: str) -> _InlineMatch | None:
     return min(matches, key=lambda item: item.start)
 
 
+def _first_open_inline_tail(text: str) -> _OpenInlineTail | None:
+    """Return the earliest unclosed inline marker for provisional streaming paint."""
+    candidates: list[_OpenInlineTail] = []
+    for marker, kind in (("**", "bold"), ("__", "bold"), ("~~", "strike"), ("`", "code")):
+        start = text.find(marker)
+        if start >= 0 and text.find(marker, start + len(marker)) < 0:
+            candidates.append(_OpenInlineTail(start, marker, kind))
+    for marker, kind in (("*", "italic"), ("_", "italic")):
+        for match in re.finditer(re.escape(marker), text):
+            start = match.start()
+            before = text[start - 1] if start > 0 else ""
+            after = text[start + 1] if start + 1 < len(text) else ""
+            if before == marker or after == marker:
+                continue
+            if text.find(marker, start + 1) < 0:
+                candidates.append(_OpenInlineTail(start, marker, kind))
+            break
+    if not candidates:
+        return None
+    return min(candidates, key=lambda item: item.start)
+
+
 def render_inline_markdown(
     text: str,
     *,
@@ -132,23 +162,53 @@ def render_inline_markdown(
 ) -> str:
     """Render common inline markdown inside one table cell.
 
-    When *conservative* is true, only closed inline spans are upgraded; unclosed
-    delimiters remain literal text (used for provisional streaming rows).
+    When *conservative* is true, closed inline spans are upgraded and a trailing
+    open span is painted provisionally until the stream delivers its closing
+    delimiter.
     """
     if not text:
         return ""
     if conservative:
-        return _render_inline_recursive(text, palette=palette)
-    return _render_inline_recursive(text, palette=palette)
+        return _render_inline_recursive(text, palette=palette, render_open_tail=True)
+    return _render_inline_recursive(text, palette=palette, render_open_tail=False)
 
 
-def _render_inline_recursive(text: str, *, palette: ThemePalette) -> str:
+def _render_inline_recursive(
+    text: str,
+    *,
+    palette: ThemePalette,
+    render_open_tail: bool = False,
+) -> str:
     """Recursively render closed inline tokens left-to-right."""
     token = _first_inline_match(text)
+    if token is None and render_open_tail:
+        tail = _first_open_inline_tail(text)
+        if tail is not None:
+            before = html_escape(text[: tail.start])
+            inner = text[tail.start + len(tail.marker) :]
+            rendered_inner = _render_inline_recursive(
+                inner,
+                palette=palette,
+                render_open_tail=False,
+            )
+            if tail.kind == "bold":
+                return f"{before}<strong>{rendered_inner}</strong>"
+            if tail.kind == "strike":
+                return f"{before}<s>{rendered_inner}</s>"
+            if tail.kind == "code":
+                return (
+                    f'{before}<span style="{_inline_code_style(palette=palette)}">'
+                    f"{html_escape(inner)}</span>"
+                )
+            return f"{before}<em>{rendered_inner}</em>"
     if token is None:
         return html_escape(text)
     before = html_escape(text[: token.start])
-    after = _render_inline_recursive(text[token.end :], palette=palette)
+    after = _render_inline_recursive(
+        text[token.end :],
+        palette=palette,
+        render_open_tail=render_open_tail,
+    )
     if token.kind == "link":
         label, href = token.groups
         accent = html_escape(palette["accent"])
@@ -275,7 +335,11 @@ class StreamingTableRenderer:
             return self._fallback_pre(block, palette=palette)
 
         header_cells = markdown_table_cells(header_line)
-        thead = "<thead>" + self._row_html(header_cells, muted=False, palette=palette) + "</thead>"
+        thead = (
+            "<thead>"
+            + self._row_html(header_cells, muted=False, palette=palette, conservative=True)
+            + "</thead>"
+        )
 
         has_provisional_tail = bool(raw_lines) and not block.endswith("\n")
         provisional_source = raw_lines[-1].strip() if has_provisional_tail else ""
@@ -289,7 +353,9 @@ class StreamingTableRenderer:
                 continue
             cells = markdown_table_cells(stripped)
             if len(cells) == column_count:
-                committed_rows.append(self._row_html(cells, muted=False, palette=palette))
+                committed_rows.append(
+                    self._row_html(cells, muted=False, palette=palette, conservative=True)
+                )
 
         self._committed_row_count = len(committed_rows)
         tbody_parts = list(committed_rows)

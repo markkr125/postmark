@@ -74,7 +74,7 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
         if vp_w <= 0:
             return
         messages = self._messages
-        messages.setMinimumWidth(0)
+        messages.setMinimumWidth(vp_w)
         messages.setMaximumWidth(vp_w)
         if messages.width() != vp_w:
             messages.resize(vp_w, messages.height())
@@ -757,7 +757,10 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
             slack = spacing + _TURN_SCROLL_MARGIN_PX
             bar = self._scroll.verticalScrollBar()
             if overflow <= slack or bar.maximum() <= slack:
-                self._messages_layout.setSizeConstraint(QLayout.SizeConstraint.SetFixedSize)
+                self._messages_layout.setSizeConstraints(
+                    QLayout.SizeConstraint.SetNoConstraint,
+                    QLayout.SizeConstraint.SetFixedSize,
+                )
                 self._messages.setFixedHeight(viewport_h)
                 self._messages.setMinimumHeight(viewport_h)
                 self._messages.setMaximumHeight(viewport_h)
@@ -772,7 +775,10 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
 
     def _restore_messages_auto_height(self) -> None:
         """Return the transcript host to normal scroll-area managed height."""
-        self._messages_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinAndMaxSize)
+        self._messages_layout.setSizeConstraints(
+            QLayout.SizeConstraint.SetNoConstraint,
+            QLayout.SizeConstraint.SetMinAndMaxSize,
+        )
         self._messages.setMinimumHeight(0)
         self._messages.setMaximumHeight(16777215)
         self._messages.updateGeometry()

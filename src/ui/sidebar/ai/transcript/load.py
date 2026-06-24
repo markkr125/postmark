@@ -107,7 +107,7 @@ class _ChatPanelTranscriptLoadMixin:
         """Retry bottom pinning while the flyout or viewport is still settling."""
         if not self._pending_transcript_bottom_scroll:
             return
-        for delay_ms in (0, 50, 150, 400):
+        for delay_ms in (0, 50, 150, 400, 900, 1800, 3200, 5000):
             QTimer.singleShot(delay_ms, self._maybe_flush_pending_transcript_bottom_scroll)
 
     def _schedule_transcript_bottom_settle(self) -> None:
@@ -115,9 +115,9 @@ class _ChatPanelTranscriptLoadMixin:
         self._post_load_bottom_settle_active = True
         self._pending_transcript_bottom_scroll = True
         self._schedule_pending_transcript_bottom_retries()
-        for delay_ms in (80, 200, 500, 1200):
+        for delay_ms in (80, 200, 500, 1200, 2500, 4500, 7000):
             QTimer.singleShot(delay_ms, self._maybe_flush_pending_transcript_bottom_scroll)
-        QTimer.singleShot(1500, self._end_post_load_bottom_settle)
+        QTimer.singleShot(8000, self._end_post_load_bottom_settle)
 
     def _show_transcript_loading(self) -> None:
         """Show the panel-level loading overlay while a session transcript loads."""

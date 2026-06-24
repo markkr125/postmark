@@ -332,7 +332,10 @@ def test_long_title_menu_clickable_with_scrollbar(qapp: QApplication, qtbot) -> 
         "can you find me collectiones named request? how many collections are called "
         "'DiagnosticCollection'?"
     )
-    sessions = [_session(f"s{index}", long_title if index == 0 else f"Session {index}") for index in range(12)]
+    sessions = [
+        _session(f"s{index}", long_title if index == 0 else f"Session {index}")
+        for index in range(12)
+    ]
     selected: list[str] = []
     popup.show_for(anchor, sessions, selected.append)
     qapp.processEvents()

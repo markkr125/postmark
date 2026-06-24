@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal, NamedTuple
 
-from PySide6.QtCore import Qt, QSize, Signal
+from PySide6.QtCore import Qt, QTimer, QSize, Signal
 from PySide6.QtWidgets import QFrame, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from services.ai.ai_config import AiModelEntry
@@ -221,6 +221,14 @@ class ChatMessageBubble(QWidget):
         hint = self._user_message_layout_hint()
         self.setFixedHeight(hint.height())
         self.updateGeometry()
+        panel = self._ancestor_chat_panel()
+        if (
+            panel is not None
+            and getattr(panel, "_pending_transcript_bottom_scroll", False)
+            and getattr(panel, "_scroll_lock_enabled", False)
+            and hasattr(panel, "_maybe_flush_pending_transcript_bottom_scroll")
+        ):
+            QTimer.singleShot(0, panel._maybe_flush_pending_transcript_bottom_scroll)  # type: ignore[attr-defined]
 
     @property
     def message_id(self) -> int | None:

@@ -231,11 +231,18 @@ def test_resize_settle_flushes_all_deferred_rows(qapp: QApplication, qtbot) -> N
     assert all(not body._reflow_flush_pending for body in bodies)
 
 
-def test_messages_layout_keeps_min_and_max_size_constraint(qapp: QApplication, qtbot) -> None:
-    """SetMinAndMaxSize is required for reliable transcript scroll range."""
+def test_messages_layout_keeps_vertical_min_and_max_size_constraint(
+    qapp: QApplication, qtbot
+) -> None:
+    """Height constraints update scroll range while width stays viewport-owned."""
     panel = AiChatPanel()
     qtbot.addWidget(panel)
-    assert panel._messages_layout.sizeConstraint() == QLayout.SizeConstraint.SetMinAndMaxSize
+    assert (
+        panel._messages_layout.horizontalSizeConstraint() == QLayout.SizeConstraint.SetNoConstraint
+    )
+    assert (
+        panel._messages_layout.verticalSizeConstraint() == QLayout.SizeConstraint.SetMinAndMaxSize
+    )
 
 
 def test_streaming_bubble_reflows_during_active_resize(qapp: QApplication, qtbot) -> None:

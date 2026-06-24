@@ -611,11 +611,18 @@ def test_streaming_markdown_table_finalizes_to_qt_table(
     assert "Request building" in body.document().toPlainText()
 
 
-def test_messages_layout_has_min_and_max_size_constraint(qapp: QApplication, qtbot) -> None:
-    """Transcript layout uses SetMinAndMaxSize for reliable scroll range updates."""
+def test_messages_layout_has_vertical_min_and_max_size_constraint(
+    qapp: QApplication, qtbot
+) -> None:
+    """Transcript layout constrains height while leaving width viewport-owned."""
     panel = AiChatPanel()
     qtbot.addWidget(panel)
-    assert panel._messages_layout.sizeConstraint() == QLayout.SizeConstraint.SetMinAndMaxSize
+    assert (
+        panel._messages_layout.horizontalSizeConstraint() == QLayout.SizeConstraint.SetNoConstraint
+    )
+    assert (
+        panel._messages_layout.verticalSizeConstraint() == QLayout.SizeConstraint.SetMinAndMaxSize
+    )
 
 
 def test_empty_transcript_layout_with_size_constraint(qapp: QApplication, qtbot) -> None:

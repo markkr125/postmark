@@ -55,12 +55,12 @@ class _TranscriptMessages(QWidget):
         return False
 
     def _sync_width_to_viewport(self) -> None:
-        """Resize and uncap the transcript host to the current viewport width."""
+        """Pin the transcript host to the current viewport width."""
         viewport = self.parentWidget()
         vp_w = viewport.width() if viewport is not None else 0
         if vp_w <= 0:
             return
-        self.setMinimumWidth(0)
+        self.setMinimumWidth(vp_w)
         self.setMaximumWidth(vp_w)
         if self.width() != vp_w:
             self.resize(vp_w, self.height())
@@ -69,6 +69,15 @@ class _TranscriptMessages(QWidget):
     def minimumSizeHint(self) -> QSize:
         """Cap horizontal minimum so a vertical scrollbar cannot force horizontal scroll."""
         hint = super().minimumSizeHint()
+        return self._cap_hint_to_viewport_width(hint)
+
+    def sizeHint(self) -> QSize:
+        """Cap preferred width so ``QScrollArea`` does not grow the transcript wider."""
+        hint = super().sizeHint()
+        return self._cap_hint_to_viewport_width(hint)
+
+    def _cap_hint_to_viewport_width(self, hint: QSize) -> QSize:
+        """Return *hint* with width no wider than the scroll viewport."""
         viewport = self.parentWidget()
         if viewport is not None:
             viewport_w = viewport.width()
@@ -138,7 +147,10 @@ class AiChatPanel(
             0,
         )
         self._messages_layout.setSpacing(8)
-        self._messages_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinAndMaxSize)
+        self._messages_layout.setSizeConstraints(
+            QLayout.SizeConstraint.SetNoConstraint,
+            QLayout.SizeConstraint.SetMinAndMaxSize,
+        )
         self._messages_layout.addStretch(1)  # pushes bubbles to the bottom
 
         self._empty_label = QLabel(_EMPTY_STATE_TEXT)

@@ -7,6 +7,7 @@ from PySide6.QtGui import QWheelEvent
 from PySide6.QtWidgets import QApplication, QLabel, QScrollArea, QSizePolicy, QWidget
 
 _QWIDGET_MAX_HEIGHT = 16777215
+_WRAPPED_TEXT_MEASURE_HEIGHT = 16777215
 
 
 def forward_wheel_to_ancestor_scroll_area(widget: QWidget, event: QWheelEvent) -> bool:
@@ -64,7 +65,7 @@ class _WrappingLabel(QLabel):
             0,
             0,
             text_width,
-            0,
+            _WRAPPED_TEXT_MEASURE_HEIGHT,
             Qt.TextFlag.TextWordWrap,
             self.text(),
         )
@@ -138,7 +139,8 @@ class _WrappingLabel(QLabel):
             if self._reflow_deferred:
                 self._reflow_flush_pending = True
                 return max(1, self.height())
-            return self._clamp_to_max_height(self._cached_height_for_text_width(text_width))
+            measured = self._cached_height_for_text_width(text_width)
+            return self._clamp_to_max_height(measured)
         finally:
             self._layout_query_depth -= 1
 

@@ -557,8 +557,7 @@ def test_user_message_config_button_opens_actions_popover(qapp: QApplication, qt
     """Panel user rows open the display-only actions flyout from the config button."""
     from PySide6.QtWidgets import QPushButton
 
-    from ui.sidebar.ai.message_bubble.user_message.actions_popup import \
-        AiUserMessageActionsPopup
+    from ui.sidebar.ai.message_bubble.user_message.actions_popup import AiUserMessageActionsPopup
 
     panel = AiChatPanel()
     qtbot.addWidget(panel)
@@ -584,8 +583,7 @@ def test_streaming_turn_user_footer_shows_stop_only_on_active_turn(
     """Only the user bubble that started the current run shows stop while streaming."""
     from PySide6.QtWidgets import QPushButton
 
-    from ui.sidebar.ai.message_bubble.user_message.actions_popup import \
-        AiUserMessageActionsPopup
+    from ui.sidebar.ai.message_bubble.user_message.actions_popup import AiUserMessageActionsPopup
 
     panel = AiChatPanel()
     qtbot.addWidget(panel)

@@ -254,7 +254,12 @@ class MarkdownContent(QWidget):
         accent = QColor(palette["accent"])
         needs_rescan = False
 
-        for block_index, (start, end) in list(self._copy_anchor_spans.items()):
+        spans = sorted(
+            self._copy_anchor_spans.items(),
+            key=lambda item: item[1][0],
+            reverse=True,
+        )
+        for block_index, (start, end) in spans:
             cursor = QTextCursor(self._document)
             cursor.setPosition(start)
             cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)

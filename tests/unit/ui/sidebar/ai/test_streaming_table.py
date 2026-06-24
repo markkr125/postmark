@@ -86,11 +86,18 @@ def test_inline_bold_renders_strong() -> None:
     assert "**" not in html
 
 
-def test_unclosed_bold_stays_literal() -> None:
-    """Unclosed bold delimiters remain literal during conservative streaming."""
+def test_unclosed_bold_renders_provisionally() -> None:
+    """Unclosed bold delimiters paint as provisional emphasis during streaming."""
     html = render_inline_markdown("**Opera", palette=DARK_PALETTE, conservative=True)
-    assert "<strong>" not in html.lower()
-    assert "**Opera" in html
+    assert "<strong>Opera</strong>" in html
+
+
+def test_unclosed_inline_code_renders_provisionally() -> None:
+    """Unclosed inline-code delimiters paint as provisional code during streaming."""
+    html = render_inline_markdown("Use `pm.test", palette=DARK_PALETTE, conservative=True)
+    assert "font-family:monospace" in html
+    assert "pm.test" in html
+    assert "`" not in html
 
 
 def test_inline_code_renders_pill() -> None:
@@ -119,3 +126,18 @@ def test_cell_cache_reuses_unchanged_committed_cells() -> None:
     renderer.render_html(block2, palette=DARK_PALETTE)
     assert renderer.inline_render_calls > calls_after_first
     assert renderer.inline_render_calls < calls_after_first + 4
+
+
+def test_committed_rows_render_open_bold_provisionally() -> None:
+    """Non-tail rows also hide raw open markers while a table streams."""
+    renderer = StreamingTableRenderer()
+    block = (
+        "| Language | Runtime |\n"
+        "|---|---|\n"
+        "| **JavaScript | Deno |\n"
+        "| **TypeScript | Deno transpile |"
+    )
+    html = renderer.render_html(block, palette=DARK_PALETTE)
+    assert "<strong>JavaScript</strong>" in html
+    assert "<strong>TypeScript</strong>" in html
+    assert "**JavaScript" not in html

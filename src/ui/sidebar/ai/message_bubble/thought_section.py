@@ -147,7 +147,10 @@ class ThoughtSection(QFrame):
             parent = self.parentWidget()
             if parent is not None and parent.width() > 0:
                 width = parent.width()
-        label_h = self._label.heightForWidth(max(1, width)) if width > 0 else self._label.height()
+        label_width = self._label.width() if self._label.width() > 0 else width
+        label_h = (
+            self._label.heightForWidth(max(1, label_width)) if width > 0 else self._label.height()
+        )
         if self._expanded and self._label.height() > 0:
             label_h = max(label_h, self._label.height())
         return chrome + header_h + spacing + max(1, label_h)
@@ -185,11 +188,15 @@ class ThoughtSection(QFrame):
         if not (self._expanded and self.has_text()):
             self._release_label_height_clamp()
             return
-        width = self._block_layout_width()
+        layout = self.layout()
+        if layout is not None:
+            layout.activate()
+        width = self._label.width() if self._label.width() > 0 else self._block_layout_width()
         if width <= 0:
             return
         if force:
             self._label._invalidate_measured_height()
+        self._release_label_height_clamp()
         target = max(1, self._label.heightForWidth(width))
         if self._label.height() != target:
             self._label.setFixedHeight(target)
