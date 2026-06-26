@@ -43,6 +43,7 @@ class ThoughtSection(QFrame):
         self._expanded = False
         self._duration_seconds: int | None = None
         self._timer = QElapsedTimer()
+        self._header_elapsed_shown = -1
         self._refresh_header()
 
     def has_text(self) -> bool:
@@ -59,17 +60,25 @@ class ThoughtSection(QFrame):
             return
         if not self._timer.isValid():
             self._timer.start()
-        self._label.setText(self._label.text() + text)
+        self._label.append_text(text, defer_geometry=defer_geometry)
         has_text = bool(self._label.text().strip())
         self.setVisible(has_text)
         self._header.setVisible(has_text)
         if has_text and self._duration_seconds is None:
             self._expanded = True
         self._label.setVisible(has_text and self._expanded)
-        self._refresh_header()
-        self._sync_label_geometry(force=not defer_geometry)
+        self._refresh_header(update_elapsed=not defer_geometry)
+        self._sync_label_geometry(force=False)
         if not defer_geometry:
             self.updateGeometry()
+
+    def flush_stream_geometry(self) -> None:
+        """Commit deferred thinking label geometry after a coalesced stream flush."""
+        if not self.has_text():
+            return
+        self._sync_label_geometry(force=False)
+        self._refresh_header(update_elapsed=True)
+        self.updateGeometry()
 
     def set_text(self, text: str) -> None:
         """Replace the thinking text."""
@@ -95,8 +104,27 @@ class ThoughtSection(QFrame):
 
     def finalize_thinking(self, *, collapse: bool = True) -> None:
         """Freeze the thinking duration and optionally collapse the body."""
-        if self._timer.isValid():
+        already_finalized = self._duration_seconds is not None
+        if not already_finalized and self._timer.isValid():
             self._duration_seconds = max(1, round(self._timer.elapsed() / 1000))
+            self._timer.invalidate()
+        # #region agent log
+        try:
+            from debug_stream_log import debug_stream_log
+
+            debug_stream_log(
+                location="thought_section.py:finalize_thinking",
+                message="finalize_thinking",
+                data={
+                    "already_finalized": already_finalized,
+                    "duration_seconds": self._duration_seconds,
+                    "timer_valid": self._timer.isValid(),
+                },
+                hypothesis_id="H-timer-overwrite",
+            )
+        except Exception:
+            pass
+        # #endregion
         if collapse:
             self.set_collapsed(True)
         else:
@@ -221,13 +249,16 @@ class ThoughtSection(QFrame):
         """Notify the parent row that thought visibility changed the layout."""
         self.layout_height_changed.emit()
 
-    def _refresh_header(self) -> None:
+    def _refresh_header(self, *, update_elapsed: bool = True) -> None:
         icon_name = "caret-down" if self._expanded else "caret-right"
         self._header.setIcon(phi(icon_name, size=10))
         if self._duration_seconds is not None:
             label = f"Thought for {self._duration_seconds}s"
         elif self._timer.isValid() and self.has_text():
             elapsed = max(1, self._timer.elapsed() // 1000)
+            if not update_elapsed and elapsed == self._header_elapsed_shown:
+                return
+            self._header_elapsed_shown = elapsed
             label = f"Thought for {elapsed}s"
         else:
             label = "Thought"

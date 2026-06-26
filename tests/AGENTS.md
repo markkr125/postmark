@@ -54,6 +54,32 @@
 9. **Do not test the session or engine directly** — test through the
    repository or service layer.
 
+## A failing test is a finding, not an obstacle
+
+A previously-passing test that fails after your change is a **regression
+until proven otherwise** — fix the production code, not the test.  See the
+three-question gate and green-baseline rule in [AGENTS.md](../AGENTS.md)
+(CRITICAL — A failing test is a finding, not an obstacle).
+
+### Never do these to make a failing existing test pass
+
+- Change an `assert`'s expected value to match the new (wrong) output.
+- Add `@pytest.mark.skip` / `xfail` / `pytest.skip()` to a regressing test.
+- Loosen an assertion (`assert x == 5` → `assert x is not None`, exact →
+  substring, `==` → `>=`).
+- Delete the failing test or its assertions.
+- Broaden a `pytest.raises(match=...)` or remove the `match`.
+- Wrap the body in `try/except` to swallow the failure.
+- Comment out the test or its assertions.
+
+Each of the above is allowed **only** when accompanied by an explicit,
+user-requested behaviour change that invalidates the old contract — and you
+must say so in your response.
+
+To check whether a test was passing before your change, use **read-only**
+git commands (`git diff`, `git show HEAD:<path>`, `git log -p`).  **NEVER run
+`git stash`** without the USER's direct approval.
+
 ## Isolated user-data and send-history directories (autouse fixtures)
 
 `conftest.py` provides `_isolated_postmark_user_data`, which monkeypatches
@@ -251,6 +277,10 @@ tests/
 │       │   ├── test_session_transcript_window.py  # Tail/older turn slicing
 │       │   ├── test_llm_service.py
 │       │   ├── test_postmark_agent_registry.py
+│       │   ├── test_subagent_registry.py
+│       │   ├── test_subagent_events.py
+│       │   ├── test_subagent_limits.py
+│       │   ├── test_delegate_tool.py
 │       │   ├── test_build_app_wiki.py
 │       │   ├── test_wiki_query_tool.py
 │       │   ├── test_pm_api_quickref.py
@@ -365,6 +395,7 @@ tests/
    │       ├── test_context_ring_button.py
    │       ├── test_assistant_message_footer.py
    │       ├── test_assistant_message_actions.py
+   │       ├── test_subagent_cards.py  # SubagentTaskCard spinner, activity caption, warm-up guard
    │       ├── test_user_message_actions.py
    │       ├── test_inline_edit_message.py
    │       ├── test_inline_edit_sticky_host.py  # Inline edit composer reparented into sticky overlay

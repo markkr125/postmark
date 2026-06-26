@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import contextlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
 
 from services.ai.ai_config import AiModelEntry
 from services.ai.chat.response_text import merge_stream_text
 from services.ai.chat.session_service import ComposerRunContext
+from services.ai.chat.subagent_events import SubagentRunRecord
 from services.ai.chat.chat_run_limits import (
     DEFAULT_MAX_CONCURRENT_CHAT_RUNS,
     max_concurrent_chat_runs,
@@ -43,6 +44,7 @@ class ChatRunHandle:
     content_buffer: str = ""
     pending_sdk_metrics: object | None = None
     status_text: str = ""
+    subagent_records: list[SubagentRunRecord] = field(default_factory=list)
 
 
 class _WorkerSignalBridge(QObject):
@@ -114,6 +116,15 @@ class _WorkerSignalBridge(QObject):
             content,
         )
 
+    @Slot(object)
+    def on_subagent_updated(self, records: object) -> None:
+        """Forward subagent lifecycle updates from the worker thread."""
+        self._registry._on_subagent_updated(
+            self._session_id,
+            self._run_generation,
+            records,
+        )
+
     @Slot()
     def on_thread_finished(self) -> None:
         """Release registry state after the worker thread exits."""
@@ -133,6 +144,7 @@ class ChatRunRegistry(QObject):
     status_changed = Signal(str, int, str)
     usage_updated = Signal(str, int, object)
     context_compacted = Signal(str, int)
+    subagent_updated = Signal(str, int, object)
     assistant_finished = Signal(str, int, str, str)
     failed = Signal(str, int, str, str, str)
     run_finished = Signal(str, int)
@@ -225,6 +237,9 @@ class ChatRunRegistry(QObject):
         worker.status_changed.connect(bridge.on_status, queued)
         worker.usage_updated.connect(bridge.on_usage, queued)
         worker.context_compacted.connect(bridge.on_compacted, queued)
+        subagent_signal = getattr(worker, "subagent_updated", None)
+        if subagent_signal is not None:
+            subagent_signal.connect(bridge.on_subagent_updated, queued)
         worker.assistant_finished.connect(bridge.on_finished, queued)
         worker.failed.connect(bridge.on_failed, queued)
         worker.assistant_finished.connect(thread.quit, queued)
@@ -290,6 +305,19 @@ class ChatRunRegistry(QObject):
         handle.status_text = status
         self.status_changed.emit(session_id, run_generation, status)
 
+    def _on_subagent_updated(
+        self,
+        session_id: str,
+        run_generation: int,
+        records: object,
+    ) -> None:
+        handle = self._handles.get(session_id)
+        if handle is None or handle.context.run_generation != run_generation:
+            return
+        if isinstance(records, list):
+            handle.subagent_records = records  # type: ignore[assignment]
+        self.subagent_updated.emit(session_id, run_generation, records)
+
     def _on_usage(self, session_id: str, run_generation: int, metrics: object) -> None:
         handle = self._handles.get(session_id)
         if handle is None or handle.context.run_generation != run_generation:
@@ -317,6 +345,9 @@ class ChatRunRegistry(QObject):
             worker.status_changed.disconnect()
             worker.usage_updated.disconnect()
             worker.context_compacted.disconnect()
+            subagent_signal = getattr(worker, "subagent_updated", None)
+            if subagent_signal is not None:
+                subagent_signal.disconnect()
             worker.assistant_finished.disconnect()
             worker.failed.disconnect()
             thread.finished.disconnect(bridge.on_thread_finished)

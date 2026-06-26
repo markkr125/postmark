@@ -150,6 +150,16 @@ class _WrappingLabel(QLabel):
         super().setText(text)
         self.updateGeometry()
 
+    def append_text(self, delta: str, *, defer_geometry: bool = False) -> None:
+        """Append *delta* without redundant geometry work when *defer_geometry* is set."""
+        if not delta:
+            return
+        QLabel.setText(self, self.text() + delta)
+        self._invalidate_measured_height()
+        if defer_geometry:
+            return
+        self.updateGeometry()
+
     def changeEvent(self, event: QEvent) -> None:
         """Invalidate cached height when the label font changes."""
         super().changeEvent(event)

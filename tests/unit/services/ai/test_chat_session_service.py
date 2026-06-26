@@ -246,20 +246,6 @@ def test_build_conversation_passes_composer_to_llm(
         lambda: tmp_path / "postmark",
     )
 
-    import services.ai.llm_service as llm_svc
-
-    class _Store:
-        backend_id = "noop"
-
-        def put(self, r: str, s: str) -> None: ...
-
-        def get(self, r: str) -> str | None:
-            return None
-
-        def delete(self, r: str) -> None: ...
-
-    monkeypatch.setattr(llm_svc, "get_default_store", lambda: _Store())
-
     session_id = str(uuid.uuid4())
     conv = AiChatSessionService.build_conversation(
         session_id,
@@ -295,20 +281,6 @@ def test_build_conversation_passes_sdk_contract(
         lambda: tmp_path / "postmark",
     )
 
-    import services.ai.llm_service as llm_svc
-
-    class _Store:
-        backend_id = "noop"
-
-        def put(self, r: str, s: str) -> None: ...
-
-        def get(self, r: str) -> str | None:
-            return None
-
-        def delete(self, r: str) -> None: ...
-
-    monkeypatch.setattr(llm_svc, "get_default_store", lambda: _Store())
-
     session_id = str(uuid.uuid4())
     token_calls: list[str] = []
     event_calls: list[str] = []
@@ -335,10 +307,11 @@ def test_build_conversation_passes_sdk_contract(
     assert kw["callbacks"] == [event_cb]
 
     agent_kw = captured["agent_kw"]
-    assert len(agent_kw["tools"]) == 1
-    assert agent_kw["tools"][0].name == "postmark_wiki_query"
+    tool_names = {t.name for t in agent_kw["tools"]}
+    assert tool_names == {"postmark_wiki_query", "task_tool_set", "delegate"}
     assert agent_kw["system_prompt"]
     assert "postmark_wiki_query" in agent_kw["system_prompt"]
+    assert "delegate" in agent_kw["system_prompt"]
     assert agent_kw["include_default_tools"] == []
     assert agent_kw["condenser"] is not None
     assert agent_kw["condenser"].max_size == CHAT_CONDENSER_MAX_EVENTS
@@ -346,7 +319,7 @@ def test_build_conversation_passes_sdk_contract(
     assert agent_kw["condenser"].minimum_progress == CHAT_CONDENSER_MINIMUM_PROGRESS
     assert agent_kw["llm"].stream is True
     assert agent_kw["condenser"].llm.stream is False
-    assert kw["max_iteration_per_run"] == 5
+    assert kw["max_iteration_per_run"] == 10
     assert conv is not None
 
 
@@ -406,20 +379,6 @@ def test_build_conversation_uses_model_context_for_condenser(
         "database.data_paths.postmark_user_data_dir",
         lambda: tmp_path / "postmark",
     )
-
-    import services.ai.llm_service as llm_svc
-
-    class _Store:
-        backend_id = "noop"
-
-        def put(self, r: str, s: str) -> None: ...
-
-        def get(self, r: str) -> str | None:
-            return None
-
-        def delete(self, r: str) -> None: ...
-
-    monkeypatch.setattr(llm_svc, "get_default_store", lambda: _Store())
 
     session_id = str(uuid.uuid4())
     AiChatSessionService.build_conversation(

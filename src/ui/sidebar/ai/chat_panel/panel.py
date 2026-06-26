@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QLabel, QLayout, QPushButton, QScrollArea, QVBoxLa
 
 from services.ai.ai_config import AiModelEntry, model_entry_enabled
 from services.ai.chat.session_service import AiChatMessageDict
+from services.ai.chat.subagent_events import SubagentRunRecord
 from ui.sidebar.ai.agent_mode_popup import AiAgentModePopup
 from ui.sidebar.ai.chat_panel.composer import AiChatComposer
 from ui.sidebar.ai.chat_panel.composer.budget_banner import AiChatBudgetBanner
@@ -19,6 +20,7 @@ from ui.sidebar.ai.chat_panel_streaming import _ChatPanelStreamingMixin
 from ui.sidebar.ai.chat_transcript_loading_row import ChatTranscriptLoadingOverlay
 from ui.sidebar.ai.message_bubble import ChatMessageBubble
 from ui.sidebar.ai.model_picker_popup import AiModelPickerPopup
+from ui.sidebar.ai.subagent_detail_popup import SubagentDetailPopup
 from ui.styling.icons import phi
 
 _EMPTY_STATE_TEXT = "Ask anything about your API requests."
@@ -112,6 +114,7 @@ class AiChatPanel(
     _context_usage_metrics_delivery_requested = Signal(object)
     _context_usage_refresh_delivery_requested = Signal()
     _context_usage_schedule_requested = Signal()
+    _subagent_update_delivery_requested = Signal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Build the transcript scroll area and the composer."""
@@ -238,6 +241,12 @@ class AiChatPanel(
             self._schedule_context_usage_refresh_on_gui,
             queued,
         )
+        self._subagent_update_delivery_requested.connect(
+            self._apply_subagent_update,
+            queued,
+        )
+
+        self._subagent_detail_popup = SubagentDetailPopup(self)
 
         self.set_models([])
         self._reset_context_usage_chrome()
@@ -306,6 +315,36 @@ class AiChatPanel(
     def _apply_assistant_chunk(self, thinking_delta: str, content_delta: str) -> None:
         """Append an assistant chunk after delivery has reached the GUI thread."""
         self.append_assistant_chunk(thinking_delta, content_delta)
+
+    def deliver_subagent_update(self, records: object) -> None:
+        """GUI-thread slot for worker ``subagent_updated`` (QueuedConnection)."""
+        if QThread.currentThread() != self.thread():
+            self._subagent_update_delivery_requested.emit(records)
+            return
+        self._apply_subagent_update(records)
+
+    @Slot(object)
+    def _apply_subagent_update(self, records: object) -> None:
+        """Apply subagent card updates to the active streaming bubble."""
+        if not isinstance(records, list):
+            return
+        normalized: list[SubagentRunRecord] = []
+        for record in records:
+            if isinstance(record, dict) and record.get("id"):
+                normalized.append(record)  # type: ignore[arg-type]
+        if not normalized:
+            return
+        bubble = self._resolve_streaming_bubble()  # type: ignore[attr-defined]
+        if bubble is None:
+            if self._open_stream_generation == 0:  # type: ignore[attr-defined]
+                return
+            bubble = self._ensure_streaming_turn_widgets()  # type: ignore[attr-defined]
+        else:
+            self._streaming_bubble = bubble  # type: ignore[attr-defined]
+        bubble.set_subagent_records(normalized)
+        self._sync_subagent_poll_timer()  # type: ignore[attr-defined]
+        self._request_turn_bottom_scroll()  # type: ignore[attr-defined]
+        self._follow_streaming_turn_layout()  # type: ignore[attr-defined]
 
     @Slot(str)
     def deliver_activity_status(self, raw_status: str) -> None:
@@ -550,6 +589,25 @@ class AiChatPanel(
         """Connect fork/copy affordances for one assistant transcript row."""
         bubble.fork_requested.connect(self._on_assistant_bubble_fork)
         bubble.copy_requested.connect(self._on_assistant_bubble_copy)
+        bubble.subagent_card_clicked.connect(self._on_subagent_card_clicked)
+
+    def _on_subagent_card_clicked(self, record_id: str) -> None:
+        """Open read-only drill-in for one subagent card."""
+        bubble = self.sender()
+        if not isinstance(bubble, ChatMessageBubble):
+            return
+        record = bubble.subagent_record(record_id)
+        if record is None:
+            return
+        self._subagent_detail_popup.set_record(record)
+        card = None
+        if bubble._subagent_group is not None:
+            for candidate in bubble._subagent_group.cards():
+                if candidate.record_id() == record_id:
+                    card = candidate
+                    break
+        anchor = card if card is not None else bubble
+        self._subagent_detail_popup.show_below(anchor)
 
     def _wire_user_bubble_actions(self, bubble: ChatMessageBubble) -> None:
         """Connect fork/edit affordances for one user transcript row."""

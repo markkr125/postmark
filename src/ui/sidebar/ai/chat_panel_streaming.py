@@ -14,6 +14,7 @@ from PySide6.QtCore import QEventLoop, QSignalBlocker, Qt, QTimer, Slot
 from PySide6.QtWidgets import QApplication, QLayout, QWidget
 from shiboken6 import Shiboken
 
+from services.ai.chat.response_text import pick_richest_text
 from ui.sidebar.ai.chat_panel.scroll import _ChatPanelScrollMixin
 from ui.sidebar.ai.chat_panel.scroll.scroll import _TURN_SCROLL_MARGIN_PX
 from ui.sidebar.ai.transcript.window import _ChatPanelTranscriptWindowMixin
@@ -90,6 +91,10 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
         self._chunk_coalesce_timer.setInterval(_CHUNK_COALESCE_MS)
         self._chunk_coalesce_timer.timeout.connect(self._flush_pending_chunks)
 
+        self._subagent_poll_timer = QTimer(self)  # type: ignore[arg-type]
+        self._subagent_poll_timer.setInterval(750)
+        self._subagent_poll_timer.timeout.connect(self._poll_active_subagent_cards)
+
         self._pending_thinking_delta = ""
         self._pending_content_delta = ""
         self._streaming_turn_user_bubble = None
@@ -116,6 +121,12 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
         self._pending_content_delta = ""
         if self._chunk_coalesce_timer.isActive():
             self._chunk_coalesce_timer.stop()
+
+    def flush_pending_assistant_chunks(self) -> None:
+        """Apply buffered stream deltas before finalize or reading bubble text."""
+        if self._chunk_coalesce_timer.isActive():
+            self._chunk_coalesce_timer.stop()
+        self._flush_pending_chunks()
 
     def _start_activity_timer(self) -> None:
         """Arm the long-wait escalation timer."""
@@ -404,6 +415,7 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
             self._activate_streaming_turn_user_footer(self._turn_scroll_anchor)
             self._streaming_bubble = self.add_message("assistant", "", thinking="")
             self._streaming_bubble.begin_streaming()
+            self._streaming_bubble.clear_subagent_cards()
             self._attach_streaming_bubble_height_hook(self._streaming_bubble)
             self._streaming_bubble.show_activity(_ACTIVITY_DEFAULT_MESSAGE)
             self._apply_streaming_viewport_spacer()  # type: ignore[attr-defined]
@@ -428,9 +440,12 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
         content: str,
         *,
         status: str = "",
+        subagent_records: object | None = None,
     ) -> None:
         """Reattach streaming UI for a session with an in-flight background run."""
         self.begin_assistant_stream()
+        if isinstance(subagent_records, list):
+            cast(Any, self).deliver_subagent_update(subagent_records)
         if thinking or content:
             self.append_assistant_chunk(thinking, content)
             self._flush_pending_chunks()
@@ -473,23 +488,49 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
             scroll_blocker = QSignalBlocker(self._scroll.verticalScrollBar())  # type: ignore[attr-defined]
 
         self._cancel_activity_timer()
-        if thinking_delta or content_delta:
+        if (thinking_delta or content_delta) and bubble.subagent_active_count() == 0:
             bubble.hide_activity()
 
         bubble.set_defer_layout_height_changed(True)
         if bubble._markdown_body is not None:
             bubble._markdown_body.set_defer_height_changed(True)
 
+        thinking_only_chunk = bool(thinking_delta) and not content_delta
         self._stream_layout_flush_in_progress = True
-        self._messages.setUpdatesEnabled(False)
-        try:
+        if thinking_only_chunk:
             if thinking_delta:
                 bubble.append_thinking(thinking_delta, defer_geometry=True)
-            if content_delta:
-                self._stream_content_started = True
-                bubble.append_content(content_delta, defer_geometry=True)
-        finally:
-            self._messages.setUpdatesEnabled(True)
+        else:
+            self._messages.setUpdatesEnabled(False)
+            try:
+                if thinking_delta:
+                    bubble.append_thinking(thinking_delta, defer_geometry=True)
+                if content_delta:
+                    self._stream_content_started = True
+                    bubble.append_content(content_delta, defer_geometry=True)
+            finally:
+                self._messages.setUpdatesEnabled(True)
+
+        # region agent log
+        try:
+            from debug_stream_log import debug_stream_log
+
+            debug_stream_log(
+                "chat_panel_streaming.py:_flush_pending_chunks",
+                "chunk_flush_applied",
+                {
+                    "thinking_delta_len": len(thinking_delta),
+                    "content_delta_len": len(content_delta),
+                    "thinking_only_chunk": thinking_only_chunk,
+                    "bubble_content_len": len(bubble.text()),
+                    "pending_thinking_len": len(self._pending_thinking_delta),
+                    "pending_content_len": len(self._pending_content_delta),
+                },
+                hypothesis_id="A",
+            )
+        except Exception:
+            pass
+        # endregion
 
         anchor = self._turn_scroll_anchor
         anchor_vp_before = (
@@ -507,8 +548,11 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
         self._messages.updateGeometry()
         self._scroll.updateGeometry()  # type: ignore[attr-defined]
         if self._open_stream_generation > 0 and self._scroll_lock_enabled:  # type: ignore[attr-defined]
-            self._follow_streaming_turn_layout()  # type: ignore[attr-defined]
-            self._reconcile_streaming_viewport_overflow()  # type: ignore[attr-defined]
+            if thinking_only_chunk:
+                self._queue_stream_follow_passes()  # type: ignore[attr-defined]
+            else:
+                self._follow_streaming_turn_layout()  # type: ignore[attr-defined]
+                self._reconcile_streaming_viewport_overflow()  # type: ignore[attr-defined]
         elif (
             anchor_vp_before is not None and anchor is not None and self._scroll_lock_enabled  # type: ignore[attr-defined]
         ):
@@ -520,9 +564,22 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
                     bar,
                     max(bar.minimum(), min(bar.maximum(), bar.value() + delta)),
                 )
-        self._invalidate_sticky_extents()  # type: ignore[attr-defined]
-        self._sync_sticky_turn_prompt()  # type: ignore[attr-defined]
+        if not thinking_only_chunk:
+            self._invalidate_sticky_extents()  # type: ignore[attr-defined]
+            self._sync_sticky_turn_prompt()  # type: ignore[attr-defined]
         if self._open_stream_generation > 0:  # type: ignore[attr-defined]
+            if thinking_only_chunk:
+                if scroll_blocker is not None:
+                    if self._scroll_lock_enabled:  # type: ignore[attr-defined]
+                        bar = self._scroll.verticalScrollBar()  # type: ignore[attr-defined]
+                        target = self._stream_follow_target()  # type: ignore[attr-defined]
+                        bar.setValue(target)
+                        self._last_scroll_value = bar.value()  # type: ignore[attr-defined]
+                    del scroll_blocker
+                schedule = getattr(self, "_schedule_context_usage_refresh", None)
+                if callable(schedule):
+                    schedule()
+                return
             self._schedule_short_turn_spacer_reconcile()  # type: ignore[attr-defined]
             self._reconcile_short_turn_spacer_after_layout(  # type: ignore[attr-defined]
                 self._short_turn_spacer_reconcile_generation  # type: ignore[attr-defined]
@@ -670,12 +727,29 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
             return
         current_thinking = bubble.thinking_text()
         current_content = bubble.text()
-        final_thinking = thinking or current_thinking
-        final_content = content or current_content
-        if len(final_thinking) < len(current_thinking):
-            final_thinking = current_thinking
-        if len(final_content) < len(current_content):
-            final_content = current_content
+        final_thinking = pick_richest_text(thinking, current_thinking)
+        final_content = pick_richest_text(content, current_content)
+        # region agent log
+        try:
+            from debug_stream_log import debug_stream_log
+
+            debug_stream_log(
+                "chat_panel_streaming.py:apply_assistant_final",
+                "apply_assistant_final_lengths",
+                {
+                    "incoming_content_len": len(content),
+                    "current_content_len": len(current_content),
+                    "final_content_len": len(final_content),
+                    "incoming_thinking_len": len(thinking),
+                    "current_thinking_len": len(current_thinking),
+                    "final_thinking_len": len(final_thinking),
+                    "final_content_tail": final_content[-120:] if final_content else "",
+                },
+                hypothesis_id="C",
+            )
+        except Exception:
+            pass
+        # endregion
         bubble.set_parts(
             thinking=final_thinking,
             content=final_content,
@@ -751,6 +825,27 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
         bubble = self._resolve_streaming_bubble()
         if bubble is None or not bubble.is_activity_visible():
             return
+        if bubble.subagent_active_count() > 0:
+            return
         label = format_activity_status(raw_status)
         if label is not None:
             bubble.set_activity_message(label)
+
+    def _sync_subagent_poll_timer(self) -> None:
+        """Poll subagent disk transcripts while cards are still active."""
+        bubble = self._resolve_streaming_bubble()
+        if bubble is None or bubble.subagent_active_count() == 0:
+            self._subagent_poll_timer.stop()  # type: ignore[attr-defined]
+            return
+        if not self._subagent_poll_timer.isActive():  # type: ignore[attr-defined]
+            self._subagent_poll_timer.start()  # type: ignore[attr-defined]
+
+    @Slot()
+    def _poll_active_subagent_cards(self) -> None:
+        """Refresh inline subagent step bodies from persisted subagent runs."""
+        bubble = self._resolve_streaming_bubble()
+        if bubble is None or bubble.subagent_active_count() == 0:
+            self._subagent_poll_timer.stop()  # type: ignore[attr-defined]
+            return
+        bubble.refresh_subagent_steps()
+        self._reconcile_transcript_content_size()  # type: ignore[attr-defined]

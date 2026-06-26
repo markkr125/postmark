@@ -329,6 +329,42 @@ def test_sticky_overlay_toggle_stays_below_label_after_state_resync(
     assert footer.y() >= toggle_bottom - 1
 
 
+def test_sticky_overlay_latched_collapsible_fits_stop_footer(
+    qapp: QApplication,
+    qtbot,
+) -> None:
+    """Latched collapsible flag must reserve toggle chrome so the stop button is not clipped."""
+    host = QWidget()
+    qtbot.addWidget(host)
+    overlay = StickyUserPromptOverlay(host)
+    prompt = (
+        "In parallel: one subagent find TypeScript scripting docs, "
+        "another find Python scripting docs. then compare them"
+    )
+    overlay.set_anchor_state(text=prompt, sent_at=None, collapsible=True)
+    width = 320
+    inner_w = overlay._inner_label_width(width)
+    assert overlay._collapsible
+    assert not overlay._needs_collapse(inner_w)
+
+    metrics = overlay.measure_for_width(width, 200)
+    overlay.apply_geometry(width, metrics.total_height, metrics)
+    overlay.set_footer_mode("stop")
+    overlay.apply_geometry(width, metrics.total_height, metrics)
+
+    host.show()
+    overlay.show()
+    qtbot.waitExposed(host)
+    qapp.processEvents()
+
+    footer = overlay.findChild(QWidget, "aiChatUserMessageFooter")
+    stop_btn = overlay.findChild(QPushButton, "smallPrimaryButton")
+    assert footer is not None and stop_btn is not None
+    footer_bottom = footer.y() + footer.height()
+    assert footer_bottom <= overlay.height()
+    assert stop_btn.y() + stop_btn.height() <= footer.height()
+
+
 def test_user_message_has_config_button(qapp: QApplication, qtbot) -> None:
     """User bubbles expose a config menu button in the footer row."""
     host = QWidget()

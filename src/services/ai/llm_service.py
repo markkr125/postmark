@@ -29,6 +29,12 @@ if TYPE_CHECKING:
 
 _ReasoningEffort = Literal["low", "medium", "high", "xhigh", "none"]
 _CHAT_USAGE_PREFIX = "postmark-chat"
+# Ollama defaults num_predict to 128 when unset; tool-call JSON (especially delegate
+# with tasks) truncates mid-string and Ollama returns "unexpected end of JSON input".
+# 8192 gives High reasoning effort room for long chain-of-thought plus a full
+# synthesis answer in a single completion without clipping; still tiny vs the
+# model context window (e.g. 128k).
+OLLAMA_CHAT_DEFAULT_MAX_OUTPUT_TOKENS = 8192
 
 
 def resolve_llm_base_url(entry: AiModelEntry) -> str | None:
@@ -161,6 +167,8 @@ class AiLlmService:
             )
             # Local Ollama: skip OpenHands' default 5 retries (8s min backoff each).
             num_retries = 0
+            if max_output_tokens is None:
+                max_output_tokens = OLLAMA_CHAT_DEFAULT_MAX_OUTPUT_TOKENS
 
         llm_kwargs: dict[str, Any] = {
             "model": litellm_model,
@@ -194,6 +202,27 @@ class AiLlmService:
             and llm.reasoning_effort is not None
         ):
             llm = llm.model_copy(update={"reasoning_effort": None}, deep=True)
+        # #region agent log
+        if usage_id.startswith(_CHAT_USAGE_PREFIX) and _is_ollama_model(entry):
+            try:
+                from debug_stream_log import debug_stream_log
+
+                debug_stream_log(
+                    "llm_service.py:build_llm",
+                    "ollama chat llm output budget",
+                    {
+                        "model": litellm_model,
+                        "max_output_tokens": getattr(llm, "max_output_tokens", None),
+                        "effective_max_output_tokens": getattr(
+                            llm, "effective_max_output_tokens", None
+                        ),
+                    },
+                    hypothesis_id="H-num_predict",
+                    run_id="post-fix",
+                )
+            except Exception:
+                pass
+        # #endregion
         return llm
 
     @staticmethod
@@ -224,4 +253,9 @@ class AiLlmService:
             return False, str(exc)
 
 
-__all__ = ["AiLlmService", "resolve_litellm_model", "resolve_llm_base_url"]
+__all__ = [
+    "OLLAMA_CHAT_DEFAULT_MAX_OUTPUT_TOKENS",
+    "AiLlmService",
+    "resolve_litellm_model",
+    "resolve_llm_base_url",
+]

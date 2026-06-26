@@ -13,6 +13,12 @@ from services.ai.chat.chat_run_limits import (
     max_concurrent_chat_runs,
     set_max_concurrent_chat_runs,
 )
+from services.ai.chat.subagent_limits import (
+    MAX_MAX_PARALLEL_SUBAGENTS,
+    MIN_MAX_PARALLEL_SUBAGENTS,
+    max_parallel_subagents,
+    set_max_parallel_subagents,
+)
 
 
 @dataclass
@@ -20,6 +26,7 @@ class AiAgentsPageWidgets:
     """Widgets on the Agents settings page."""
 
     max_concurrent_spin: QSpinBox
+    max_parallel_subagents_spin: QSpinBox
 
 
 class AiAgentsPageController:
@@ -30,6 +37,7 @@ class AiAgentsPageController:
         self._widgets = widgets
         self._on_changed = on_changed
         widgets.max_concurrent_spin.valueChanged.connect(on_changed)
+        widgets.max_parallel_subagents_spin.valueChanged.connect(on_changed)
         self.reload()
 
     def reload(self) -> None:
@@ -38,10 +46,15 @@ class AiAgentsPageController:
         spin.blockSignals(True)
         spin.setValue(max_concurrent_chat_runs())
         spin.blockSignals(False)
+        parallel = self._widgets.max_parallel_subagents_spin
+        parallel.blockSignals(True)
+        parallel.setValue(max_parallel_subagents())
+        parallel.blockSignals(False)
 
     def apply(self) -> None:
         """Persist current widget state."""
         set_max_concurrent_chat_runs(self._widgets.max_concurrent_spin.value())
+        set_max_parallel_subagents(self._widgets.max_parallel_subagents_spin.value())
 
 
 def build_ai_agents_page(
@@ -88,9 +101,35 @@ def build_ai_agents_page(
     concurrent_help.setWordWrap(True)
     layout.addWidget(concurrent_help)
 
+    parallel_row = QHBoxLayout()
+    parallel_label = QLabel("Max parallel subagents per turn:")
+    parallel_label.setObjectName("aiAgentsMaxParallelSubagentsLabel")
+    parallel_row.addWidget(parallel_label)
+    parallel_spin = QSpinBox()
+    parallel_spin.setObjectName("aiAgentsMaxParallelSubagentsSpin")
+    parallel_spin.setRange(MIN_MAX_PARALLEL_SUBAGENTS, MAX_MAX_PARALLEL_SUBAGENTS)
+    parallel_spin.setToolTip(
+        "Hard cap on delegate fan-out within one assistant turn. "
+        "Sequential task tool runs are not affected."
+    )
+    parallel_row.addWidget(parallel_spin)
+    parallel_row.addStretch()
+    layout.addLayout(parallel_row)
+
+    parallel_help = QLabel(
+        "Applies to parallel delegate subagents in a single turn. "
+        "The task tool still runs one subagent at a time."
+    )
+    parallel_help.setObjectName("mutedLabel")
+    parallel_help.setWordWrap(True)
+    layout.addWidget(parallel_help)
+
     layout.addStretch()
 
-    widgets = AiAgentsPageWidgets(max_concurrent_spin=concurrent_spin)
+    widgets = AiAgentsPageWidgets(
+        max_concurrent_spin=concurrent_spin,
+        max_parallel_subagents_spin=parallel_spin,
+    )
     controller = AiAgentsPageController(widgets, on_changed)
     return page, controller
 

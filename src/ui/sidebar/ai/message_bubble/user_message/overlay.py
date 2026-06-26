@@ -281,12 +281,12 @@ class StickyUserPromptOverlay(QWidget):
         """Return overlay height parts at *width* without mutating visible geometry."""
         inner_w = self._inner_label_width(max(1, width))
         natural_h = self._natural_label_height(inner_w)
-        collapsible = self._needs_collapse(inner_w)
-        toggle_h = self._toggle_row_height(inner_w) if collapsible else 0
+        needs_collapse = self._needs_collapse(inner_w)
+        toggle_h = self._toggle_row_height(inner_w)
         chrome = self._chrome_height(toggle_h)
         label_budget = max(1, max_height - chrome)
 
-        if collapsible and not self.is_user_message_expanded():
+        if needs_collapse and not self.is_user_message_expanded():
             collapsed_cap = self._collapsed_cap_height(inner_w)
             label_h = min(natural_h, collapsed_cap, label_budget)
         else:
@@ -356,9 +356,13 @@ class StickyUserPromptOverlay(QWidget):
             return False
         return self._natural_label_height(inner_width) > self._collapsed_cap_height(inner_width)
 
+    def _shows_toggle_row(self, inner_width: int) -> bool:
+        """Return whether Show more/less chrome is laid out at *inner_width*."""
+        return self._collapsible or self._needs_collapse(inner_width)
+
     def _toggle_row_height(self, inner_width: int) -> int:
-        """Return toggle row height when collapsible."""
-        if not self._needs_collapse(inner_width):
+        """Return toggle row height when the overlay shows Show more/less."""
+        if not self._shows_toggle_row(inner_width):
             return 0
         return self._toggle.sizeHint().height() + _ROW_SPACING
 
@@ -432,6 +436,7 @@ class StickyUserPromptOverlay(QWidget):
         self._refresh_collapsible_state()
         collapsible = self._collapsible
         expanded = self.is_user_message_expanded()
+        shows_toggle = self._shows_toggle_row(inner_w)
 
         y = _FRAME_MARGIN_TOP
         x = _FRAME_MARGIN_LEFT
@@ -443,7 +448,7 @@ class StickyUserPromptOverlay(QWidget):
 
         y += metrics.label_height
 
-        if collapsible:
+        if shows_toggle:
             toggle_h = self._toggle.sizeHint().height()
             toggle_w = self._toggle.sizeHint().width()
             self._toggle.setGeometry(x, y + _ROW_SPACING, toggle_w, toggle_h)

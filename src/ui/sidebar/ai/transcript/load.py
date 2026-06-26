@@ -202,6 +202,7 @@ class _ChatPanelTranscriptLoadMixin:
         msg: AiChatMessageDict,
         *,
         force_render: bool = False,
+        msg_index: int | None = None,
     ) -> ChatMessageBubble:
         """Build one transcript row from a persisted message dict."""
         role: ChatRole = "user" if msg["role"] == "user" else "assistant"
@@ -249,6 +250,15 @@ class _ChatPanelTranscriptLoadMixin:
                 msg_index=msg_index,
                 session_model_id=session_model_id,
             )
+            session_id = getattr(self, "_virtual_session_id", None)
+            if session_id and msg_index is not None and pricing_messages:
+                from services.ai.chat.subagent_events import records_for_assistant_turn
+
+                bubble.set_subagent_records(
+                    records_for_assistant_turn(
+                        session_id, pricing_messages, msg_index
+                    )
+                )
         return cast(ChatMessageBubble, bubble)
 
     def load_transcript_async(
@@ -291,7 +301,11 @@ class _ChatPanelTranscriptLoadMixin:
                 len(self._transcript_load_messages),
             )
             while self._transcript_load_index < end:
-                self._message_from_dict(self._transcript_load_messages[self._transcript_load_index])
+                index = self._transcript_load_index
+                self._message_from_dict(
+                    self._transcript_load_messages[index],
+                    msg_index=index,
+                )
                 self._transcript_load_index += 1
         finally:
             self._messages.setUpdatesEnabled(True)

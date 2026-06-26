@@ -39,7 +39,6 @@ from ui.sidebar.ai.markdown.highlight_code import (
     copy_block_index_at_document_pos,
     parse_code_copy_block_index,
 )
-from ui.sidebar.ai.markdown.render import render_chat_markdown_html
 from ui.sidebar.ai.markdown.streaming_render import StreamingMarkdownCache
 from ui.sidebar.ai.message_bubble.wrapping_label import forward_wheel_to_ancestor_scroll_area
 from ui.styling.theme import COLOR_ASSISTANT_FOOTER_SEPARATOR, current_palette
@@ -198,11 +197,50 @@ class MarkdownContent(QWidget):
 
     def end_streaming(self, *, render: bool = True) -> None:
         """Leave streaming mode and optionally re-render the final markdown."""
+        # region agent log
+        try:
+            from debug_stream_log import debug_stream_log
+
+            plain_len = len(self._document.toPlainText())
+            debug_stream_log(
+                "markdown_content.py:end_streaming",
+                "end_streaming_render",
+                {
+                    "markdown_source_len": len(self._markdown),
+                    "document_plain_len": plain_len,
+                    "widget_height": self.height(),
+                    "render": render,
+                    "markdown_tail": self._markdown[-160:] if self._markdown else "",
+                },
+                hypothesis_id="D,E",
+            )
+        except Exception:
+            pass
+        # endregion
         self._streaming = False
         self._stream_cache.clear()
         self._stream_layout_floor_px = 0
         if render:
             self._render_markdown()
+            # region agent log
+            try:
+                from debug_stream_log import debug_stream_log
+
+                plain_len_after = len(self._document.toPlainText())
+                debug_stream_log(
+                    "markdown_content.py:end_streaming",
+                    "end_streaming_after_render",
+                    {
+                        "markdown_source_len": len(self._markdown),
+                        "document_plain_len": plain_len_after,
+                        "widget_height": self.height(),
+                    },
+                    hypothesis_id="D",
+                    run_id="post-fix",
+                )
+            except Exception:
+                pass
+            # endregion
 
     def set_markdown(self, text: str) -> None:
         """Replace the markdown source and re-render."""
@@ -427,8 +465,10 @@ class MarkdownContent(QWidget):
         return self._reflow_deferred or (not self._streaming and self._ancestor_resize_coalescing())
 
     def _render_markdown(self) -> None:
-        """Render stored markdown via the full HTML pipeline."""
-        self._set_document_html(render_chat_markdown_html(self._markdown))
+        """Render stored markdown via the table-aware streaming HTML pipeline."""
+        # Reuse the same renderer as live streaming so finalize cannot drop GFM
+        # table rows (e.g. cells with ``<br>``) that Qt markdown mishandles.
+        self._set_document_html(self._stream_cache.render_document_html(self._markdown))
         self._sync_height(force=True)
 
     def _render_markdown_streaming(self) -> None:

@@ -8,6 +8,7 @@ from ui.sidebar.ai.markdown.streaming_table import (
     render_inline_markdown,
     split_prose_prefix_and_table,
 )
+from ui.sidebar.ai.message_bubble.markdown_content import MarkdownContent
 from ui.styling.theme import DARK_PALETTE
 
 
@@ -141,3 +142,32 @@ def test_committed_rows_render_open_bold_provisionally() -> None:
     assert "<strong>JavaScript</strong>" in html
     assert "<strong>TypeScript</strong>" in html
     assert "**JavaScript" not in html
+
+
+def test_cell_html_br_renders_as_line_break() -> None:
+    """Model-emitted ``<br>`` in table cells becomes a visual line break."""
+    html = render_inline_markdown("JS-like<br>types", palette=DARK_PALETTE, conservative=True)
+    assert "<br/>" in html
+    assert "&lt;br&gt;" not in html
+    assert "JS-like" in html
+    assert "types" in html
+
+
+def test_table_with_html_br_preserves_trailing_prose() -> None:
+    """GFM tables with ``<br>`` cells keep following prose after finalize render."""
+    markdown = (
+        "| Feature | TS | Py |\n"
+        "| --- | --- | --- |\n"
+        "| Line1 | JS-like<br>types | Pythonic<br>syntax |\n"
+        "| Line2 | Deno | Pyodide |\n"
+        "\n"
+        "Footer text here.\n"
+    )
+    browser = MarkdownContent()
+    browser.begin_streaming()
+    browser.append_markdown(markdown)
+    browser.end_streaming(render=True)
+    plain = browser.document().toPlainText()
+    assert "Line2" in plain
+    assert "Deno" in plain
+    assert "Footer text here" in plain

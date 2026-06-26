@@ -1812,6 +1812,74 @@ def build_global_qss(p: ThemePalette) -> str:
     QWidget[objectName="aiChatActivityRow"] {{
         background: transparent;
     }}
+    QWidget[objectName="aiChatSubagentGroup"] {{
+        background: transparent;
+    }}
+    QFrame[objectName="aiChatSubagentCard"] {{
+        background: {p["bg_alt"]};
+        border: 1px solid {p["border"]};
+        border-radius: 8px;
+    }}
+    QPushButton[objectName="aiChatSubagentHeader"] {{
+        background: transparent;
+        border: none;
+        text-align: left;
+        padding: 0;
+    }}
+    QPushButton[objectName="aiChatSubagentHeader"]:hover {{
+        background: transparent;
+    }}
+    QLabel[objectName="aiChatSubagentLabel"] {{
+        background: transparent;
+        border: none;
+        color: {p["text"]};
+        font-size: 13px;
+        font-weight: 600;
+    }}
+    QLabel[objectName="aiChatSubagentTypeChip"] {{
+        background: transparent;
+        border: none;
+        color: {p["text_muted"]};
+        font-size: 11px;
+    }}
+    QLabel[objectName="aiChatSubagentStatusLabel"] {{
+        background: transparent;
+        border: none;
+        color: {p["text_muted"]};
+        font-size: 11px;
+    }}
+    QWidget[objectName="aiChatSubagentCardBody"] {{
+        background: transparent;
+    }}
+    QWidget[objectName="aiChatSubagentStep"] {{
+        background: transparent;
+    }}
+    QLabel[objectName="aiChatSubagentStepSummary"] {{
+        background: transparent;
+        border: none;
+        color: {p["text_muted"]};
+        font-size: 12px;
+    }}
+    QLabel[objectName="aiChatSubagentOutputBlock"] {{
+        background: {p["input_bg"]};
+        border: 1px solid {p["border"]};
+        border-radius: 6px;
+        color: {p["text"]};
+        font-family: monospace;
+        font-size: 11px;
+        padding: 8px 10px;
+    }}
+    QFrame[objectName="aiChatSubagentDetailPopup"] {{
+        min-width: 320px;
+        max-width: 480px;
+    }}
+    QTextEdit[objectName="aiChatSubagentDetailBody"] {{
+        background: {p["input_bg"]};
+        border: 1px solid {p["border"]};
+        border-radius: 4px;
+        color: {p["text"]};
+        font-size: 12px;
+    }}
     QWidget[objectName="aiChatOlderLoadingRow"] {{
         background: transparent;
     }}

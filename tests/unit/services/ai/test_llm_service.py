@@ -289,6 +289,7 @@ def test_build_llm_ollama_chat_passes_context_and_thinking(
     )
     assert llm.litellm_extra_body == {"num_ctx": 8192, "think": False}
     assert llm.num_retries == 0
+    assert llm.max_output_tokens == 8192
 
 
 def test_build_llm_ollama_chat_harmony_passes_think_level(
@@ -317,6 +318,27 @@ def test_build_llm_ollama_chat_harmony_passes_think_level(
     )
     assert llm.litellm_extra_body == {"num_ctx": 4096, "think": "medium"}
     assert llm.num_retries == 0
+    assert llm.max_output_tokens == 8192
+
+
+def test_build_llm_ollama_chat_respects_explicit_max_output_tokens(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Explicit max_output_tokens overrides the Ollama chat default."""
+    import os
+
+    import services.ai.llm_service as svc
+
+    monkeypatch.setattr(svc, "get_secret", lambda _ref: "sk-test")
+    os.environ["ALLOW_SHORT_CONTEXT_WINDOWS"] = "true"
+    entry = _entry(provider="ollama", model="ollama/qwen3:8b", base_url="", auth_kind="none", auth_ref="")
+    llm = AiLlmService.build_llm(
+        entry,
+        stream=True,
+        usage_id="postmark-chat-test",
+        max_output_tokens=512,
+    )
+    assert llm.max_output_tokens == 512
 
 
 def test_chat_reasoning_effort_maps_xhigh_to_high_for_harmony_offline() -> None:

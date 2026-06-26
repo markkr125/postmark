@@ -464,6 +464,7 @@ class _ChatPanelStickyPromptMixin:  # type: ignore[misc]
             sent_at=selected.sent_at,
             anchor=anchor,
         )
+        self._sync_sticky_footer_mode(sticky, selected.assistant)
         sticky_x, content_w = self._sticky_content_geometry(layout_source, viewport)
         available_h = max(1, assistant_bottom_y - _STICKY_PROMPT_TOP_PX)
         sticky_h, metrics = self._sticky_overlay_height(

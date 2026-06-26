@@ -9,24 +9,15 @@ from unittest.mock import patch
 import pytest
 from PySide6.QtCore import QPoint, QPointF, Qt, QTimer
 from PySide6.QtGui import QTextTable, QWheelEvent
-from PySide6.QtWidgets import (
-    QApplication,
-    QLabel,
-    QLayout,
-    QPushButton,
-    QScrollArea,
-    QTextBrowser,
-    QWidget,
-)
+from PySide6.QtWidgets import (QApplication, QLabel, QLayout, QPushButton,
+                               QScrollArea, QTextBrowser, QWidget)
 
 from services.ai.chat.session_service import AiChatMessageDict
 from tests.ui.sidebar.ai.conftest import load_transcript_sync
 from ui.sidebar.ai import AiChatPanel
-from ui.sidebar.ai.chat_panel.scroll import (
-    _FOLLOW_THRESHOLD_PX,
-    _STICKY_PROMPT_LEFT_SHIFT_PX,
-    _STICKY_PROMPT_VIEWPORT_INSET_PX,
-)
+from ui.sidebar.ai.chat_panel.scroll import (_FOLLOW_THRESHOLD_PX,
+                                             _STICKY_PROMPT_LEFT_SHIFT_PX,
+                                             _STICKY_PROMPT_VIEWPORT_INSET_PX)
 from ui.sidebar.ai.chat_panel_streaming import format_activity_status
 from ui.sidebar.ai.message_bubble import ChatMessageBubble
 from ui.sidebar.ai.message_bubble.markdown_content import MarkdownContent
@@ -271,7 +262,8 @@ def _turn_bottom_in_messages(panel: AiChatPanel, assistant: ChatMessageBubble | 
 
 def _sticky_turn_prompt(panel: AiChatPanel):
     """Return the sticky turn prompt overlay on the transcript viewport, if any."""
-    from ui.sidebar.ai.message_bubble.user_message.overlay import StickyUserPromptOverlay
+    from ui.sidebar.ai.message_bubble.user_message.overlay import \
+        StickyUserPromptOverlay
 
     viewport = panel._scroll.viewport()
     for child in viewport.children():
@@ -1109,6 +1101,29 @@ def test_thinking_phase_follow_pins_anchor_at_top(qapp: QApplication, qtbot) -> 
     viewport_h = panel._scroll.viewport().height()
     if panel._streaming_turn_extent_px() < viewport_h:
         assert abs(_anchor_viewport_y(panel) - anchor_y_before) <= 4
+
+
+def test_long_thinking_phase_follows_bottom_when_overflow(qapp: QApplication, qtbot) -> None:
+    """Long thinking-only streams follow the transcript bottom once the turn overflows."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitExposed(panel)
+    panel.resize(360, 160)
+    panel.add_message("user", "question")
+    panel.begin_assistant_stream()
+    qapp.processEvents()
+    qapp.processEvents()
+    panel._scroll_lock_enabled = True
+    assert not panel._stream_content_started
+    panel.append_assistant_chunk("thinking line\n" * 80, "")
+    _flush_stream_chunks(qtbot)
+    _drain_follow_passes(qtbot, qapp)
+    viewport_h = panel._scroll.viewport().height()
+    if viewport_h > 0 and panel._streaming_turn_extent_px() >= viewport_h:
+        bar = panel._scroll.verticalScrollBar()
+        assert bar.value() >= bar.maximum() - 2
+        assert panel._stream_follow_target() == bar.maximum()
 
 
 def test_content_phase_follow_scrolls_to_bottom(qapp: QApplication, qtbot) -> None:

@@ -379,10 +379,7 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
         self._scroll.updateGeometry()
         QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
         bar = self._scroll.verticalScrollBar()
-        if getattr(self, "_stream_content_started", False):
-            target = self._stream_follow_target()
-        else:
-            target = self._scroll_value_for_turn_start()
+        target = self._stream_follow_target()
         self._set_bar_value(bar, target)
         if self._turn_scroll_anchor is not None:
             anchor_top = self._widget_top_in_viewport(self._turn_scroll_anchor)
@@ -391,17 +388,11 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
                 self._apply_streaming_viewport_spacer()
                 self._messages.updateGeometry()
                 self._scroll.updateGeometry()
-                if getattr(self, "_stream_content_started", False):
-                    target = self._stream_follow_target()
-                else:
-                    target = self._scroll_value_for_turn_start()
+                target = self._stream_follow_target()
                 self._set_bar_value(bar, target)
         if self._turn_scroll_anchor is not None and target == 0 and bar.maximum() > 100:
             QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
-            if getattr(self, "_stream_content_started", False):
-                target = self._stream_follow_target()
-            else:
-                target = self._scroll_value_for_turn_start()
+            target = self._stream_follow_target()
             self._set_bar_value(bar, target)
         self._turn_scroll_pending = False
         self._reconcile_streaming_viewport_overflow()
@@ -520,12 +511,11 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
         bar = self._scroll.verticalScrollBar()
         if self._turn_scroll_anchor is None or self._open_stream_generation == 0:
             return bar.maximum()
-        if not getattr(self, "_stream_content_started", False):
-            return min(bar.maximum(), self._scroll_value_for_turn_start())
         viewport_h = self._scroll.viewport().height()
-        if viewport_h > 0 and self._streaming_turn_extent_px() < viewport_h:
-            return min(bar.maximum(), self._scroll_value_for_turn_start())
-        return bar.maximum()
+        extent = self._streaming_turn_extent_px()
+        if viewport_h > 0 and extent >= viewport_h:
+            return bar.maximum()
+        return min(bar.maximum(), self._scroll_value_for_turn_start())
 
     def _on_scrollbar_range_changed(self, _min: int, _max_val: int) -> None:
         """Follow bottom on content growth while streaming and scroll-lock is on."""
@@ -602,6 +592,27 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
         target = self._stream_follow_target()
         if abs(bar.value() - target) <= _FOLLOW_THRESHOLD_PX:
             return
+        # region agent log
+        try:
+            from debug_stream_log import debug_stream_log
+
+            viewport_h = self._scroll.viewport().height()
+            debug_stream_log(
+                "scroll.py:_apply_stream_follow",
+                "stream_follow_applied",
+                {
+                    "bar_value_before": bar.value(),
+                    "target": target,
+                    "bar_max": bar.maximum(),
+                    "extent_px": self._streaming_turn_extent_px(),
+                    "viewport_h": viewport_h,
+                    "content_started": bool(getattr(self, "_stream_content_started", False)),
+                },
+                hypothesis_id="F,G",
+            )
+        except Exception:
+            pass
+        # endregion
         self._set_bar_value(bar, target)
         self._sync_sticky_turn_prompt()
 
@@ -616,7 +627,7 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
         self._scroll.updateGeometry()
         self._reconcile_streaming_viewport_overflow()
         self._apply_stream_follow()
-        if anchor is not None:
+        if anchor is not None and getattr(self, "_stream_content_started", False):
             anchor_vp_after = self._widget_top_in_viewport(anchor)
             delta = anchor_vp_after - anchor_vp_before
             if abs(delta) > _FOLLOW_THRESHOLD_PX:

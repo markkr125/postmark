@@ -11,11 +11,13 @@ from PySide6.QtWidgets import QFrame, QLabel, QSizePolicy, QVBoxLayout, QWidget
 from services.ai.ai_config import AiModelEntry
 from services.ai.chat.message_usage import format_assistant_footer_label
 from services.ai.chat.session_service import AiChatMessageDict
+from services.ai.chat.subagent_events import SubagentRunRecord, enrich_subagent_records
 from ui.sidebar.ai.chat_panel.scroll.widget_coords import map_widget_y_to_ancestor
 from ui.sidebar.ai.message_bubble.activity_row import AssistantActivityRow
 from ui.sidebar.ai.message_bubble.assistant_message.footer import AssistantMessageFooterRow
 from ui.sidebar.ai.message_bubble.markdown_content import MarkdownContent
 from ui.sidebar.ai.message_bubble.thought_section import ThoughtSection
+from ui.sidebar.ai.message_bubble.subagent.group import SubagentTaskGroup
 from ui.sidebar.ai.message_bubble.user_message import UserMessageFooterRow, UserMessageSection
 from ui.sidebar.ai.message_bubble.user_message.footer import UserMessageFooterMode
 
@@ -45,6 +47,7 @@ class ChatMessageBubble(QWidget):
     copy_requested = Signal()
     user_fork_requested = Signal()
     user_edit_requested = Signal()
+    subagent_card_clicked = Signal(str)
 
     def __init__(
         self,
@@ -71,6 +74,10 @@ class ChatMessageBubble(QWidget):
         outer.setSpacing(0)
 
         self._thought_section: ThoughtSection | None = None
+        self._post_subagent_thought_section: ThoughtSection | None = None
+        self._subagent_group: SubagentTaskGroup | None = None
+        self._subagent_records: dict[str, SubagentRunRecord] = {}
+        self._subagents_all_complete = False
         self._activity_row: AssistantActivityRow | None = None
         self._user_frame: QFrame | None = None
         self._user_section: UserMessageSection | None = None
@@ -91,6 +98,7 @@ class ChatMessageBubble(QWidget):
         self._layout_height_pending = False
         self._scroll_compensation_capture: tuple[int, int] | None = None
         self._scroll_compensation_block: QWidget | None = None
+        self._assistant_outer: QVBoxLayout | None = None
 
         if role == "user":
             frame = QFrame()
@@ -115,6 +123,7 @@ class ChatMessageBubble(QWidget):
             outer.addWidget(frame)
         else:
             self.setObjectName("aiChatAssistantRow")
+            self._assistant_outer = outer
             self._activity_row = AssistantActivityRow(self)
             outer.addWidget(self._activity_row)
 
@@ -126,6 +135,9 @@ class ChatMessageBubble(QWidget):
             if thinking.strip():
                 self._thought_section.set_collapsed(True)
             outer.addWidget(self._thought_section)
+
+            self._subagent_group = SubagentTaskGroup(self)
+            outer.addWidget(self._subagent_group)
 
             self._markdown_body = MarkdownContent("")
             if lazy_markdown and text.strip():
@@ -154,12 +166,53 @@ class ChatMessageBubble(QWidget):
                 self._markdown_body.show()
 
     def _on_answer_stream_start(self) -> None:
-        """Collapse the thought block when the answer begins streaming."""
-        if self._answer_started or self._thought_section is None:
+        """Collapse thought blocks when the answer begins streaming."""
+        if self._answer_started:
             return
         self._answer_started = True
-        if self._thought_section.has_text():
-            self._thought_section.finalize_thinking(collapse=True)
+        for section in self._all_thought_sections():
+            if section.has_text():
+                section.finalize_thinking(collapse=True)
+
+    def _all_thought_sections(self) -> list[ThoughtSection]:
+        """Return primary and post-subagent thought blocks in display order."""
+        sections: list[ThoughtSection] = []
+        if self._thought_section is not None:
+            sections.append(self._thought_section)
+        if self._post_subagent_thought_section is not None:
+            sections.append(self._post_subagent_thought_section)
+        return sections
+
+    def _active_thought_section(self) -> ThoughtSection | None:
+        """Return the thought block that should receive the next thinking delta."""
+        if self._role != "assistant":
+            return None
+        if self._subagents_all_complete:
+            return self._ensure_post_subagent_thought_section()
+        return self._thought_section
+
+    def _ensure_post_subagent_thought_section(self) -> ThoughtSection:
+        """Insert a second thought block below subagent cards for synthesis."""
+        if self._post_subagent_thought_section is not None:
+            return self._post_subagent_thought_section
+        section = ThoughtSection(self)
+        section.layout_height_changed.connect(self._on_thought_layout_changed)
+        if self._assistant_outer is None or self._markdown_body is None:
+            return section
+        insert_at = self._assistant_outer.indexOf(self._markdown_body)
+        self._assistant_outer.insertWidget(insert_at, section)
+        self._post_subagent_thought_section = section
+        return section
+
+    def _remove_post_subagent_thought_section(self) -> None:
+        """Drop the post-subagent thought block when the turn resets."""
+        section = self._post_subagent_thought_section
+        if section is None:
+            return
+        if self._assistant_outer is not None:
+            self._assistant_outer.removeWidget(section)
+        section.deleteLater()
+        self._post_subagent_thought_section = None
 
     @property
     def role(self) -> ChatRole:
@@ -344,10 +397,13 @@ class ChatMessageBubble(QWidget):
         return self._sent_at
 
     def thinking_text(self) -> str:
-        """Return the thinking text, if any."""
-        if self._thought_section is None:
-            return ""
-        return self._thought_section.text()
+        """Return all thinking text (primary + post-subagent blocks)."""
+        parts: list[str] = []
+        for section in self._all_thought_sections():
+            text = section.text().strip()
+            if text:
+                parts.append(text)
+        return "\n\n".join(parts)
 
     def is_user_message_expanded(self) -> bool:
         """Return whether the user prompt is fully expanded."""
@@ -476,28 +532,30 @@ class ChatMessageBubble(QWidget):
         return self._markdown_body.is_streaming()
 
     def append_thinking(self, text: str, *, defer_geometry: bool = False) -> None:
-        """Append streaming thinking text (assistant only)."""
-        if not text or self._thought_section is None:
+        """Append streaming thinking text to the active thought block."""
+        if not text:
+            return
+        target = self._active_thought_section()
+        if target is None:
             return
         if not self._answer_started:
-            self._thought_section.set_collapsed(False)
-        self._thought_section.append_text(text, defer_geometry=defer_geometry)
+            target.set_collapsed(False)
+        target.append_text(text, defer_geometry=defer_geometry)
         if defer_geometry:
             return
         self.updateGeometry()
         self._commit_stream_row_layout()
 
     def is_thinking_expanded(self) -> bool:
-        """Return whether the thinking body is expanded."""
-        if self._thought_section is None:
-            return False
-        return self._thought_section.is_expanded()
+        """Return whether any thinking body is expanded."""
+        return any(section.is_expanded() for section in self._all_thought_sections())
 
     def thought_header_text(self) -> str:
-        """Return the thought toggle label (e.g. ``Thought for 2s``)."""
-        if self._thought_section is None:
+        """Return the active thought toggle label."""
+        target = self._active_thought_section() or self._thought_section
+        if target is None:
             return ""
-        return self._thought_section.header_text()
+        return target.header_text()
 
     def thinking_duration_seconds(self) -> int | None:
         """Return the frozen thinking duration for this row, if any."""
@@ -537,6 +595,117 @@ class ChatMessageBubble(QWidget):
             return ""
         return self._activity_row.message()
 
+    def clear_subagent_cards(self) -> None:
+        """Remove all subagent delegation cards."""
+        self._subagent_records.clear()
+        self._subagents_all_complete = False
+        self._remove_post_subagent_thought_section()
+        if self._subagent_group is not None:
+            self._subagent_group.clear_cards()
+            self.updateGeometry()
+            self._commit_stream_row_layout()
+
+    def upsert_subagent_record(self, record: SubagentRunRecord) -> None:
+        """Create or update one subagent card."""
+        if self._subagent_group is None:
+            return
+        self._subagent_records[record["id"]] = record
+        card = self._subagent_group.upsert_record(record)
+        if not card.property("_subagent_click_wired"):
+            card.clicked.connect(self._on_subagent_card_clicked)
+            card.setProperty("_subagent_click_wired", True)
+        self.refresh_subagent_activity()
+        self.updateGeometry()
+        self._commit_stream_row_layout()
+        self.layout_height_changed.emit()
+
+    def set_subagent_records(self, records: list[SubagentRunRecord]) -> None:
+        """Replace subagent cards (transcript reload)."""
+        if self._subagent_group is None:
+            return
+        enriched = enrich_subagent_records(records)
+        self._subagent_records = {r["id"]: r for r in enriched}
+        cards = self._subagent_group.sync_records(enriched)
+        for card in cards:
+            if not card.property("_subagent_click_wired"):
+                card.clicked.connect(self._on_subagent_card_clicked)
+                card.setProperty("_subagent_click_wired", True)
+        self.refresh_subagent_activity()
+        self.updateGeometry()
+        self._commit_stream_row_layout()
+        self.layout_height_changed.emit()
+
+    def subagent_records(self) -> list[SubagentRunRecord]:
+        """Return all subagent records on this assistant row."""
+        return list(self._subagent_records.values())
+
+    def refresh_subagent_steps(self) -> None:
+        """Reload activity steps from disk for active subagent cards."""
+        if self._subagent_group is None or not self._subagent_records:
+            return
+        enriched = enrich_subagent_records(self.subagent_records())
+        self._subagent_records = {r["id"]: r for r in enriched}
+        for record in enriched:
+            self._subagent_group.upsert_record(record)
+        self.updateGeometry()
+        self._commit_stream_row_layout()
+        self.layout_height_changed.emit()
+
+    def refresh_subagent_activity(self) -> None:
+        """Hide generic activity row while subagent cards are the loader."""
+        if self._subagent_group is None:
+            return
+        if (
+            self._subagent_records
+            and self._thought_section is not None
+            and self._thought_section.has_text()
+            and self._thought_section.duration_seconds() is None
+        ):
+            frozen = self._thought_section.duration_seconds()
+            self._thought_section.finalize_thinking(collapse=True)
+            # #region agent log
+            try:
+                from debug_stream_log import debug_stream_log
+
+                debug_stream_log(
+                    location="bubble.py:refresh_subagent_activity",
+                    message="freeze_primary_thought_on_subagent_cards",
+                    data={
+                        "active_count": self._subagent_group.active_count(),
+                        "record_count": len(self._subagent_records),
+                        "duration_seconds": self._thought_section.duration_seconds(),
+                        "was_finalized": frozen is not None,
+                    },
+                    hypothesis_id="H-timer-late-freeze",
+                )
+            except Exception:
+                pass
+            # #endregion
+        active = self._subagent_group.active_count()
+        if active > 0:
+            self.hide_activity()
+            return
+        if self._subagent_records:
+            self._subagents_all_complete = True
+        if self.is_activity_visible() and "subagent" in self.activity_message().lower():
+            if self._answer_started:
+                self.hide_activity()
+            else:
+                self.show_activity("Working…")
+
+    def subagent_record(self, record_id: str) -> SubagentRunRecord | None:
+        """Return one stored subagent record by id."""
+        return self._subagent_records.get(record_id)
+
+    def subagent_active_count(self) -> int:
+        """Return warming or running subagent cards."""
+        if self._subagent_group is None:
+            return 0
+        return self._subagent_group.active_count()
+
+    def _on_subagent_card_clicked(self, record_id: str) -> None:
+        self.subagent_card_clicked.emit(record_id)
+
     def append_content(self, text: str, *, defer_geometry: bool = False) -> None:
         """Append streaming answer text below the thought block."""
         if not text:
@@ -566,6 +735,12 @@ class ChatMessageBubble(QWidget):
 
     def flush_stream_layout(self) -> None:
         """Commit deferred row geometry and emit one layout-height notification."""
+        if (
+            self._markdown_body is not None
+            and self._markdown_body.is_streaming()
+        ):
+            for section in self._all_thought_sections():
+                section.flush_stream_geometry()
         self._commit_stream_row_layout()
         self.updateGeometry()
         height_pending = False

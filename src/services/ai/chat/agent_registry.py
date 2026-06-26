@@ -4,11 +4,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import openhands.tools.task.definition  # noqa: F401 — registers TaskToolSet
+
+from services.ai.chat.subagent_registry import register_postmark_subagents
+from services.ai.chat.tools.delegate_tool import register_postmark_delegate_tool
 from services.ai.chat.tools.wiki_query import register_wiki_query_tool
 
 DEFAULT_AGENT_ID = "postmark-assistant"
 DEFAULT_MAX_ITERATIONS = 1
 WIKI_AGENT_MAX_ITERATIONS = 5
+SUBAGENT_PARENT_MAX_ITERATIONS = 10
 
 _REGISTRY: dict[str, PostmarkAgentDef] = {}
 
@@ -29,7 +34,13 @@ _WIKI_SYSTEM_PROMPT = (
     "never use raw fetch, axios, or Node-only APIs; prefer pm.sendRequest for chaining. "
     "Once the wiki returns relevant pages, trust them and answer directly: give the steps and "
     "a short example. Keep reasoning brief — decide in one pass and do not re-verify the same "
-    "point repeatedly or second-guess settled facts."
+    "point repeatedly or second-guess settled facts. "
+    "Delegation uses exactly TWO ``delegate`` calls, no deliberation about the schema. "
+    'Call 1: {"command":"spawn","ids":["ts","py"],"agent_types":["wiki-researcher","wiki-researcher"]}. '
+    'Call 2: {"command":"delegate","tasks":{"ts":"Find TypeScript scripting docs","py":"Find Python scripting docs"}}. '
+    "Each task value is a PLAIN STRING — never an object, never a nested function call. "
+    "Pick the ids and task strings in one pass; do not re-plan or re-derive the tool format. "
+    "For parallel lookup requests, use delegate only; do not switch to the task tool."
 )
 
 
@@ -64,16 +75,22 @@ def list_agent_defs() -> list[PostmarkAgentDef]:
 
 
 def _register_defaults() -> None:
-    """Ship the default chat agent with the user wiki tool."""
+    """Ship the default chat agent with wiki + delegation tools."""
     register_wiki_query_tool()
+    register_postmark_delegate_tool()
+    register_postmark_subagents()
     register_postmark_agent(
         PostmarkAgentDef(
             id=DEFAULT_AGENT_ID,
             display_name="Postmark Assistant",
             system_prompt=_WIKI_SYSTEM_PROMPT,
-            tool_names=("postmark_wiki_query",),
+            tool_names=(
+                "postmark_wiki_query",
+                "task_tool_set",
+                "delegate",
+            ),
             include_default_tools=(),
-            max_iteration_per_run=WIKI_AGENT_MAX_ITERATIONS,
+            max_iteration_per_run=SUBAGENT_PARENT_MAX_ITERATIONS,
         )
     )
 

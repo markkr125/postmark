@@ -318,9 +318,18 @@ standard object names:
 | `aiChatThoughtBlock` | `QFrame` | Collapsible thinking section above assistant answer (collapsed by default after answer) |
 | `aiChatThoughtToggle` | `QPushButton` | Thought header (`Thought for Ns`; click to expand/collapse); toggling emits `ThoughtSection.layout_height_changed` → `ChatMessageBubble.layout_height_changed`; panel compensates scroll so the answer below stays visually stable |
 | `aiChatThoughtText` | `QLabel` | Muted thinking trace inside the thought block; wheel events forward to transcript `QScrollArea`. Uses `_WrappingLabel` height-for-width measurement with a large bounding-rect height; never measure wrapped text with a zero-height rectangle or streaming thought text clips after the first visual line. Before measuring streamed thought growth, `ThoughtSection` releases the prior `setFixedHeight()` clamp and activates its local layout so the next height-for-width query uses the current label width |
-| `aiChatActivityRow` | `QWidget` | Spinner + status caption while waiting for the first stream token |
+| `aiChatActivityRow` | `QWidget` | Spinner + status caption while waiting for the first stream token; hidden while subagent cards are active (cards are the loader) |
 | `aiChatActivitySpinner` | `QLabel` | Braille spinner in the activity row (reuses `busyChipSpinner` QSS) |
-| `aiChatActivityLabel` | `QLabel` | Muted activity caption (`Thinking…`, SDK status, long-wait escalation) |
+| `aiChatActivityLabel` | `QLabel` | Muted activity caption (`Thinking…`, SDK status, long-wait escalation, subagent aggregate) |
+| `aiChatSubagentGroup` | `QWidget` (`SubagentTaskGroup`) | Vertical stack of Cursor-style subagent cards between thought block(s) and assistant markdown |
+| `aiChatSubagentCard` | `QFrame` (`SubagentTaskCard`) | Collapsible subagent block: header (title + type), status row (`Running`/`Completed`), inline activity steps + monospace output blocks; cards replace `aiChatActivityRow` while active |
+| `aiChatSubagentHeader` | `QPushButton` | Flat toggle for expand/collapse; minimum height follows wrapped `aiChatSubagentLabel` |
+| `aiChatSubagentLabel` | `_WrappingLabel` | Bold wrapped task title in the card header |
+| `aiChatSubagentStatusLabel` | `QLabel` | Muted status caption (`Starting` / `Running` / `Completed` / `Failed`) |
+| `aiChatSubagentCardBody` | `QWidget` (`SubagentCardBody`) | Step list inside an expanded card |
+| `aiChatSubagentStepSummary` | `QLabel` | One activity line (`Thought briefly`, `Read tool output`, …) |
+| `aiChatSubagentOutputBlock` | `QLabel` | Dark monospace tool-output block inside a step |
+| `aiChatSubagentDetailPopup` | `QFrame` (`SubagentDetailPopup`) | Read-only drill-in flyout for full subagent transcript; anchored to card; no composer |
 | `aiChatTranscriptLoading` | `QWidget` (`ChatTranscriptLoadingOverlay`) | Viewport overlay with indeterminate line animation while a session transcript loads; hidden after `_finish_load_transcript_layout` |
 | `aiChatOlderLoadingRow` | `QWidget` (`TranscriptOlderLoadingRow`) | In-transcript top row with spinner + **Fetching older messages…** while a silent older page loads; hidden after `apply_older_page` |
 | `aiChatVirtualSpacer` | `QWidget` | Invisible fixed-height placeholder for evicted transcript rows (top/bottom virtual window); evicted user rows cache prompt metadata in `_evicted_turn_users` for sticky overlay |
@@ -344,6 +353,7 @@ standard object names:
 | `aiProviderBudgetsTree` | `QTableWidget` | Settings → AI → Budgets provider rows; resizable columns (`ui/ai_budget_table_header/v4`) |
 | `aiAgentsConcurrentRunsSpin` | `QSpinBox` | Settings → AI → Agents advisory concurrent-run threshold |
 | `aiAgentsConcurrentRunsLabel` | `QLabel` | Settings → AI → Agents concurrent-run row label |
+| `aiAgentsMaxParallelSubagentsSpin` | `QSpinBox` | Settings → AI → Agents hard cap for parallel `delegate` subagents per turn (QSettings `ai/max_parallel_subagents`) |
 | `aiBudgetActionsButton` | `QPushButton` | Per-row gear — opens `aiBudgetConnectionDialog` |
 | `aiBudgetConnectionDialog` | `QDialog` | Tabbed limits + spend editor; scoped QSS on schedule pickers + `aiBudgetLimitSpin` |
 | `aiBudgetConnectionTabs` | `QTabWidget` | **Limits** + **Spend details**; box tabs (same QSS as `importTabs`) |

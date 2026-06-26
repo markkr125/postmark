@@ -14,6 +14,7 @@ _INLINE_CODE_RE = re.compile(r"`([^`]+)`")
 _INLINE_BOLD_RE = re.compile(r"\*\*(.+?)\*\*|__(.+?)__")
 _INLINE_STRIKE_RE = re.compile(r"~~(.+?)~~")
 _INLINE_ITALIC_RE = re.compile(r"(?<!\*)\*([^*]+)\*(?!\*)|(?<!_)_([^_]+)_(?!_)")
+_CELL_HTML_BREAK_RE = re.compile(r"<br\s*/?>", re.IGNORECASE)
 
 
 class _InlineMatch(NamedTuple):
@@ -154,6 +155,16 @@ def _first_open_inline_tail(text: str) -> _OpenInlineTail | None:
     return min(candidates, key=lambda item: item.start)
 
 
+def _html_escape_with_line_breaks(text: str) -> str:
+    """Escape cell text while preserving model-emitted HTML line breaks."""
+    if _CELL_HTML_BREAK_RE.search(text):
+        parts = _CELL_HTML_BREAK_RE.split(text)
+        return "<br/>".join(html_escape(part) for part in parts)
+    if "\n" in text:
+        return "<br/>".join(html_escape(part) for part in text.split("\n"))
+    return html_escape(text)
+
+
 def render_inline_markdown(
     text: str,
     *,
@@ -168,9 +179,10 @@ def render_inline_markdown(
     """
     if not text:
         return ""
+    normalized = _CELL_HTML_BREAK_RE.sub("\n", text)
     if conservative:
-        return _render_inline_recursive(text, palette=palette, render_open_tail=True)
-    return _render_inline_recursive(text, palette=palette, render_open_tail=False)
+        return _render_inline_recursive(normalized, palette=palette, render_open_tail=True)
+    return _render_inline_recursive(normalized, palette=palette, render_open_tail=False)
 
 
 def _render_inline_recursive(
@@ -202,8 +214,8 @@ def _render_inline_recursive(
                 )
             return f"{before}<em>{rendered_inner}</em>"
     if token is None:
-        return html_escape(text)
-    before = html_escape(text[: token.start])
+        return _html_escape_with_line_breaks(text)
+    before = _html_escape_with_line_breaks(text[: token.start])
     after = _render_inline_recursive(
         text[token.end :],
         palette=palette,

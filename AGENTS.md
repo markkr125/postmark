@@ -222,7 +222,11 @@ src/
 │   │   ├── ops/                   # setup_provider, fetch_provider_models, model_metadata
 │   │   ├── llm_service.py         # AiLlmService — build/test openhands.sdk.LLM
 │   │   └── chat/                  # Multi-session AI chat (OpenHands Conversation)
-│   │       ├── agent_registry.py  # PostmarkAgentDef + DEFAULT_AGENT_ID + postmark_wiki_query
+│   │       ├── agent_registry.py  # PostmarkAgentDef + DEFAULT_AGENT_ID + delegation tools
+│   │       ├── subagent_registry.py # register_postmark_subagents (wiki-researcher, general-purpose)
+│   │       ├── subagent_events.py # SubagentEventTracker + SubagentRunRecord parsing
+│   │       ├── subagent_transcript.py # Subagent disk preview for drill-in popup
+│   │       ├── subagent_limits.py # max_parallel_subagents() — QSettings ai/max_parallel_subagents
 │   │       ├── tool_registry.py   # register_postmark_tool / resolve_tools
 │   │       ├── app_wiki/          # User KB paths, index build, query executor
 │   │       │   ├── config.py      # Allowlisted doc roots + SCRIPTING_ALLOWLIST
@@ -231,7 +235,8 @@ src/
 │   │       │   ├── query.py       # execute_wiki_query (read-only)
 │   │       │   └── schema.py      # WIKI.md body for tool workflow
 │   │       ├── tools/             # OpenHands custom tools
-│   │       │   └── wiki_query.py  # postmark_wiki_query Action/Observation/Executor
+│   │       │   ├── wiki_query.py  # postmark_wiki_query Action/Observation/Executor
+│   │       │   └── delegate_tool.py # PostmarkDelegateTool (parallel subagent fan-out)
 │   │       ├── response_text.py   # Turn-scoped thinking/answer extraction from SDK messages + stream chunks
 │   │       ├── compaction.py      # CHAT_CONDENSER_MAX_* constants for LLMSummarizingCondenser
 │   │       ├── context_usage.py   # ContextUsageService + breakdown TypedDicts + SQLite fallback
@@ -411,6 +416,9 @@ src/
     │   │   │   ├── thought_section.py   # ThoughtSection collapsible block
     │   │   │   ├── activity_row.py      # AssistantActivityRow spinner row
     │   │   │   ├── wrapping_label.py    # _WrappingLabel — height-for-width QLabel
+    │   │   │   ├── subagent/            # SubagentTaskCard + SubagentTaskGroup delegation UI
+    │   │   │   │   ├── card.py
+    │   │   │   │   └── group.py
     │   │   │   ├── assistant_message/   # Assistant footer + actions popup
     │   │   │   │   ├── footer.py        # AssistantMessageFooterRow — model/cost + ⋯ menu
     │   │   │   │   ├── actions_popup.py # AiAssistantMessageActionsPopup — Fork chat / Copy message
@@ -422,6 +430,7 @@ src/
     │   │   │       ├── fade.py
     │   │   │       ├── overlay.py       # StickyUserPromptOverlay — viewport sticky clone
     │   │   │       └── overlay_edit_host.py  # Reparent inline AiChatComposer into sticky during edit
+    │   │   ├── subagent_detail_popup.py  # SubagentDetailPopup — read-only drill-in flyout
     │   │   ├── model_picker_edit.py  # AiModelPickerEditPanel flyout (context / thinking / reasoning)
     │   │   └── model_picker_popup.py  # AiModelPickerPopup — Cursor-style model list + gear
     │   ├── left_sidebar.py        # LeftSidebar — activity rail + stacked nav flyout pages
@@ -681,6 +690,10 @@ tests/
 │       │   ├── test_message_usage.py
 │       │   ├── test_session_transcript_window.py
 │       │   ├── test_postmark_agent_registry.py
+│       │   ├── test_subagent_registry.py
+│       │   ├── test_subagent_events.py
+│       │   ├── test_subagent_limits.py
+│       │   ├── test_delegate_tool.py
 │       │   ├── test_build_app_wiki.py
 │       │   ├── test_wiki_query_tool.py
 │       │   ├── test_pm_api_quickref.py
@@ -847,6 +860,57 @@ python scripts/check_md_links.py
 
 Never skip a layer — repository, service, UI, and MainWindow tests all
 must stay green.  See [`tests/AGENTS.md`](tests/AGENTS.md) for detailed conventions.
+
+## CRITICAL — A failing test is a finding, not an obstacle
+
+When a previously-passing test fails after your change, the **default
+assumption is that you introduced a regression**.  You MUST fix the code,
+not the test.
+
+**Never weaken, delete, skip, loosen, or "update" an existing test to make
+it pass** unless you can first prove the test itself is wrong.  Editing a
+test so it accepts the new (broken) behaviour is a **bug**, treated
+identically to shipping the regression.  "It was easier to change the test"
+is never valid.
+
+Before touching ANY existing assertion that started failing, answer all
+three **in writing** in your response:
+
+1. **Was this test passing before my change?**  Determine this with
+   **read-only** git commands only — `git diff` / `git diff HEAD` to see what
+   you changed, `git show HEAD:<path>` to read the pre-change version,
+   `git log -p -- <path>` for history.  **NEVER run `git stash`** (see Git
+   safety below).  If a test you did not edit is now red, presume your change
+   caused a regression.
+2. **Does the test encode an intended contract?**  Read the test name, its
+   assertions, and the code it covers.  If it asserts real behaviour users
+   rely on, the test is right and your code is wrong.
+3. **Has the spec genuinely changed?**  A test may only be updated if the
+   USER explicitly requested a behaviour change that intentionally
+   invalidates the old contract.  If so, state which requirement changed and
+   why the old assertion no longer applies.
+
+If you cannot satisfy #3 with an explicit, user-stated requirement, **fix
+the production code**.
+
+This rule targets **regressions in existing assertions** — it does not
+discourage writing or adjusting tests for genuinely new code you are adding.
+
+**Establish a green baseline first.**  Before implementing a feature that
+touches existing behaviour, run the affected tests so you know they pass.
+After your change, any newly-red test is a regression you caused until
+proven otherwise.
+
+See [`tests/AGENTS.md`](tests/AGENTS.md) for the explicit list of forbidden
+test edits.
+
+## Git safety
+
+> **NEVER run `git stash` (or `git stash pop` / `apply` / `drop`) under any
+> circumstance without the USER's direct, explicit approval first.**  It is a
+> destructive, state-hiding operation.  To inspect prior behaviour, use
+> read-only commands (`git diff`, `git diff HEAD`, `git log -p`,
+> `git show <ref>:<path>`) instead.
 
 ## Coding conventions
 

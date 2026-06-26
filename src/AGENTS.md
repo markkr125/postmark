@@ -126,7 +126,7 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   `_WorkerSignalBridge` (`@Slot` QObject) connects worker signals to the registry
   on the GUI thread — **never use Python lambdas** for cross-thread
   `QueuedConnection` (defers delivery until `worker.run()` returns and breaks
-  streaming).
+  streaming). Bridge includes `subagent_updated` for delegation lifecycle.
   `_AiChatRunsMixin` (`ui/main_window/ai_chat_runs.py`) routes worker signals by
   `session_id` + `run_generation`; only the visible session streams into
   `AiChatPanel`; background sessions buffer chunks on `ChatRunHandle` and persist
@@ -157,10 +157,19 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   `edit_user_message_and_rewind` updates the user row, deletes later messages,
   and rewinds SDK disk state before the controller resubmits on the same bubble.
   Postmark agent/tool registries
-  (`agent_registry.py`, `tool_registry.py`, `tools/wiki_query.py`) ship
-  `DEFAULT_AGENT_ID` with `postmark_wiki_query` (reads `docs/user-guide/` +
-  allowlisted `docs/scripting/` via `app_wiki/query.py`; index in
-  `data/app-wiki/index.md`). `max_iteration_per_run` is 5 for wiki tool loops.
+  (`agent_registry.py`, `tool_registry.py`, `tools/wiki_query.py`,
+  `tools/delegate_tool.py`, `subagent_registry.py`) ship
+  `DEFAULT_AGENT_ID` with `postmark_wiki_query`, OpenHands `task_tool_set`
+  (sequential/resumable subagents), and `delegate` (parallel fan-out).
+  Built-in subagent types: `wiki-researcher` (`postmark_wiki_query` only) and
+  `general-purpose` (no tools). Optional file agents from
+  `.agents/agents/*.md` via `register_file_agents(project_root())`.
+  Subagent runs persist under `user_ai_conversations_root()/subagents/{uuid}/`;
+  `SubagentEventTracker` (`subagent_events.py`) parses task/delegate SDK events
+  in `AiChatWorker.event_cb` and emits `subagent_updated`. Parallel delegate
+  cap: `max_parallel_subagents()` (`subagent_limits.py`, QSettings
+  `ai/max_parallel_subagents`, default 5). `max_iteration_per_run` is 10 for
+  delegation + wiki tool loops.
   MainWindow wiring: `_AiChatControllerMixin` (`ai_chat_controller.py`) with
   `_AiChatRunsMixin`, `_AiChatTurnFinalizeMixin`, `_AiChatTitleMixin`.
   Settings UI: tree branch **AI** (overview) → **Models** and **Budgets** children;
