@@ -90,8 +90,15 @@ class _WrappingLabel(QLabel):
         self.updateGeometry()
 
     def hasHeightForWidth(self) -> bool:
-        """Allow the layout to size this label from the available width."""
-        return True
+        """Return False so the parent layout never re-queries wrap height.
+
+        Qt re-evaluates a word-wrapped ``QLabel``'s height-for-width on every
+        layout pass. During streaming that fights the explicit ``setFixedHeight``
+        applied by ``ThoughtSection`` and makes the block bounce up and down
+        (see Qt docs / Stack Overflow #78276854). Height is managed explicitly
+        by the owner instead; ``heightForWidth`` remains callable as a helper.
+        """
+        return False
 
     def _clamp_to_max_height(self, height: int) -> int:
         """Return *height* capped by ``maximumHeight`` when the label is clamped."""

@@ -396,6 +396,7 @@ tests/
    │       ├── test_assistant_message_footer.py
    │       ├── test_assistant_message_actions.py
    │       ├── test_subagent_cards.py  # SubagentTaskCard spinner, activity caption, warm-up guard
+   │       ├── test_thought_streaming_bounce.py  # E2E: thinking block grows monotonically, no bounce/oscillation
    │       ├── test_user_message_actions.py
    │       ├── test_inline_edit_message.py
    │       ├── test_inline_edit_sticky_host.py  # Inline edit composer reparented into sticky overlay

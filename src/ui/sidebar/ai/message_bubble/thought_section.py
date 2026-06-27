@@ -44,6 +44,8 @@ class ThoughtSection(QFrame):
         self._duration_seconds: int | None = None
         self._timer = QElapsedTimer()
         self._header_elapsed_shown = -1
+        self._stream_height_floor = 0
+        self._stream_floor_width = 0
         self._refresh_header()
 
     def has_text(self) -> bool:
@@ -87,6 +89,8 @@ class ThoughtSection(QFrame):
         self.setVisible(has_text)
         self._header.setVisible(has_text)
         self._label.setVisible(has_text and self._expanded)
+        self._stream_height_floor = 0
+        self._stream_floor_width = 0
         self._sync_label_geometry(force=True)
         self.updateGeometry()
 
@@ -211,23 +215,37 @@ class ThoughtSection(QFrame):
         self._label.setMaximumHeight(_QWIDGET_MAX_HEIGHT)
 
     def _sync_label_geometry(self, *, force: bool = False) -> None:
-        """Match label width and wrapped height to the current block width."""
+        """Set the label height from wrapped text measured at the stable block width.
+
+        Uses the section's own width (not the label's transient laid-out width,
+        which fluctuates during a layout pass) and a per-width monotonic floor so
+        appended streaming text can only grow the block — never shrink it on an
+        intermediate pass, which is what made the thought block bounce.
+        """
         self._sync_label_width()
         if not (self._expanded and self.has_text()):
             self._release_label_height_clamp()
+            self._stream_height_floor = 0
+            self._stream_floor_width = 0
             return
-        layout = self.layout()
-        if layout is not None:
-            layout.activate()
-        width = self._label.width() if self._label.width() > 0 else self._block_layout_width()
+        width = self._block_layout_width()
         if width <= 0:
             return
         if force:
             self._label._invalidate_measured_height()
         self._release_label_height_clamp()
-        target = max(1, self._label.heightForWidth(width))
-        if self._label.height() != target:
-            self._label.setFixedHeight(target)
+        text_width = self._label._text_width_for_widget_width(width)
+        target = max(1, self._label._measure_wrapped_height(text_width))
+        if width != self._stream_floor_width:
+            self._stream_floor_width = width
+            self._stream_height_floor = 0
+        target = max(target, self._stream_height_floor)
+        self._stream_height_floor = target
+        # Always re-apply the clamp: ``_release_label_height_clamp`` above left
+        # min=0/max=MAX, so a conditional ``setFixedHeight`` would leave the label
+        # unclamped whenever its height already equalled ``target`` — letting the
+        # layout float it to its plain ``sizeHint`` and bounce.
+        self._label.setFixedHeight(target)
         self._label.updateGeometry()
 
     def header_text(self) -> str:
