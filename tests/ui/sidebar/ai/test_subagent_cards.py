@@ -143,6 +143,36 @@ def test_primary_thought_frozen_when_subagent_card_appears(qapp: QApplication, q
     assert primary.duration_seconds() == frozen
 
 
+def test_frozen_primary_thought_stays_collapsed_during_subagent_run(
+    qapp: QApplication, qtbot
+) -> None:
+    """Continued thinking while subagents run must not re-open the frozen primary block."""
+    bubble = ChatMessageBubble("assistant", "")
+    qtbot.addWidget(bubble)
+    bubble.show()
+    bubble.append_thinking("Planning parallel wiki lookups.")
+    primary = bubble._thought_section
+    assert primary is not None
+    assert primary.is_expanded()
+
+    bubble.upsert_subagent_record(
+        {
+            "id": "ts",
+            "kind": "delegate",
+            "label": "Find TypeScript scripting docs",
+            "subagent_type": "wiki-researcher",
+            "status": "running",
+        }
+    )
+    assert primary.duration_seconds() is not None
+    assert not primary.is_expanded()
+    assert not bubble._subagents_all_complete
+
+    bubble.append_thinking(" continued deliberation while subagents are still running")
+    assert not primary.is_expanded(), "frozen primary thought re-opened on continued thinking"
+    assert primary.duration_seconds() is not None
+
+
 def test_post_subagent_thinking_uses_new_block_below_cards(qapp: QApplication, qtbot) -> None:
     """After subagents complete, synthesis thinking goes in a new block under the cards."""
     bubble = ChatMessageBubble("assistant", "", thinking="Early planning only.")

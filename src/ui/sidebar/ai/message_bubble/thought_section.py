@@ -136,6 +136,24 @@ class ThoughtSection(QFrame):
 
     def set_collapsed(self, collapsed: bool) -> None:
         """Show or hide the thinking body while keeping the header."""
+        # #region agent log
+        try:
+            from debug_stream_log import debug_stream_log
+
+            debug_stream_log(
+                location="thought_section.py:set_collapsed",
+                message="set_collapsed",
+                data={
+                    "collapsed": collapsed,
+                    "was_expanded": self._expanded,
+                    "duration": self._duration_seconds,
+                    "text_len": len(self._label.text()),
+                },
+                hypothesis_id="H1-reexpand",
+            )
+        except Exception:
+            pass
+        # #endregion
         self._expanded = not collapsed
         has_text = bool(self._label.text().strip())
         self.setVisible(has_text)

@@ -538,7 +538,34 @@ class ChatMessageBubble(QWidget):
         target = self._active_thought_section()
         if target is None:
             return
-        if not self._answer_started:
+        # #region agent log
+        if self._subagent_records:
+            try:
+                from debug_stream_log import debug_stream_log
+
+                debug_stream_log(
+                    location="bubble.py:append_thinking",
+                    message="append_thinking_during_subagents",
+                    data={
+                        "target_is_primary": target is self._thought_section,
+                        "target_duration": target.duration_seconds(),
+                        "answer_started": self._answer_started,
+                        "subagents_all_complete": self._subagents_all_complete,
+                        "will_set_collapsed_false": (
+                            not self._answer_started and target.duration_seconds() is None
+                        ),
+                        "target_expanded_before": target.is_expanded(),
+                        "record_count": len(self._subagent_records),
+                    },
+                    hypothesis_id="H1-reexpand",
+                )
+            except Exception:
+                pass
+        # #endregion
+        # Only auto-expand a block that has not been frozen. Once a subagent
+        # spawns, ``refresh_subagent_activity`` finalizes (collapses + freezes)
+        # the primary thought; continued thinking deltas must not re-open it.
+        if not self._answer_started and target.duration_seconds() is None:
             target.set_collapsed(False)
         target.append_text(text, defer_geometry=defer_geometry)
         if defer_geometry:
