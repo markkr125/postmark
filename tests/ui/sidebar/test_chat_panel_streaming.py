@@ -9,15 +9,24 @@ from unittest.mock import patch
 import pytest
 from PySide6.QtCore import QPoint, QPointF, Qt, QTimer
 from PySide6.QtGui import QTextTable, QWheelEvent
-from PySide6.QtWidgets import (QApplication, QLabel, QLayout, QPushButton,
-                               QScrollArea, QTextBrowser, QWidget)
+from PySide6.QtWidgets import (
+    QApplication,
+    QLabel,
+    QLayout,
+    QPushButton,
+    QScrollArea,
+    QTextBrowser,
+    QWidget,
+)
 
 from services.ai.chat.session_service import AiChatMessageDict
 from tests.ui.sidebar.ai.conftest import load_transcript_sync
 from ui.sidebar.ai import AiChatPanel
-from ui.sidebar.ai.chat_panel.scroll import (_FOLLOW_THRESHOLD_PX,
-                                             _STICKY_PROMPT_LEFT_SHIFT_PX,
-                                             _STICKY_PROMPT_VIEWPORT_INSET_PX)
+from ui.sidebar.ai.chat_panel.scroll import (
+    _FOLLOW_THRESHOLD_PX,
+    _STICKY_PROMPT_LEFT_SHIFT_PX,
+    _STICKY_PROMPT_VIEWPORT_INSET_PX,
+)
 from ui.sidebar.ai.chat_panel_streaming import format_activity_status
 from ui.sidebar.ai.message_bubble import ChatMessageBubble
 from ui.sidebar.ai.message_bubble.markdown_content import MarkdownContent
@@ -262,8 +271,7 @@ def _turn_bottom_in_messages(panel: AiChatPanel, assistant: ChatMessageBubble | 
 
 def _sticky_turn_prompt(panel: AiChatPanel):
     """Return the sticky turn prompt overlay on the transcript viewport, if any."""
-    from ui.sidebar.ai.message_bubble.user_message.overlay import \
-        StickyUserPromptOverlay
+    from ui.sidebar.ai.message_bubble.user_message.overlay import StickyUserPromptOverlay
 
     viewport = panel._scroll.viewport()
     for child in viewport.children():

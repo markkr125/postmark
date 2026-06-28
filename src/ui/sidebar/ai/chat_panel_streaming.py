@@ -511,27 +511,6 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
             finally:
                 self._messages.setUpdatesEnabled(True)
 
-        # region agent log
-        try:
-            from debug_stream_log import debug_stream_log
-
-            debug_stream_log(
-                "chat_panel_streaming.py:_flush_pending_chunks",
-                "chunk_flush_applied",
-                {
-                    "thinking_delta_len": len(thinking_delta),
-                    "content_delta_len": len(content_delta),
-                    "thinking_only_chunk": thinking_only_chunk,
-                    "bubble_content_len": len(bubble.text()),
-                    "pending_thinking_len": len(self._pending_thinking_delta),
-                    "pending_content_len": len(self._pending_content_delta),
-                },
-                hypothesis_id="A",
-            )
-        except Exception:
-            pass
-        # endregion
-
         anchor = self._turn_scroll_anchor
         anchor_vp_before = (
             self._widget_top_in_viewport(anchor)  # type: ignore[attr-defined]
@@ -729,27 +708,6 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
         current_content = bubble.text()
         final_thinking = pick_richest_text(thinking, current_thinking)
         final_content = pick_richest_text(content, current_content)
-        # region agent log
-        try:
-            from debug_stream_log import debug_stream_log
-
-            debug_stream_log(
-                "chat_panel_streaming.py:apply_assistant_final",
-                "apply_assistant_final_lengths",
-                {
-                    "incoming_content_len": len(content),
-                    "current_content_len": len(current_content),
-                    "final_content_len": len(final_content),
-                    "incoming_thinking_len": len(thinking),
-                    "current_thinking_len": len(current_thinking),
-                    "final_thinking_len": len(final_thinking),
-                    "final_content_tail": final_content[-120:] if final_content else "",
-                },
-                hypothesis_id="C",
-            )
-        except Exception:
-            pass
-        # endregion
         bubble.set_parts(
             thinking=final_thinking,
             content=final_content,

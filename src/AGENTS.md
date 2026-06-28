@@ -219,7 +219,9 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   `data/scripts/deno_drain.mjs` for ``pm.sendRequest`` IPC; TypeScript uses a
   ``bundle.ts`` temp file so Deno strips types) or `PyRuntime` (Pyodide under Deno when
   :file:`data/scripts/vendor_pyodide/` is present, otherwise RestrictedPython
-  subprocess via :file:`_py_sandbox.py`).
+  subprocess via :file:`_py_sandbox.py`; subprocess env sets ``POSTMARK_SANDBOX=1``
+  via :func:`restricted_python_subprocess_env` so ``services`` package inits skip
+  OpenHands/Deno re-exports).
   :class:`JSRuntime` delegates execution to :class:`DenoRuntime` and provides
   bootstrap and vendor file loaders.  JavaScript parse for the linter and
   gutter uses Esprima via :mod:`esprima_deno` (Deno subprocess;

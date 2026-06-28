@@ -280,6 +280,7 @@ src/
 │   │   ├── assertions_compiler.py # compile_to_js/py — declarative rows → pm.test blocks (source_name declarative)
 │   │   ├── data_loader.py         # parse_data_file — CSV/JSON rows for data-driven runs
 │   │   ├── context.py             # Context builders + normalize_events() + execute_sub_request() + globals persistence
+│   │   ├── _subprocess_env.py     # safe_subprocess_env + restricted_python_subprocess_env (``POSTMARK_SANDBOX=1``) + terminate_process_tree + reap_zombie_children
 │   │   ├── deno_manager.py        # DenoManager — managed Deno download/cache; managed_deno_path() = cache only
 │   │   ├── python_format.py       # format_python_source() — Ruff format for script editors (jedi has no formatter)
 │   │   ├── runtime_settings.py   # RuntimeSettings + RuntimePathStatus + RegistryEntry + PyPIConfig — QSettings Deno/Python paths, LSP toggle, validation, private package registries (npm/JSR scope-mapped, default-npm with auth_kind, PyPI index URLs)

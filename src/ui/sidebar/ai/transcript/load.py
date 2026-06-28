@@ -255,9 +255,7 @@ class _ChatPanelTranscriptLoadMixin:
                 from services.ai.chat.subagent_events import records_for_assistant_turn
 
                 bubble.set_subagent_records(
-                    records_for_assistant_turn(
-                        session_id, pricing_messages, msg_index
-                    )
+                    records_for_assistant_turn(session_id, pricing_messages, msg_index)
                 )
         return cast(ChatMessageBubble, bubble)
 

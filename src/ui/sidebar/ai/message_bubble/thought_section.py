@@ -112,23 +112,6 @@ class ThoughtSection(QFrame):
         if not already_finalized and self._timer.isValid():
             self._duration_seconds = max(1, round(self._timer.elapsed() / 1000))
             self._timer.invalidate()
-        # #region agent log
-        try:
-            from debug_stream_log import debug_stream_log
-
-            debug_stream_log(
-                location="thought_section.py:finalize_thinking",
-                message="finalize_thinking",
-                data={
-                    "already_finalized": already_finalized,
-                    "duration_seconds": self._duration_seconds,
-                    "timer_valid": self._timer.isValid(),
-                },
-                hypothesis_id="H-timer-overwrite",
-            )
-        except Exception:
-            pass
-        # #endregion
         if collapse:
             self.set_collapsed(True)
         else:
@@ -136,24 +119,6 @@ class ThoughtSection(QFrame):
 
     def set_collapsed(self, collapsed: bool) -> None:
         """Show or hide the thinking body while keeping the header."""
-        # #region agent log
-        try:
-            from debug_stream_log import debug_stream_log
-
-            debug_stream_log(
-                location="thought_section.py:set_collapsed",
-                message="set_collapsed",
-                data={
-                    "collapsed": collapsed,
-                    "was_expanded": self._expanded,
-                    "duration": self._duration_seconds,
-                    "text_len": len(self._label.text()),
-                },
-                hypothesis_id="H1-reexpand",
-            )
-        except Exception:
-            pass
-        # #endregion
         self._expanded = not collapsed
         has_text = bool(self._label.text().strip())
         self.setVisible(has_text)

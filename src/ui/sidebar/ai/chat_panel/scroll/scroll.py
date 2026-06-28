@@ -592,27 +592,6 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
         target = self._stream_follow_target()
         if abs(bar.value() - target) <= _FOLLOW_THRESHOLD_PX:
             return
-        # region agent log
-        try:
-            from debug_stream_log import debug_stream_log
-
-            viewport_h = self._scroll.viewport().height()
-            debug_stream_log(
-                "scroll.py:_apply_stream_follow",
-                "stream_follow_applied",
-                {
-                    "bar_value_before": bar.value(),
-                    "target": target,
-                    "bar_max": bar.maximum(),
-                    "extent_px": self._streaming_turn_extent_px(),
-                    "viewport_h": viewport_h,
-                    "content_started": bool(getattr(self, "_stream_content_started", False)),
-                },
-                hypothesis_id="F,G",
-            )
-        except Exception:
-            pass
-        # endregion
         self._set_bar_value(bar, target)
         self._sync_sticky_turn_prompt()
 

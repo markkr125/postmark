@@ -538,30 +538,6 @@ class ChatMessageBubble(QWidget):
         target = self._active_thought_section()
         if target is None:
             return
-        # #region agent log
-        if self._subagent_records:
-            try:
-                from debug_stream_log import debug_stream_log
-
-                debug_stream_log(
-                    location="bubble.py:append_thinking",
-                    message="append_thinking_during_subagents",
-                    data={
-                        "target_is_primary": target is self._thought_section,
-                        "target_duration": target.duration_seconds(),
-                        "answer_started": self._answer_started,
-                        "subagents_all_complete": self._subagents_all_complete,
-                        "will_set_collapsed_false": (
-                            not self._answer_started and target.duration_seconds() is None
-                        ),
-                        "target_expanded_before": target.is_expanded(),
-                        "record_count": len(self._subagent_records),
-                    },
-                    hypothesis_id="H1-reexpand",
-                )
-            except Exception:
-                pass
-        # #endregion
         # Only auto-expand a block that has not been frozen. Once a subagent
         # spawns, ``refresh_subagent_activity`` finalizes (collapses + freezes)
         # the primary thought; continued thinking deltas must not re-open it.
@@ -688,26 +664,7 @@ class ChatMessageBubble(QWidget):
             and self._thought_section.has_text()
             and self._thought_section.duration_seconds() is None
         ):
-            frozen = self._thought_section.duration_seconds()
             self._thought_section.finalize_thinking(collapse=True)
-            # #region agent log
-            try:
-                from debug_stream_log import debug_stream_log
-
-                debug_stream_log(
-                    location="bubble.py:refresh_subagent_activity",
-                    message="freeze_primary_thought_on_subagent_cards",
-                    data={
-                        "active_count": self._subagent_group.active_count(),
-                        "record_count": len(self._subagent_records),
-                        "duration_seconds": self._thought_section.duration_seconds(),
-                        "was_finalized": frozen is not None,
-                    },
-                    hypothesis_id="H-timer-late-freeze",
-                )
-            except Exception:
-                pass
-            # #endregion
         active = self._subagent_group.active_count()
         if active > 0:
             self.hide_activity()
@@ -762,10 +719,7 @@ class ChatMessageBubble(QWidget):
 
     def flush_stream_layout(self) -> None:
         """Commit deferred row geometry and emit one layout-height notification."""
-        if (
-            self._markdown_body is not None
-            and self._markdown_body.is_streaming()
-        ):
+        if self._markdown_body is not None and self._markdown_body.is_streaming():
             for section in self._all_thought_sections():
                 section.flush_stream_geometry()
         self._commit_stream_row_layout()

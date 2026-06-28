@@ -189,12 +189,14 @@ def _run_restricted_subprocess(script: str, context: ScriptInput) -> ScriptOutpu
     payload = json.dumps({"script": script, "context": context}) + "\n"
 
     # Build a minimal environment — only PATH for finding Python.
-    env: dict[str, str] = {"PATH": os.environ.get("PATH", "/usr/bin")}
     src_root = str(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-    env["PYTHONPATH"] = src_root
     from services.scripting.dynamic_variables import dynvar_json_for_subprocess
+    from services.scripting._subprocess_env import restricted_python_subprocess_env
 
-    env["PM_DYNVAR_JSON"] = dynvar_json_for_subprocess()
+    env = restricted_python_subprocess_env(
+        src_root=src_root,
+        extra={"PM_DYNVAR_JSON": dynvar_json_for_subprocess()},
+    )
 
     try:
         from services.scripting._subprocess_env import terminate_process_tree

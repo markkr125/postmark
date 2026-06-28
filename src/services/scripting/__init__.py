@@ -8,11 +8,8 @@ from a single location::
 
 from __future__ import annotations
 
+import os
 from typing import Any, NotRequired, TypedDict
-
-from services.scripting.deno_manager import DenoManager
-from services.scripting.engine import ScriptEngine, ScriptLinter
-from services.scripting.runtime_settings import RuntimePathStatus, RuntimeSettings
 
 
 class TestResult(TypedDict):
@@ -71,15 +68,28 @@ class ScriptEntry(TypedDict):
     source_name: str
 
 
-__all__ = [
-    "ConsoleLog",
-    "DenoManager",
-    "RuntimePathStatus",
-    "RuntimeSettings",
-    "ScriptEngine",
-    "ScriptEntry",
-    "ScriptInput",
-    "ScriptLinter",
-    "ScriptOutput",
-    "TestResult",
-]
+if os.environ.get("POSTMARK_SANDBOX") != "1":
+    from services.scripting.deno_manager import DenoManager
+    from services.scripting.engine import ScriptEngine, ScriptLinter
+    from services.scripting.runtime_settings import RuntimePathStatus, RuntimeSettings
+
+    __all__ = [
+        "ConsoleLog",
+        "DenoManager",
+        "RuntimePathStatus",
+        "RuntimeSettings",
+        "ScriptEngine",
+        "ScriptEntry",
+        "ScriptInput",
+        "ScriptLinter",
+        "ScriptOutput",
+        "TestResult",
+    ]
+else:
+    __all__ = [
+        "ConsoleLog",
+        "ScriptEntry",
+        "ScriptInput",
+        "ScriptOutput",
+        "TestResult",
+    ]

@@ -202,27 +202,6 @@ class AiLlmService:
             and llm.reasoning_effort is not None
         ):
             llm = llm.model_copy(update={"reasoning_effort": None}, deep=True)
-        # #region agent log
-        if usage_id.startswith(_CHAT_USAGE_PREFIX) and _is_ollama_model(entry):
-            try:
-                from debug_stream_log import debug_stream_log
-
-                debug_stream_log(
-                    "llm_service.py:build_llm",
-                    "ollama chat llm output budget",
-                    {
-                        "model": litellm_model,
-                        "max_output_tokens": getattr(llm, "max_output_tokens", None),
-                        "effective_max_output_tokens": getattr(
-                            llm, "effective_max_output_tokens", None
-                        ),
-                    },
-                    hypothesis_id="H-num_predict",
-                    run_id="post-fix",
-                )
-            except Exception:
-                pass
-        # #endregion
         return llm
 
     @staticmethod

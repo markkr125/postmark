@@ -331,7 +331,9 @@ def test_build_llm_ollama_chat_respects_explicit_max_output_tokens(
 
     monkeypatch.setattr(svc, "get_secret", lambda _ref: "sk-test")
     os.environ["ALLOW_SHORT_CONTEXT_WINDOWS"] = "true"
-    entry = _entry(provider="ollama", model="ollama/qwen3:8b", base_url="", auth_kind="none", auth_ref="")
+    entry = _entry(
+        provider="ollama", model="ollama/qwen3:8b", base_url="", auth_kind="none", auth_ref=""
+    )
     llm = AiLlmService.build_llm(
         entry,
         stream=True,

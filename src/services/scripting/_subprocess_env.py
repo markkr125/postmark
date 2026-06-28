@@ -67,6 +67,27 @@ _SAFE_ENV_NAMES: frozenset[str] = frozenset(
 )
 
 
+def restricted_python_subprocess_env(
+    *,
+    src_root: str,
+    extra: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """Return the minimal env for the RestrictedPython ``_py_sandbox.py`` worker.
+
+    Sets ``POSTMARK_SANDBOX=1`` so ``services`` package ``__init__`` modules skip
+    heavy re-exports (OpenHands, Deno, Qt) that would OOM parallel test runs.
+    """
+    env: dict[str, str] = {
+        "PATH": os.environ.get("PATH", "/usr/bin"),
+        "PYTHONPATH": src_root,
+        "POSTMARK_SANDBOX": "1",
+        "OPENHANDS_SUPPRESS_BANNER": "1",
+    }
+    if extra:
+        env.update(extra)
+    return env
+
+
 def safe_subprocess_env(extra: dict[str, str] | None = None) -> dict[str, str]:
     """Return a minimal environment for a sandbox subprocess.
 

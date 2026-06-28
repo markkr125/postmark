@@ -73,8 +73,9 @@ def debug_execute(
             os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         )
     )
-    env: dict[str, str] = {"PATH": os.environ.get("PATH", "/usr/bin")}
-    env["PYTHONPATH"] = src_root
+    from services.scripting._subprocess_env import restricted_python_subprocess_env
+
+    env = restricted_python_subprocess_env(src_root=src_root)
 
     try:
         from services.scripting._subprocess_env import terminate_process_tree

@@ -40,30 +40,8 @@ class _AiChatTurnFinalizeMixin:
         panel.flush_pending_assistant_chunks()
         panel_content = panel.streaming_assistant_text()
         panel_thinking = panel.streaming_assistant_thinking()
-        worker_content = content
-        worker_thinking = thinking
         thinking = pick_richest_text(thinking, panel_thinking)
         content = pick_richest_text(content, panel_content)
-        # region agent log
-        try:
-            from debug_stream_log import debug_stream_log
-
-            debug_stream_log(
-                "ai_chat_turn_finalize.py:_on_ai_assistant_finished",
-                "pick_richest_before_end_stream",
-                {
-                    "worker_incoming_content_len": len(worker_content),
-                    "panel_streaming_content_len": len(panel_content),
-                    "picked_content_len": len(content),
-                    "worker_incoming_thinking_len": len(worker_thinking),
-                    "panel_streaming_thinking_len": len(panel_thinking),
-                    "picked_thinking_len": len(thinking),
-                },
-                hypothesis_id="C",
-            )
-        except Exception:
-            pass
-        # endregion
         panel.end_assistant_stream(content, thinking=thinking)
         thinking_duration = panel.last_assistant_thinking_duration_seconds()
         self._persist_assistant_turn(

@@ -179,7 +179,9 @@ def test_postmark_delegate_tool_name_is_parsed() -> None:
     warmed = tracker.ingest(
         ActionEvent(
             "postmark_delegate",
-            DelegateAction("spawn", ids=["ts", "py"], agent_types=["wiki-researcher", "wiki-researcher"]),
+            DelegateAction(
+                "spawn", ids=["ts", "py"], agent_types=["wiki-researcher", "wiki-researcher"]
+            ),
             tool_call_id="spawn1",
         )
     )

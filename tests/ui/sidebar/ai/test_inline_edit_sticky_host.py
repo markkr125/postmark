@@ -140,6 +140,10 @@ def test_inline_edit_allows_readonly_sticky_for_earlier_turn_when_scrolled_up(
     qtbot.wait(50)
     assert panel._inline_edit is not None
 
+    # The earlier-turn read-only sticky is only selectable in a narrow scroll
+    # window (first user row above the viewport top while the edited turn's user
+    # row is not yet visible). Under offscreen Qt the transcript geometry is
+    # compressed, so step in small increments to avoid jumping over that window.
     bar = panel._scroll.verticalScrollBar()
     found = False
     for _ in range(400):
@@ -153,7 +157,9 @@ def test_inline_edit_allows_readonly_sticky_for_earlier_turn_when_scrolled_up(
         ):
             found = True
             break
-        bar.setValue(max(0, bar.value() - 28))
+        if bar.value() <= 0:
+            break
+        bar.setValue(max(0, bar.value() - 8))
         qapp.processEvents()
     assert found, "read-only sticky for the earlier turn never appeared"
     panel.end_inline_edit(restore_bubble=True)

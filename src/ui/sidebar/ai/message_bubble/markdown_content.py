@@ -197,50 +197,11 @@ class MarkdownContent(QWidget):
 
     def end_streaming(self, *, render: bool = True) -> None:
         """Leave streaming mode and optionally re-render the final markdown."""
-        # region agent log
-        try:
-            from debug_stream_log import debug_stream_log
-
-            plain_len = len(self._document.toPlainText())
-            debug_stream_log(
-                "markdown_content.py:end_streaming",
-                "end_streaming_render",
-                {
-                    "markdown_source_len": len(self._markdown),
-                    "document_plain_len": plain_len,
-                    "widget_height": self.height(),
-                    "render": render,
-                    "markdown_tail": self._markdown[-160:] if self._markdown else "",
-                },
-                hypothesis_id="D,E",
-            )
-        except Exception:
-            pass
-        # endregion
         self._streaming = False
         self._stream_cache.clear()
         self._stream_layout_floor_px = 0
         if render:
             self._render_markdown()
-            # region agent log
-            try:
-                from debug_stream_log import debug_stream_log
-
-                plain_len_after = len(self._document.toPlainText())
-                debug_stream_log(
-                    "markdown_content.py:end_streaming",
-                    "end_streaming_after_render",
-                    {
-                        "markdown_source_len": len(self._markdown),
-                        "document_plain_len": plain_len_after,
-                        "widget_height": self.height(),
-                    },
-                    hypothesis_id="D",
-                    run_id="post-fix",
-                )
-            except Exception:
-                pass
-            # endregion
 
     def set_markdown(self, text: str) -> None:
         """Replace the markdown source and re-render."""

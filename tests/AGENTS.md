@@ -43,7 +43,10 @@
    ``pytest.mark.xdist_group("sidebar_qt")`` via ``tests/ui/sidebar/conftest.py``
    (including transcript memory cases — run ``-n0`` when debugging a single file).
    RestrictedPython subprocess tests use ``pytest.mark.xdist_group("restricted_python_sandbox")``
-   and ``tests/conftest.py`` caps xdist workers at 8, reaps child zombies after
+   and ``tests/unit/services/conftest.py`` holds a cross-worker ``fcntl`` lock so
+   ``test_script_sandbox.py`` and ``test_pm_python_parity.py`` do not spawn sandboxes
+   in parallel under ``--dist loadfile``. ``tests/conftest.py`` caps xdist workers at 8,
+   reaps child zombies after
    each test, and tears down sandbox subprocesses via detached process groups.
 6. **The `_no_fetch` fixture is autouse in `tests/ui/`** — it prevents
    `CollectionWidget` from spawning a background thread.  You do not need
@@ -224,6 +227,7 @@ tests/
 │   │       ├── test_text_format_helpers.py
 │   │       └── test_text_format_async.py
 │   └── services/                  # Service layer tests
+│       ├── conftest.py            # cross-worker fcntl lock for restricted_python_sandbox
 │       ├── test_service.py
 │       ├── test_environment_service.py
 │       ├── test_import_parser.py

@@ -148,20 +148,6 @@ class AiChatWorker(QObject):
         """Close *conv* and emit ``failed`` with any assistant text collected."""
         parts = resolve_assistant_parts(conv, self._thinking_buffer, self._content_buffer)
         failed_records = self._subagent_tracker.fail_inflight()
-        # #region agent log
-        from debug_stream_log import debug_stream_log
-
-        debug_stream_log(
-            "chat_worker.py:_emit_failure",
-            "turn failed; fail_inflight applied",
-            {
-                "message": message[:200],
-                "failed_subagent_count": len(failed_records),
-                "failed_ids": [r["id"] for r in failed_records],
-            },
-            hypothesis_id="H3",
-        )
-        # #endregion
         if failed_records:
             self.subagent_updated.emit(self._subagent_tracker.records())
         _safe_close(conv)
@@ -279,69 +265,6 @@ class AiChatWorker(QObject):
             final = resolve_assistant_parts(conv, self._thinking_buffer, self._content_buffer)
             think_tail = final.thinking[len(self._thinking_buffer) :]
             content_tail = final.content[len(self._content_buffer) :]
-            # region agent log
-            try:
-                from services.ai.chat.response_text import extract_richest_parts
-
-                from debug_stream_log import debug_stream_log
-
-                event_parts = extract_richest_parts(conv) if conv is not None else None
-                debug_stream_log(
-                    "chat_worker.py:run",
-                    "assistant_turn_finalize_lengths",
-                    {
-                        "buffer_content_len": len(self._content_buffer),
-                        "buffer_thinking_len": len(self._thinking_buffer),
-                        "events_content_len": len(event_parts.content) if event_parts else 0,
-                        "events_thinking_len": len(event_parts.thinking) if event_parts else 0,
-                        "final_content_len": len(final.content),
-                        "final_thinking_len": len(final.thinking),
-                        "content_tail_len": len(content_tail),
-                        "think_tail_len": len(think_tail),
-                        "final_content_tail": final.content[-120:] if final.content else "",
-                    },
-                    hypothesis_id="B",
-                )
-            except Exception:
-                pass
-            # endregion
-            # #region agent log
-            try:
-                from debug_stream_log import debug_stream_log
-
-                action_count = 0
-                delegate_count = 0
-                if conv is not None:
-                    for ev in list(getattr(conv.state, "events", []) or []):
-                        if type(ev).__name__ == "ActionEvent":
-                            action_count += 1
-                            if str(getattr(ev, "tool_name", "")) in (
-                                "delegate",
-                                "postmark_delegate",
-                            ):
-                                delegate_count += 1
-                agent_obj = getattr(conv, "agent", None)
-                llm_obj = getattr(agent_obj, "llm", None)
-                debug_stream_log(
-                    "chat_worker.py:run",
-                    "turn_budget_vs_toolcalls",
-                    {
-                        "thinking_chars": len(final.thinking),
-                        "content_chars": len(final.content),
-                        "approx_thinking_tokens": len(final.thinking) // 4,
-                        "action_event_count": action_count,
-                        "delegate_action_count": delegate_count,
-                        "max_output_tokens": getattr(llm_obj, "max_output_tokens", None),
-                        "effective_max_output_tokens": getattr(
-                            llm_obj, "effective_max_output_tokens", None
-                        ),
-                    },
-                    hypothesis_id="H-budget",
-                    run_id="pre-fix",
-                )
-            except Exception:
-                pass
-            # #endregion
             if think_tail or content_tail:
                 self.chunk_received.emit(think_tail, content_tail)
             self._thinking_buffer = final.thinking
