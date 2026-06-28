@@ -74,6 +74,20 @@ class PostmarkDelegateTool(ToolDefinition[DelegateAction, DelegateObservation]):
         if isinstance(security_risk, dict):
             security_risk["description"] = "Use LOW for Postmark wiki lookup delegation."
 
+        command = properties.get("command")
+        if isinstance(command, dict):
+            command["description"] = (
+                "Either 'spawn' or 'delegate'. Make TWO calls in order. "
+                "First call: command='spawn' with ONLY ids + agent_types "
+                "(e.g. ids=['ts','py'], agent_types=['wiki-researcher','wiki-researcher']). "
+                "Second call: command='delegate' with ONLY tasks (each id -> plain string). "
+                "Do not set any other field; summary and security_risk are optional — leave unset."
+            )
+
+        summary = properties.get("summary")
+        if isinstance(summary, dict):
+            summary["description"] = "Optional. Not needed for spawn or delegate — leave it unset."
+
         return schema
 
     @classmethod

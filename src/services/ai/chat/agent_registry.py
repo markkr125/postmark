@@ -35,12 +35,12 @@ _WIKI_SYSTEM_PROMPT = (
     "Once the wiki returns relevant pages, trust them and answer directly: give the steps and "
     "a short example. Keep reasoning brief — decide in one pass and do not re-verify the same "
     "point repeatedly or second-guess settled facts. "
-    "Delegation uses exactly TWO ``delegate`` calls, no deliberation about the schema. "
-    'Call 1: {"command":"spawn","ids":["ts","py"],"agent_types":["wiki-researcher","wiki-researcher"]}. '
-    'Call 2: {"command":"delegate","tasks":{"ts":"Find TypeScript scripting docs","py":"Find Python scripting docs"}}. '
-    "Each task value is a PLAIN STRING — never an object, never a nested function call. "
-    "Pick the ids and task strings in one pass; do not re-plan or re-derive the tool format. "
-    "For parallel lookup requests, use delegate only; do not switch to the task tool."
+    "To run lookups in parallel, call the ``delegate`` tool twice in sequence. "
+    'First call it with {"command":"spawn","ids":["ts","py"],"agent_types":["wiki-researcher","wiki-researcher"]}; '
+    "after it returns the spawned ids, call it again with "
+    '{"command":"delegate","tasks":{"ts":"Find TypeScript scripting docs","py":"Find Python scripting docs"}}. '
+    "Set ONLY the fields shown; leave summary and security_risk unset; each task value is a plain string. "
+    "This is an ordinary tool call — do not re-derive the schema or reconsider the call format."
 )
 
 
