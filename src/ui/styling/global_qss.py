@@ -1820,13 +1820,7 @@ def build_global_qss(p: ThemePalette) -> str:
         border: 1px solid {p["border"]};
         border-radius: 8px;
     }}
-    QPushButton[objectName="aiChatSubagentHeader"] {{
-        background: transparent;
-        border: none;
-        text-align: left;
-        padding: 0;
-    }}
-    QPushButton[objectName="aiChatSubagentHeader"]:hover {{
+    QWidget[objectName="aiChatSubagentHeader"] {{
         background: transparent;
     }}
     QLabel[objectName="aiChatSubagentLabel"] {{
@@ -1848,37 +1842,37 @@ def build_global_qss(p: ThemePalette) -> str:
         color: {p["text_muted"]};
         font-size: 11px;
     }}
-    QWidget[objectName="aiChatSubagentCardBody"] {{
-        background: transparent;
+    QDialog[objectName="aiChatSubagentDetailDialog"] {{
+        background: {p["bg"]};
     }}
-    QWidget[objectName="aiChatSubagentStep"] {{
+    QLabel[objectName="aiChatSubagentDetailTitle"] {{
         background: transparent;
+        border: none;
+        color: {p["text"]};
+        font-size: 16px;
+        font-weight: 600;
     }}
-    QLabel[objectName="aiChatSubagentStepSummary"] {{
+    QLabel[objectName="aiChatSubagentDetailMeta"] {{
         background: transparent;
         border: none;
         color: {p["text_muted"]};
         font-size: 12px;
     }}
-    QLabel[objectName="aiChatSubagentOutputBlock"] {{
+    QLabel[objectName="aiChatSubagentDetailSectionHeading"] {{
+        background: transparent;
+        border: none;
+        color: {p["text_muted"]};
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+    }}
+    QLabel[objectName="aiChatSubagentDetailTask"] {{
         background: {p["input_bg"]};
         border: 1px solid {p["border"]};
         border-radius: 6px;
         color: {p["text"]};
-        font-family: monospace;
-        font-size: 11px;
-        padding: 8px 10px;
-    }}
-    QFrame[objectName="aiChatSubagentDetailPopup"] {{
-        min-width: 320px;
-        max-width: 480px;
-    }}
-    QTextEdit[objectName="aiChatSubagentDetailBody"] {{
-        background: {p["input_bg"]};
-        border: 1px solid {p["border"]};
-        border-radius: 4px;
-        color: {p["text"]};
-        font-size: 12px;
+        font-size: 13px;
+        padding: 10px 12px;
     }}
     QWidget[objectName="aiChatOlderLoadingRow"] {{
         background: transparent;

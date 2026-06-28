@@ -254,6 +254,7 @@ class _ChatPanelTranscriptLoadMixin:
             if session_id and msg_index is not None and pricing_messages:
                 from services.ai.chat.subagent_events import records_for_assistant_turn
 
+                bubble.set_subagent_session_id(session_id)
                 bubble.set_subagent_records(
                     records_for_assistant_turn(session_id, pricing_messages, msg_index)
                 )

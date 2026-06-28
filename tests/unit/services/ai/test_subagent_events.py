@@ -11,6 +11,7 @@ class TaskAction:
     def __init__(self, **kw: object) -> None:
         """Initialize stand-in task action fields."""
         self.description = kw.get("description")
+        self.prompt = kw.get("prompt")
         self.subagent_type = kw.get("subagent_type", "wiki-researcher")
         self.resume = kw.get("resume")
 
@@ -155,22 +156,87 @@ def test_delegate_spawn_and_delegate_flow() -> None:
             "delegate",
             DelegateAction(
                 "delegate",
-                tasks={"research": "Find scripting docs", "summarize": "Summarize results"},
+                tasks={
+                    "research": "Find TypeScript scripting documentation in Postmark wiki",
+                    "summarize": "Summarize results for the parent agent",
+                },
             ),
             tool_call_id="d2",
         )
     )
     assert len(running) == 2
     assert all(r["status"] == "running" for r in running)
+    by_id = {r["id"]: r for r in running}
+    assert by_id["research"]["task_prompt"] == (
+        "Find TypeScript scripting documentation in Postmark wiki"
+    )
+    assert by_id["summarize"]["task_prompt"] == "Summarize results for the parent agent"
+    assert len(by_id["research"]["label"]) <= 80
 
     completed = tracker.ingest(
         ObservationEvent(
             "delegate",
-            DelegateObservation("delegate", is_error=False, text="Both agents finished."),
+            DelegateObservation(
+                "delegate",
+                is_error=False,
+                text=(
+                    "Completed delegation of 2 tasks\n\nResults:\n"
+                    "1. Agent research: **TypeScript docs**\n\nSee pm.require.\n"
+                    "2. Agent summarize: **Summary**\n\nCombined findings."
+                ),
+            ),
         )
     )
     assert len(completed) == 2
     assert all(r["status"] == "completed" for r in completed)
+    by_id = {r["id"]: r for r in completed}
+    assert "**TypeScript docs**" in by_id["research"]["result_preview"]
+    assert "**Summary**" in by_id["summarize"]["result_preview"]
+    assert "Completed delegation" not in by_id["research"]["result_preview"]
+
+
+def test_delegate_agent_results_from_observation() -> None:
+    """Parent delegate observation text splits into per-agent markdown bodies."""
+    from services.ai.chat.subagent_events import delegate_agent_results_from_observation
+
+    text = (
+        "Completed delegation of 2 tasks\n\nResults:\n"
+        "1. Agent py: **Python scripting docs**\n"
+        "* Repository path: docs/scripting/python-api.md\n"
+        "2. Agent ts: **TypeScript docs**\n"
+        "* Repository path: docs/scripting/typescript-api.md\n"
+    )
+    results = delegate_agent_results_from_observation(text)
+    assert "Repository path: docs/scripting/python-api.md" in results["py"]
+    assert "Repository path: docs/scripting/typescript-api.md" in results["ts"]
+
+
+def test_wiki_action_stores_full_task_prompt() -> None:
+    """Wiki cards keep the full query in task_prompt."""
+    tracker = SubagentEventTracker()
+    started = tracker.ingest(
+        ActionEvent(
+            "postmark_wiki_query",
+            WikiQueryAction("how to send request with variables"),
+            tool_call_id="wiki_tc",
+        )
+    )
+    assert started[0]["task_prompt"] == "how to send request with variables"
+
+
+def test_task_action_stores_full_prompt() -> None:
+    """Task tool stores the full prompt when description is absent."""
+    tracker = SubagentEventTracker()
+    changed = tracker.ingest(
+        ActionEvent(
+            "task",
+            TaskAction(
+                prompt="Search the wiki for Python scripting API details",
+                subagent_type="wiki-researcher",
+            ),
+        )
+    )
+    assert changed[0]["task_prompt"] == "Search the wiki for Python scripting API details"
 
 
 def test_postmark_delegate_tool_name_is_parsed() -> None:

@@ -321,15 +321,16 @@ standard object names:
 | `aiChatActivityRow` | `QWidget` | Spinner + status caption while waiting for the first stream token; hidden while subagent cards are active (cards are the loader) |
 | `aiChatActivitySpinner` | `QLabel` | Braille spinner in the activity row (reuses `busyChipSpinner` QSS) |
 | `aiChatActivityLabel` | `QLabel` | Muted activity caption (`Thinking…`, SDK status, long-wait escalation, subagent aggregate) |
-| `aiChatSubagentGroup` | `QWidget` (`SubagentTaskGroup`) | Vertical stack of Cursor-style subagent cards between thought block(s) and assistant markdown |
-| `aiChatSubagentCard` | `QFrame` (`SubagentTaskCard`) | Collapsible subagent block: header (title + type), status row (`Running`/`Completed`), inline activity steps + monospace output blocks; cards replace `aiChatActivityRow` while active |
-| `aiChatSubagentHeader` | `QPushButton` | Flat toggle for expand/collapse; minimum height follows wrapped `aiChatSubagentLabel` |
+| `aiChatSubagentGroup` | `QWidget` (`SubagentTaskGroup`) | Vertical stack of subagent summary cards between thought block(s) and assistant markdown |
+| `aiChatSubagentCard` | `QFrame` (`SubagentTaskCard`) | Compact subagent row: title, agent type, status; click opens detail dialog; replaces `aiChatActivityRow` while active |
+| `aiChatSubagentHeader` | `QWidget` | Title row container; minimum height follows wrapped `aiChatSubagentLabel` |
 | `aiChatSubagentLabel` | `_WrappingLabel` | Bold wrapped task title in the card header |
+| `aiChatSubagentOpenIcon` | `QLabel` | Open-in-window affordance on the card header |
 | `aiChatSubagentStatusLabel` | `QLabel` | Muted status caption (`Starting` / `Running` / `Completed` / `Failed`) |
-| `aiChatSubagentCardBody` | `QWidget` (`SubagentCardBody`) | Step list inside an expanded card |
-| `aiChatSubagentStepSummary` | `QLabel` | One activity line (`Thought briefly`, `Read tool output`, …) |
-| `aiChatSubagentOutputBlock` | `QLabel` | Dark monospace tool-output block inside a step |
-| `aiChatSubagentDetailPopup` | `QFrame` (`SubagentDetailPopup`) | Read-only drill-in flyout for full subagent transcript; anchored to card; no composer |
+| `aiChatSubagentDetailDialog` | `QDialog` (`SubagentDetailDialog`) | Non-modal window: full task prompt + markdown reply; streams from disk while running |
+| `aiChatSubagentDetailTask` | `QLabel` | Read-only delegated task prompt in the detail dialog |
+| `aiChatSubagentDetailScroll` | `QScrollArea` | Scroll container for subagent reply markdown |
+| `aiChatAssistantText` | `MarkdownContent` | Subagent reply body in the detail dialog (same renderer as assistant rows) |
 | `aiChatTranscriptLoading` | `QWidget` (`ChatTranscriptLoadingOverlay`) | Viewport overlay with indeterminate line animation while a session transcript loads; hidden after `_finish_load_transcript_layout` |
 | `aiChatOlderLoadingRow` | `QWidget` (`TranscriptOlderLoadingRow`) | In-transcript top row with spinner + **Fetching older messages…** while a silent older page loads; hidden after `apply_older_page` |
 | `aiChatVirtualSpacer` | `QWidget` | Invisible fixed-height placeholder for evicted transcript rows (top/bottom virtual window); evicted user rows cache prompt metadata in `_evicted_turn_users` for sticky overlay |

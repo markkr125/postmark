@@ -800,10 +800,17 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
 
     @Slot()
     def _poll_active_subagent_cards(self) -> None:
-        """Refresh inline subagent step bodies from persisted subagent runs."""
+        """Refresh subagent cards and any open detail window from disk."""
         bubble = self._resolve_streaming_bubble()
         if bubble is None or bubble.subagent_active_count() == 0:
             self._subagent_poll_timer.stop()  # type: ignore[attr-defined]
             return
         bubble.refresh_subagent_steps()
+        dialog = getattr(self, "_subagent_detail_dialog", None)
+        if dialog is not None:
+            open_id = dialog.record_id()
+            if open_id and dialog.isVisible():
+                updated = bubble.subagent_record(open_id)
+                if updated is not None:
+                    dialog.refresh_record(updated)
         self._reconcile_transcript_content_size()  # type: ignore[attr-defined]

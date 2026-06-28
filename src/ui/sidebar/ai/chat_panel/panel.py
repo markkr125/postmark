@@ -20,7 +20,7 @@ from ui.sidebar.ai.chat_panel_streaming import _ChatPanelStreamingMixin
 from ui.sidebar.ai.chat_transcript_loading_row import ChatTranscriptLoadingOverlay
 from ui.sidebar.ai.message_bubble import ChatMessageBubble
 from ui.sidebar.ai.model_picker_popup import AiModelPickerPopup
-from ui.sidebar.ai.subagent_detail_popup import SubagentDetailPopup
+from ui.sidebar.ai.subagent_detail_dialog import SubagentDetailDialog
 from ui.styling.icons import phi
 
 _EMPTY_STATE_TEXT = "Ask anything about your API requests."
@@ -246,7 +246,7 @@ class AiChatPanel(
             queued,
         )
 
-        self._subagent_detail_popup = SubagentDetailPopup(self)
+        self._subagent_detail_dialog: SubagentDetailDialog | None = None
 
         self.set_models([])
         self._reset_context_usage_chrome()
@@ -341,6 +341,8 @@ class AiChatPanel(
             bubble = self._ensure_streaming_turn_widgets()  # type: ignore[attr-defined]
         else:
             self._streaming_bubble = bubble  # type: ignore[attr-defined]
+        session_id = getattr(self, "_virtual_session_id", None) or self._context_session_id
+        bubble.set_subagent_session_id(session_id)
         bubble.set_subagent_records(normalized)
         self._sync_subagent_poll_timer()  # type: ignore[attr-defined]
         self._request_turn_bottom_scroll()  # type: ignore[attr-defined]
@@ -591,23 +593,22 @@ class AiChatPanel(
         bubble.copy_requested.connect(self._on_assistant_bubble_copy)
         bubble.subagent_card_clicked.connect(self._on_subagent_card_clicked)
 
+    def _ensure_subagent_detail_dialog(self) -> SubagentDetailDialog:
+        """Create the subagent detail window on first use."""
+        if self._subagent_detail_dialog is None:
+            self._subagent_detail_dialog = SubagentDetailDialog(self)
+        return self._subagent_detail_dialog
+
     def _on_subagent_card_clicked(self, record_id: str) -> None:
-        """Open read-only drill-in for one subagent card."""
+        """Open the subagent detail window for one card."""
         bubble = self.sender()
         if not isinstance(bubble, ChatMessageBubble):
             return
         record = bubble.subagent_record(record_id)
         if record is None:
             return
-        self._subagent_detail_popup.set_record(record)
-        card = None
-        if bubble._subagent_group is not None:
-            for candidate in bubble._subagent_group.cards():
-                if candidate.record_id() == record_id:
-                    card = candidate
-                    break
-        anchor = card if card is not None else bubble
-        self._subagent_detail_popup.show_below(anchor)
+        session_id = getattr(self, "_virtual_session_id", None) or self._context_session_id
+        self._ensure_subagent_detail_dialog().open_record(record, session_id=session_id)
 
     def _wire_user_bubble_actions(self, bubble: ChatMessageBubble) -> None:
         """Connect fork/edit affordances for one user transcript row."""

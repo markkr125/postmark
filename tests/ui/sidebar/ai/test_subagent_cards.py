@@ -7,7 +7,6 @@ from PySide6.QtWidgets import QApplication, QLabel
 
 from services.ai.chat.subagent_events import SubagentRunRecord
 from ui.sidebar.ai.message_bubble import ChatMessageBubble
-from ui.sidebar.ai.message_bubble.subagent.body import SubagentCardBody
 
 
 def test_subagent_card_running_shows_inline_loader(qapp: QApplication, qtbot) -> None:
@@ -32,8 +31,8 @@ def test_subagent_card_running_shows_inline_loader(qapp: QApplication, qtbot) ->
     assert card.isVisible()
 
 
-def test_subagent_completed_card_shows_status_and_steps(qapp: QApplication, qtbot) -> None:
-    """Completed cards show Cursor-style status and output blocks."""
+def test_subagent_completed_card_shows_status(qapp: QApplication, qtbot) -> None:
+    """Completed cards show status without an inline expandable body."""
     bubble = ChatMessageBubble("assistant", "")
     qtbot.addWidget(bubble)
     bubble.show()
@@ -43,20 +42,8 @@ def test_subagent_completed_card_shows_status_and_steps(qapp: QApplication, qtbo
         "label": "how to send request",
         "subagent_type": "wiki-researcher",
         "status": "completed",
+        "task_prompt": "how to send request with variables",
         "result_preview": "Open the Collections sidebar.",
-        "steps": [
-            {
-                "id": "search",
-                "icon": "magnifying-glass",
-                "summary": "how to send request",
-            },
-            {
-                "id": "result",
-                "icon": "article",
-                "summary": "Read tool output",
-                "detail": "Open the Collections sidebar.",
-            },
-        ],
     }
     bubble.upsert_subagent_record(record)
     group = bubble._subagent_group
@@ -65,9 +52,29 @@ def test_subagent_completed_card_shows_status_and_steps(qapp: QApplication, qtbo
     status_labels = card.findChildren(QLabel, "aiChatSubagentStatusLabel")
     assert status_labels
     assert status_labels[0].text() == "Completed"
-    bodies = card.findChildren(SubagentCardBody)
-    assert bodies
-    assert bodies[0].has_steps()
+
+
+def test_subagent_card_click_emits_record_id(qapp: QApplication, qtbot) -> None:
+    """Running cards emit clicked with their record id."""
+    from ui.sidebar.ai.message_bubble.subagent.card import SubagentTaskCard
+
+    card = SubagentTaskCard()
+    qtbot.addWidget(card)
+    card.show()
+    seen: list[str] = []
+    card.clicked.connect(seen.append)
+    card.apply_record(
+        {
+            "id": "py",
+            "kind": "delegate",
+            "label": "Find Python scripting docs",
+            "subagent_type": "wiki-researcher",
+            "status": "running",
+            "task_prompt": "Find Python scripting docs",
+        }
+    )
+    qtbot.mouseClick(card, Qt.MouseButton.LeftButton)
+    assert seen == ["py"]
 
 
 def test_subagent_warming_not_clickable(qapp: QApplication, qtbot) -> None:
@@ -102,7 +109,7 @@ def test_subagent_long_title_header_is_tall_enough(qapp: QApplication, qtbot) ->
         "label": "Search for TypeScript scripting documentation in Postmark wiki",
         "subagent_type": "wiki-researcher",
         "status": "completed",
-        "steps": [{"id": "done", "summary": "Read tool output", "detail": "done"}],
+        "task_prompt": "Search for TypeScript scripting documentation in Postmark wiki",
     }
     card.apply_record(record)
     qtbot.wait(10)
@@ -235,6 +242,7 @@ def test_panel_shows_subagent_cards_on_deliver(qapp: QApplication, qtbot) -> Non
             "label": "Find TypeScript scripting docs",
             "subagent_type": "wiki-researcher",
             "status": "running",
+            "task_prompt": "Find TypeScript scripting docs",
         },
         {
             "id": "py",
@@ -242,6 +250,7 @@ def test_panel_shows_subagent_cards_on_deliver(qapp: QApplication, qtbot) -> Non
             "label": "Find Python scripting docs",
             "subagent_type": "wiki-researcher",
             "status": "running",
+            "task_prompt": "Find Python scripting docs",
         },
     ]
     panel.deliver_subagent_update(records)
@@ -253,3 +262,34 @@ def test_panel_shows_subagent_cards_on_deliver(qapp: QApplication, qtbot) -> Non
     assert group is not None and group.isVisible()
     assert len(group.cards()) == 2
     assert all(card.isVisible() for card in group.cards())
+
+
+def test_panel_card_click_opens_detail_dialog(qapp: QApplication, qtbot) -> None:
+    """Clicking a subagent card opens the non-modal detail window."""
+    from ui.sidebar.ai import AiChatPanel
+
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    panel.begin_assistant_stream()
+    record: SubagentRunRecord = {
+        "id": "ts",
+        "kind": "delegate",
+        "label": "Find TypeScript scripting docs",
+        "subagent_type": "wiki-researcher",
+        "status": "completed",
+        "task_prompt": "Find TypeScript scripting docs in the Postmark wiki",
+        "result_preview": "## TypeScript\n\nSee quickref.",
+    }
+    panel.deliver_subagent_update([record])
+    bubble = panel._streaming_bubble
+    assert bubble is not None
+    group = bubble._subagent_group
+    assert group is not None
+    card = group.cards()[0]
+    qtbot.mouseClick(card, Qt.MouseButton.LeftButton)
+    dialog = panel._subagent_detail_dialog
+    assert dialog is not None
+    assert dialog.isVisible()
+    assert dialog.record_id() == "ts"
+    assert "Find TypeScript scripting docs in the Postmark wiki" in dialog._task.text()

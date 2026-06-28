@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import re
 import time
-from pathlib import Path
 from typing import Any, Literal, NotRequired, TypedDict
 
-from database.data_paths import user_ai_conversations_root
+from services.ai.chat.subagent_disk_registry import (
+    next_unassigned_subagent_disk_path,
+    resolve_subagent_disk_path,
+)
 
 SubagentKind = Literal["task", "delegate", "wiki"]
 SubagentStatus = Literal["warming", "running", "completed", "error"]
@@ -34,6 +37,7 @@ class SubagentRunRecord(TypedDict):
     label: str
     subagent_type: str
     status: SubagentStatus
+    task_prompt: NotRequired[str]
     result_preview: NotRequired[str]
     disk_path: NotRequired[str]
     tool_call_id: NotRequired[str]
@@ -46,18 +50,36 @@ def subagent_type_display(subagent_type: str) -> str:
     return _SUBAGENT_DISPLAY_NAMES.get(subagent_type, subagent_type.replace("-", " ").title())
 
 
-def enrich_subagent_records(records: list[SubagentRunRecord]) -> list[SubagentRunRecord]:
+def enrich_subagent_records(
+    records: list[SubagentRunRecord],
+    *,
+    session_id: str | None = None,
+) -> list[SubagentRunRecord]:
     """Attach live activity steps and disk paths before rendering cards."""
     from services.ai.chat.subagent_transcript import steps_for_subagent_record
 
+    assigned: set[str] = set()
     enriched: list[SubagentRunRecord] = []
+    turn_started_at = min(
+        (float(r.get("started_at", time.time() - 300.0)) for r in records),
+        default=time.time() - 300.0,
+    )
     for record in records:
         copy = SubagentRunRecord(**record)
-        if not copy.get("disk_path"):
-            started = copy.get("started_at", time.time() - 300.0)
-            path = _resolve_disk_path(turn_started_at=started)
+        existing = copy.get("disk_path")
+        if existing:
+            assigned.add(existing)
+        if not copy.get("disk_path") and session_id:
+            started = float(copy.get("started_at", turn_started_at))
+            path = resolve_subagent_disk_path(
+                session_id,
+                copy,
+                turn_started_at=started,
+                assigned=assigned,
+            )
             if path is not None:
                 copy["disk_path"] = path
+                assigned.add(path)
         if not copy.get("steps"):
             copy["steps"] = steps_for_subagent_record(copy)
         enriched.append(copy)
@@ -116,28 +138,34 @@ def _preview(text: str, *, limit: int = 240) -> str:
     return cleaned[: limit - 1].rstrip() + "…"
 
 
-def _subagents_root() -> Path:
-    return user_ai_conversations_root() / "subagents"
+_DELEGATE_AGENT_RESULT_RE = re.compile(
+    r"^\d+\.\s*Agent\s+(?P<id>[^:]+):\s*(?P<body>.*?)(?=^\d+\.\s*Agent\s+|\Z)",
+    re.MULTILINE | re.DOTALL,
+)
 
 
-def _resolve_disk_path(*, turn_started_at: float) -> str | None:
-    root = _subagents_root()
-    if not root.is_dir():
-        return None
-    candidates = [
-        p for p in root.iterdir() if p.is_dir() and p.stat().st_mtime >= turn_started_at - 1.0
-    ]
-    if not candidates:
-        return None
-    newest = max(candidates, key=lambda p: p.stat().st_mtime)
-    return str(newest)
+def delegate_agent_results_from_observation(text: str) -> dict[str, str]:
+    """Parse per-agent reply bodies from a parent ``DelegateObservation`` text blob."""
+    results: dict[str, str] = {}
+    for match in _DELEGATE_AGENT_RESULT_RE.finditer(text):
+        agent_id = match.group("id").strip()
+        body = match.group("body").strip()
+        if agent_id and body:
+            results[agent_id] = body
+    return results
+
+
+def delegate_agent_result_from_observation(text: str, agent_id: str) -> str:
+    """Return the full markdown reply for one spawned id from delegate observation text."""
+    return delegate_agent_results_from_observation(text).get(agent_id, "")
 
 
 class SubagentEventTracker:
     """Stateful parser for task/delegate tool events in one assistant turn."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, session_id: str = "") -> None:
         """Start tracking with an empty record list."""
+        self._session_id = session_id
         self._records: dict[str, SubagentRunRecord] = {}
         self._turn_started_at = time.time()
         self._pending_delegate_ids: list[str] = []
@@ -209,6 +237,8 @@ class SubagentEventTracker:
             "subagent_type": subagent_type,
             "status": "running",
         }
+        if prompt:
+            record["task_prompt"] = str(prompt).strip()
         if tool_call_id:
             record["tool_call_id"] = tool_call_id
         return [self._store_record(record)]
@@ -241,6 +271,18 @@ class SubagentEventTracker:
             changed.append(self._store_record(record))
         return changed
 
+    def _delegate_tasks_in_order(self, tasks: dict[object, object]) -> list[tuple[str, object]]:
+        """Return delegate task entries in spawn order when available."""
+        task_map = {str(key): value for key, value in tasks.items()}
+        ordered: list[str] = []
+        for agent_id in self._pending_delegate_ids:
+            if agent_id in task_map:
+                ordered.append(agent_id)
+        for agent_id in task_map:
+            if agent_id not in ordered:
+                ordered.append(agent_id)
+        return [(agent_id, task_map[agent_id]) for agent_id in ordered]
+
     def _ingest_delegate_task_map(
         self,
         tasks: dict[object, object],
@@ -249,11 +291,12 @@ class SubagentEventTracker:
     ) -> list[SubagentRunRecord]:
         """Mark spawned subagents running from a tasks map."""
         changed: list[SubagentRunRecord] = []
-        for agent_id, task_text in tasks.items():
-            key = str(agent_id)
+        for agent_id, task_text in self._delegate_tasks_in_order(tasks):
+            key = agent_id
             existing = self._records.get(key)
             agent_type = existing["subagent_type"] if existing else "general-purpose"
-            label = _preview(str(task_text), limit=80) or key
+            task_full = str(task_text).strip()
+            label = _preview(task_full, limit=80) or key
             record = SubagentRunRecord(
                 id=key,
                 kind="delegate",
@@ -261,8 +304,17 @@ class SubagentEventTracker:
                 subagent_type=agent_type,
                 status="running",
             )
+            if task_full:
+                record["task_prompt"] = task_full
             if tool_call_id:
                 record["tool_call_id"] = tool_call_id
+            if existing:
+                if existing.get("disk_path"):
+                    record["disk_path"] = existing["disk_path"]
+                    self._disk_paths_assigned.add(existing["disk_path"])
+                if existing.get("started_at"):
+                    record["started_at"] = existing["started_at"]
+            self._assign_disk_path(record)
             changed.append(self._store_record(record))
         return changed
 
@@ -300,6 +352,8 @@ class SubagentEventTracker:
             "subagent_type": "wiki-researcher",
             "status": "running",
         }
+        if query:
+            record["task_prompt"] = query
         if tool_call_id:
             record["tool_call_id"] = tool_call_id
         return [self._store_record(record)]
@@ -360,12 +414,18 @@ class SubagentEventTracker:
     def _assign_disk_path(self, record: SubagentRunRecord) -> None:
         if record.get("disk_path"):
             return
-        path = _resolve_disk_path(turn_started_at=self._turn_started_at)
-        if path is None or path in self._disk_paths_assigned:
+        if not self._session_id:
+            return
+        path = resolve_subagent_disk_path(
+            self._session_id,
+            record,
+            turn_started_at=self._turn_started_at,
+            assigned=self._disk_paths_assigned,
+        )
+        if path is None:
             return
         record["disk_path"] = path
         self._disk_paths_assigned.add(path)
-        self._turn_started_at = time.time()
 
     def _ingest_task_observation(
         self, observation: object, *, tool_call_id: str
@@ -415,6 +475,11 @@ class SubagentEventTracker:
         changed: list[SubagentRunRecord] = []
 
         if command == "spawn":
+            for record in self._records.values():
+                if record["kind"] != "delegate" or record.get("disk_path"):
+                    continue
+                self._assign_disk_path(record)
+                changed.append(self._store_record(record))
             return changed
 
         running = [
@@ -429,18 +494,26 @@ class SubagentEventTracker:
                 if r["kind"] == "delegate" and r["status"] in ("warming", "running")
             ]
         final_status: SubagentStatus = "error" if is_error else "completed"
+        per_agent = delegate_agent_results_from_observation(text)
         for record in running:
             record["status"] = final_status
-            if text and not record.get("result_preview"):
+            agent_result = per_agent.get(record["id"], "")
+            if agent_result and not record.get("result_preview"):
+                record["result_preview"] = agent_result
+            elif text and not record.get("result_preview"):
                 record["result_preview"] = _preview(text)
             self._assign_disk_path(record)
             changed.append(self._store_record(record))
         return changed
 
 
-def records_for_turn_events(events: list[Any]) -> list[SubagentRunRecord]:
+def records_for_turn_events(
+    events: list[Any],
+    *,
+    session_id: str = "",
+) -> list[SubagentRunRecord]:
     """Rebuild subagent cards from a slice of parent session SDK events."""
-    tracker = SubagentEventTracker()
+    tracker = SubagentEventTracker(session_id=session_id)
     for event in events:
         tracker.ingest(event)
     return tracker.records()
@@ -491,7 +564,7 @@ def records_for_assistant_turn(
         return []
     turn_index = _turn_index_for_message(messages, msg_index)
     slice_events = _slice_events_for_turn(events, turn_index)
-    return records_for_turn_events(slice_events)
+    return records_for_turn_events(slice_events, session_id=session_id)
 
 
 __all__ = [
@@ -500,7 +573,10 @@ __all__ = [
     "SubagentKind",
     "SubagentRunRecord",
     "SubagentStatus",
+    "delegate_agent_result_from_observation",
+    "delegate_agent_results_from_observation",
     "enrich_subagent_records",
+    "next_unassigned_subagent_disk_path",
     "records_for_assistant_turn",
     "records_for_turn_events",
     "subagent_type_display",

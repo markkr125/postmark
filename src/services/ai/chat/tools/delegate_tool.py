@@ -10,7 +10,7 @@ from openhands.sdk.tool.tool import (
     ToolDefinition,
 )
 from openhands.tools.delegate.definition import DelegateAction, DelegateObservation
-from openhands.tools.delegate.impl import DelegateExecutor
+from services.ai.chat.tools.delegate_executor import PostmarkDelegateExecutor
 from services.ai.chat.subagent_limits import max_parallel_subagents
 
 if TYPE_CHECKING:
@@ -101,7 +101,7 @@ class PostmarkDelegateTool(ToolDefinition[DelegateAction, DelegateObservation]):
         if params:
             msg = "delegate does not accept extra parameters"
             raise ValueError(msg)
-        executor = DelegateExecutor(max_children=max_parallel_subagents())
+        executor = PostmarkDelegateExecutor(max_children=max_parallel_subagents())
         return [
             cls(
                 description=DELEGATE_TOOL_DESCRIPTION,

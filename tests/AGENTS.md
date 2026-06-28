@@ -283,6 +283,8 @@ tests/
 │       │   ├── test_postmark_agent_registry.py
 │       │   ├── test_subagent_registry.py
 │       │   ├── test_subagent_events.py
+│       │   ├── test_subagent_disk_registry.py
+│       │   ├── test_subagent_transcript.py
 │       │   ├── test_subagent_limits.py
 │       │   ├── test_delegate_tool.py
 │       │   ├── test_build_app_wiki.py
@@ -399,7 +401,8 @@ tests/
    │       ├── test_context_ring_button.py
    │       ├── test_assistant_message_footer.py
    │       ├── test_assistant_message_actions.py
-   │       ├── test_subagent_cards.py  # SubagentTaskCard spinner, activity caption, warm-up guard
+   │       ├── test_subagent_cards.py  # SubagentTaskCard summary row, click opens dialog
+   │       ├── test_subagent_detail_dialog.py  # SubagentDetailDialog task + markdown reply
    │       ├── test_thought_streaming_bounce.py  # E2E: thinking block grows monotonically, no bounce/oscillation
    │       ├── test_user_message_actions.py
    │       ├── test_inline_edit_message.py

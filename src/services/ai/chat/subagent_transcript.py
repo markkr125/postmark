@@ -4,10 +4,20 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from collections.abc import Sequence
+from typing import TypedDict
 
 from services.ai.chat.subagent_events import SubagentActivityStep, SubagentRunRecord
 
 logger = logging.getLogger(__name__)
+
+
+class SubagentTranscriptView(TypedDict):
+    """Task prompt and assistant markdown extracted from a subagent EventLog."""
+
+    task_prompt: str
+    answer_markdown: str
+    event_count: int
 
 
 def steps_for_subagent_record(record: SubagentRunRecord) -> list[SubagentActivityStep]:
@@ -55,6 +65,83 @@ def steps_for_subagent_record(record: SubagentRunRecord) -> list[SubagentActivit
             }
         ]
     return [{"id": f"{record['id']}:done", "icon": "check", "summary": "Completed"}]
+
+
+def load_subagent_transcript_view(
+    disk_path: str,
+    *,
+    fallback_task_prompt: str = "",
+) -> SubagentTranscriptView:
+    """Return the delegated task prompt and assistant markdown from disk events."""
+    root = Path(disk_path)
+    if not root.is_dir():
+        return SubagentTranscriptView(
+            task_prompt=fallback_task_prompt,
+            answer_markdown="",
+            event_count=0,
+        )
+    try:
+        from openhands.sdk.conversation.event_store import EventLog
+        from openhands.sdk.io.local import LocalFileStore
+    except ImportError:
+        return SubagentTranscriptView(
+            task_prompt=fallback_task_prompt,
+            answer_markdown="",
+            event_count=0,
+        )
+
+    try:
+        store = LocalFileStore(root=str(root))
+        log = EventLog(store)
+        events = [log[index] for index in range(len(log))]
+        return parse_subagent_transcript_events(
+            events,
+            fallback_task_prompt=fallback_task_prompt,
+        )
+    except Exception:
+        logger.debug("Failed to load subagent transcript from %s", disk_path, exc_info=True)
+        return SubagentTranscriptView(
+            task_prompt=fallback_task_prompt,
+            answer_markdown="",
+            event_count=0,
+        )
+
+
+def parse_subagent_transcript_events(
+    events: Sequence[object],
+    *,
+    fallback_task_prompt: str = "",
+) -> SubagentTranscriptView:
+    """Parse SDK events into task prompt and assistant markdown (testable without disk)."""
+    task_prompt = fallback_task_prompt.strip()
+    assistant_parts: list[str] = []
+
+    for event in events:
+        name = type(event).__name__
+        if name != "MessageEvent":
+            continue
+        message = getattr(event, "llm_message", None)
+        role = getattr(message, "role", None)
+        thinking = getattr(event, "reasoning_content", None)
+        if isinstance(thinking, str) and thinking.strip():
+            continue
+        text = _message_text(message)
+        if not text:
+            continue
+        if role == "user" and not task_prompt:
+            task_prompt = text
+        elif role == "assistant":
+            assistant_parts.append(text)
+
+    answer = assistant_parts[-1] if assistant_parts else ""
+    if not answer and len(assistant_parts) > 1:
+        answer = "\n\n".join(assistant_parts)
+
+    return SubagentTranscriptView(
+        task_prompt=task_prompt,
+        answer_markdown=answer.strip(),
+        event_count=len(events),
+    )
 
 
 def load_subagent_activity_steps(disk_path: str, *, limit: int = 16) -> list[SubagentActivityStep]:
@@ -143,42 +230,29 @@ def load_subagent_activity_steps(disk_path: str, *, limit: int = 16) -> list[Sub
 
 def load_subagent_transcript_preview(disk_path: str, *, limit: int = 4000) -> str:
     """Return a plain-text preview from subagent SDK events on disk."""
-    root = Path(disk_path)
-    if not root.is_dir():
-        return ""
-    try:
-        from openhands.sdk.conversation.event_store import EventLog
-        from openhands.sdk.io.local import LocalFileStore
-    except ImportError:
-        return ""
+    view = load_subagent_transcript_view(disk_path)
+    body = view["answer_markdown"]
+    if len(body) > limit:
+        return body[: limit - 1].rstrip() + "…"
+    return body
 
-    try:
-        store = LocalFileStore(root=str(root))
-        log = EventLog(store)
-        parts: list[str] = []
-        for index in range(len(log)):
-            event = log[index]
-            name = type(event).__name__
-            if name == "MessageEvent":
-                role = getattr(getattr(event, "llm_message", None), "role", None)
-                content = getattr(getattr(event, "llm_message", None), "content", None)
-                if isinstance(content, list):
-                    for block in content:
-                        text = getattr(block, "text", None)
-                        if isinstance(text, str) and text.strip():
-                            parts.append(f"{role or 'message'}: {text.strip()}")
-            elif name == "ObservationEvent":
-                observation = getattr(event, "observation", None)
-                text = _observation_text(observation)
-                if text:
-                    parts.append(text.strip())
-        body = "\n\n".join(parts).strip()
-        if len(body) > limit:
-            return body[: limit - 1].rstrip() + "…"
-        return body
-    except Exception:
-        logger.debug("Failed to load subagent transcript from %s", disk_path, exc_info=True)
+
+def _message_text(message: object | None) -> str:
+    """Extract plaintext from an SDK llm message object."""
+    if message is None:
         return ""
+    content = getattr(message, "content", None)
+    if isinstance(content, str) and content.strip():
+        return content.strip()
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            text = getattr(block, "text", None)
+            if isinstance(text, str) and text.strip():
+                parts.append(text.strip())
+        if parts:
+            return "\n".join(parts)
+    return ""
 
 
 def _observation_text(observation: object | None) -> str:
@@ -232,7 +306,10 @@ def _collapse_search_steps(
 
 
 __all__ = [
+    "SubagentTranscriptView",
     "load_subagent_activity_steps",
     "load_subagent_transcript_preview",
+    "load_subagent_transcript_view",
+    "parse_subagent_transcript_events",
     "steps_for_subagent_record",
 ]

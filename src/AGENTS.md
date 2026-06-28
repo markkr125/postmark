@@ -164,9 +164,16 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   Built-in subagent types: `wiki-researcher` (`postmark_wiki_query` only) and
   `general-purpose` (no tools). Optional file agents from
   `.agents/agents/*.md` via `register_file_agents(project_root())`.
-  Subagent runs persist under `user_ai_conversations_root()/subagents/{uuid}/`;
-  `SubagentEventTracker` (`subagent_events.py`) parses task/delegate SDK events
-  in `AiChatWorker.event_cb` and emits `subagent_updated`. Parallel delegate
+  Subagent runs persist under ``<session_disk>/subagents/{uuid}/`` (per parent
+  chat session). ``PostmarkDelegateExecutor`` registers spawn id → folder at
+  spawn time (`subagent_disk_registry.py`); ``SubagentEventTracker``
+  (`subagent_events.py`) parses task/delegate SDK events in ``AiChatWorker.event_cb``
+  and emits ``subagent_updated``. Records include ``task_prompt`` (full delegated
+  task) and ``disk_path`` (child conversation dir). Reload falls back to task-text
+  matching under the session ``subagents/`` dir when the in-memory registry is empty.
+  Clicking a transcript card opens ``SubagentDetailDialog`` (non-modal) with
+  markdown reply streaming from disk via ``load_subagent_transcript_view``.
+  Parallel delegate
   cap: `max_parallel_subagents()` (`subagent_limits.py`, QSettings
   `ai/max_parallel_subagents`, default 5). `max_iteration_per_run` is 10 for
   delegation + wiki tool loops.

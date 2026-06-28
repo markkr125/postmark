@@ -124,7 +124,7 @@ class AiChatWorker(QObject):
         self._thinking_buffer = ""
         self._content_buffer = ""
         self._compaction_status_emitted = False
-        self._subagent_tracker = SubagentEventTracker()
+        self._subagent_tracker = SubagentEventTracker(session_id=session_id)
 
     def cancel(self) -> None:
         """Request interruption of the in-flight conversation run.

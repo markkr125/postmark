@@ -225,7 +225,8 @@ src/
 │   │       ├── agent_registry.py  # PostmarkAgentDef + DEFAULT_AGENT_ID + delegation tools
 │   │       ├── subagent_registry.py # register_postmark_subagents (wiki-researcher, general-purpose)
 │   │       ├── subagent_events.py # SubagentEventTracker + SubagentRunRecord parsing
-│   │       ├── subagent_transcript.py # Subagent disk preview for drill-in popup
+│   │       ├── subagent_disk_registry.py # spawn id → disk path registry + session-scoped resolve
+│   │       ├── subagent_transcript.py # load_subagent_transcript_view + activity steps
 │   │       ├── subagent_limits.py # max_parallel_subagents() — QSettings ai/max_parallel_subagents
 │   │       ├── tool_registry.py   # register_postmark_tool / resolve_tools
 │   │       ├── app_wiki/          # User KB paths, index build, query executor
@@ -236,7 +237,8 @@ src/
 │   │       │   └── schema.py      # WIKI.md body for tool workflow
 │   │       ├── tools/             # OpenHands custom tools
 │   │       │   ├── wiki_query.py  # postmark_wiki_query Action/Observation/Executor
-│   │       │   └── delegate_tool.py # PostmarkDelegateTool (parallel subagent fan-out)
+│   │       │   ├── delegate_tool.py # PostmarkDelegateTool (parallel subagent fan-out)
+│   │       │   └── delegate_executor.py # PostmarkDelegateExecutor — registers disk paths at spawn
 │   │       ├── response_text.py   # Turn-scoped thinking/answer extraction from SDK messages + stream chunks
 │   │       ├── compaction.py      # CHAT_CONDENSER_MAX_* constants for LLMSummarizingCondenser
 │   │       ├── context_usage.py   # ContextUsageService + breakdown TypedDicts + SQLite fallback
@@ -417,7 +419,7 @@ src/
     │   │   │   ├── thought_section.py   # ThoughtSection collapsible block
     │   │   │   ├── activity_row.py      # AssistantActivityRow spinner row
     │   │   │   ├── wrapping_label.py    # _WrappingLabel — height-for-width QLabel
-    │   │   │   ├── subagent/            # SubagentTaskCard + SubagentTaskGroup delegation UI
+    │   │   │   ├── subagent/            # SubagentTaskCard + SubagentTaskGroup summary rows
     │   │   │   │   ├── card.py
     │   │   │   │   └── group.py
     │   │   │   ├── assistant_message/   # Assistant footer + actions popup
@@ -431,7 +433,7 @@ src/
     │   │   │       ├── fade.py
     │   │   │       ├── overlay.py       # StickyUserPromptOverlay — viewport sticky clone
     │   │   │       └── overlay_edit_host.py  # Reparent inline AiChatComposer into sticky during edit
-    │   │   ├── subagent_detail_popup.py  # SubagentDetailPopup — read-only drill-in flyout
+    │   │   ├── subagent_detail_dialog.py  # SubagentDetailDialog — non-modal task + markdown reply window
     │   │   ├── model_picker_edit.py  # AiModelPickerEditPanel flyout (context / thinking / reasoning)
     │   │   └── model_picker_popup.py  # AiModelPickerPopup — Cursor-style model list + gear
     │   ├── left_sidebar.py        # LeftSidebar — activity rail + stacked nav flyout pages
@@ -693,6 +695,8 @@ tests/
 │       │   ├── test_postmark_agent_registry.py
 │       │   ├── test_subagent_registry.py
 │       │   ├── test_subagent_events.py
+│       │   ├── test_subagent_disk_registry.py
+│       │   ├── test_subagent_transcript.py
 │       │   ├── test_subagent_limits.py
 │       │   ├── test_delegate_tool.py
 │       │   ├── test_build_app_wiki.py

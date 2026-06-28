@@ -23,8 +23,17 @@ def _flush_stream_chunks(qtbot) -> None:
     QApplication.processEvents()
 
 
-def _drain_follow_passes(qtbot, qapp: QApplication) -> None:
+def _drain_follow_passes(qtbot, qapp: QApplication, panel: AiChatPanel | None = None) -> None:
     """Wait for deferred stream-follow timer passes."""
+    qtbot.wait(20)
+    qapp.processEvents()
+    if panel is not None:
+        flush = getattr(panel, "_flush_stream_follow_frame", None)
+        if callable(flush):
+            flush()
+        retry = getattr(panel, "_flush_stream_follow_retry", None)
+        if callable(retry):
+            retry()
     qtbot.wait(20)
     qapp.processEvents()
 
@@ -54,7 +63,7 @@ def _stream_thinking(
         delta = chunk if index % 3 else chunk[: 6 + (index % 11)]
         panel.append_assistant_chunk(delta, "")
         _flush_stream_chunks(qtbot)
-        _drain_follow_passes(qtbot, qapp)
+        _drain_follow_passes(qtbot, qapp, panel)
         qapp.processEvents()
         qapp.processEvents()
         samples.append(

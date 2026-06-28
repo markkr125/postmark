@@ -77,6 +77,7 @@ class ChatMessageBubble(QWidget):
         self._post_subagent_thought_section: ThoughtSection | None = None
         self._subagent_group: SubagentTaskGroup | None = None
         self._subagent_records: dict[str, SubagentRunRecord] = {}
+        self._subagent_session_id: str | None = None
         self._subagents_all_complete = False
         self._activity_row: AssistantActivityRow | None = None
         self._user_frame: QFrame | None = None
@@ -608,6 +609,10 @@ class ChatMessageBubble(QWidget):
             self.updateGeometry()
             self._commit_stream_row_layout()
 
+    def set_subagent_session_id(self, session_id: str | None) -> None:
+        """Set the chat session used to resolve subagent disk paths."""
+        self._subagent_session_id = session_id
+
     def upsert_subagent_record(self, record: SubagentRunRecord) -> None:
         """Create or update one subagent card."""
         if self._subagent_group is None:
@@ -626,7 +631,7 @@ class ChatMessageBubble(QWidget):
         """Replace subagent cards (transcript reload)."""
         if self._subagent_group is None:
             return
-        enriched = enrich_subagent_records(records)
+        enriched = enrich_subagent_records(records, session_id=self._subagent_session_id)
         self._subagent_records = {r["id"]: r for r in enriched}
         cards = self._subagent_group.sync_records(enriched)
         for card in cards:
@@ -646,7 +651,9 @@ class ChatMessageBubble(QWidget):
         """Reload activity steps from disk for active subagent cards."""
         if self._subagent_group is None or not self._subagent_records:
             return
-        enriched = enrich_subagent_records(self.subagent_records())
+        enriched = enrich_subagent_records(
+            self.subagent_records(), session_id=self._subagent_session_id
+        )
         self._subagent_records = {r["id"]: r for r in enriched}
         for record in enriched:
             self._subagent_group.upsert_record(record)
