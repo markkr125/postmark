@@ -77,6 +77,36 @@ def test_subagent_card_click_emits_record_id(qapp: QApplication, qtbot) -> None:
     assert seen == ["py"]
 
 
+def test_subagent_card_entire_surface_clickable(qapp: QApplication, qtbot) -> None:
+    """Clicks on nested labels route to the card and open the detail dialog."""
+    from PySide6.QtWidgets import QLabel
+
+    from ui.sidebar.ai.message_bubble.subagent.card import SubagentTaskCard
+
+    card = SubagentTaskCard()
+    qtbot.addWidget(card)
+    card.resize(420, 120)
+    card.show()
+    seen: list[str] = []
+    card.clicked.connect(seen.append)
+    card.apply_record(
+        {
+            "id": "py",
+            "kind": "delegate",
+            "label": "Find Python scripting docs",
+            "subagent_type": "wiki-researcher",
+            "status": "completed",
+            "task_prompt": "Find Python scripting docs",
+        }
+    )
+    status = card.findChild(QLabel, "aiChatSubagentStatusLabel")
+    assert status is not None
+    click_pos = status.geometry().center()
+    click_pos = status.mapTo(card, click_pos)
+    qtbot.mouseClick(card, Qt.MouseButton.LeftButton, pos=click_pos)
+    assert seen == ["py"]
+
+
 def test_subagent_warming_not_clickable(qapp: QApplication, qtbot) -> None:
     """Warming cards use arrow cursor until active."""
     bubble = ChatMessageBubble("assistant", "")

@@ -17,17 +17,19 @@ class SubagentTranscriptView(TypedDict):
 
     task_prompt: str
     answer_markdown: str
+    thinking_markdown: str
     event_count: int
 
 
-def steps_for_subagent_record(record: SubagentRunRecord) -> list[SubagentActivityStep]:
-    """Build Cursor-style activity steps for one subagent card."""
-    disk = record.get("disk_path")
-    if disk:
-        disk_steps = load_subagent_activity_steps(disk)
-        if disk_steps:
-            return disk_steps
+class SubagentDiskSnapshot(TypedDict):
+    """Transcript view and activity steps from one EventLog read."""
 
+    view: SubagentTranscriptView
+    steps: list[SubagentActivityStep]
+
+
+def _fallback_steps_for_record(record: SubagentRunRecord) -> list[SubagentActivityStep]:
+    """Build activity steps from record metadata when disk is missing or empty."""
     preview = record.get("result_preview", "")
     status = record["status"]
     kind = record["kind"]
@@ -67,44 +69,80 @@ def steps_for_subagent_record(record: SubagentRunRecord) -> list[SubagentActivit
     return [{"id": f"{record['id']}:done", "icon": "check", "summary": "Completed"}]
 
 
+def steps_for_subagent_record(record: SubagentRunRecord) -> list[SubagentActivityStep]:
+    """Build Cursor-style activity steps for one subagent card."""
+    disk = record.get("disk_path")
+    if disk:
+        disk_steps = load_subagent_activity_steps(disk)
+        if disk_steps:
+            return disk_steps
+
+    return _fallback_steps_for_record(record)
+
+
 def load_subagent_transcript_view(
     disk_path: str,
     *,
     fallback_task_prompt: str = "",
 ) -> SubagentTranscriptView:
     """Return the delegated task prompt and assistant markdown from disk events."""
-    root = Path(disk_path)
-    if not root.is_dir():
+    events = _read_subagent_events(disk_path)
+    if events is None:
         return SubagentTranscriptView(
             task_prompt=fallback_task_prompt,
             answer_markdown="",
+            thinking_markdown="",
             event_count=0,
         )
+    return parse_subagent_transcript_events(
+        events,
+        fallback_task_prompt=fallback_task_prompt,
+    )
+
+
+def load_subagent_disk_snapshot(
+    disk_path: str,
+    *,
+    fallback_task_prompt: str = "",
+    step_limit: int = 16,
+) -> SubagentDiskSnapshot:
+    """Return transcript view and activity steps from a single EventLog read."""
+    events = _read_subagent_events(disk_path)
+    if events is None:
+        empty = SubagentTranscriptView(
+            task_prompt=fallback_task_prompt,
+            answer_markdown="",
+            thinking_markdown="",
+            event_count=0,
+        )
+        return SubagentDiskSnapshot(view=empty, steps=[])
+    return SubagentDiskSnapshot(
+        view=parse_subagent_transcript_events(
+            events,
+            fallback_task_prompt=fallback_task_prompt,
+        ),
+        steps=parse_subagent_activity_steps(events, limit=step_limit),
+    )
+
+
+def _read_subagent_events(disk_path: str) -> list[object] | None:
+    """Load all SDK events from a subagent conversation directory."""
+    root = Path(disk_path)
+    if not root.is_dir():
+        return None
     try:
         from openhands.sdk.conversation.event_store import EventLog
         from openhands.sdk.io.local import LocalFileStore
     except ImportError:
-        return SubagentTranscriptView(
-            task_prompt=fallback_task_prompt,
-            answer_markdown="",
-            event_count=0,
-        )
+        return None
 
     try:
         store = LocalFileStore(root=str(root))
         log = EventLog(store)
-        events = [log[index] for index in range(len(log))]
-        return parse_subagent_transcript_events(
-            events,
-            fallback_task_prompt=fallback_task_prompt,
-        )
+        return [log[index] for index in range(len(log))]
     except Exception:
-        logger.debug("Failed to load subagent transcript from %s", disk_path, exc_info=True)
-        return SubagentTranscriptView(
-            task_prompt=fallback_task_prompt,
-            answer_markdown="",
-            event_count=0,
-        )
+        logger.debug("Failed to read subagent events from %s", disk_path, exc_info=True)
+        return None
 
 
 def parse_subagent_transcript_events(
@@ -115,6 +153,7 @@ def parse_subagent_transcript_events(
     """Parse SDK events into task prompt and assistant markdown (testable without disk)."""
     task_prompt = fallback_task_prompt.strip()
     assistant_parts: list[str] = []
+    thinking_parts: list[str] = []
 
     for event in events:
         name = type(event).__name__
@@ -124,7 +163,7 @@ def parse_subagent_transcript_events(
         role = getattr(message, "role", None)
         thinking = getattr(event, "reasoning_content", None)
         if isinstance(thinking, str) and thinking.strip():
-            continue
+            thinking_parts.append(thinking.strip())
         text = _message_text(message)
         if not text:
             continue
@@ -140,92 +179,90 @@ def parse_subagent_transcript_events(
     return SubagentTranscriptView(
         task_prompt=task_prompt,
         answer_markdown=answer.strip(),
+        thinking_markdown="\n\n".join(thinking_parts).strip(),
         event_count=len(events),
     )
 
 
 def load_subagent_activity_steps(disk_path: str, *, limit: int = 16) -> list[SubagentActivityStep]:
     """Return Cursor-style step rows parsed from subagent SDK events on disk."""
-    root = Path(disk_path)
-    if not root.is_dir():
+    events = _read_subagent_events(disk_path)
+    if events is None:
         return []
-    try:
-        from openhands.sdk.conversation.event_store import EventLog
-        from openhands.sdk.io.local import LocalFileStore
-    except ImportError:
-        return []
+    return parse_subagent_activity_steps(events, limit=limit)
 
-    try:
-        store = LocalFileStore(root=str(root))
-        log = EventLog(store)
-        steps: list[SubagentActivityStep] = []
-        search_count = 0
-        for index in range(len(log)):
-            if len(steps) >= limit:
-                break
-            event = log[index]
-            name = type(event).__name__
-            if name == "MessageEvent":
-                message = getattr(event, "llm_message", None)
-                role = getattr(message, "role", None)
-                content = getattr(message, "content", None)
-                thinking = getattr(event, "reasoning_content", None)
-                if isinstance(thinking, str) and thinking.strip():
+
+def parse_subagent_activity_steps(
+    events: Sequence[object],
+    *,
+    limit: int = 16,
+) -> list[SubagentActivityStep]:
+    """Parse SDK events into Cursor-style activity rows (testable without disk)."""
+    steps: list[SubagentActivityStep] = []
+    search_count = 0
+    for index, event in enumerate(events):
+        if len(steps) >= limit:
+            break
+        name = type(event).__name__
+        if name == "MessageEvent":
+            message = getattr(event, "llm_message", None)
+            role = getattr(message, "role", None)
+            content = getattr(message, "content", None)
+            thinking = getattr(event, "reasoning_content", None)
+            if isinstance(thinking, str) and thinking.strip():
+                steps.append(
+                    {
+                        "id": f"thought:{index}",
+                        "icon": "lightbulb",
+                        "summary": "Thought briefly",
+                        "detail": _clip(thinking.strip(), 1200),
+                    }
+                )
+                continue
+            if role == "assistant" and isinstance(content, list):
+                text_parts = [
+                    getattr(block, "text", "")
+                    for block in content
+                    if isinstance(getattr(block, "text", None), str)
+                ]
+                joined = "\n".join(part.strip() for part in text_parts if part.strip())
+                if joined:
                     steps.append(
                         {
-                            "id": f"thought:{index}",
-                            "icon": "lightbulb",
-                            "summary": "Thought briefly",
+                            "id": f"assistant:{index}",
+                            "icon": "chat-circle",
+                            "summary": "Responded",
+                            "detail": _clip(joined, 1200),
                         }
                     )
-                    continue
-                if role == "assistant" and isinstance(content, list):
-                    text_parts = [
-                        getattr(block, "text", "")
-                        for block in content
-                        if isinstance(getattr(block, "text", None), str)
-                    ]
-                    joined = "\n".join(part.strip() for part in text_parts if part.strip())
-                    if joined:
-                        steps.append(
-                            {
-                                "id": f"assistant:{index}",
-                                "icon": "chat-circle",
-                                "summary": "Responded",
-                                "detail": _clip(joined, 1200),
-                            }
-                        )
-            elif name == "ActionEvent":
-                tool_name = str(getattr(event, "tool_name", "") or "")
-                action = getattr(event, "action", None)
-                if tool_name == "postmark_wiki_query" and action is not None:
-                    query = str(getattr(action, "query", "") or "").strip()
-                    search_count += 1
-                    steps.append(
-                        {
-                            "id": f"search:{index}",
-                            "icon": "magnifying-glass",
-                            "summary": f'Searched wiki for "{_clip(query, 80)}"',
-                        }
-                    )
-            elif name == "ObservationEvent":
-                observation = getattr(event, "observation", None)
-                text = _observation_text(observation)
-                if text:
-                    steps.append(
-                        {
-                            "id": f"obs:{index}",
-                            "icon": "article",
-                            "summary": "Read tool output",
-                            "detail": _clip(text, 1600),
-                        }
-                    )
-        if search_count > 1:
-            steps = _collapse_search_steps(steps, search_count)
-        return steps
-    except Exception:
-        logger.debug("Failed to load subagent steps from %s", disk_path, exc_info=True)
-        return []
+        elif name == "ActionEvent":
+            tool_name = str(getattr(event, "tool_name", "") or "")
+            action = getattr(event, "action", None)
+            if tool_name == "postmark_wiki_query" and action is not None:
+                query = str(getattr(action, "query", "") or "").strip()
+                search_count += 1
+                steps.append(
+                    {
+                        "id": f"search:{index}",
+                        "icon": "magnifying-glass",
+                        "summary": f'Searched wiki for "{_clip(query, 80)}"',
+                    }
+                )
+        elif name == "ObservationEvent":
+            observation = getattr(event, "observation", None)
+            text = _observation_text(observation)
+            if text:
+                steps.append(
+                    {
+                        "id": f"obs:{index}",
+                        "icon": "article",
+                        "summary": "Read tool output",
+                        "detail": _clip(text, 1600),
+                    }
+                )
+    if search_count > 1:
+        steps = _collapse_search_steps(steps, search_count)
+    return steps
 
 
 def load_subagent_transcript_preview(disk_path: str, *, limit: int = 4000) -> str:
@@ -306,10 +343,13 @@ def _collapse_search_steps(
 
 
 __all__ = [
+    "SubagentDiskSnapshot",
     "SubagentTranscriptView",
     "load_subagent_activity_steps",
+    "load_subagent_disk_snapshot",
     "load_subagent_transcript_preview",
     "load_subagent_transcript_view",
+    "parse_subagent_activity_steps",
     "parse_subagent_transcript_events",
     "steps_for_subagent_record",
 ]

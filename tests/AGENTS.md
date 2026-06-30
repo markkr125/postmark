@@ -283,6 +283,7 @@ tests/
 │       │   ├── test_postmark_agent_registry.py
 │       │   ├── test_subagent_registry.py
 │       │   ├── test_subagent_events.py
+│       │   ├── test_thinking_sections.py
 │       │   ├── test_subagent_disk_registry.py
 │       │   ├── test_subagent_transcript.py
 │       │   ├── test_subagent_limits.py

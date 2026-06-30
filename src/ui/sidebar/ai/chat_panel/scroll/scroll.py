@@ -52,6 +52,7 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
     _streaming_viewport_spacer: QWidget | None = None
     _turn_scroll_anchor: ChatMessageBubble | None = None
     _stream_content_started: bool = False
+    _stream_thinking_bottom_follow: bool = False
     _streaming_bubble: ChatMessageBubble | None = None
     _smooth_scroller: SmoothScroller
     _smooth_scroll_active: bool = False
@@ -129,6 +130,7 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
         self._stream_follow_frame_pending = False
         self._stream_follow_retry_pending = False
         self._scroll_range_shrunk_recent = False
+        self._stream_thinking_bottom_follow = False
         self._update_scroll_down_button_visibility()
 
     def _on_smooth_wheel_delta(self, delta_px: int) -> None:
@@ -497,8 +499,11 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
                 else:
                     self._scroll_range_shrunk_recent = False
                     self._scroll_lock_enabled = False
+                    self._stream_thinking_bottom_follow = False
             elif at_bottom:
                 self._scroll_lock_enabled = True
+                if not self._stream_content_started:
+                    self._stream_thinking_bottom_follow = True
         else:
             self._scroll_lock_enabled = at_bottom
         self._update_scroll_down_button_visibility()
@@ -510,6 +515,8 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
         """Return the scroll offset to follow while streaming with lock on."""
         bar = self._scroll.verticalScrollBar()
         if self._turn_scroll_anchor is None or self._open_stream_generation == 0:
+            return bar.maximum()
+        if not self._stream_content_started and self._stream_thinking_bottom_follow:
             return bar.maximum()
         viewport_h = self._scroll.viewport().height()
         extent = self._streaming_turn_extent_px()
@@ -570,7 +577,8 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
         if (still_off_target or range_grew) and not self._stream_follow_retry_pending:
             self._stream_follow_retry_pending = True
             QTimer.singleShot(16, self._flush_stream_follow_retry)
-        self._reconcile_short_turn_height_when_fits()
+        if not (not self._stream_content_started and self._stream_thinking_bottom_follow):
+            self._reconcile_short_turn_height_when_fits()
 
     def _flush_stream_follow_retry(self) -> None:
         """Apply one late follow pass when range or height grew after the frame pass."""
@@ -580,7 +588,8 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
         if self._open_stream_generation == 0 or not self._scroll_lock_enabled:
             return
         self._apply_stream_follow()
-        self._reconcile_short_turn_height_when_fits()
+        if not (not self._stream_content_started and self._stream_thinking_bottom_follow):
+            self._reconcile_short_turn_height_when_fits()
 
     def _apply_stream_follow(self) -> None:
         """Pin the viewport to the active stream follow target (synchronous)."""
@@ -590,6 +599,8 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
             return
         bar = self._scroll.verticalScrollBar()
         target = self._stream_follow_target()
+        if not self._stream_content_started and self._stream_thinking_bottom_follow:
+            target = max(target, bar.value())
         if abs(bar.value() - target) <= _FOLLOW_THRESHOLD_PX:
             return
         self._set_bar_value(bar, target)
@@ -598,6 +609,9 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
     def _follow_streaming_turn_layout(self) -> None:
         """Refresh spacer height and scroll after in-turn layout shrink or growth."""
         if self._open_stream_generation == 0 or not self._scroll_lock_enabled:
+            return
+        if not self._stream_content_started and self._stream_thinking_bottom_follow:
+            self._queue_stream_follow_passes()
             return
         anchor = self._turn_scroll_anchor
         anchor_vp_before = self._widget_top_in_viewport(anchor) if anchor is not None else 0

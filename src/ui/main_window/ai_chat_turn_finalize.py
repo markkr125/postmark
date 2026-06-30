@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, cast, Literal
 
 from services.ai.chat.context_usage import ContextUsageSdkMetrics
 from services.ai.chat.response_text import pick_richest_text
+from services.ai.chat.thinking_sections import resolve_thinking_for_persist
 from services.ai.chat.run_registry import AiChatRunContext
 from services.ai.chat.session_service import AiChatSessionService
 
@@ -39,16 +40,17 @@ class _AiChatTurnFinalizeMixin:
         panel = self._right_sidebar.ai_chat_panel
         panel.flush_pending_assistant_chunks()
         panel_content = panel.streaming_assistant_text()
-        panel_thinking = panel.streaming_assistant_thinking()
-        thinking = pick_richest_text(thinking, panel_thinking)
+        panel_thinking = panel.streaming_assistant_thinking_for_persist()
+        thinking = resolve_thinking_for_persist(thinking, panel_thinking)
         content = pick_richest_text(content, panel_content)
         panel.end_assistant_stream(content, thinking=thinking)
-        thinking_duration = panel.last_assistant_thinking_duration_seconds()
+        thinking_duration, post_thinking_duration = panel.last_assistant_thinking_durations()
         self._persist_assistant_turn(
             session_id,
             content,
             thinking=thinking,
             thinking_duration_seconds=thinking_duration,
+            post_thinking_duration_seconds=post_thinking_duration,
         )
         panel.set_run_busy(False)
         panel.refresh_context_usage()
@@ -61,6 +63,7 @@ class _AiChatTurnFinalizeMixin:
         *,
         thinking: str = "",
         thinking_duration_seconds: int | None = None,
+        post_thinking_duration_seconds: int | None = None,
         model_id: str | None = None,
         usage: object | None = None,
         update_panel: bool = True,
@@ -88,6 +91,7 @@ class _AiChatTurnFinalizeMixin:
             content,
             thinking=thinking,
             thinking_duration_seconds=thinking_duration_seconds,
+            post_thinking_duration_seconds=post_thinking_duration_seconds,
             model_id=resolved_model_id,
             model_label=model_label,
             usage=resolved_usage,
@@ -127,21 +131,22 @@ class _AiChatTurnFinalizeMixin:
     ) -> None:
         """Persist a user-stopped assistant row after optimistic UI finalize."""
         panel = self._right_sidebar.ai_chat_panel
-        thinking = pick_richest_text(
+        thinking = resolve_thinking_for_persist(
             thinking_partial.strip(),
-            panel.streaming_assistant_thinking().strip(),
+            panel.streaming_assistant_thinking_for_persist().strip(),
         )
         body = pick_richest_text(
             content_partial.strip(),
             panel.streaming_assistant_text().strip(),
         )
         display = self._compose_failure_transcript(body, "Stopped.")
-        thinking_duration = panel.last_assistant_thinking_duration_seconds()
+        thinking_duration, post_thinking_duration = panel.last_assistant_thinking_durations()
         self._persist_assistant_turn(
             session_id,
             display,
             thinking=thinking,
             thinking_duration_seconds=thinking_duration,
+            post_thinking_duration_seconds=post_thinking_duration,
         )
 
     def _on_ai_chat_failed(
@@ -154,9 +159,9 @@ class _AiChatTurnFinalizeMixin:
         """Show thinking and answer (if any) plus the error, and persist them."""
         panel = self._right_sidebar.ai_chat_panel
         panel.flush_pending_assistant_chunks()
-        thinking = pick_richest_text(
+        thinking = resolve_thinking_for_persist(
             thinking_partial.strip(),
-            panel.streaming_assistant_thinking().strip(),
+            panel.streaming_assistant_thinking_for_persist().strip(),
         )
         body = pick_richest_text(
             content_partial.strip(),
@@ -170,12 +175,13 @@ class _AiChatTurnFinalizeMixin:
             logger.warning("AI chat failed: %s", message)
             display = self._compose_failure_transcript(body, self._format_chat_error(message))
         panel.end_assistant_stream(display, thinking=thinking)
-        thinking_duration = panel.last_assistant_thinking_duration_seconds()
+        thinking_duration, post_thinking_duration = panel.last_assistant_thinking_durations()
         self._persist_assistant_turn(
             session_id,
             display,
             thinking=thinking,
             thinking_duration_seconds=thinking_duration,
+            post_thinking_duration_seconds=post_thinking_duration,
         )
         panel.set_run_busy(False)
         self._stopped_generations.pop(

@@ -104,6 +104,7 @@ class AiChatMessageDict(TypedDict):
     content: str
     thinking: NotRequired[str]
     thinking_duration_seconds: NotRequired[int | None]
+    post_thinking_duration_seconds: NotRequired[int | None]
     model_id: NotRequired[str | None]
     model_label: NotRequired[str | None]
     prompt_tokens: NotRequired[int | None]
@@ -716,6 +717,7 @@ class AiChatSessionService:
         *,
         thinking: str = "",
         thinking_duration_seconds: int | None = None,
+        post_thinking_duration_seconds: int | None = None,
         model_id: str | None = None,
         model_label: str | None = None,
         usage: ContextUsageSdkMetrics | None = None,
@@ -746,6 +748,7 @@ class AiChatSessionService:
             content=content,
             thinking=thinking,
             thinking_duration_seconds=thinking_duration_seconds,
+            post_thinking_duration_seconds=post_thinking_duration_seconds,
             model_id=model_id,
             model_label=model_label,
             prompt_tokens=turn_usage.get("prompt_tokens") if turn_usage else None,
@@ -1015,6 +1018,7 @@ class AiChatSessionService:
             content=row["content"],
             thinking=str(row.get("thinking") or ""),
             thinking_duration_seconds=row.get("thinking_duration_seconds"),
+            post_thinking_duration_seconds=row.get("post_thinking_duration_seconds"),
             model_id=row.get("model_id"),
             model_label=row.get("model_label"),
             prompt_tokens=row.get("prompt_tokens"),

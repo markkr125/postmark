@@ -1606,6 +1606,10 @@ def build_global_qss(p: ThemePalette) -> str:
         border: none;
         border-right: 1px solid {p["border"]};
     }}
+    QWidget[objectName="sidebarPanelArea"] QScrollArea[objectName="aiChatSubagentDetailScroll"] {{
+        border: none;
+        border-right: none;
+    }}
     QWidget[objectName="leftSidebarFlyout"] {{
         background: {p["bg"]};
         border-left: 1px solid {p["border"]};
@@ -1752,7 +1756,7 @@ def build_global_qss(p: ThemePalette) -> str:
     QFrame[objectName="aiSessionHistoryActionsPopup"] {{
         background: {p["bg"]};
         border: 1px solid {p["border"]};
-        border-radius: 8px;
+        border-radius: 0;
     }}
     QWidget[objectName="aiSessionHistoryActionRow"] {{
         background: transparent;
@@ -1818,10 +1822,20 @@ def build_global_qss(p: ThemePalette) -> str:
     QFrame[objectName="aiChatSubagentCard"] {{
         background: {p["bg_alt"]};
         border: 1px solid {p["border"]};
-        border-radius: 8px;
+        border-radius: 0;
+    }}
+    QFrame[objectName="aiChatSubagentCard"][cardHovered="true"] {{
+        border-color: {p["accent"]};
+        background: {"rgba(79,193,255,0.08)" if p is DARK_PALETTE else "rgba(52,152,219,0.06)"};
     }}
     QWidget[objectName="aiChatSubagentHeader"] {{
         background: transparent;
+    }}
+    QLabel[objectName="aiChatSubagentTitleIcon"] {{
+        background: transparent;
+        border: none;
+        padding: 0;
+        margin: 0;
     }}
     QLabel[objectName="aiChatSubagentLabel"] {{
         background: transparent;
@@ -1829,6 +1843,8 @@ def build_global_qss(p: ThemePalette) -> str:
         color: {p["text"]};
         font-size: 13px;
         font-weight: 600;
+        padding: 0;
+        margin: 0;
     }}
     QLabel[objectName="aiChatSubagentTypeChip"] {{
         background: transparent;
@@ -1844,6 +1860,20 @@ def build_global_qss(p: ThemePalette) -> str:
     }}
     QDialog[objectName="aiChatSubagentDetailDialog"] {{
         background: {p["bg"]};
+    }}
+    QPushButton[objectName="aiChatSubagentDetailClose"] {{
+        border: 1px solid {p["border"]};
+        padding: 4px 14px;
+        font-size: 11px;
+        min-height: 28px;
+        border-radius: 4px;
+        background: transparent;
+        color: {p["text"]};
+    }}
+    QPushButton[objectName="aiChatSubagentDetailClose"]:hover {{
+        background: {"rgba(255,255,255,0.08)" if p is DARK_PALETTE else "rgba(0,0,0,0.06)"};
+        border-color: {p["accent"]};
+        color: {p["text"]};
     }}
     QLabel[objectName="aiChatSubagentDetailTitle"] {{
         background: transparent;
@@ -1873,6 +1903,31 @@ def build_global_qss(p: ThemePalette) -> str:
         color: {p["text"]};
         font-size: 13px;
         padding: 10px 12px;
+    }}
+    QLabel[objectName="aiChatSubagentDetailStepSummary"] {{
+        background: transparent;
+        border: none;
+        color: {p["text"]};
+        font-size: 13px;
+    }}
+    QScrollArea[objectName="aiChatSubagentDetailScroll"] {{
+        border: none;
+        border-right: none;
+        background: transparent;
+    }}
+    QScrollArea[objectName="aiChatSubagentDetailScroll"] > QWidget {{
+        border: none;
+        border-right: none;
+        background: transparent;
+    }}
+    QWidget[objectName="aiChatSubagentDetailScrollViewport"] {{
+        border: none;
+        border-right: none;
+        background: transparent;
+    }}
+    QScrollArea[objectName="aiChatSubagentDetailScroll"] > QWidget > QWidget {{
+        background: transparent;
+        border: none;
     }}
     QWidget[objectName="aiChatOlderLoadingRow"] {{
         background: transparent;

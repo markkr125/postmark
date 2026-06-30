@@ -34,6 +34,7 @@ class _AiChatHostProtocol(Protocol):
         *,
         thinking: str = "",
         thinking_duration_seconds: int | None = None,
+        post_thinking_duration_seconds: int | None = None,
         model_id: str | None = None,
         usage: object | None = None,
         update_panel: bool = True,

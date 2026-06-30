@@ -299,6 +299,39 @@ def test_load_transcript_restores_thinking(qapp: QApplication, qtbot) -> None:
     assert bubble.thought_header_text() == "Thought for 5s"
 
 
+def test_load_transcript_restores_split_post_subagent_thinking(qapp: QApplication, qtbot) -> None:
+    """Packed thinking phases restore as separate thought blocks after reload."""
+    from services.ai.chat.thinking_sections import pack_thinking_phases
+
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    stored = pack_thinking_phases("Pre-delegation planning.", "Post-subagent synthesis.")
+    messages: list[AiChatMessageDict] = [
+        {
+            "id": 1,
+            "session_id": "s1",
+            "role": "assistant",
+            "content": "Answer",
+            "thinking": stored,
+            "thinking_duration_seconds": 12,
+            "post_thinking_duration_seconds": 7,
+            "created_at": "2026-01-01T00:00:00+00:00",
+        },
+    ]
+    load_transcript_sync(panel, messages, qtbot)
+    bubble = panel.findChildren(ChatMessageBubble)[0]
+    primary = bubble._thought_section
+    post = bubble._post_subagent_thought_section
+    assert primary is not None
+    assert post is not None
+    assert "Pre-delegation planning." in primary.text()
+    assert "Post-subagent synthesis." in post.text()
+    assert "Post-subagent synthesis." not in primary.text()
+    assert primary.header_text().endswith("12s")
+    assert post.header_text().endswith("7s")
+    assert bubble.thinking_text() == "Pre-delegation planning.\n\nPost-subagent synthesis."
+
+
 def test_user_message_uses_full_width_bubble(qapp: QApplication, qtbot) -> None:
     """User rows render inside a full-width bubble frame."""
     panel = AiChatPanel()

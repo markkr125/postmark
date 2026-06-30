@@ -338,10 +338,15 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
 
     def last_assistant_thinking_duration_seconds(self) -> int | None:
         """Return the thinking duration on the latest assistant bubble."""
+        primary, _post = self.last_assistant_thinking_durations()
+        return primary
+
+    def last_assistant_thinking_durations(self) -> tuple[int | None, int | None]:
+        """Return primary and post-subagent thinking durations on the latest row."""
         bubble = self._last_assistant_bubble()
         if bubble is None:
-            return None
-        return bubble.thinking_duration_seconds()
+            return None, None
+        return bubble.thinking_durations_for_persist()
 
     def _ensure_transcript_layout_skeleton(self) -> None:
         """Restore stretch, empty label, and virtual spacers after transcript teardown."""
@@ -367,6 +372,7 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
         self._streaming_bubble = None
         self._turn_scroll_anchor = None
         self._stream_content_started = False
+        self._stream_thinking_bottom_follow = False
         self._stream_generation = 0
         self._open_stream_generation = 0
         self.reset_transcript_window()
@@ -410,6 +416,7 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
             self._stream_generation += 1
             self._open_stream_generation = self._stream_generation
             self._stream_content_started = False
+            self._stream_thinking_bottom_follow = False
             self._turn_scroll_anchor = self._find_last_user_bubble()
             self._arm_scroll_lock()  # type: ignore[attr-defined]
             self._activate_streaming_turn_user_footer(self._turn_scroll_anchor)
@@ -626,6 +633,12 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
             return ""
         return self._streaming_bubble.thinking_text()
 
+    def streaming_assistant_thinking_for_persist(self) -> str:
+        """Return phase-packed thinking for SQLite persistence."""
+        if self._streaming_bubble is None:
+            return ""
+        return self._streaming_bubble.thinking_text_for_persist()
+
     def streaming_assistant_text(self) -> str:
         """Return answer text accumulated in the active assistant bubble."""
         if self._streaming_bubble is None:
@@ -748,6 +761,7 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
         self._streaming_bubble = None
         self._detach_streaming_bubble_height_hook()
         self._stream_content_started = False
+        self._stream_thinking_bottom_follow = False
         self._open_stream_generation = 0
         short_completed_turn = self._settle_completed_short_turn_scroll(assistant_for_spacer)  # type: ignore[attr-defined]
 

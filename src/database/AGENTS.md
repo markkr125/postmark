@@ -223,7 +223,7 @@ Core ORM models, all inheriting from `Base`:
 | `RequestAssertionModel` | `request_assertions` | `database/models/request_assertions/model/request_assertion_model.py` |
 | `RequestHistoryEntryModel` | `request_history_entries` | `database/models/request_history/model/request_history_entry_model.py` — includes `was_persisted_request` (required on disk in some DBs) |
 | `AiChatSessionModel` | `ai_chat_sessions` | `database/models/ai_chat/model/ai_chat_session_model.py` — searchable session index (`agent_id` defaults to `postmark-assistant`) |
-| `AiChatMessageModel` | `ai_chat_messages` | `database/models/ai_chat/model/ai_chat_message_model.py` — transcript rows (`content` answer, `thinking` internal trace, `thinking_duration_seconds` for restored “Thought for Ns” header; optional `model_id`, `model_label`, `prompt_tokens`, `completion_tokens`, `reasoning_tokens` per assistant turn; nullable `send_model_id`, `send_mode`, `send_agent_id`, `send_reasoning_effort`, `send_thinking_enabled`, `send_run_context_tokens` per user turn) for search/repaint |
+| `AiChatMessageModel` | `ai_chat_messages` | `database/models/ai_chat/model/ai_chat_message_model.py` — transcript rows (`content` answer, `thinking` internal trace, `thinking_duration_seconds` / `post_thinking_duration_seconds` for restored “Thought for Ns” headers on primary vs post-subagent blocks; optional `model_id`, `model_label`, `prompt_tokens`, `completion_tokens`, `reasoning_tokens` per assistant turn; nullable `send_model_id`, `send_mode`, `send_agent_id`, `send_reasoning_effort`, `send_thinking_enabled`, `send_run_context_tokens` per user turn) for search/repaint |
 
 ### Path helpers (`data_paths.py`)
 

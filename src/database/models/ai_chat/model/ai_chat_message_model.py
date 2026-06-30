@@ -21,6 +21,7 @@ class AiChatMessageModel(Base):
     content: Mapped[str] = mapped_column(Text, index=True, default="")
     thinking: Mapped[str] = mapped_column(Text, default="", server_default="")
     thinking_duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    post_thinking_duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     model_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     model_label: Mapped[str | None] = mapped_column(String(255), nullable=True)
     prompt_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)

@@ -206,9 +206,18 @@ class _ChatPanelTranscriptLoadMixin:
     ) -> ChatMessageBubble:
         """Build one transcript row from a persisted message dict."""
         role: ChatRole = "user" if msg["role"] == "user" else "assistant"
-        thinking = str(msg.get("thinking") or "")
+        stored_thinking = str(msg.get("thinking") or "")
+        from services.ai.chat.thinking_sections import unpack_thinking_phases
+
+        thinking, post_subagent_thinking = unpack_thinking_phases(stored_thinking)
         duration = msg.get("thinking_duration_seconds")
         duration_seconds = int(duration) if isinstance(duration, int) and duration > 0 else None
+        post_duration_raw = msg.get("post_thinking_duration_seconds")
+        post_duration_seconds = (
+            int(post_duration_raw)
+            if isinstance(post_duration_raw, int) and post_duration_raw > 0
+            else None
+        )
         sent_at = parse_message_sent_at(msg.get("created_at"))
         lazy = self._transcript_load_lazy_markdown and role == "assistant" and not force_render
         bubble = self.add_message(  # type: ignore[attr-defined,no-any-return]
@@ -257,6 +266,11 @@ class _ChatPanelTranscriptLoadMixin:
                 bubble.set_subagent_session_id(session_id)
                 bubble.set_subagent_records(
                     records_for_assistant_turn(session_id, pricing_messages, msg_index)
+                )
+            if post_subagent_thinking.strip():
+                bubble.restore_post_subagent_thinking(
+                    post_subagent_thinking,
+                    duration_seconds=post_duration_seconds,
                 )
         return cast(ChatMessageBubble, bubble)
 

@@ -208,9 +208,11 @@ def test_new_session_and_messages() -> None:
         "Hi there",
         thinking="trace",
         thinking_duration_seconds=4,
+        post_thinking_duration_seconds=9,
     )
     assert assistant["role"] == "assistant"
     assert assistant["thinking_duration_seconds"] == 4
+    assert assistant["post_thinking_duration_seconds"] == 9
 
     messages = AiChatSessionService.get_messages(sid)
     assert len(messages) == 2

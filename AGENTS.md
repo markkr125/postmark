@@ -240,6 +240,7 @@ src/
 │   │       │   ├── delegate_tool.py # PostmarkDelegateTool (parallel subagent fan-out)
 │   │       │   └── delegate_executor.py # PostmarkDelegateExecutor — registers disk paths at spawn
 │   │       ├── response_text.py   # Turn-scoped thinking/answer extraction from SDK messages + stream chunks
+│   │       ├── thinking_sections.py # Pack/unpack primary vs post-subagent thinking in one SQLite column
 │   │       ├── compaction.py      # CHAT_CONDENSER_MAX_* constants for LLMSummarizingCondenser
 │   │       ├── context_usage.py   # ContextUsageService + breakdown TypedDicts + SQLite fallback
 │   │       ├── context_usage_sdk.py # OpenHands SDK View token accounting + compaction diagnostics

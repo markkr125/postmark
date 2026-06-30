@@ -406,6 +406,46 @@ class ChatMessageBubble(QWidget):
                 parts.append(text)
         return "\n\n".join(parts)
 
+    def thinking_text_for_persist(self) -> str:
+        """Return thinking text with post-subagent phase marker for SQLite storage."""
+        from services.ai.chat.thinking_sections import pack_thinking_phases
+
+        primary = (self._thought_section.text() if self._thought_section else "").strip()
+        post = (
+            self._post_subagent_thought_section.text()
+            if self._post_subagent_thought_section
+            else ""
+        ).strip()
+        return pack_thinking_phases(primary, post)
+
+    def restore_post_subagent_thinking(
+        self,
+        text: str,
+        *,
+        duration_seconds: int | None = None,
+    ) -> None:
+        """Restore the synthesis thought block below subagent cards from storage."""
+        if not text.strip():
+            return
+        section = self._ensure_post_subagent_thought_section()
+        section.set_text(text)
+        if duration_seconds is not None and duration_seconds > 0:
+            section.set_duration_seconds(duration_seconds)
+        section.finalize_thinking(collapse=True)
+        self._subagents_all_complete = True
+        self.updateGeometry()
+        self._commit_stream_row_layout()
+
+    def thinking_durations_for_persist(self) -> tuple[int | None, int | None]:
+        """Return frozen primary and post-subagent thinking durations."""
+        primary = self._thought_section.duration_seconds() if self._thought_section else None
+        post = (
+            self._post_subagent_thought_section.duration_seconds()
+            if self._post_subagent_thought_section
+            else None
+        )
+        return primary, post
+
     def is_user_message_expanded(self) -> bool:
         """Return whether the user prompt is fully expanded."""
         if self._user_section is None:
@@ -1030,12 +1070,36 @@ class ChatMessageBubble(QWidget):
 
     def set_parts(self, *, thinking: str, content: str, collapse_thinking: bool = True) -> None:
         """Replace thinking and answer text."""
+        from services.ai.chat.thinking_sections import unpack_thinking_phases
+
+        primary = thinking
+        post = ""
+        if (
+            self._post_subagent_thought_section is not None
+            and self._post_subagent_thought_section.has_text()
+        ):
+            primary = self._thought_section.text() if self._thought_section else thinking
+            post = self._post_subagent_thought_section.text()
+        else:
+            primary, post = unpack_thinking_phases(thinking)
         if self._thought_section is not None:
-            self._thought_section.set_text(thinking)
-            if thinking.strip():
+            self._thought_section.set_text(primary)
+            if primary.strip():
                 self._thought_section.finalize_thinking(collapse=collapse_thinking)
             else:
                 self._thought_section.setVisible(False)
+        if post.strip():
+            post_duration = (
+                self._post_subagent_thought_section.duration_seconds()
+                if self._post_subagent_thought_section is not None
+                else None
+            )
+            section = self._ensure_post_subagent_thought_section()
+            section.set_text(post)
+            if post_duration is not None and post_duration > 0:
+                section.set_duration_seconds(post_duration)
+            section.finalize_thinking(collapse=collapse_thinking)
+            self._subagents_all_complete = True
         if self._markdown_body is not None:
             self._markdown_body.set_markdown(content)
         elif self._user_section is not None:

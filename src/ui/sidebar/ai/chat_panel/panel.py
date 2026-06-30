@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from PySide6.QtCore import QEvent, QObject, Qt, QThread, Signal, Slot, QSize
+from PySide6.QtCore import QEvent, QObject, QSize, Qt, QThread, Signal, Slot
 from PySide6.QtGui import QHideEvent, QResizeEvent, QShowEvent
 from PySide6.QtWidgets import QLabel, QLayout, QPushButton, QScrollArea, QVBoxLayout, QWidget
 
@@ -173,6 +173,7 @@ class AiChatPanel(
         self._turn_scroll_anchor = None
         self._sticky_turn_anchor = None
         self._stream_content_started = False
+        self._stream_thinking_bottom_follow = False
         self._sticky_turn_prompt = None
         self._sticky_turn_pairs = []
         self._sticky_turn_pairs_dirty = True
@@ -344,6 +345,13 @@ class AiChatPanel(
         session_id = getattr(self, "_virtual_session_id", None) or self._context_session_id
         bubble.set_subagent_session_id(session_id)
         bubble.set_subagent_records(normalized)
+        dialog = getattr(self, "_subagent_detail_dialog", None)
+        if dialog is not None and dialog.isVisible():
+            open_id = dialog.record_id()
+            if open_id:
+                updated = bubble.subagent_record(open_id)
+                if updated is not None:
+                    dialog.refresh_record(updated)
         self._sync_subagent_poll_timer()  # type: ignore[attr-defined]
         self._request_turn_bottom_scroll()  # type: ignore[attr-defined]
         self._follow_streaming_turn_layout()  # type: ignore[attr-defined]

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QGuiApplication, QHideEvent, QResizeEvent, QShowEvent
 from PySide6.QtWidgets import (
     QDialog,
@@ -17,14 +17,22 @@ from PySide6.QtWidgets import (
 
 from services.ai.chat.response_text import merge_stream_text
 from services.ai.chat.subagent_events import (
+    SubagentActivityStep,
     SubagentRunRecord,
     SubagentStatus,
     delegate_agent_result_from_observation,
     enrich_subagent_records,
     subagent_type_display,
 )
-from services.ai.chat.subagent_transcript import load_subagent_transcript_view
+from services.ai.chat.subagent_transcript import (
+    SubagentTranscriptView,
+    _fallback_steps_for_record,
+    load_subagent_disk_snapshot,
+    steps_for_subagent_record,
+)
 from ui.sidebar.ai.message_bubble.markdown_content import MarkdownContent
+from ui.sidebar.ai.message_bubble.thought_section import ThoughtSection
+from ui.styling.icons import phi
 from ui.widgets.busy_spinner import BrailleSpinner
 
 _STATUS_LABELS: dict[SubagentStatus, str] = {
@@ -39,6 +47,8 @@ _DEFAULT_HEIGHT = 720
 _MAX_WIDTH_FRACTION = 0.62
 _MAX_HEIGHT_FRACTION = 0.78
 _POLL_MS = 750
+_STEP_ICON_PX = 14
+_THOUGHT_BODY_MAX_PX = 280
 
 
 def _initial_dialog_size() -> tuple[int, int]:
@@ -92,6 +102,32 @@ class SubagentDetailDialog(QDialog):
         self._task.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         root.addWidget(self._task)
 
+        activity_heading = QLabel("Activity")
+        activity_heading.setObjectName("aiChatSubagentDetailSectionHeading")
+        root.addWidget(activity_heading)
+        self._activity_heading = activity_heading
+
+        self._activity_container = QWidget()
+        self._activity_container.setObjectName("aiChatSubagentDetailActivity")
+        self._activity_layout = QVBoxLayout(self._activity_container)
+        self._activity_layout.setContentsMargins(0, 0, 0, 0)
+        self._activity_layout.setSpacing(6)
+        root.addWidget(self._activity_container)
+
+        self._activity_step_keys: list[tuple[str, str]] = []
+
+        self._thinking_scroll = QScrollArea()
+        self._thinking_scroll.setObjectName("aiChatSubagentDetailThoughtScroll")
+        self._thinking_scroll.setWidgetResizable(True)
+        self._thinking_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._thinking_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self._thinking_scroll.setVisible(False)
+        self._thinking = ThoughtSection()
+        self._thinking.setVisible(False)
+        self._thinking.layout_height_changed.connect(self._sync_thought_scroll)
+        self._thinking_scroll.setWidget(self._thinking)
+        root.addWidget(self._thinking_scroll)
+
         reply_row = QHBoxLayout()
         reply_row.setSpacing(8)
         reply_heading = QLabel("Reply")
@@ -107,6 +143,9 @@ class SubagentDetailDialog(QDialog):
         self._scroll.setWidgetResizable(False)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        viewport = self._scroll.viewport()
+        if viewport is not None:
+            viewport.setObjectName("aiChatSubagentDetailScrollViewport")
 
         # Same MarkdownContent + aiChatAssistantText styling as assistant transcript rows.
         self._reply = MarkdownContent()
@@ -116,7 +155,9 @@ class SubagentDetailDialog(QDialog):
         footer = QHBoxLayout()
         footer.addStretch(1)
         close_btn = QPushButton("Close")
-        close_btn.setObjectName("outlineButton")
+        close_btn.setObjectName("aiChatSubagentDetailClose")
+        close_btn.setIcon(phi("x", size=12))
+        close_btn.setIconSize(QSize(12, 12))
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         close_btn.clicked.connect(self.hide)
         footer.addWidget(close_btn)
@@ -143,6 +184,7 @@ class SubagentDetailDialog(QDialog):
         self._session_id = session_id
         self._record = SubagentRunRecord(**record)
         self._record_id = record["id"]
+        self._activity_step_keys = []
         self._answer_markdown = ""
         if not self.isVisible():
             self.show()
@@ -177,41 +219,57 @@ class SubagentDetailDialog(QDialog):
             self._answer_markdown = ""
             self._reply.set_markdown("")
             self._reply.begin_streaming()
+            self._thinking.set_text("")
 
         if status in ("warming", "running"):
             self._reply_spinner.start()
             self._reply_spinner.show()
             if not self._poll_timer.isActive():
                 self._poll_timer.start()
-            self._load_transcript(final=False)
+            self._refresh_disk_state(final=False)
         else:
             self._poll_timer.stop()
             self._reply_spinner.stop()
             self._reply_spinner.hide()
-            self._load_transcript(final=True)
+            self._refresh_disk_state(final=True)
 
     def _poll_transcript(self) -> None:
         """Refresh reply markdown while the subagent is still running."""
         if self._record is None:
             return
-        self._load_transcript(final=self._record["status"] not in ("warming", "running"))
+        self._refresh_disk_state(final=self._record["status"] not in ("warming", "running"))
 
-    def _load_transcript(self, *, final: bool) -> None:
+    def _refresh_disk_state(self, *, final: bool) -> None:
+        """Load transcript and activity from disk with one EventLog read when possible."""
         if self._record is None:
             return
         record = self._record
         disk = record.get("disk_path", "")
         fallback = record.get("task_prompt", "") or record["label"]
-        view = (
-            load_subagent_transcript_view(disk, fallback_task_prompt=fallback)
-            if disk
-            else {
-                "task_prompt": fallback,
-                "answer_markdown": record.get("result_preview", ""),
-                "event_count": 0,
-            }
-        )
+        if disk:
+            snapshot = load_subagent_disk_snapshot(disk, fallback_task_prompt=fallback)
+            view = snapshot["view"]
+            steps = snapshot["steps"] or _fallback_steps_for_record(record)
+        else:
+            view = SubagentTranscriptView(
+                task_prompt=fallback,
+                answer_markdown=str(record.get("result_preview", "") or ""),
+                thinking_markdown="",
+                event_count=0,
+            )
+            steps = steps_for_subagent_record(record)
+        self._apply_transcript_view(record, view, final=final)
+        self._apply_thinking(view, final=final)
+        self._apply_activity_steps(steps)
 
+    def _apply_transcript_view(
+        self,
+        record: SubagentRunRecord,
+        view: SubagentTranscriptView,
+        *,
+        final: bool,
+    ) -> None:
+        """Update task prompt and reply markdown from a parsed transcript view."""
         if view["task_prompt"]:
             self._task.setText(view["task_prompt"])
 
@@ -275,6 +333,73 @@ class SubagentDetailDialog(QDialog):
             self._reply.set_markdown(markdown)
         else:
             self._reply.resync_height_for_footer()
+
+    def _build_step_row(self, step: SubagentActivityStep) -> QWidget:
+        """Build one icon + summary row for the activity list."""
+        row = QWidget(self._activity_container)
+        row.setObjectName("aiChatSubagentDetailStepRow")
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+
+        icon_label = QLabel(row)
+        icon_label.setObjectName("aiChatSubagentDetailStepIcon")
+        icon_label.setPixmap(
+            phi(step.get("icon", "circle"), size=_STEP_ICON_PX).pixmap(_STEP_ICON_PX, _STEP_ICON_PX)
+        )
+        icon_label.setFixedSize(_STEP_ICON_PX, _STEP_ICON_PX)
+        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(icon_label, 0, Qt.AlignmentFlag.AlignTop)
+
+        summary = QLabel(step.get("summary", ""), row)
+        summary.setObjectName("aiChatSubagentDetailStepSummary")
+        summary.setWordWrap(True)
+        summary.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        detail = step.get("detail", "")
+        if detail:
+            summary.setToolTip(detail)
+        layout.addWidget(summary, 1)
+        return row
+
+    def _apply_thinking(self, view: SubagentTranscriptView, *, final: bool) -> None:
+        """Show the subagent's reasoning, refreshed from each disk snapshot."""
+        thinking = view.get("thinking_markdown", "")
+        if thinking != self._thinking.text():
+            self._thinking.set_text(thinking)
+            if thinking and not final:
+                self._thinking.set_collapsed(False)
+        if final and self._thinking.has_text():
+            self._thinking.set_collapsed(True)
+        self._sync_thought_scroll()
+
+    def _sync_thought_scroll(self) -> None:
+        """Show the thought scroll wrapper and cap expanded body height."""
+        has = self._thinking.has_text()
+        self._thinking_scroll.setVisible(has)
+        if not has:
+            return
+        self._thinking_scroll.setMaximumHeight(_THOUGHT_BODY_MAX_PX)
+        self._thinking.updateGeometry()
+
+    def _apply_activity_steps(self, steps: list[SubagentActivityStep]) -> None:
+        """Rebuild the activity list only when step keys changed."""
+        keys = [(step.get("id", ""), step.get("summary", "")) for step in steps]
+        if keys == self._activity_step_keys:
+            return
+        self._activity_step_keys = keys
+
+        while self._activity_layout.count():
+            item = self._activity_layout.takeAt(0)
+            widget = item.widget() if item is not None else None
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+
+        for step in steps:
+            self._activity_layout.addWidget(self._build_step_row(step))
+        has_steps = bool(steps)
+        self._activity_container.setVisible(has_steps)
+        self._activity_heading.setVisible(has_steps)
 
     def showEvent(self, event: QShowEvent) -> None:
         """Lay out markdown at the scroll viewport width once visible."""
