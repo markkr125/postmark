@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import weakref
 
-from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import (
     QAbstractTextDocumentLayout,
     QColor,
@@ -40,13 +40,20 @@ from ui.sidebar.ai.markdown.highlight_code import (
     parse_code_copy_block_index,
 )
 from ui.sidebar.ai.markdown.streaming_render import StreamingMarkdownCache
-from ui.sidebar.ai.message_bubble.wrapping_label import forward_wheel_to_ancestor_scroll_area
+from ui.sidebar.ai.message_bubble.wrapping_label import (
+    find_ancestor_scroll_area,
+    forward_wheel_to_ancestor_scroll_area,
+)
 from ui.styling.theme import COLOR_ASSISTANT_FOOTER_SEPARATOR, current_palette
 from ui.styling.theme_manager import ThemeManager
 
 _markdown_bodies: weakref.WeakSet[MarkdownContent] = weakref.WeakSet()
 _theme_hook_installed = False
 _SELECTION_DRAG_THRESHOLD_PX = 4
+_AUTOSCROLL_EDGE_MARGIN_PX = 24
+_AUTOSCROLL_INTERVAL_MS = 16
+_AUTOSCROLL_MIN_STEP_PX = 2
+_AUTOSCROLL_MAX_STEP_PX = 48
 _COPY_CONFIRM_MS = 2000
 _FOOTER_RULE_GAP_PX = 10
 _FOOTER_RULE_DASH_PX = 5
@@ -126,6 +133,11 @@ class MarkdownContent(QWidget):
         self._copy_confirm_timer = QTimer(self)
         self._copy_confirm_timer.setSingleShot(True)
         self._copy_confirm_timer.timeout.connect(self._clear_copy_confirmation)
+        self._autoscroll_timer = QTimer(self)
+        self._autoscroll_timer.setInterval(_AUTOSCROLL_INTERVAL_MS)
+        self._autoscroll_timer.timeout.connect(self._on_autoscroll_tick)
+        self._autoscroll_step = 0
+        self._autoscroll_global_pos: QPoint | None = None
         self._scroll_hover_connected = False
         _markdown_bodies.add(self)
         _install_markdown_theme_hook()
@@ -767,6 +779,68 @@ class MarkdownContent(QWidget):
         self._sync_copy_link_appearance()
         return True
 
+    def _update_selection_autoscroll(self, global_pos: QPoint) -> None:
+        """Start or stop edge auto-scroll while drag-selecting."""
+        scroll = find_ancestor_scroll_area(self)
+        if scroll is None:
+            self._stop_selection_autoscroll()
+            return
+        viewport = scroll.viewport()
+        if viewport is None:
+            self._stop_selection_autoscroll()
+            return
+        local = viewport.mapFromGlobal(global_pos)
+        height = viewport.height()
+        step = 0
+        if local.y() < _AUTOSCROLL_EDGE_MARGIN_PX:
+            dist = _AUTOSCROLL_EDGE_MARGIN_PX - local.y()
+            step = -self._autoscroll_step_for_distance(dist)
+        elif local.y() > height - _AUTOSCROLL_EDGE_MARGIN_PX:
+            dist = local.y() - (height - _AUTOSCROLL_EDGE_MARGIN_PX)
+            step = self._autoscroll_step_for_distance(dist)
+        self._autoscroll_step = step
+        self._autoscroll_global_pos = global_pos
+        if step != 0:
+            if not self._autoscroll_timer.isActive():
+                self._autoscroll_timer.start()
+        else:
+            self._stop_selection_autoscroll()
+
+    def _autoscroll_step_for_distance(self, dist: float) -> int:
+        """Scale scroll speed based on how far past the edge the pointer is."""
+        cap = 4 * _AUTOSCROLL_EDGE_MARGIN_PX
+        clamped = min(max(dist, 0.0), float(cap))
+        ratio = clamped / cap
+        magnitude = _AUTOSCROLL_MIN_STEP_PX + ratio * (
+            _AUTOSCROLL_MAX_STEP_PX - _AUTOSCROLL_MIN_STEP_PX
+        )
+        return int(round(magnitude))
+
+    def _on_autoscroll_tick(self) -> None:
+        """Nudge the transcript scroll area and extend the active selection."""
+        if not isValid(self) or self._autoscroll_step == 0 or self._autoscroll_global_pos is None:
+            self._stop_selection_autoscroll()
+            return
+        scroll = find_ancestor_scroll_area(self)
+        if scroll is None:
+            self._stop_selection_autoscroll()
+            return
+        bar = scroll.verticalScrollBar()
+        next_value = max(bar.minimum(), min(bar.maximum(), bar.value() + self._autoscroll_step))
+        if next_value == bar.value():
+            self._autoscroll_timer.stop()
+            return
+        bar.setValue(next_value)
+        local = self.mapFromGlobal(self._autoscroll_global_pos)
+        self._selection_cursor = self._cursor_position_at(QPointF(local))
+        self.update()
+
+    def _stop_selection_autoscroll(self) -> None:
+        """Stop drag-selection auto-scroll."""
+        self._autoscroll_timer.stop()
+        self._autoscroll_step = 0
+        self._autoscroll_global_pos = None
+
     def mousePressEvent(self, event: QMouseEvent) -> None:
         """Begin or extend a text selection."""
         if event.button() == Qt.MouseButton.LeftButton:
@@ -796,6 +870,7 @@ class MarkdownContent(QWidget):
         """Extend the selection while the left button is held."""
         if event.buttons() & Qt.MouseButton.LeftButton and self._press_position is not None:
             self._selection_cursor = self._cursor_position_at(QPointF(event.position()))
+            self._update_selection_autoscroll(event.globalPosition().toPoint())
             self.update()
             event.accept()
             return
@@ -813,6 +888,7 @@ class MarkdownContent(QWidget):
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         """Open external links when the user clicks without selecting text."""
         if event.button() == Qt.MouseButton.LeftButton:
+            self._stop_selection_autoscroll()
             dragged = False
             if self._press_position is not None:
                 dragged = (

@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from PySide6.QtCore import QPoint, QPointF, Qt, QUrl
 from PySide6.QtGui import QColor, QEnterEvent, QImage, QMouseEvent, QTextCursor
-from PySide6.QtWidgets import QApplication, QTextBrowser
+from PySide6.QtWidgets import QApplication, QScrollArea, QTextBrowser
 
 from ui.sidebar.ai.markdown.highlight_code import COPY_LINK_FONT_PX, copy_anchor_spans
 from ui.sidebar.ai.message_bubble.markdown_content import MarkdownContent
@@ -571,3 +571,136 @@ def test_fenced_code_block_no_inner_border_rectangle(qapp: QApplication, qtbot) 
     assert len(clusters) == 2, (
         f"expected outer left/right border only on scan line, got {len(clusters)} clusters"
     )
+
+
+def _tall_markdown_in_scroll(
+    qtbot, *, scroll_value: int = 0
+) -> tuple[MarkdownContent, QScrollArea]:
+    """Return a tall assistant body inside a fixed-height scroll area for autoscroll tests."""
+    tall = "\n\n".join(
+        f"Paragraph {i} with enough text to wrap across lines." * 4 for i in range(40)
+    )
+    body = MarkdownContent(tall)
+    scroll = QScrollArea()
+    scroll.setWidget(body)
+    scroll.setWidgetResizable(False)
+    scroll.resize(360, 200)
+    qtbot.addWidget(scroll)
+    scroll.show()
+    body.setFixedWidth(340)
+    body.setFixedHeight(body.sizeHint().height())
+    qtbot.waitExposed(scroll)
+    scroll.verticalScrollBar().setValue(scroll_value)
+    return body, scroll
+
+
+def test_drag_selection_autoscrolls_ancestor_scroll_area(qapp: QApplication, qtbot) -> None:
+    """Drag-select past the viewport top edge scrolls up and extends the selection."""
+    body, scroll = _tall_markdown_in_scroll(qtbot, scroll_value=120)
+    bar = scroll.verticalScrollBar()
+    start_scroll = bar.value()
+
+    press_local = QPoint(body.width() // 2, body.height() - 24)
+    body._press_position = QPointF(press_local)
+    anchor = body._cursor_position_at(QPointF(press_local))
+    body._selection_anchor = anchor
+    body._selection_cursor = anchor
+
+    viewport = scroll.viewport()
+    assert viewport is not None
+    above_global = viewport.mapToGlobal(QPoint(viewport.width() // 2, 0))
+    body._update_selection_autoscroll(above_global)
+    assert body._autoscroll_step < 0
+
+    cursor_before_tick = body._selection_cursor
+    body._on_autoscroll_tick()
+    assert bar.value() < start_scroll
+    assert body._selection_cursor is not None
+    assert body._selection_cursor <= cursor_before_tick
+
+
+def test_drag_selection_autoscrolls_downward_past_bottom_edge(qapp: QApplication, qtbot) -> None:
+    """Drag-select past the viewport bottom edge scrolls down and extends the selection."""
+    body, scroll = _tall_markdown_in_scroll(qtbot, scroll_value=0)
+    bar = scroll.verticalScrollBar()
+    start_scroll = bar.value()
+
+    press_local = QPoint(body.width() // 2, 24)
+    body._press_position = QPointF(press_local)
+    anchor = body._cursor_position_at(QPointF(press_local))
+    body._selection_anchor = anchor
+    body._selection_cursor = anchor
+
+    viewport = scroll.viewport()
+    assert viewport is not None
+    below_global = viewport.mapToGlobal(QPoint(viewport.width() // 2, viewport.height() - 1))
+    body._update_selection_autoscroll(below_global)
+    assert body._autoscroll_step > 0
+
+    cursor_before_tick = body._selection_cursor
+    body._on_autoscroll_tick()
+    assert bar.value() > start_scroll
+    assert body._selection_cursor is not None
+    assert body._selection_cursor >= cursor_before_tick
+
+
+def test_autoscroll_tick_at_scroll_limit_skips_repaint(qapp: QApplication, qtbot) -> None:
+    """Holding past the edge at min/max scroll stops the timer without repainting."""
+    body, scroll = _tall_markdown_in_scroll(qtbot, scroll_value=0)
+    bar = scroll.verticalScrollBar()
+    bar.setValue(bar.minimum())
+
+    viewport = scroll.viewport()
+    assert viewport is not None
+    above_global = viewport.mapToGlobal(QPoint(viewport.width() // 2, 0))
+    body._autoscroll_step = -12
+    body._autoscroll_global_pos = above_global
+    body._autoscroll_timer.start()
+
+    with patch.object(body, "update") as mock_update:
+        body._on_autoscroll_tick()
+    assert bar.value() == bar.minimum()
+    mock_update.assert_not_called()
+    assert not body._autoscroll_timer.isActive()
+    assert body._autoscroll_step == -12
+
+
+def test_autoscroll_tick_emits_scrollbar_value_changed(qapp: QApplication, qtbot) -> None:
+    """Auto-scroll uses plain setValue so ancestor scroll-lock hooks can observe user scroll."""
+    body, scroll = _tall_markdown_in_scroll(qtbot, scroll_value=40)
+    bar = scroll.verticalScrollBar()
+    changed: list[int] = []
+    bar.valueChanged.connect(changed.append)
+
+    viewport = scroll.viewport()
+    assert viewport is not None
+    above_global = viewport.mapToGlobal(QPoint(viewport.width() // 2, 0))
+    body._autoscroll_step = -8
+    body._autoscroll_global_pos = above_global
+    body._on_autoscroll_tick()
+    assert changed
+    assert changed[-1] < 40
+
+
+def test_autoscroll_tick_with_zero_step_is_noop(qapp: QApplication, qtbot) -> None:
+    """A tick with no active auto-scroll step must not move the scrollbar."""
+    from PySide6.QtWidgets import QScrollArea
+
+    body = MarkdownContent("Hello selectable world\n\n" * 20)
+    scroll = QScrollArea()
+    scroll.setWidget(body)
+    scroll.setWidgetResizable(False)
+    scroll.resize(360, 200)
+    qtbot.addWidget(scroll)
+    scroll.show()
+    body.setFixedWidth(340)
+    body.setFixedHeight(body.sizeHint().height())
+    qtbot.waitExposed(scroll)
+
+    bar = scroll.verticalScrollBar()
+    bar.setValue(40)
+    before = bar.value()
+    body._autoscroll_step = 0
+    body._autoscroll_global_pos = None
+    body._on_autoscroll_tick()
+    assert bar.value() == before

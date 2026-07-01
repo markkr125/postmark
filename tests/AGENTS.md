@@ -216,7 +216,7 @@ tests/
 │   │   │   ├── test_chat_markdown_streaming_render.py
 │   │   │   ├── test_streaming_table.py
 │   │   │   ├── test_markdown_content_height.py
-│   │   │   ├── test_markdown_content_static.py
+│   │   │   ├── test_markdown_content_static.py  # MarkdownContent paint, selection, drag autoscroll
 │   │   │   ├── test_chat_time_format.py
 │   │   │   ├── test_thought_collapse_height.py
 │   │   │   ├── test_thought_layout_reentrancy.py

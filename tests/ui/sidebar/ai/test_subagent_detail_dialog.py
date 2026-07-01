@@ -358,7 +358,7 @@ def _snapshot(thinking: str) -> dict:
     }
 
 
-def _running_record(record_id: str, disk_path: str) -> dict:
+def _running_record(record_id: str, disk_path: str) -> SubagentRunRecord:
     return {
         "id": record_id,
         "kind": "delegate",
@@ -425,7 +425,7 @@ def test_detail_dialog_switching_records_clears_thinking(
     assert not dialog._thinking.has_text()
 
 
-def _completed_record(record_id: str, disk_path: str) -> dict:
+def _completed_record(record_id: str, disk_path: str) -> SubagentRunRecord:
     return {
         "id": record_id,
         "kind": "delegate",

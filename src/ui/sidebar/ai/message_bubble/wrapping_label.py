@@ -10,28 +10,38 @@ _QWIDGET_MAX_HEIGHT = 16777215
 _WRAPPED_TEXT_MEASURE_HEIGHT = 16777215
 
 
-def forward_wheel_to_ancestor_scroll_area(widget: QWidget, event: QWheelEvent) -> bool:
-    """Forward wheel input to the nearest ancestor ``QScrollArea`` viewport."""
+def find_ancestor_scroll_area(widget: QWidget) -> QScrollArea | None:
+    """Return the nearest ancestor ``QScrollArea``, or ``None``."""
     parent = widget.parentWidget()
     while parent is not None:
         if isinstance(parent, QScrollArea):
-            viewport = parent.viewport()
-            local = viewport.mapFromGlobal(event.globalPosition().toPoint())
-            forwarded = QWheelEvent(
-                QPointF(local),
-                event.globalPosition(),
-                event.pixelDelta(),
-                event.angleDelta(),
-                event.buttons(),
-                event.modifiers(),
-                event.phase(),
-                event.inverted(),
-            )
-            QApplication.sendEvent(viewport, forwarded)
-            event.accept()
-            return True
+            return parent
         parent = parent.parentWidget()
-    return False
+    return None
+
+
+def forward_wheel_to_ancestor_scroll_area(widget: QWidget, event: QWheelEvent) -> bool:
+    """Forward wheel input to the nearest ancestor ``QScrollArea`` viewport."""
+    scroll = find_ancestor_scroll_area(widget)
+    if scroll is None:
+        return False
+    viewport = scroll.viewport()
+    if viewport is None:
+        return False
+    local = viewport.mapFromGlobal(event.globalPosition().toPoint())
+    forwarded = QWheelEvent(
+        QPointF(local),
+        event.globalPosition(),
+        event.pixelDelta(),
+        event.angleDelta(),
+        event.buttons(),
+        event.modifiers(),
+        event.phase(),
+        event.inverted(),
+    )
+    QApplication.sendEvent(viewport, forwarded)
+    event.accept()
+    return True
 
 
 class _WrappingLabel(QLabel):

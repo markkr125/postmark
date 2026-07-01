@@ -1938,6 +1938,60 @@ def test_small_scroll_up_from_bottom_unlocks(qapp: QApplication, qtbot) -> None:
     assert bar.value() == position_after_scroll
 
 
+def test_drag_select_autoscroll_unlocks_stream_follow(qapp: QApplication, qtbot) -> None:
+    """Drag-selection auto-scroll uses plain setValue so scroll-lock detaches during streaming."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitExposed(panel)
+    panel.resize(360, 280)
+    for index in range(20):
+        panel.add_message("user", f"fill {index} " * 10)
+    panel.add_message("user", "question")
+    panel.begin_assistant_stream()
+    qapp.processEvents()
+    qapp.processEvents()
+    panel._scroll_lock_enabled = True
+    panel.append_assistant_chunk("", "line\n" * 80)
+    _flush_stream_chunks(qtbot)
+    qapp.processEvents()
+    bar = panel._scroll.verticalScrollBar()
+    if bar.maximum() <= 20:
+        pytest.skip("no scroll range in test environment")
+    bar.setValue(bar.maximum() // 2)
+    qapp.processEvents()
+    panel._scroll_lock_enabled = True
+
+    assistant_bubbles = [
+        bubble for bubble in panel.findChildren(ChatMessageBubble) if bubble.role == "assistant"
+    ]
+    assert len(assistant_bubbles) == 1
+    body = assistant_bubbles[0].findChild(MarkdownContent, "aiChatAssistantText")
+    assert body is not None
+
+    viewport = panel._scroll.viewport()
+    assert viewport is not None
+    global_above = viewport.mapToGlobal(QPoint(viewport.width() // 2, -20))
+    body._update_selection_autoscroll(global_above)
+    assert body._autoscroll_step < 0
+
+    position_before = bar.value()
+    changed: list[int] = []
+    bar.valueChanged.connect(changed.append)
+    body._on_autoscroll_tick()
+    scrolled_value = bar.value()
+    qapp.processEvents()
+    assert changed
+    assert panel._scroll_lock_enabled is False
+    assert scrolled_value < position_before
+
+    panel.append_assistant_chunk("", "more line\n" * 40)
+    _flush_stream_chunks(qtbot)
+    qapp.processEvents()
+    assert not panel._scroll_lock_enabled
+    assert bar.value() < bar.maximum() - _FOLLOW_THRESHOLD_PX
+
+
 def test_range_growth_follows_after_frame_pass_when_locked(qapp: QApplication, qtbot) -> None:
     """Real content growth with lock on follows the stream target after flush."""
     panel = AiChatPanel()
