@@ -172,11 +172,13 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   task) and ``disk_path`` (child conversation dir). Reload falls back to task-text
   matching under the session ``subagents/`` dir when the in-memory registry is empty.
   Clicking a transcript card opens ``SubagentDetailDialog`` (non-modal) with
-  live Activity steps from ``steps_for_subagent_record``, a collapsible Thought
+  a type chip + colored status pill header, conditional Task callout (hidden when
+  redundant with the title), live Activity steps (lightbulb steps filtered;
+  reasoning only in Thought block) with inline detail previews, a collapsible Thought
   block from ``SubagentTranscriptView.thinking_markdown`` (scroll-capped in the dialog),
-  and markdown reply
-  streaming from disk via ``load_subagent_disk_snapshot`` (one EventLog read per
-  refresh for view + steps); ``_apply_subagent_update``
+  markdown reply streaming from disk via ``load_subagent_disk_snapshot`` (one EventLog read per
+  refresh for view + steps), and a footer **Copy message** control for the reply markdown;
+  ``_apply_subagent_update``
   pushes worker updates (including terminal) to an open dialog.
   Parallel delegate
   cap: `max_parallel_subagents()` (`subagent_limits.py`, QSettings

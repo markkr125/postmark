@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import time
+from datetime import datetime
 from typing import Any, Literal, NotRequired, TypedDict
 
 from services.ai.chat.subagent_disk_registry import (
@@ -163,11 +164,21 @@ def delegate_agent_result_from_observation(text: str, agent_id: str) -> str:
 class SubagentEventTracker:
     """Stateful parser for task/delegate tool events in one assistant turn."""
 
-    def __init__(self, *, session_id: str = "") -> None:
-        """Start tracking with an empty record list."""
+    def __init__(
+        self,
+        *,
+        session_id: str = "",
+        turn_started_at: float | None = None,
+    ) -> None:
+        """Start tracking with an empty record list.
+
+        ``turn_started_at`` overrides the wall-clock turn start. Pass the real
+        turn time when rebuilding from persisted events so disk-path resolution
+        does not reject the (older) subagent folders on a post-restart replay.
+        """
         self._session_id = session_id
         self._records: dict[str, SubagentRunRecord] = {}
-        self._turn_started_at = time.time()
+        self._turn_started_at = time.time() if turn_started_at is None else turn_started_at
         self._pending_delegate_ids: list[str] = []
         self._disk_paths_assigned: set[str] = set()
 
@@ -507,13 +518,37 @@ class SubagentEventTracker:
         return changed
 
 
+def _earliest_event_epoch(events: list[Any]) -> float | None:
+    """Return the earliest event wall-clock epoch from ISO ``timestamp`` fields."""
+    earliest: float | None = None
+    for event in events:
+        raw = getattr(event, "timestamp", None)
+        if not isinstance(raw, str) or not raw.strip():
+            continue
+        try:
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        epoch = parsed.timestamp()
+        if earliest is None or epoch < earliest:
+            earliest = epoch
+    return earliest
+
+
 def records_for_turn_events(
     events: list[Any],
     *,
     session_id: str = "",
 ) -> list[SubagentRunRecord]:
-    """Rebuild subagent cards from a slice of parent session SDK events."""
-    tracker = SubagentEventTracker(session_id=session_id)
+    """Rebuild subagent cards from a slice of parent session SDK events.
+
+    The turn start is taken from the events' own timestamps (not the current
+    clock) so a post-restart replay resolves the subagent disk folders by mtime.
+    """
+    tracker = SubagentEventTracker(
+        session_id=session_id,
+        turn_started_at=_earliest_event_epoch(events),
+    )
     for event in events:
         tracker.ingest(event)
     return tracker.records()

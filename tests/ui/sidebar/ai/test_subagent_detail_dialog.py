@@ -138,6 +138,47 @@ def test_detail_dialog_close_button_uses_outline_style(qapp: QApplication, qtbot
     assert close_btn.cursor().shape() == Qt.CursorShape.PointingHandCursor
 
 
+def test_detail_dialog_copy_message_puts_reply_on_clipboard(qapp: QApplication, qtbot) -> None:
+    """Copy message writes the subagent reply markdown to the clipboard."""
+    dialog = SubagentDetailDialog()
+    qtbot.addWidget(dialog)
+    record: SubagentRunRecord = {
+        "id": "copy-1",
+        "kind": "delegate",
+        "label": "Find TypeScript scripting docs",
+        "subagent_type": "wiki-researcher",
+        "status": "completed",
+        "task_prompt": "Find TypeScript scripting docs",
+        "result_preview": "## TypeScript docs\n\nUse `pm.require`.",
+    }
+    dialog.open_record(record)
+    qtbot.wait(10)
+    copy_btn = dialog.findChild(QPushButton, "aiChatSubagentDetailCopy")
+    assert copy_btn is not None
+    assert copy_btn.isEnabled()
+    qtbot.mouseClick(copy_btn, Qt.MouseButton.LeftButton)
+    assert "## TypeScript docs" in QApplication.clipboard().text()
+    assert "pm.require" in QApplication.clipboard().text()
+
+
+def test_detail_dialog_copy_disabled_when_reply_empty(qapp: QApplication, qtbot) -> None:
+    """Copy message stays disabled until the reply has markdown."""
+    dialog = SubagentDetailDialog()
+    qtbot.addWidget(dialog)
+    dialog.open_record(
+        {
+            "id": "empty-run",
+            "kind": "delegate",
+            "label": "Find docs",
+            "subagent_type": "wiki-researcher",
+            "status": "running",
+            "task_prompt": "Find docs",
+        }
+    )
+    qtbot.wait(10)
+    assert not dialog._copy_btn.isEnabled()
+
+
 def test_detail_dialog_refresh_updates_running_record(qapp: QApplication, qtbot) -> None:
     """An open running dialog picks up new preview text on refresh."""
     dialog = SubagentDetailDialog()
@@ -438,3 +479,194 @@ def test_detail_dialog_expanded_thinking_caps_scroll_height(
     assert dialog._thinking.is_expanded()
     assert dialog._thinking_scroll.isVisible()
     assert dialog._thinking_scroll.maximumHeight() == _THOUGHT_BODY_MAX_PX
+
+
+def test_detail_dialog_hides_task_when_same_as_title(qapp: QApplication, qtbot) -> None:
+    """Task heading and field hide when task_prompt equals the title."""
+    dialog = SubagentDetailDialog()
+    qtbot.addWidget(dialog)
+    dialog.open_record(
+        {
+            "id": "same-task",
+            "kind": "delegate",
+            "label": "Find Python scripting docs",
+            "subagent_type": "wiki-researcher",
+            "status": "completed",
+            "task_prompt": "Find Python scripting docs",
+            "result_preview": "Done.",
+        }
+    )
+    qtbot.wait(10)
+    assert not dialog._task_heading.isVisible()
+    assert not dialog._task.isVisible()
+
+
+def test_detail_dialog_shows_task_when_differs_from_title(qapp: QApplication, qtbot) -> None:
+    """Task callout appears when task_prompt adds detail beyond the title."""
+    dialog = SubagentDetailDialog()
+    qtbot.addWidget(dialog)
+    dialog.open_record(
+        {
+            "id": "long-task",
+            "kind": "delegate",
+            "label": "Find Python scripting docs",
+            "subagent_type": "wiki-researcher",
+            "status": "completed",
+            "task_prompt": "Find Python scripting docs in the Postmark wiki",
+            "result_preview": "Done.",
+        }
+    )
+    qtbot.wait(10)
+    assert dialog._task_heading.isVisible()
+    assert dialog._task.isVisible()
+    assert dialog._task.text() == "Find Python scripting docs in the Postmark wiki"
+
+
+def test_detail_dialog_completed_status_pill_property(qapp: QApplication, qtbot) -> None:
+    """Completed records tint the status pill with status=completed."""
+    dialog = SubagentDetailDialog()
+    qtbot.addWidget(dialog)
+    dialog.open_record(
+        {
+            "id": "done",
+            "kind": "delegate",
+            "label": "Find docs",
+            "subagent_type": "wiki-researcher",
+            "status": "completed",
+            "task_prompt": "Find docs",
+            "result_preview": "Answer.",
+        }
+    )
+    qtbot.wait(10)
+    assert dialog._status_pill.property("status") == "completed"
+    assert dialog._status_text.property("status") == "completed"
+    assert dialog._status_text.text() == "Completed"
+
+
+def test_detail_dialog_error_status_pill_property(qapp: QApplication, qtbot) -> None:
+    """Failed records tint the status pill with status=error."""
+    dialog = SubagentDetailDialog()
+    qtbot.addWidget(dialog)
+    dialog.open_record(
+        {
+            "id": "fail",
+            "kind": "delegate",
+            "label": "Find docs",
+            "subagent_type": "wiki-researcher",
+            "status": "error",
+            "task_prompt": "Find docs",
+            "result_preview": "",
+        }
+    )
+    qtbot.wait(10)
+    assert dialog._status_pill.property("status") == "error"
+    assert dialog._status_text.property("status") == "error"
+    assert dialog._status_text.text() == "Failed"
+
+
+def test_detail_dialog_filters_lightbulb_activity_steps(
+    qapp: QApplication, qtbot, tmp_path, monkeypatch
+) -> None:
+    """Thought-briefly disk steps are omitted; reasoning lives in ThoughtSection."""
+    monkeypatch.setattr(
+        "ui.sidebar.ai.subagent_detail_dialog.load_subagent_disk_snapshot",
+        lambda *a, **k: {
+            "view": {
+                "task_prompt": "Find docs",
+                "answer_markdown": "",
+                "thinking_markdown": "planning the search",
+                "event_count": 2,
+            },
+            "steps": [
+                {
+                    "id": "thought:1",
+                    "icon": "lightbulb",
+                    "summary": "Thought briefly",
+                    "detail": "planning the search",
+                },
+                {
+                    "id": "search:2",
+                    "icon": "magnifying-glass",
+                    "summary": 'Searched wiki for "python"',
+                },
+            ],
+        },
+    )
+    dialog = SubagentDetailDialog()
+    qtbot.addWidget(dialog)
+    dialog.open_record(_running_record("filter-thought", str(tmp_path)))
+    qtbot.wait(10)
+    summaries = dialog.findChildren(QLabel, "aiChatSubagentDetailStepSummary")
+    texts = [label.text() for label in summaries]
+    assert "Thought briefly" not in texts
+    assert 'Searched wiki for "python"' in texts
+
+
+def test_detail_dialog_activity_step_shows_inline_detail_preview(
+    qapp: QApplication, qtbot, tmp_path, monkeypatch
+) -> None:
+    """Activity steps with detail show a muted one-line preview under the summary."""
+    monkeypatch.setattr(
+        "ui.sidebar.ai.subagent_detail_dialog.load_subagent_disk_snapshot",
+        lambda *a, **k: {
+            "view": {
+                "task_prompt": "Find docs",
+                "answer_markdown": "",
+                "thinking_markdown": "",
+                "event_count": 1,
+            },
+            "steps": [
+                {
+                    "id": "obs:1",
+                    "icon": "article",
+                    "summary": "Read tool output",
+                    "detail": "Quickref excerpt for pm.require modules.",
+                },
+            ],
+        },
+    )
+    dialog = SubagentDetailDialog()
+    qtbot.addWidget(dialog)
+    dialog.open_record(_running_record("detail-preview", str(tmp_path)))
+    qtbot.wait(10)
+    detail_labels = dialog.findChildren(QLabel, "aiChatSubagentDetailStepDetail")
+    assert len(detail_labels) == 1
+    assert "Quickref excerpt" in detail_labels[0].text()
+    assert detail_labels[0].toolTip() == "Quickref excerpt for pm.require modules."
+
+
+def test_detail_dialog_activity_detail_elides_long_preview(
+    qapp: QApplication, qtbot, tmp_path, monkeypatch
+) -> None:
+    """Long activity detail previews elide with an ellipsis at the label width."""
+    long_detail = "Insight " * 80
+    monkeypatch.setattr(
+        "ui.sidebar.ai.subagent_detail_dialog.load_subagent_disk_snapshot",
+        lambda *a, **k: {
+            "view": {
+                "task_prompt": "Find docs",
+                "answer_markdown": "",
+                "thinking_markdown": "",
+                "event_count": 1,
+            },
+            "steps": [
+                {
+                    "id": "obs:1",
+                    "icon": "article",
+                    "summary": "Read tool output",
+                    "detail": long_detail,
+                },
+            ],
+        },
+    )
+    dialog = SubagentDetailDialog()
+    qtbot.addWidget(dialog)
+    dialog.open_record(_running_record("elide-detail", str(tmp_path)))
+    dialog.show()
+    qtbot.waitExposed(dialog)
+    qtbot.wait(50)
+    detail_labels = dialog.findChildren(QLabel, "aiChatSubagentDetailStepDetail")
+    assert len(detail_labels) == 1
+    preview = detail_labels[0].text()
+    assert preview.endswith("…")
+    assert len(preview) < len(long_detail.strip())

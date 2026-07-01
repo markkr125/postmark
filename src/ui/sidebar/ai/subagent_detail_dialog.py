@@ -33,6 +33,7 @@ from services.ai.chat.subagent_transcript import (
 from ui.sidebar.ai.message_bubble.markdown_content import MarkdownContent
 from ui.sidebar.ai.message_bubble.thought_section import ThoughtSection
 from ui.styling.icons import phi
+from ui.styling.theme import COLOR_ACCENT, COLOR_DANGER, COLOR_SUCCESS
 from ui.widgets.busy_spinner import BrailleSpinner
 
 _STATUS_LABELS: dict[SubagentStatus, str] = {
@@ -49,6 +50,62 @@ _MAX_HEIGHT_FRACTION = 0.78
 _POLL_MS = 750
 _STEP_ICON_PX = 14
 _THOUGHT_BODY_MAX_PX = 280
+_STEP_DETAIL_PREVIEW_MAX = 160
+_STATUS_ICON_PX = 12
+
+
+def _clip_step_detail(text: str, limit: int = _STEP_DETAIL_PREVIEW_MAX) -> str:
+    """Return a one-line clipped preview for activity step detail."""
+    cleaned = text.strip()
+    if len(cleaned) <= limit:
+        return cleaned
+    return cleaned[: limit - 1].rstrip() + "…"
+
+
+def _normalize_compare_text(text: str) -> str:
+    """Collapse whitespace for task-vs-title comparison."""
+    return " ".join(text.split())
+
+
+def _repolish_widget(widget: QWidget) -> None:
+    """Re-apply stylesheet after a dynamic QProperty change."""
+    style = widget.style()
+    style.unpolish(widget)
+    style.polish(widget)
+
+
+class _StepDetailPreviewLabel(QLabel):
+    """One-line activity detail preview that elides to the current width."""
+
+    def __init__(self, detail: str, parent: QWidget | None = None) -> None:
+        """Build a clipped, width-aware detail preview for one activity row."""
+        super().__init__(parent)
+        self._detail = detail.strip()
+        self.setObjectName("aiChatSubagentDetailStepDetail")
+        self.setWordWrap(False)
+        self.setToolTip(detail)
+
+    def _sync_elided(self) -> None:
+        """Elide the preview to the label's current inner width."""
+        width = self.contentsRect().width()
+        if width <= 0:
+            width = self.width()
+        if width <= 0:
+            return
+        source = _clip_step_detail(self._detail).replace("\n", " ")
+        self.setText(
+            self.fontMetrics().elidedText(source, Qt.TextElideMode.ElideRight, max(1, width))
+        )
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        """Re-elide when the activity column width changes."""
+        super().resizeEvent(event)
+        self._sync_elided()
+
+    def showEvent(self, event: QShowEvent) -> None:
+        """Elide once the label has a real layout width."""
+        super().showEvent(event)
+        QTimer.singleShot(0, self._sync_elided)
 
 
 def _initial_dialog_size() -> tuple[int, int]:
@@ -86,14 +143,41 @@ class SubagentDetailDialog(QDialog):
         self._title.setWordWrap(True)
         header.addWidget(self._title, 1)
 
-        self._meta = QLabel()
-        self._meta.setObjectName("aiChatSubagentDetailMeta")
-        self._meta.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
-        header.addWidget(self._meta, 0, Qt.AlignmentFlag.AlignTop)
+        header_meta = QHBoxLayout()
+        header_meta.setSpacing(6)
+
+        self._type_chip = QLabel()
+        self._type_chip.setObjectName("aiChatSubagentDetailTypeChip")
+        self._type_chip.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+        header_meta.addWidget(self._type_chip)
+
+        self._status_pill = QWidget()
+        self._status_pill.setObjectName("aiChatSubagentDetailStatusPill")
+        status_layout = QHBoxLayout(self._status_pill)
+        status_layout.setContentsMargins(0, 0, 0, 0)
+        status_layout.setSpacing(4)
+
+        self._status_icon = QLabel()
+        self._status_icon.setObjectName("aiChatSubagentDetailStatusIcon")
+        self._status_icon.setFixedSize(_STATUS_ICON_PX, _STATUS_ICON_PX)
+        self._status_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        status_layout.addWidget(self._status_icon, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        self._status_text = QLabel()
+        self._status_text.setObjectName("aiChatSubagentDetailStatusText")
+        status_layout.addWidget(self._status_text, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        header_meta.addWidget(self._status_pill)
+
+        header_meta_host = QWidget()
+        header_meta_host.setLayout(header_meta)
+        header_meta_host.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+        header.addWidget(header_meta_host, 0, Qt.AlignmentFlag.AlignTop)
         root.addLayout(header)
 
         task_heading = QLabel("Task")
         task_heading.setObjectName("aiChatSubagentDetailSectionHeading")
+        self._task_heading = task_heading
         root.addWidget(task_heading)
 
         self._task = QLabel()
@@ -114,7 +198,7 @@ class SubagentDetailDialog(QDialog):
         self._activity_layout.setSpacing(6)
         root.addWidget(self._activity_container)
 
-        self._activity_step_keys: list[tuple[str, str]] = []
+        self._activity_step_keys: list[tuple[str, str, str]] = []
 
         self._thinking_scroll = QScrollArea()
         self._thinking_scroll.setObjectName("aiChatSubagentDetailThoughtScroll")
@@ -122,6 +206,9 @@ class SubagentDetailDialog(QDialog):
         self._thinking_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._thinking_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         self._thinking_scroll.setVisible(False)
+        thought_viewport = self._thinking_scroll.viewport()
+        if thought_viewport is not None:
+            thought_viewport.setObjectName("aiChatSubagentDetailThoughtScrollViewport")
         self._thinking = ThoughtSection()
         self._thinking.setVisible(False)
         self._thinking.layout_height_changed.connect(self._sync_thought_scroll)
@@ -154,6 +241,15 @@ class SubagentDetailDialog(QDialog):
 
         footer = QHBoxLayout()
         footer.addStretch(1)
+        self._copy_btn = QPushButton("Copy message")
+        self._copy_btn.setObjectName("aiChatSubagentDetailCopy")
+        self._copy_btn.setIcon(phi("clipboard", size=12))
+        self._copy_btn.setIconSize(QSize(12, 12))
+        self._copy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._copy_btn.setToolTip("Copy reply markdown to clipboard")
+        self._copy_btn.setEnabled(False)
+        self._copy_btn.clicked.connect(self._copy_reply_to_clipboard)
+        footer.addWidget(self._copy_btn)
         close_btn = QPushButton("Close")
         close_btn.setObjectName("aiChatSubagentDetailClose")
         close_btn.setIcon(phi("x", size=12))
@@ -206,20 +302,19 @@ class SubagentDetailDialog(QDialog):
         self._record = enriched
         self._title.setText(enriched["label"])
         status = enriched["status"]
-        self._meta.setText(
-            f"{subagent_type_display(enriched['subagent_type'])} · "
-            f"{_STATUS_LABELS.get(status, status.title())}"
-        )
+        self._type_chip.setText(subagent_type_display(enriched["subagent_type"]))
+        self._apply_status_pill(status)
         self.setWindowTitle(enriched["label"])
 
         task_prompt = enriched.get("task_prompt", "") or enriched["label"]
-        self._task.setText(task_prompt)
+        self._sync_task_visibility(task_prompt, enriched["label"])
 
         if reset_answer:
             self._answer_markdown = ""
             self._reply.set_markdown("")
             self._reply.begin_streaming()
             self._thinking.set_text("")
+            self._sync_copy_button()
 
         if status in ("warming", "running"):
             self._reply_spinner.start()
@@ -258,6 +353,8 @@ class SubagentDetailDialog(QDialog):
                 event_count=0,
             )
             steps = steps_for_subagent_record(record)
+        steps = [step for step in steps if step.get("icon") != "lightbulb"]
+        steps = steps or _fallback_steps_for_record(record)
         self._apply_transcript_view(record, view, final=final)
         self._apply_thinking(view, final=final)
         self._apply_activity_steps(steps)
@@ -271,7 +368,8 @@ class SubagentDetailDialog(QDialog):
     ) -> None:
         """Update task prompt and reply markdown from a parsed transcript view."""
         if view["task_prompt"]:
-            self._task.setText(view["task_prompt"])
+            title = record.get("label", "") or self._title.text()
+            self._sync_task_visibility(view["task_prompt"], title)
 
         answer = view["answer_markdown"]
         if not answer:
@@ -314,6 +412,56 @@ class SubagentDetailDialog(QDialog):
             else:
                 self._reply.end_streaming()
             self._schedule_reply_layout_sync()
+        self._sync_copy_button()
+
+    def _reply_markdown_for_copy(self) -> str:
+        """Return the subagent reply markdown for clipboard copy."""
+        return self._answer_markdown.strip() or self._reply.markdown().strip()
+
+    def _sync_copy_button(self) -> None:
+        """Enable copy when the reply has markdown text."""
+        self._copy_btn.setEnabled(bool(self._reply_markdown_for_copy()))
+
+    def _copy_reply_to_clipboard(self) -> None:
+        """Copy the subagent reply markdown to the system clipboard."""
+        text = self._reply_markdown_for_copy()
+        if not text:
+            return
+        clipboard = QGuiApplication.clipboard()
+        if clipboard is not None:
+            clipboard.setText(text)
+
+    def _apply_status_pill(self, status: SubagentStatus) -> None:
+        """Update the colored status pill for the current record."""
+        self._status_text.setText(_STATUS_LABELS.get(status, status.title()))
+        if status == "completed":
+            icon_name = "check-circle"
+            color = COLOR_SUCCESS
+        elif status == "error":
+            icon_name = "warning-circle"
+            color = COLOR_DANGER
+        else:
+            icon_name = "circle"
+            color = COLOR_ACCENT
+        self._status_icon.setPixmap(
+            phi(icon_name, color=color, size=_STATUS_ICON_PX).pixmap(
+                _STATUS_ICON_PX, _STATUS_ICON_PX
+            )
+        )
+        self._status_pill.setProperty("status", status)
+        self._status_text.setProperty("status", status)
+        _repolish_widget(self._status_pill)
+        _repolish_widget(self._status_text)
+
+    def _sync_task_visibility(self, task_text: str, title: str) -> None:
+        """Show the task callout only when it adds information beyond the title."""
+        normalized_task = _normalize_compare_text(task_text.strip())
+        normalized_title = _normalize_compare_text(title.strip())
+        show = bool(normalized_task) and normalized_task != normalized_title
+        self._task_heading.setVisible(show)
+        self._task.setVisible(show)
+        if show:
+            self._task.setText(task_text)
 
     def _schedule_reply_layout_sync(self) -> None:
         """Re-render markdown after the dialog has a real viewport width."""
@@ -351,14 +499,23 @@ class SubagentDetailDialog(QDialog):
         icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(icon_label, 0, Qt.AlignmentFlag.AlignTop)
 
+        text_col = QVBoxLayout()
+        text_col.setContentsMargins(0, 0, 0, 0)
+        text_col.setSpacing(2)
+
         summary = QLabel(step.get("summary", ""), row)
         summary.setObjectName("aiChatSubagentDetailStepSummary")
         summary.setWordWrap(True)
         summary.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        text_col.addWidget(summary)
+
         detail = step.get("detail", "")
         if detail:
             summary.setToolTip(detail)
-        layout.addWidget(summary, 1)
+            detail_label = _StepDetailPreviewLabel(detail, row)
+            text_col.addWidget(detail_label)
+
+        layout.addLayout(text_col, 1)
         return row
 
     def _apply_thinking(self, view: SubagentTranscriptView, *, final: bool) -> None:
@@ -381,9 +538,15 @@ class SubagentDetailDialog(QDialog):
         self._thinking_scroll.setMaximumHeight(_THOUGHT_BODY_MAX_PX)
         self._thinking.updateGeometry()
 
+    def _activity_step_key(self, step: SubagentActivityStep) -> tuple[str, str, str]:
+        """Return a stable rebuild key including inline detail preview text."""
+        detail = step.get("detail", "")
+        preview = _clip_step_detail(detail) if detail else ""
+        return (step.get("id", ""), step.get("summary", ""), preview)
+
     def _apply_activity_steps(self, steps: list[SubagentActivityStep]) -> None:
         """Rebuild the activity list only when step keys changed."""
-        keys = [(step.get("id", ""), step.get("summary", "")) for step in steps]
+        keys = [self._activity_step_key(step) for step in steps]
         if keys == self._activity_step_keys:
             return
         self._activity_step_keys = keys

@@ -52,21 +52,35 @@ class DelegateObservation:
 class ActionEvent:
     """Minimal ActionEvent stand-in for event parsing tests."""
 
-    def __init__(self, tool_name: str, action: object, tool_call_id: str = "tc1") -> None:
+    def __init__(
+        self,
+        tool_name: str,
+        action: object,
+        tool_call_id: str = "tc1",
+        timestamp: str | None = None,
+    ) -> None:
         """Initialize stand-in action event fields."""
         self.tool_name = tool_name
         self.action = action
         self.tool_call_id = tool_call_id
+        self.timestamp = timestamp
 
 
 class ObservationEvent:
     """Minimal ObservationEvent stand-in for event parsing tests."""
 
-    def __init__(self, tool_name: str, observation: object, tool_call_id: str = "tc1") -> None:
+    def __init__(
+        self,
+        tool_name: str,
+        observation: object,
+        tool_call_id: str = "tc1",
+        timestamp: str | None = None,
+    ) -> None:
         """Initialize stand-in observation event fields."""
         self.tool_name = tool_name
         self.observation = observation
         self.tool_call_id = tool_call_id
+        self.timestamp = timestamp
 
 
 class WikiQueryAction:
@@ -279,6 +293,43 @@ def test_records_for_turn_events_rebuild() -> None:
     records = records_for_turn_events(events)
     assert len(records) == 1
     assert records[0]["status"] == "completed"
+
+
+def test_records_for_turn_events_uses_event_timestamps_for_turn_start() -> None:
+    """Restore replay derives the turn start from event timestamps, not the clock.
+
+    Regression: a rebuilt tracker stamped ``started_at`` with ``time.time()``, so a
+    post-restart replay rejected the (older) subagent disk folders by mtime and the
+    subagent thinking vanished from the detail dialog and card activity.
+    """
+    from datetime import datetime
+
+    ts = "2026-06-26T20:28:33.080284"
+    expected = datetime.fromisoformat(ts).timestamp()
+
+    events = [
+        ActionEvent("task", TaskAction(description="Lookup"), timestamp=ts),
+        ObservationEvent("task", TaskObservation(), timestamp=ts),
+    ]
+    records = records_for_turn_events(events)
+    assert len(records) == 1
+    assert records[0]["started_at"] == expected
+
+
+def test_records_for_turn_events_without_timestamps_uses_wall_clock() -> None:
+    """Events lacking timestamps keep the current-time turn start (live shape)."""
+    import time
+
+    before = time.time()
+    records = records_for_turn_events(
+        [
+            ActionEvent("task", TaskAction(description="Lookup")),
+            ObservationEvent("task", TaskObservation()),
+        ]
+    )
+    after = time.time()
+    assert len(records) == 1
+    assert before <= float(records[0]["started_at"]) <= after
 
 
 def test_turn_index_uses_full_session_not_tail_page() -> None:

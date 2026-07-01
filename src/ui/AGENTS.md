@@ -328,14 +328,21 @@ standard object names:
 | `aiChatSubagentLabel` | `_WrappingLabel` | Bold wrapped task title in the card header |
 | `aiChatSubagentOpenIcon` | `QLabel` | Open-in-window affordance on the card header |
 | `aiChatSubagentStatusLabel` | `QLabel` | Muted status caption (`Starting` / `Running` / `Completed` / `Failed`) |
-| `aiChatSubagentDetailDialog` | `QDialog` (`SubagentDetailDialog`) | Non-modal window: task prompt, live Activity steps, collapsible Thought block (reasoning from disk), and markdown reply; one `load_subagent_disk_snapshot` read per refresh when `disk_path` is set; panel pushes terminal updates via `refresh_record` |
+| `aiChatSubagentDetailDialog` | `QDialog` (`SubagentDetailDialog`) | Non-modal window: title + type chip + colored status pill; conditional Task callout (hidden when same as title); live Activity steps (lightbulb steps filtered — reasoning in Thought block only) with inline detail previews; collapsible Thought block; markdown reply; footer **Copy message** + Close; one `load_subagent_disk_snapshot` read per refresh when `disk_path` is set |
+| `aiChatSubagentDetailTypeChip` | `QLabel` | Muted agent-type label in the detail dialog header |
+| `aiChatSubagentDetailStatusPill` | `QWidget` | Status badge container; dynamic `status` property (`completed` / `error` / `running` / `warming`) |
+| `aiChatSubagentDetailStatusIcon` | `QLabel` | Colored status icon inside the pill |
+| `aiChatSubagentDetailStatusText` | `QLabel` | Status caption inside the pill; dynamic `status` property drives text color |
+| `aiChatSubagentDetailCopy` | `QPushButton` | Footer control — copies reply markdown to clipboard |
 | `aiChatSubagentDetailClose` | `QPushButton` | Footer Close control with ``x`` icon (outline styling) |
-| `aiChatSubagentDetailTask` | `QLabel` | Read-only delegated task prompt in the detail dialog |
+| `aiChatSubagentDetailTask` | `QLabel` | Read-only task callout (left-border quote style); hidden when redundant with title |
 | `aiChatSubagentDetailActivity` | `QWidget` | Activity step list container between Task and Thought (hidden when empty) |
 | `aiChatSubagentDetailThoughtScroll` | `QScrollArea` | Scroll cap for expanded subagent Thought body (`_THOUGHT_BODY_MAX_PX`) |
-| `aiChatSubagentDetailStepRow` | `QWidget` | One icon + summary row in the Activity list |
+| `aiChatSubagentDetailThoughtScrollViewport` | `QWidget` | Thought scroll viewport; explicit no-border override |
+| `aiChatSubagentDetailStepRow` | `QWidget` | One icon + summary (+ optional detail preview) row in the Activity list |
 | `aiChatSubagentDetailStepIcon` | `QLabel` | Phosphor icon for an activity step |
-| `aiChatSubagentDetailStepSummary` | `QLabel` | Wrapped activity summary; long `detail` shown as tooltip |
+| `aiChatSubagentDetailStepSummary` | `QLabel` | Wrapped activity summary; full `detail` also shown as tooltip |
+| `aiChatSubagentDetailStepDetail` | `QLabel` | Muted one-line inline preview of step `detail` |
 | `aiChatSubagentDetailScroll` | `QScrollArea` | Scroll container for subagent reply markdown; no right border (overrides `sidebarPanelArea QScrollArea`) |
 | `aiChatSubagentDetailScrollViewport` | `QWidget` | Scroll viewport for subagent reply; explicit no-border override |
 | `aiChatAssistantText` | `MarkdownContent` | Subagent reply body in the detail dialog (same renderer as assistant rows) |
