@@ -179,11 +179,15 @@ def assistant_turn_cost_for_message(
     msg_index: int,
     session_model_id: str | None = None,
     models: list[AiModelEntry] | None = None,
+    resolved_entries: list[AiModelEntry] | None = None,
 ) -> tuple[str | None, float | None]:
-    """Return ``(pricing_model_id, usd_cost)`` for one assistant message row."""
+    """Return ``(pricing_model_id, usd_cost)`` for one assistant message row.
+
+    *resolved_entries* is a complete lookup list from ``combined_model_entries``;
+    when omitted, one is built from *models* plus the configured models.
+    """
     if msg.get("role") != "assistant" or not _assistant_turn_has_tokens(msg):
         return None, None
-    model_list = list(models) if models is not None else list(AiConfig.get_models())
     model_id = pricing_model_id_for_assistant_message(
         msg,
         messages=messages,
@@ -193,7 +197,9 @@ def assistant_turn_cost_for_message(
     stored_cost = msg.get("cost_usd")
     if isinstance(stored_cost, int | float):
         return model_id, float(stored_cost)
-    entry = entry_for_model_id(model_id, extra_entries=model_list)
+    if resolved_entries is None:
+        resolved_entries = combined_model_entries(models)
+    entry = entry_for_model_id(model_id, extra_entries=resolved_entries, include_configured=False)
     cost = assistant_message_cost_usd(
         entry,
         prompt_tokens=int(msg.get("prompt_tokens") or 0),
@@ -211,13 +217,14 @@ def sum_assistant_turn_costs(
 ) -> float:
     """Sum priced USD for every assistant row (unrounded)."""
     total = 0.0
+    resolved_entries = combined_model_entries(models)
     for index, msg in enumerate(messages):
         _model_id, cost = assistant_turn_cost_for_message(
             msg,
             messages=messages,
             msg_index=index,
             session_model_id=session_model_id,
-            models=models,
+            resolved_entries=resolved_entries,
         )
         if cost is not None:
             total += cost
@@ -236,14 +243,18 @@ def _resolve_model_row_labels(
     entry: AiModelEntry | None,
     msg: AiChatMessageDict,
     *,
-    extra_entries: Iterable[AiModelEntry] | None = None,
+    resolved_entries: list[AiModelEntry],
 ) -> tuple[str, str]:
     """Return ``(model_label, provider_label)`` for one spend table row."""
     stored = str(msg.get("model_label") or "").strip()
     if stored:
         model_label = stored
     else:
-        model_label = resolve_model_display_name(model_id, entry, extra_entries=extra_entries)
+        resolved = (
+            entry_for_model_id(model_id, extra_entries=resolved_entries, include_configured=False)
+            or entry
+        )
+        model_label = model_display_name_from_entry(resolved) or model_id or "Unknown model"
     if entry is not None:
         provider_label = provider_group_label(entry)
     elif model_id:
@@ -258,9 +269,15 @@ def session_spend_breakdown(
     *,
     session_model_id: str | None = None,
     models: list[AiModelEntry] | None = None,
+    resolved_entries: list[AiModelEntry] | None = None,
 ) -> SessionSpendBreakdown:
-    """Roll up assistant-turn token usage and USD cost by configured model."""
-    model_list = list(models) if models is not None else list(AiConfig.get_models())
+    """Roll up assistant-turn token usage and USD cost by configured model.
+
+    *resolved_entries* is a complete lookup list from ``combined_model_entries``;
+    when omitted, one is built from *models* plus the configured models.
+    """
+    if resolved_entries is None:
+        resolved_entries = combined_model_entries(models)
     model_map: dict[str, ModelSpendRow] = {}
     assistant_turns = 0
     priced_turns = 0
@@ -281,9 +298,11 @@ def session_spend_breakdown(
             messages=messages,
             msg_index=index,
             session_model_id=session_model_id,
-            models=model_list,
+            resolved_entries=resolved_entries,
         )
-        entry = entry_for_model_id(model_id, extra_entries=model_list)
+        entry = entry_for_model_id(
+            model_id, extra_entries=resolved_entries, include_configured=False
+        )
         if cost is not None:
             priced_turns += 1
             known_usd += cost
@@ -294,7 +313,7 @@ def session_spend_breakdown(
             model_id,
             entry,
             msg,
-            extra_entries=model_list,
+            resolved_entries=resolved_entries,
         )
         row = model_map.get(row_key)
         if row is None:
@@ -398,21 +417,46 @@ def effective_assistant_model_id(
     return session_model_id
 
 
-def entry_for_model_id(
-    model_id: str | None,
-    *,
+def combined_model_entries(
     extra_entries: Iterable[AiModelEntry] | None = None,
-) -> AiModelEntry | None:
-    """Return the configured model entry for *model_id*, if present."""
-    if not model_id:
-        return None
+) -> list[AiModelEntry]:
+    """Return *extra_entries* followed by configured models, deduped by id.
+
+    Build this once before pricing many rows: the ``entry_for_model_id``
+    config fallback otherwise re-reads and re-normalizes the QSettings model
+    list per lookup, which is what froze the GUI during spend rollups.
+    """
+    combined: list[AiModelEntry] = []
     seen: set[str] = set()
     for candidate in (*tuple(extra_entries or ()), *AiConfig.get_models()):
         row_id = str(candidate.get("id") or "")
         if not row_id or row_id in seen:
             continue
         seen.add(row_id)
-        if row_id == model_id:
+        combined.append(candidate)
+    return combined
+
+
+def entry_for_model_id(
+    model_id: str | None,
+    *,
+    extra_entries: Iterable[AiModelEntry] | None = None,
+    include_configured: bool = True,
+) -> AiModelEntry | None:
+    """Return the configured model entry for *model_id*, if present.
+
+    Pass ``include_configured=False`` when *extra_entries* already came from
+    ``combined_model_entries`` so the model config is not re-read per lookup.
+    """
+    if not model_id:
+        return None
+    candidates: Iterable[AiModelEntry]
+    if include_configured:
+        candidates = combined_model_entries(extra_entries)
+    else:
+        candidates = extra_entries or ()
+    for candidate in candidates:
+        if str(candidate.get("id") or "") == model_id:
             return candidate
     return None
 
@@ -518,6 +562,7 @@ __all__ = [
     "SessionSpendBreakdown",
     "assistant_message_cost_usd",
     "assistant_turn_cost_for_message",
+    "combined_model_entries",
     "effective_assistant_model_id",
     "entry_for_model_id",
     "format_assistant_footer_label",

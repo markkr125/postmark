@@ -358,7 +358,11 @@ class HistoryPanel(  # type: ignore[misc]
         term = search if search else self._history_search_input.text().strip()
         date_kw = self._date_filter_kwargs()
         if self._is_global_mode():
-            items = RequestHistoryService.list_for_sidebar(search=term, **date_kw)
+            items = RequestHistoryService.list_for_sidebar(
+                search=term,
+                executed_from=date_kw.get("executed_from"),
+                executed_to=date_kw.get("executed_to"),
+            )
             self._apply_items(items, load_detail=load_detail)
             return
         if not self._is_persisted_request or self._request_id is None:

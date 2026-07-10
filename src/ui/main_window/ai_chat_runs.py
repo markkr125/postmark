@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 import logging
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from PySide6.QtCore import QObject, QThread, Qt, Slot
 from PySide6.QtWidgets import QMessageBox
@@ -13,6 +14,9 @@ from services.ai.chat.response_text import pick_richest_text
 from services.ai.chat.chat_run_limits import max_concurrent_chat_runs
 from services.ai.chat.run_registry import AiChatRunContext, ChatRunRegistry
 from services.ai.chat.session_service import ComposerRunContext
+from services.ai.chat.workspace_snapshot import clear_workspace_snapshot, set_workspace_snapshot
+from services.collection_service import CollectionService
+from services.scripting.context import mask_sensitive_value
 
 from ui.main_window.ai_chat_host_protocol import _AiChatHostProtocol
 
@@ -126,6 +130,22 @@ class _AiChatRunsMixin:
         if self._chat_run_registry.is_running(session_id):
             return False
         self._maybe_warn_concurrent_load()
+
+        try:
+            snapshot = self._build_ai_workspace_snapshot()
+        except Exception:
+            logger.debug(
+                "Workspace snapshot capture failed; using empty snapshot",
+                exc_info=True,
+            )
+            snapshot = {
+                "active_tab_index": 0,
+                "active_collection_id": None,
+                "current_env_id": None,
+                "active_response": None,
+                "tabs": [],
+            }
+        set_workspace_snapshot(session_id, snapshot)
 
         run_generation = self._chat_run_registry.next_run_generation()
         if session_id == self._active_ai_session_id:
@@ -427,6 +447,8 @@ class _AiChatRunsMixin:
         if pending == session_id:
             self._pending_title_session_id = None
             self._host(self)._maybe_generate_session_title(session_id)
+        if not self._chat_run_registry.is_running(session_id):
+            clear_workspace_snapshot(session_id)
 
     def _cancel_session_run(self, session_id: str | None) -> None:
         """Interrupt one session worker without optimistic UI rollback."""
@@ -462,6 +484,226 @@ class _AiChatRunsMixin:
             host._mark_run_stopped(ctx.run_generation, pre_stream=False)
 
         self._chat_run_registry.cancel(ctx.session_id)
+
+    def _build_ai_workspace_snapshot(self) -> dict[str, Any]:
+        """Capture open tabs and active-tab GUI state for workspace queries."""
+        host = cast(Any, self)
+        empty: dict[str, Any] = {
+            "active_tab_index": 0,
+            "active_collection_id": None,
+            "current_env_id": None,
+            "active_response": None,
+            "tabs": [],
+        }
+        if not hasattr(host, "_tab_bar") or not hasattr(host, "_tabs"):
+            return empty
+        active_index = host._tab_bar.currentIndex()
+        tabs: list[dict[str, Any]] = []
+
+        for idx, ctx in host._tabs.items():
+            name = self._snapshot_tab_name(host, idx, ctx)
+            tab: dict[str, Any] = {
+                "index": idx,
+                "tab_type": ctx.tab_type,
+                "name": name,
+                "request_id": ctx.request_id,
+                "collection_id": ctx.collection_id,
+                "local_script_id": ctx.local_script_id,
+                "is_dirty": bool(ctx.is_dirty),
+                "is_active": idx == active_index,
+            }
+            if ctx.tab_type == "request" and ctx.editor is not None:
+                tab["request_data"] = ctx.editor.get_request_data(cancel_pending_persist=False)
+            if ctx.tab_type in ("request", "draft") and ctx.response_viewer is not None:
+                viewer = ctx.response_viewer
+                if viewer.has_live_response():
+                    live = getattr(viewer, "_last_live_response", None)
+                    if isinstance(live, dict):
+                        tab["last_response"] = {
+                            "status_code": live.get("status_code"),
+                            "elapsed_ms": live.get("elapsed_ms"),
+                        }
+            if ctx.tab_type == "local_script" and ctx.local_script_editor is not None:
+                content, language = ctx.local_script_editor._pane.get_content()
+                tab["local_script_content"] = content
+                tab["local_script_language"] = language
+            overrides = getattr(ctx, "local_overrides", None)
+            if isinstance(overrides, dict) and overrides:
+                tab["local_overrides"] = {
+                    str(key): mask_sensitive_value(str(key), str(val.get("value", "")))
+                    for key, val in overrides.items()
+                    if isinstance(val, dict)
+                }
+            tabs.append(tab)
+
+        for idx, info in getattr(host, "_deferred_tabs", {}).items():
+            if idx in host._tabs:
+                continue
+            deferred_type = str(info.get("type") or "request")
+            if deferred_type == "local_script":
+                tabs.append(
+                    {
+                        "index": idx,
+                        "tab_type": "local_script",
+                        "name": str(info.get("name") or "Script"),
+                        "request_id": None,
+                        "collection_id": None,
+                        "local_script_id": info.get("script_id"),
+                        "is_dirty": False,
+                        "is_deferred": True,
+                        "is_active": idx == active_index,
+                    }
+                )
+            else:
+                tabs.append(
+                    {
+                        "index": idx,
+                        "tab_type": "request",
+                        "name": str(info.get("name") or "Request"),
+                        "request_id": info.get("request_id"),
+                        "collection_id": None,
+                        "local_script_id": None,
+                        "is_dirty": False,
+                        "is_deferred": True,
+                        "is_active": idx == active_index,
+                        "request_data": None,
+                    }
+                )
+
+        active_ctx = host._tabs.get(active_index)
+        active_collection_id = self._snapshot_active_collection_id(active_ctx)
+        active_response = self._snapshot_active_response(active_ctx)
+        env_selector = getattr(host, "_env_selector", None)
+        current_env_id = env_selector.current_environment_id() if env_selector is not None else None
+
+        return {
+            "active_tab_index": active_index,
+            "active_collection_id": active_collection_id,
+            "current_env_id": current_env_id,
+            "active_response": active_response,
+            "captured_at": datetime.now(UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S"),
+            "tabs": tabs,
+        }
+
+    @staticmethod
+    def _snapshot_tab_name(host: Any, idx: int, ctx: Any) -> str:
+        """Resolve a display name for one materialized tab."""
+        _method, bar_name = host._tab_bar.tab_request_info(idx)
+        if bar_name:
+            return str(bar_name)
+        if ctx.draft_name:
+            return str(ctx.draft_name)
+        if ctx.tab_type == "folder" and ctx.folder_editor is not None:
+            data = ctx.folder_editor.get_collection_data()
+            return str(data.get("name") or "Folder")
+        return "Tab"
+
+    @staticmethod
+    def _snapshot_active_collection_id(ctx: Any | None) -> int | None:
+        """Resolve the collection context for the active tab."""
+        if ctx is None:
+            return None
+        if ctx.tab_type == "folder" and ctx.collection_id is not None:
+            return int(ctx.collection_id)
+        if ctx.request_id is not None:
+            row = CollectionService.get_request(int(ctx.request_id))
+            if row is not None:
+                return int(row.collection_id)
+        if ctx.variable_collection_id is not None:
+            return int(ctx.variable_collection_id)
+        return None
+
+    @staticmethod
+    def _snapshot_active_response(ctx: Any | None) -> dict[str, Any] | None:
+        """Build a JSON-safe live response payload for the active tab."""
+        if ctx is None or ctx.response_viewer is None:
+            return None
+        viewer = ctx.response_viewer
+        if not viewer.has_live_response():
+            err_payload = getattr(viewer, "_last_error_response", None)
+            if isinstance(err_payload, dict) and err_payload.get("error"):
+                return {"send_error": str(err_payload.get("error", ""))}
+            stored_id = getattr(viewer, "_viewing_stored_entry_id", None)
+            if isinstance(stored_id, int):
+                return {"viewing_stored_entry_id": stored_id}
+            return None
+        payload = viewer.get_save_response_data()
+        if payload is None:
+            return None
+        data = dict(payload)
+        live = getattr(viewer, "_last_live_response", None)
+        if isinstance(live, dict):
+            if live.get("elapsed_ms") is not None:
+                data["elapsed_ms"] = live.get("elapsed_ms")
+            if live.get("size_bytes") is not None:
+                data["size_bytes"] = live.get("size_bytes")
+        results: list[dict[str, Any]] | None = None
+        if isinstance(live, dict):
+            live_results = live.get("test_results")
+            if isinstance(live_results, list) and live_results:
+                results = live_results
+        if results is None:
+            viewer_results = getattr(viewer, "_test_results", None)
+            if isinstance(viewer_results, list) and viewer_results:
+                results = viewer_results
+        if results:
+            normalized: list[dict[str, Any]] = []
+            for row in results:
+                if not isinstance(row, dict):
+                    continue
+                item: dict[str, Any] = {
+                    "name": str(row.get("name", "")),
+                    "passed": bool(row.get("passed")),
+                }
+                err = row.get("error")
+                if err:
+                    item["error"] = str(err)
+                normalized.append(item)
+            passed = sum(1 for row in normalized if row.get("passed"))
+            failed = len(normalized) - passed
+            data["test_summary"] = {"passed": passed, "failed": failed}
+            failures = [row for row in normalized if not row.get("passed")]
+            passes = [row for row in normalized if row.get("passed")]
+            copied = failures[:20]
+            if len(copied) < 20:
+                copied.extend(passes[: 20 - len(copied)])
+            data["test_results"] = copied
+        if isinstance(live, dict):
+            raw_logs = live.get("console_logs")
+            if isinstance(raw_logs, list) and raw_logs:
+                log_copy: list[dict[str, Any]] = []
+                for entry in raw_logs[:50]:
+                    if not isinstance(entry, dict):
+                        continue
+                    log_copy.append(
+                        {
+                            "level": str(entry.get("level", "log")),
+                            "message": str(entry.get("message", "")),
+                        }
+                    )
+                if log_copy:
+                    data["console_logs"] = log_copy
+            timing = live.get("timing")
+            if isinstance(timing, dict):
+                data["timing"] = dict(timing)
+            network = live.get("network")
+            if isinstance(network, dict):
+                data["network"] = dict(network)
+            for size_key in (
+                "request_headers_size",
+                "request_body_size",
+                "response_headers_size",
+                "response_uncompressed_size",
+            ):
+                if live.get(size_key) is not None:
+                    data[size_key] = live.get(size_key)
+            for var_key in ("variable_changes", "pre_request_variable_changes"):
+                changes = live.get(var_key)
+                if isinstance(changes, dict) and changes:
+                    bounded = {str(k): str(v) for k, v in list(changes.items())[:20]}
+                    if bounded:
+                        data[var_key] = bounded
+        return data
 
 
 __all__ = ["_AiChatRunsMixin"]

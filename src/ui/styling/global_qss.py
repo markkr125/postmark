@@ -267,6 +267,12 @@ def build_global_qss(p: ThemePalette) -> str:
         font-size: 11px;
         border-radius: 4px;
     }}
+    /* Icon-only 28x28 send/stop: text-button padding eats the content box under
+       setFixedSize (Qt stylesheet box model). Zero padding; external spacing
+       comes from layout contentsMargins, not QSS padding. */
+    QPushButton[objectName="smallPrimaryButton"][iconOnly="true"] {{
+        padding: 0px;
+    }}
     QPushButton[objectName="smallPrimaryButton"]:hover {{
         background: {p["accent_hover"]};
     }}
@@ -1750,7 +1756,8 @@ def build_global_qss(p: ThemePalette) -> str:
     QWidget[objectName="aiChatUserMessageFooter"] {{
         background: transparent;
         border: none;
-        padding-top: 2px;
+        /* Do not set QSS padding here — it does not affect QLayout geometry.
+           Footer insets live in UserMessageFooterRow layout contentsMargins. */
     }}
     QFrame[objectName="aiUserMessageActionsPopup"] {{
         background: {p["bg"]};

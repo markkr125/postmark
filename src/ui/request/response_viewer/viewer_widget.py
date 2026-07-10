@@ -173,6 +173,8 @@ class ResponseViewerWidget(
         self._last_status_color: str = ""
         self._last_elapsed_ms: float = 0.0
         self._last_live_response: dict | None = None
+        self._last_error_response: dict | None = None
+        self._viewing_stored_entry_id: int | None = None
         self._body_format_generation = 0
         self._body_format_runner = AsyncTextFormatRunner(self)
         self._body_format_runner.formatted.connect(self._on_async_body_formatted)
@@ -399,6 +401,8 @@ class ResponseViewerWidget(
         self._replay_indicator.hide()
         self._clear_stored_script_tabs()
         self._last_live_response = None
+        self._last_error_response = None
+        self._viewing_stored_entry_id = None
         self._set_save_enabled(False)
         self._status_label.setText("")
         self._time_label.setText("")
@@ -428,6 +432,8 @@ class ResponseViewerWidget(
             return
 
         self._last_live_response = dict(data)
+        self._last_error_response = None
+        self._viewing_stored_entry_id = None
         self._set_save_enabled(True)
 
         self._render_response_data(data)
@@ -441,6 +447,9 @@ class ResponseViewerWidget(
         self._replay_indicator.hide()
         self._clear_stored_script_tabs()
         self._last_live_response = None
+        self._last_error_response = None
+        entry_raw = data.get("history_entry_id")
+        self._viewing_stored_entry_id = int(entry_raw) if isinstance(entry_raw, int) else None
         self._set_save_enabled(False)
         if "error" in data:
             self._load_network_error_response(data)
@@ -456,6 +465,8 @@ class ResponseViewerWidget(
     def _load_network_error_response(self, data: dict) -> None:
         """Render a failed send (``error`` in :class:`HttpResponseDict`) in the tabbed view."""
         self._last_live_response = None
+        self._last_error_response = dict(data)
+        self._viewing_stored_entry_id = None
         self._set_save_enabled(False)
         self._clear_test_results_rows()
         self._tabs.setTabVisible(self._test_tab_index, False)
@@ -628,6 +639,8 @@ class ResponseViewerWidget(
         self._cookies_edit.clear()
         self._request_headers_edit.clear()
         self._last_live_response = None
+        self._last_error_response = None
+        self._viewing_stored_entry_id = None
         self._raw_body = ""
         self._filtered_body = ""
         self._is_filtered = False

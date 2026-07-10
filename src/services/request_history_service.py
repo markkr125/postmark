@@ -229,11 +229,12 @@ def list_for_sidebar(
     *,
     executed_from: date | None = None,
     executed_to: date | None = None,
+    limit: int = 500,
 ) -> list[RequestHistoryEntryDict]:
     """List all history metadata (global sidebar; newest first)."""
     rows = request_history_repository.list_entries_for_sidebar(
         search=search,
-        limit=500,
+        limit=limit,
         executed_from=executed_from,
         executed_to=executed_to,
     )
@@ -407,6 +408,7 @@ def entry_to_http_response_dict(entry: RequestHistoryEntryDict) -> dict[str, Any
             "request_method": req_method,
             "request_url": req_url,
             "request_headers": req_headers,
+            "history_entry_id": entry.get("id"),
         }
 
     code = int(entry.get("status_code", 0) or 0)
@@ -430,6 +432,7 @@ def entry_to_http_response_dict(entry: RequestHistoryEntryDict) -> dict[str, Any
         "request_method": req_method,
         "request_url": req_url,
         "request_headers": req_headers,
+        "history_entry_id": entry.get("id"),
     }
 
 
@@ -442,7 +445,7 @@ def entry_to_detail_snapshot(entry: RequestHistoryEntryDict) -> dict[str, Any]:
     elif entry.get("response_size_bytes"):
         body_text = "[Response body unavailable — history file missing from storage]"
 
-    headers = entry.get("response_headers") or []
+    headers = _normalize_history_response_headers(entry.get("response_headers"))
     original = entry.get("original_request") or {}
     return {
         "status_code": entry.get("status_code", 0),

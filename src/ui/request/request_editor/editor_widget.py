@@ -554,9 +554,10 @@ class RequestEditorWidget(
         except (json.JSONDecodeError, TypeError):
             return body, ""
 
-    def get_request_data(self) -> dict:
+    def get_request_data(self, *, cancel_pending_persist: bool = True) -> dict:
         """Return the current editor state as a dict suitable for saving."""
-        self.cancel_debug_metadata_persist()
+        if cancel_pending_persist:
+            self.cancel_debug_metadata_persist()
         body_mode: str
         body_options: dict | None
         body_text: str
@@ -620,6 +621,36 @@ class RequestEditorWidget(
                 variables = {}
             return json.dumps({"query": query, "variables": variables})
         return self._body_code_editor.toPlainText()
+
+    def focus_section(self, section: str, *, scripts_kind: str | None = None) -> None:
+        """Show a request editor tab section and optional Scripts sub-tab.
+
+        *section* is a case-insensitive tab name (``params``, ``headers``, ``body``,
+        ``auth``, ``description``, ``scripts``, ``assertions``) or a script focus
+        token (``pre_request``, ``test``). *scripts_kind* selects the Pre-request
+        or Post-response script sub-tab when the Scripts section is shown.
+        """
+        key = (section or "").strip().lower()
+        kind = (scripts_kind or "").strip().lower() or None
+        if key in ("pre_request", "test"):
+            kind = key
+            key = "scripts"
+        if key == "scripts":
+            self._tabs.setCurrentIndex(_TAB_INDEX_SCRIPTS)
+            if kind in ("pre_request", "test"):
+                self._ensure_scripts_editors()
+                self._scripts_sub_tabs.setCurrentIndex(0 if kind == "pre_request" else 1)
+            return
+        section_index = {
+            "params": 0,
+            "headers": 1,
+            "body": 2,
+            "auth": 3,
+            "description": 4,
+            "assertions": _TAB_INDEX_ASSERTIONS,
+        }.get(key)
+        if section_index is not None:
+            self._tabs.setCurrentIndex(section_index)
 
     def clear_request(self) -> None:
         """Reset the editor to the empty state."""

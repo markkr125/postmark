@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 from sqlalchemy import select
@@ -68,6 +69,25 @@ def fetch_all_local_scripts_tree() -> dict[str, Any]:
                 parent["children"][str(fid)] = node
 
     return roots
+
+
+def fetch_local_script_contents_for_ids(
+    ids: Sequence[int],
+) -> list[tuple[int, str, str]]:
+    """Return ``(id, name, content)`` for the given local script ids."""
+    if not ids:
+        return []
+    with get_session() as session:
+        stmt = select(
+            LocalScriptModel.id,
+            LocalScriptModel.name,
+            LocalScriptModel.content,
+        ).where(LocalScriptModel.id.in_(ids))
+        rows = session.execute(stmt).all()
+        by_id = {
+            int(sid): (int(sid), str(name or ""), str(content or "")) for sid, name, content in rows
+        }
+        return [by_id[i] for i in ids if i in by_id]
 
 
 def get_script_by_id(script_id: int) -> LocalScriptModel | None:

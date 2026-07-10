@@ -50,7 +50,7 @@ Built for HTTP replay from a snapshot (`build_send_payload_from_entry`).
 |--------|---------|
 | `gather_send_identity(ctx, editor, data)` | Identity at send start |
 | `record_send(identity, response, original_request, settings)` | Persist one send; return entry id |
-| `list_for_sidebar(search?, executed_from?, executed_to?)` | Global list (left rail), newest first, limit 500; optional local-calendar date bounds |
+| `list_for_sidebar(search?, executed_from?, executed_to?, limit=500)` | Global list (left rail), newest first; default limit 500; optional local-calendar date bounds |
 | `list_for_request(request_id, search?, executed_from?, executed_to?)` | Per-request list (right rail), limit 200; optional date bounds |
 | `get_entry(entry_id)` | Full row + body + snapshot |
 | `entry_to_detail_snapshot(entry)` | Read-only sidebar detail panes |

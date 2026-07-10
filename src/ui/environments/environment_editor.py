@@ -243,6 +243,24 @@ class EnvironmentEditorWidget(QWidget):
 
         self._sync_right_pane_and_intro()
 
+    def select_environment(self, env_id: int) -> bool:
+        """Select an environment by id in the list. Return ``True`` if found."""
+        if env_id <= 0:
+            return False
+        for i in range(self._env_list.count()):
+            item = self._env_list.item(i)
+            if item is not None and item.data(Qt.ItemDataRole.UserRole) == env_id:
+                self._env_list.setCurrentRow(i)
+                return True
+        # List may be stale after create/delete elsewhere — refresh once.
+        self._refresh_list()
+        for i in range(self._env_list.count()):
+            item = self._env_list.item(i)
+            if item is not None and item.data(Qt.ItemDataRole.UserRole) == env_id:
+                self._env_list.setCurrentRow(i)
+                return True
+        return False
+
     def _on_env_selected(self, row: int) -> None:
         """Load the selected environment's variables."""
         item = self._env_list.item(row)

@@ -121,18 +121,27 @@ class _TabControllerMixin:
     # ------------------------------------------------------------------
     # Open request
     # ------------------------------------------------------------------
+    def _focus_open_tab(self, index: int) -> bool:
+        """Focus an already-open tab by its bar index. Return ``True`` if focused."""
+        if 0 <= index < self._tab_bar.count():
+            self._tab_bar.setCurrentIndex(index)
+            return True
+        return False
+
     def _open_request(
         self,
         request_id: int,
         *,
         push_history: bool,
         is_preview: bool = False,
-    ) -> None:
+    ) -> bool:
         """Load a request in a tab -- reuse existing or create new.
 
         When *is_preview* is ``True`` the tab is italic and will be
         replaced by subsequent preview opens.  When ``False`` (the
         default) the tab is permanent.
+
+        Returns ``True`` when a tab was focused or opened.
         """
         if is_preview and not self._tab_settings_manager.enable_preview_tab:
             is_preview = False
@@ -146,20 +155,20 @@ class _TabControllerMixin:
                     ctx.is_preview = False
                     self._tab_bar.update_tab(idx, is_preview=False)
                 self._flush_tab_change()
-                return
+                return True
 
         # 1b. Check if already open in a deferred (lazy) tab — no DB needed
         for idx, info in self._deferred_tabs.items():
             if info.get("request_id") == request_id:
                 self._tab_bar.setCurrentIndex(idx)
                 self._flush_tab_change()
-                return
+                return True
 
         # 2. Fetch from database only when we actually need to create a tab
         request = CollectionService.get_request(request_id)
         if request is None:
             logger.warning("Request id=%s not found", request_id)
-            return
+            return False
 
         request_path = self._request_full_path(request_id)
 
@@ -199,6 +208,7 @@ class _TabControllerMixin:
                 self._history = self._history[-_MAX_HISTORY:]
             self._history_index = len(self._history) - 1
             self._update_nav_actions()
+        return True
 
     # ------------------------------------------------------------------
     # Tab CRUD
@@ -271,20 +281,23 @@ class _TabControllerMixin:
         self._persist_open_tabs()
         return idx
 
-    def _open_local_script(self, script_id: int) -> None:
-        """Open a persisted local script in a centre editor tab."""
+    def _open_local_script(self, script_id: int) -> bool:
+        """Open a persisted local script in a centre editor tab.
+
+        Returns ``True`` when a tab was focused or opened.
+        """
         if not self._enforce_tab_limit_before_open():
-            return
+            return False
 
         for idx, ctx in self._tabs.items():
             if ctx.tab_type == "local_script" and ctx.local_script_id == script_id:
                 self._tab_bar.setCurrentIndex(idx)
                 self._flush_tab_change()
-                return
+                return True
 
         data = LocalScriptService.get_script_load_dict(script_id)
         if data is None:
-            return
+            return False
 
         editor = LocalScriptEditorWidget()
         self._editor_stack.addWidget(editor)
@@ -327,6 +340,7 @@ class _TabControllerMixin:
         self._on_tab_changed(idx)
         self._flush_tab_change()
         self._persist_open_tabs()
+        return True
 
     def _replace_tab(
         self,
@@ -1470,23 +1484,37 @@ class _TabControllerMixin:
         env_widget.environments_changed.connect(self._on_environments_data_changed)
         return idx
 
-    def _open_environments_tab(self) -> None:
-        """Open or focus the global environments editor tab."""
+    def _open_environments_tab(self, *, environment_id: int | None = None) -> bool:
+        """Open or focus the global environments editor tab.
+
+        When *environment_id* is set, select that environment in the editor.
+        Returns ``True`` when the tab is open (selection may still fail).
+        """
         existing = self._find_environments_tab_index()
         if existing is not None:
             self._tab_bar.setCurrentIndex(existing)
             self._flush_tab_change()
-            return
+        else:
+            if not self._enforce_tab_limit_before_open():
+                return False
 
-        if not self._enforce_tab_limit_before_open():
-            return
+            idx = self._materialize_environments_tab_at(self._next_tab_insert_index())
 
-        idx = self._materialize_environments_tab_at(self._next_tab_insert_index())
+            self._tab_bar.setCurrentIndex(idx)
+            self._on_tab_changed(idx)
+            self._flush_tab_change()
+            self._persist_open_tabs()
 
-        self._tab_bar.setCurrentIndex(idx)
-        self._on_tab_changed(idx)
-        self._flush_tab_change()
-        self._persist_open_tabs()
+        if environment_id is None:
+            return True
+        tab_idx = self._find_environments_tab_index()
+        if tab_idx is None:
+            return False
+        ctx = self._tabs.get(tab_idx)
+        editor = getattr(ctx, "environment_editor", None) if ctx is not None else None
+        if editor is None:
+            return False
+        return bool(editor.select_environment(environment_id))
 
     def _on_folder_auto_save(self, data: dict) -> None:
         """Auto-save folder changes triggered by the debounced signal."""

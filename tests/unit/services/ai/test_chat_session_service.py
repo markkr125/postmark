@@ -310,9 +310,15 @@ def test_build_conversation_passes_sdk_contract(
 
     agent_kw = captured["agent_kw"]
     tool_names = {t.name for t in agent_kw["tools"]}
-    assert tool_names == {"postmark_wiki_query", "task_tool_set", "delegate"}
+    assert tool_names == {
+        "postmark_wiki_query",
+        "postmark_workspace_query",
+        "task_tool_set",
+        "delegate",
+    }
     assert agent_kw["system_prompt"]
     assert "postmark_wiki_query" in agent_kw["system_prompt"]
+    assert "postmark_workspace_query" in agent_kw["system_prompt"]
     assert "delegate" in agent_kw["system_prompt"]
     assert agent_kw["include_default_tools"] == []
     assert agent_kw["condenser"] is not None

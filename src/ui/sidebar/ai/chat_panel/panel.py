@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from PySide6.QtCore import QEvent, QObject, QSize, Qt, QThread, Signal, Slot
-from PySide6.QtGui import QHideEvent, QResizeEvent, QShowEvent
+from PySide6.QtGui import QCloseEvent, QHideEvent, QResizeEvent, QShowEvent
 from PySide6.QtWidgets import QLabel, QLayout, QPushButton, QScrollArea, QVBoxLayout, QWidget
 
 from services.ai.ai_config import AiModelEntry, model_entry_enabled
@@ -99,6 +99,7 @@ class AiChatPanel(
     message_submitted = Signal(str)
     stop_requested = Signal()
     assistant_fork_requested = Signal(int)
+    workspace_target_requested = Signal(str, int, str)
     user_fork_requested = Signal(int)
     user_edit_requested = Signal(int)
     user_edit_submitted = Signal(int, str)
@@ -253,11 +254,21 @@ class AiChatPanel(
         self._reset_context_usage_chrome()
 
     def hideEvent(self, event: QHideEvent) -> None:
-        """Dismiss context popover when the panel is hidden."""
+        """Dismiss context popover when the panel is hidden.
+
+        Do **not** tear down the context-usage ``QThread`` here. The AI panel
+        starts hidden in the right flyout and is toggled often; shutting the
+        worker on every hide races with ``set_models`` / refresh and can abort
+        the process (``QThread: Destroyed while thread is still running``).
+        """
         self._cancel_inline_edit_if_active()
         self._hide_context_popup()
-        self._shutdown_context_usage_worker()
         super().hideEvent(event)
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        """Stop background workers when the panel is permanently closed."""
+        self._shutdown_context_usage_worker()
+        super().closeEvent(event)
 
     @property
     def _input(self):
@@ -547,6 +558,7 @@ class AiChatPanel(
     def showEvent(self, event: QShowEvent) -> None:
         """Pin restored transcripts once the panel becomes visible."""
         super().showEvent(event)
+        self.refresh_context_usage()
         if getattr(self, "_pending_transcript_bottom_scroll", False):
             self._maybe_flush_pending_transcript_bottom_scroll()
             self._schedule_pending_transcript_bottom_retries()
@@ -600,6 +612,7 @@ class AiChatPanel(
         bubble.fork_requested.connect(self._on_assistant_bubble_fork)
         bubble.copy_requested.connect(self._on_assistant_bubble_copy)
         bubble.subagent_card_clicked.connect(self._on_subagent_card_clicked)
+        bubble.workspace_target_requested.connect(self.workspace_target_requested.emit)
 
     def _ensure_subagent_detail_dialog(self) -> SubagentDetailDialog:
         """Create the subagent detail window on first use."""

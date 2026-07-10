@@ -81,6 +81,25 @@ class SnippetService:
         ]
 
     @staticmethod
+    def get(snippet_id: int) -> UserSnippetDict | None:
+        """Return one user snippet by id, or ``None`` if missing."""
+        from database.models.snippets.snippet_repository import get_snippet_by_id
+
+        row = get_snippet_by_id(snippet_id)
+        if row is None:
+            return None
+        return UserSnippetDict(
+            id=int(row["id"]),
+            name=str(row["name"]),
+            language=str(row["language"]),
+            category=str(row.get("category") or _DEFAULT_CATEGORY),
+            body=str(row["body"]),
+            context=str(row.get("context") or "both"),
+            created_at=row.get("created_at"),
+            is_user=True,
+        )
+
+    @staticmethod
     def list(language: str, context: str) -> list[UserSnippetDict]:
         """Return user snippets for *language* filtered by *context*."""
         ctx = SnippetService._normalize_context_key(context)

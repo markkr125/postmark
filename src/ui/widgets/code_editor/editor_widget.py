@@ -110,10 +110,10 @@ class CodeEditorWidget(
     run_single_test_requested = Signal(str)
     debug_single_test_requested = Signal(str)
 
-    _open_local_script_handler: ClassVar[Callable[[int], None] | None] = None
+    _open_local_script_handler: ClassVar[Callable[[int], object] | None] = None
 
     @classmethod
-    def set_open_local_script_handler(cls, handler: Callable[[int], None] | None) -> None:
+    def set_open_local_script_handler(cls, handler: Callable[[int], object] | None) -> None:
         """Register callback to open a local script tab by database id."""
         cls._open_local_script_handler = handler
 

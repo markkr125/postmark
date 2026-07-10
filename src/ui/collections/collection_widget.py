@@ -65,12 +65,19 @@ class _CollectionFetcher(QObject):
     def run(self) -> None:
         """Initialise the DB (idempotent) then fetch tree data."""
         from database.database import init_db
+        from shiboken6 import isValid
 
         init_db()
+        # The host widget may have been destroyed while this worker ran
+        # (tests / rapid restart). Emitting on a deleted QObject aborts Qt.
+        if not isValid(self):
+            return
         if self._tree_kind == "local_scripts":
-            self.finished.emit(LocalScriptService.fetch_all())
+            payload = LocalScriptService.fetch_all()
         else:
-            self.finished.emit(CollectionService.fetch_all())
+            payload = CollectionService.fetch_all()
+        if isValid(self):
+            self.finished.emit(payload)
 
 
 # ----------------------------------------------------------------------

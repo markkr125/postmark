@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal, cast
+import logging
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from PySide6.QtCore import QObject, Qt, QThread, Slot
 
@@ -32,6 +33,8 @@ _StopMode = Literal["pre_stream", "post_stream"]
 
 # Backward-compatible alias for tests.
 _AiChatRunContext = AiChatRunContext
+
+_logger = logging.getLogger(__name__)
 
 
 class _AiChatControllerMixin(_AiChatRunsMixin, _AiChatTurnFinalizeMixin, _AiChatTitleMixin):
@@ -82,6 +85,7 @@ class _AiChatControllerMixin(_AiChatRunsMixin, _AiChatTurnFinalizeMixin, _AiChat
         panel.user_fork_requested.connect(self._on_user_fork_requested)
         panel.user_edit_requested.connect(self._on_user_edit_requested)
         panel.user_edit_submitted.connect(self._on_user_edit_submitted)
+        panel.workspace_target_requested.connect(self._on_workspace_target_requested)
         self._right_sidebar.ai_new_chat_requested.connect(self._on_ai_new_chat)
         self._right_sidebar.ai_session_history_requested.connect(self._on_ai_session_history)
         self._right_sidebar.ai_session_title_renamed.connect(self._on_ai_session_title_renamed)
@@ -464,6 +468,118 @@ class _AiChatControllerMixin(_AiChatRunsMixin, _AiChatTurnFinalizeMixin, _AiChat
             return
         self._activate_chat_session(forked["id"])
 
+    def _show_workspace_deeplink_status(self, message: str) -> None:
+        """Show a short status-bar tip for chat deep-link navigation."""
+        host = cast(Any, self)
+        status = host.statusBar() if hasattr(host, "statusBar") else None
+        if status is not None:
+            status.showMessage(message, 5000)
+
+    _REQUEST_FOCUS_KEYS = frozenset(
+        {
+            "params",
+            "headers",
+            "body",
+            "auth",
+            "description",
+            "scripts",
+            "assertions",
+            "pre_request",
+            "test",
+        }
+    )
+    _COLLECTION_FOCUS_KEYS = frozenset({"pre_request", "test"})
+
+    @Slot(str, int, str)
+    def _on_workspace_target_requested(self, kind: str, entity_id: int, focus: str) -> None:
+        """Open a workspace item from an assistant markdown deep-link."""
+        if entity_id <= 0:
+            self._show_workspace_deeplink_status("Invalid workspace link")
+            return
+        host = cast(Any, self)
+        focus_key = (focus or "").strip().lower()
+        if kind == "tab":
+            if not host._focus_open_tab(entity_id - 1):
+                self._show_workspace_deeplink_status("That tab is no longer open")
+            return
+        if kind == "request":
+            if not host._open_request(entity_id, push_history=True, is_preview=False):
+                self._show_workspace_deeplink_status("Request not found")
+                return
+            if focus_key:
+                if focus_key not in self._REQUEST_FOCUS_KEYS:
+                    self._show_workspace_deeplink_status(
+                        f"Opened request, but focus={focus_key!r} is not supported"
+                    )
+                else:
+                    ctx = host._current_tab_context()
+                    if ctx is not None and ctx.editor is not None and ctx.request_id == entity_id:
+                        ctx.editor.focus_section(focus_key)
+                    else:
+                        self._show_workspace_deeplink_status(
+                            "Opened request, but could not focus that section"
+                        )
+            return
+        if kind == "collection":
+            if focus_key in self._COLLECTION_FOCUS_KEYS:
+                host._open_folder(entity_id, focus_scripts_kind=focus_key)
+            else:
+                host._open_folder(entity_id)
+                if focus_key:
+                    self._show_workspace_deeplink_status(
+                        f"Opened collection, but focus={focus_key!r} is not supported"
+                    )
+            return
+        if kind == "script":
+            if not host._open_local_script(entity_id):
+                self._show_workspace_deeplink_status("Script not found")
+                return
+            if focus_key:
+                self._show_workspace_deeplink_status(
+                    f"Opened script, but focus={focus_key!r} is not supported"
+                )
+            return
+        if kind == "history":
+            host._open_from_global_history(entity_id)
+            return
+        if kind == "environment":
+            if not host._open_environments_tab(environment_id=entity_id):
+                self._show_workspace_deeplink_status("Environment not found")
+            return
+        if kind == "saved_response":
+            self._open_saved_response_from_deeplink(entity_id)
+            return
+        _logger.info(
+            "Ignoring unsupported postmark:// deep-link kind=%r id=%s",
+            kind,
+            entity_id,
+        )
+        self._show_workspace_deeplink_status(
+            f"Cannot open postmark://{kind}/… links from chat",
+        )
+
+    def _open_saved_response_from_deeplink(self, response_id: int) -> None:
+        """Open a request tab and select a saved example in the sidebar."""
+        from services.collection_service import CollectionService
+
+        host = cast(Any, self)
+        detail = CollectionService.get_saved_response(response_id)
+        if detail is None:
+            self._show_workspace_deeplink_status("Saved response not found")
+            return
+        request_id = detail.get("request_id")
+        if not isinstance(request_id, int) or request_id <= 0:
+            self._show_workspace_deeplink_status("Saved response not found")
+            return
+        if not host._open_request(request_id, push_history=True, is_preview=False):
+            self._show_workspace_deeplink_status("Request not found")
+            return
+        host._refresh_sidebar(history_load_detail=False)
+        host._right_sidebar.open_panel("saved_responses")
+        panel = getattr(host._right_sidebar, "saved_responses_panel", None)
+        if panel is not None:
+            panel.select_response(response_id)
+
     def _on_user_fork_requested(self, message_id: int) -> None:
         """Fork before *message_id* and pre-fill the composer with that user text."""
         session_id = self._active_ai_session_id
@@ -483,6 +599,9 @@ class _AiChatControllerMixin(_AiChatRunsMixin, _AiChatTurnFinalizeMixin, _AiChat
     def _cleanup_ai_chat_threads(self) -> None:
         """Stop AI chat/title worker threads during window teardown."""
         self._pending_title_session_id = None
+        panel = getattr(self._right_sidebar, "ai_chat_panel", None)
+        if panel is not None and hasattr(panel, "_shutdown_context_usage_worker"):
+            panel._shutdown_context_usage_worker()
         self._session_loader.shutdown()
         self._chat_run_registry.cancel_all()
         self._cleanup_ai_title_thread()

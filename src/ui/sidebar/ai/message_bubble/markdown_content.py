@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import weakref
 
-from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, Qt, QTimer, QUrl, QUrlQuery, Signal
 from PySide6.QtGui import (
     QAbstractTextDocumentLayout,
     QColor,
@@ -93,6 +93,7 @@ class MarkdownContent(QWidget):
     """Read-only assistant body that renders Markdown and auto-grows to fit."""
 
     height_changed = Signal()
+    workspace_target_requested = Signal(str, int, str)
 
     def __init__(self, text: str = "", parent: QWidget | None = None) -> None:
         """Configure markdown rendering, link handling, and height sync."""
@@ -906,6 +907,19 @@ class MarkdownContent(QWidget):
                 anchor = self._document.documentLayout().anchorAt(pos)
                 if anchor:
                     url = QUrl(anchor)
+                    if url.scheme() == "postmark":
+                        kind = url.host()
+                        path = url.path().lstrip("/")
+                        try:
+                            entity_id = int(path)
+                        except ValueError:
+                            entity_id = 0
+                        if kind and entity_id > 0:
+                            focus = QUrlQuery(url).queryItemValue("focus")
+                            self.workspace_target_requested.emit(kind, entity_id, focus)
+                        # Malformed / non-numeric postmark:// must never open externally.
+                        event.accept()
+                        return
                     if url.isValid() and QDesktopServices.openUrl(url):
                         event.accept()
                         return

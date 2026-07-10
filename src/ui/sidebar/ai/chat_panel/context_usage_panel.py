@@ -89,6 +89,10 @@ class _ChatPanelContextUsageMixin:  # type: ignore[misc]
                 self.set_context_breakdown(cast(ContextUsageBreakdown, sdk_metrics))
                 return
             self._context_sdk_metrics = cast(ContextUsageSdkMetrics, sdk_metrics)
+        # Skip background work while the panel is hidden (startup / flyout closed).
+        # Starting the worker then tearing it down on hide races and can abort Qt.
+        if not cast(QObject, self).isVisible():
+            return
         self._schedule_context_usage_refresh()
 
     @Slot()

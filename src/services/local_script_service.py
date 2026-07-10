@@ -7,6 +7,7 @@ from typing import Any, TypedDict
 from database.database import get_session
 from database.models.local_scripts.local_script_query_repository import (
     fetch_all_local_scripts_tree,
+    fetch_local_script_contents_for_ids,
     get_local_script_breadcrumb,
     get_script_by_id,
 )
@@ -102,6 +103,13 @@ class LocalScriptService:
     def get_script_breadcrumb(script_id: int) -> list[dict[str, Any]]:
         """Return breadcrumb path segments for a local script tab."""
         return get_local_script_breadcrumb(script_id)
+
+    @staticmethod
+    def fetch_local_script_contents_for_ids(
+        ids: list[int],
+    ) -> list[tuple[int, str, str]]:
+        """Return ``(id, name, content)`` for the given local script ids."""
+        return fetch_local_script_contents_for_ids(ids)
 
     @staticmethod
     def get_script_load_dict(script_id: int) -> LocalScriptLoadDict | None:

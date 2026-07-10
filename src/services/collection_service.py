@@ -12,8 +12,14 @@ from datetime import datetime
 from typing import Any, TypedDict
 
 from database.models.collections.collection_query_repository import (
+    count_all_collections,
+    count_all_requests,
     count_collection_requests,
     fetch_all_collections,
+    fetch_assertion_counts_for_ids,
+    fetch_folder_scripts_for_ids,
+    fetch_request_fields_for_ids,
+    fetch_request_scripts_for_ids,
     get_collection_breadcrumb,
     get_collection_by_id,
     get_collection_inherited_auth,
@@ -222,6 +228,54 @@ class CollectionService:
     def get_request(request_id: int) -> RequestModel | None:
         """Look up a single request by primary key."""
         return get_request_by_id(request_id)
+
+    @staticmethod
+    def fetch_request_scripts_for_ids(
+        ids: list[int],
+    ) -> list[tuple[int, str, dict[str, Any] | None, dict[str, Any] | list[Any] | None]]:
+        """Return ``(id, name, scripts, events)`` for the given request ids."""
+        return fetch_request_scripts_for_ids(ids)
+
+    @staticmethod
+    def fetch_request_fields_for_ids(
+        ids: list[int],
+    ) -> list[
+        tuple[
+            int,
+            str,
+            str | None,
+            str | None,
+            dict[str, Any] | None,
+            str | None,
+            list[dict[str, Any]] | None,
+            dict[str, Any] | None,
+            list[dict[str, Any]] | None,
+        ]
+    ]:
+        """Return ``(id, name, body, body_mode, body_options, description, headers, auth, params)``."""
+        return fetch_request_fields_for_ids(ids)
+
+    @staticmethod
+    def fetch_folder_scripts_for_ids(
+        ids: list[int],
+    ) -> list[tuple[int, str, dict[str, Any] | list[Any] | None]]:
+        """Return ``(id, name, events)`` for the given collection ids."""
+        return fetch_folder_scripts_for_ids(ids)
+
+    @staticmethod
+    def fetch_assertion_counts_for_ids(ids: list[int]) -> list[tuple[int, int, int]]:
+        """Return ``(request_id, total, enabled)`` assertion counts per request."""
+        return fetch_assertion_counts_for_ids(ids)
+
+    @staticmethod
+    def count_all_collections() -> int:
+        """Return the total number of collection (folder) rows."""
+        return count_all_collections()
+
+    @staticmethod
+    def count_all_requests() -> int:
+        """Return request rows linked to an existing collection folder."""
+        return count_all_requests()
 
     # ------------------------------------------------------------------
     # Mutations - collections

@@ -6,13 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtWidgets import (
-    QFileDialog,
-    QHBoxLayout,
-    QPushButton,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QPushButton, QVBoxLayout, QWidget
 
 from services.ai.ai_config import AiConfig, AiModelEntry, model_entry_enabled
 from services.ai.provider_catalog import effective_run_context_tokens, format_run_context_tokens
@@ -20,9 +14,9 @@ from services.ai.reasoning_effort import clamp_effort, default_effort_for, forma
 from ui.sidebar.ai.agent_mode_popup import AgentModeButton
 from ui.sidebar.ai.chat_panel.composer.input import ComposerInput
 from ui.sidebar.ai.chat_panel.composer.model_picker_button import (
-    ModelPickerButton,
     _NO_ENABLED_MODELS_TEXT,
     _NO_MODELS_TEXT,
+    ModelPickerButton,
 )
 from ui.sidebar.ai.chat_panel.context_ring_button import ContextUsageRingButton
 from ui.sidebar.ai.model_picker_edit import reasoning_levels_for_entry, thinking_enabled_for_entry
@@ -32,6 +26,10 @@ if TYPE_CHECKING:
     from services.ai.chat.session_service import UserMessageSendSnapshot
 
 _CHAT_COMPOSER_MARGIN_H = 8
+_CHAT_COMPOSER_MARGIN_TOP = 8
+# QSS padding on ``smallPrimaryButton`` is inset (box model) and does not space
+# the solid 28x28 send/stop control from the panel edge — use layout margins.
+_CHAT_COMPOSER_MARGIN_BOTTOM = 12
 
 
 class AiChatComposer(QWidget):
@@ -64,7 +62,12 @@ class AiChatComposer(QWidget):
         self._configured_model_count = 0
 
         self._root_layout = QVBoxLayout(self)
-        self._root_layout.setContentsMargins(_CHAT_COMPOSER_MARGIN_H, 8, _CHAT_COMPOSER_MARGIN_H, 8)
+        self._root_layout.setContentsMargins(
+            _CHAT_COMPOSER_MARGIN_H,
+            _CHAT_COMPOSER_MARGIN_TOP,
+            _CHAT_COMPOSER_MARGIN_H,
+            _CHAT_COMPOSER_MARGIN_BOTTOM,
+        )
         self._root_layout.setSpacing(6)
 
         self._attachments_row = QWidget()
@@ -121,11 +124,18 @@ class AiChatComposer(QWidget):
 
         self._send_btn = QPushButton()
         self._send_btn.setObjectName("smallPrimaryButton")
+        # Icon-only 28x28: QSS ``padding: 4px 12px`` on smallPrimaryButton is for
+        # text buttons and eats the content box (same gotcha as outlineButton vs
+        # iconButton). Zero padding keeps the accent fill + icon correctly sized.
+        self._send_btn.setProperty("iconOnly", True)
         self._send_btn.setIcon(phi("paper-plane-right", color="#ffffff"))
         self._send_btn.setFixedSize(28, 28)
         self._send_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._send_btn.setToolTip("Send (Enter)")
         self._send_btn.clicked.connect(self._on_submit)
+        send_style = self._send_btn.style()
+        send_style.unpolish(self._send_btn)
+        send_style.polish(self._send_btn)
         controls.addWidget(self._send_btn)
 
         self._root_layout.addLayout(controls)

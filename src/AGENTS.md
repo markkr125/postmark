@@ -141,7 +141,11 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   events exist (`services/ai/chat/context_usage_sdk.py` — `measure_sdk_view`,
   `collect_compaction_diagnostics`, `SdkViewSnapshot`). SQLite full-transcript
   token estimates remain the fallback before SDK context is available or when
-  SDK token counting fails. After a run,
+  SDK token counting fails. `AiChatPanel` must **not** shut down the
+  context-usage `QThread` in `hideEvent` (panel starts hidden; hide/show races
+  abort Qt) — shutdown runs from `closeEvent` /
+  `MainWindow._cleanup_ai_chat_threads`. Refresh is skipped while the panel is
+  not visible and re-armed on `showEvent`. After a run,
   `AiChatWorker.usage_updated` delivers SDK `conversation_stats` metrics to the
   panel (stashed as per-turn usage for `record_assistant_message` and the context
   ring); high-usage runs also log compaction diagnostics comparing SQLite rows,
@@ -158,12 +162,80 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   and rewinds SDK disk state before the controller resubmits on the same bubble.
   Postmark agent/tool registries
   (`agent_registry.py`, `tool_registry.py`, `tools/wiki_query.py`,
-  `tools/delegate_tool.py`, `subagent_registry.py`) ship
-  `DEFAULT_AGENT_ID` with `postmark_wiki_query`, OpenHands `task_tool_set`
-  (sequential/resumable subagents), and `delegate` (parallel fan-out).
+  `tools/workspace_query/`, `tools/delegate_tool.py`, `subagent_registry.py`) ship
+  `DEFAULT_AGENT_ID` with `postmark_wiki_query`, `postmark_workspace_query`,
+  OpenHands `task_tool_set` (sequential/resumable subagents), and `delegate`
+  (parallel fan-out).
   Built-in subagent types: `wiki-researcher` (`postmark_wiki_query` only) and
   `general-purpose` (no tools). Optional file agents from
   `.agents/agents/*.md` via `register_file_agents(project_root())`.
+  **`postmark_workspace_query`** (`tools/workspace_query/`) reads the user's
+  collections, requests, environments, run history, and open-tab state on demand.
+  `execute_workspace_query` caps total output at `_MAX_OUTPUT_CHARS` (48k, headroom
+  under OpenHands' 50k TextContent limit) via `_truncate_output` (prepends
+  ``[truncated]`` and appends a trailing footer when char-capped); `open_tabs` also
+  caps row count at `_MAX_RESULT_ROWS` (50). `runs` (latest 10) and `recent_history`
+  (latest 25) lead with ``[partial]`` when their list limits bind. Scopes: `overview`, `open_tabs`, `active_tab`, `active_response`, `tab`, `collection_tree`, `collection`, `local_scripts`, `recent_history`,
+  `request`, `request_history`, `history_entry`, `saved_responses`, `saved_response`,
+  `runs`, `run`, `environments`, `search`, `script`, `script_versions`, `request_script_versions`, `script_version`, `globals`, `snippets`, `snippet`, `insights`, `settings`. Search script bodies via
+  `CollectionService.fetch_request_scripts_for_ids()` and folder scripts via
+  `fetch_folder_scripts_for_ids()`; request bodies/headers/auth via
+  `fetch_request_fields_for_ids()` (includes ``request_parameters``); local-script bodies via
+  `LocalScriptService.fetch_local_script_contents_for_ids()` (bounded to first 200
+  items in tree order). `scope=insights` uses
+  `fetch_assertion_counts_for_ids()` to flag requests missing test scripts and declarative
+  assertions. Overview uses `count_all_collections()` / `count_all_requests()`
+  instead of loading the full tree; the active-tab line includes dirty/deferred state
+  plus method/URL when available, and stamps `captured_at` from the turn-start
+  snapshot. Open tabs,
+  unsaved editor payloads, per-tab `last_response` scalars, masked `local_overrides`,
+  deferred-tab chips (`is_deferred` → ``[deferred]`` not ``[saved]``),
+  and the live response (including `send_error` / `viewing_stored_entry_id` when the
+  viewer shows a failed send or stored history entry, plus `test_results`, `console_logs`,
+  `timing`, `network`, size breakdown ints, and bounded `variable_changes` /
+  `pre_request_variable_changes` when scripts ran) are captured in
+  `workspace_snapshot.py` on the GUI thread at chat run start
+  (`_AiChatRunsMixin._build_ai_workspace_snapshot`; request tabs call
+  `RequestEditorWidget.get_request_data(cancel_pending_persist=False)` so snapshot reads
+  do not cancel debounced debug-metadata writes); cleared when the session's last
+  run finishes (`clear_workspace_snapshot` in `_on_registry_run_finished`, which also
+  clears `set_last_search_hits` / last search hit ids for refine). The tool
+  executor reads that snapshot plus live DB slices off the worker thread. Form /
+  opaque bodies and env/collection variables redact sensitive keys (not only
+  `type=secret`); secret-like search needles get a ``[partial]`` redaction warning
+  instead of an authoritative empty. Assistant
+  replies may link items as `postmark://request|collection|script|tab|history|environment|saved_response/<id>` (optional
+  `?focus=test`, etc.); unsaved open-tab drafts use 1-based `postmark://tab/<n>` (tab
+  index at turn start + 1) in `open_tabs` and `active_tab` (`open_tabs` notes that
+  indices are turn-start). The default agent prompt
+  and `WORKSPACE_QUERY_DESCRIPTION` require self-contained answers (tool output is
+  never shown in the chat UI — never refer to "search output above"), named
+  markdown links only (never bare numeric ids, never ask the user for an id;
+  example rows use `postmark://request/<id>` not a literal id). Non-linkable
+  entities (runs, snippets, versions) put numeric
+  ids only in an ``Ids for follow-up calls (tool arguments only…)`` block — list
+  rows stay free of ``[id=N]`` / ``run #N`` priming. History sends, environments, and
+  saved examples use named deep-links. Partial/authoritative/capped
+  markers are placed at the **top** of observations so 48k truncation cannot drop
+  them. Prefer ``active_tab``/``open_tabs`` over ``scope=request`` for dirty open
+  tabs; past sends of the open request use ``scope=request_history`` + ``search=``
+  (not ``scope=search``); refining a prior result list uses ``scope=search`` with
+  ``within_ids`` from previous ``postmark://request/<id>`` links, or
+  ``within_ids=[-1]`` to reuse the session's last search hit set (full ids before
+  display cap; cleared with the workspace snapshot). Invalid ``within_ids`` error
+  out (never unrestricted). ``scope=request`` merges dirty open-tab
+  ``request_data`` over DB when the snapshot has a matching dirty tab. Search
+  covers params tables (after secret redaction), bodies, headers/auth, and
+  scripts; it does not cover assertions, history bodies, globals, or
+  snippet bodies. `MarkdownContent` emits `workspace_target_requested` →
+  `AiChatPanel` → `MainWindow._on_workspace_target_requested` to open/focus tabs
+  (`tab` → `_focus_open_tab`; `history` → `_open_from_global_history`, with a
+  status tip when a second open arrives while busy; malformed `postmark://`
+  paths never fall through to `QDesktopServices`;
+  `environment` → `_open_environments_tab`; `saved_response` → open request + Saved
+  Responses panel; `?focus=` applied only for supported keys when the active tab's
+  `request_id` matches — unsupported focus tips after open; unknown kinds, stale
+  tabs, and missing entities show a status-bar tip instead of silently no-opping).
   Subagent runs persist under ``<session_disk>/subagents/{uuid}/`` (per parent
   chat session). ``PostmarkDelegateExecutor`` registers spawn id → folder at
   spawn time (`subagent_disk_registry.py`); ``SubagentEventTracker``
@@ -215,7 +287,8 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   `_request_history_panel` when the active tab matches the recorded request.
   Settings: `HistorySettingsManager` (`history/*` QSettings). Bodies and
   snapshots under `user_history_root()`; metadata in `request_history_entries`.
-  **Lists:** `list_for_sidebar` (left global rail), `list_for_request` (right
+  **Lists:** `list_for_sidebar` (left global rail; optional `limit`, default 500;
+  workspace `recent_history` uses `limit=25`), `list_for_request` (right
   per-request). **Labels:** `was_persisted_request` drives `source_label`
   `(deleted)` vs `(draft)` when `request_id` is null. **Display:**
   Orphan/deleted rows: draft tab opens instantly from metadata; full payload loads
@@ -259,7 +332,9 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   :func:`services.scripting.pyodide_runtime._resolve_pypi_index_urls` — see
   [docs/scripting/external-packages.md](../docs/scripting/external-packages.md).
   Tokens live in :mod:`services.scripting.secret_store` (OS keychain
-  preferred, encrypted-file fallback) and never appear in `QSettings`.
+  preferred via `_pin_platform_keyring_backend` — never loads foreign
+  keyring entry points such as macOS-on-Linux; encrypted-file fallback)
+  and never appear in `QSettings`.
   ``CodeEditorWidget.notify_lsp_diagnostics`` / ``lsp_diagnostics_changed`` expose
   ``textDocument/publishDiagnostics`` to the script **Problems** tab (see
   ``ui/widgets/code_editor/lsp_integration.py`` ``EditorLspAdapter``).

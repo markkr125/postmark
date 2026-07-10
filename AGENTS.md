@@ -164,7 +164,7 @@ src/
 │       ├── base.py                # DeclarativeBase
 │       ├── collections/
 │       │   ├── collection_repository.py   # CRUD for collections + requests
-│       │   ├── collection_query_repository.py   # Read-only tree/breadcrumb/ancestor queries
+│       │   ├── collection_query_repository.py   # Read-only tree/breadcrumb/bulk projection queries
 │       │   ├── import_repository.py       # Atomic bulk-import of parsed data
 │       │   └── model/
 │       │       ├── collection_model.py    # CollectionModel (folders)
@@ -226,6 +226,7 @@ src/
 │   │       ├── subagent_registry.py # register_postmark_subagents (wiki-researcher, general-purpose)
 │   │       ├── subagent_events.py # SubagentEventTracker + SubagentRunRecord parsing
 │   │       ├── subagent_disk_registry.py # spawn id → disk path registry + session-scoped resolve
+│   │       ├── workspace_snapshot.py # session-keyed GUI workspace snapshot for postmark_workspace_query
 │   │       ├── subagent_transcript.py # load_subagent_transcript_view + activity steps
 │   │       ├── subagent_limits.py # max_parallel_subagents() — QSettings ai/max_parallel_subagents
 │   │       ├── tool_registry.py   # register_postmark_tool / resolve_tools
@@ -237,6 +238,11 @@ src/
 │   │       │   └── schema.py      # WIKI.md body for tool workflow
 │   │       ├── tools/             # OpenHands custom tools
 │   │       │   ├── wiki_query.py  # postmark_wiki_query Action/Observation/Executor
+│   │       │   ├── workspace_query/ # postmark_workspace_query (read-only workspace slices)
+│   │       │   │   ├── constants.py
+│   │       │   │   ├── helpers.py
+│   │       │   │   ├── render/      # live, collections, search, scripts, settings renderers
+│   │       │   │   └── executor.py
 │   │       │   ├── delegate_tool.py # PostmarkDelegateTool (parallel subagent fan-out)
 │   │       │   └── delegate_executor.py # PostmarkDelegateExecutor — registers disk paths at spawn
 │   │       ├── response_text.py   # Turn-scoped thinking/answer extraction from SDK messages + stream chunks
@@ -352,7 +358,7 @@ src/
     │   ├── tab_controller.py      # _TabControllerMixin — tab open/close/switch
     │   ├── ai_chat_controller.py  # _AiChatControllerMixin — AI chat sessions + worker wiring
     │   ├── ai_chat_host_protocol.py # _AiChatHostProtocol — typing for composed mixins
-    │   ├── ai_chat_runs.py        # _AiChatRunsMixin — ChatRunRegistry signal routing + re-attach
+    │   ├── ai_chat_runs.py        # _AiChatRunsMixin — ChatRunRegistry signal routing + re-attach; run-start workspace snapshot
     │   ├── ai_chat_turn_finalize.py # _AiChatTurnFinalizeMixin — persist/stop/fail assistant turns
     │   ├── ai_chat_title.py       # _AiChatTitleMixin — AiChatTitleWorker lifecycle
     │   ├── session_restore.py   # Delayed, batched session tab restore after load_finished
@@ -657,6 +663,7 @@ tests/
 │   │       ├── test_chat_markdown_streaming_render.py
 │   │       ├── test_streaming_table.py
 │   │       ├── test_markdown_content_height.py
+│   │       ├── test_markdown_content_links.py  # postmark:// deep-links vs https external
 │   │       └── test_bubble_stream_row_height.py
 │   └── services/                  # Service layer tests
 │       ├── test_service.py
@@ -702,6 +709,9 @@ tests/
 │       │   ├── test_delegate_tool.py
 │       │   ├── test_build_app_wiki.py
 │       │   ├── test_wiki_query_tool.py
+│       │   ├── test_workspace_snapshot.py
+│       │   ├── test_workspace_query_tool.py
+│       │   ├── test_workspace_query_audit.py
 │       │   ├── test_pm_api_quickref.py
 │       │   ├── test_model_metadata.py
 │       │   └── test_llm_service.py
@@ -718,6 +728,7 @@ tests/
     ├── conftest.py                # _no_fetch (autouse) + helpers
     ├── main_window/
     │   └── test_ai_chat_controller.py  # AI chat controller + concurrent run registry paths
+    │   └── test_ai_chat_deeplink.py  # postmark:// deep-link navigation + focus_section
     │   └── test_main_window_ai_session_restore.py  # Persist + reopen last chat session on startup
     │   └── test_ai_chat_registry_streaming.py # E2E incremental streaming via ChatRunRegistry
     │   └── test_ai_concurrent_runs.py  # E2E concurrent runs: New chat, session switch, docked send
@@ -796,6 +807,7 @@ tests/
         ├── test_runner_panel.py
         ├── test_http_worker.py
         ├── test_request_editor.py
+        ├── test_focus_section.py
         ├── test_request_editor_auth.py
         ├── test_request_editor_binary.py
         ├── test_request_editor_graphql.py

@@ -239,6 +239,46 @@ class NoopSecretStore:
 
 
 _default_store: SecretStore | None = None
+_keyring_backend_pinned = False
+
+
+def _pin_platform_keyring_backend() -> None:
+    """Select a platform-native keyring backend without loading foreign plugins.
+
+    ``keyring.core.init_backend`` / ``get_all_keyring`` import *every* entry
+    point, including ``keyring.backends.macOS``. On Linux that module's
+    ``ctypes`` load of ``Foundation`` can abort the process (undefined
+    CoreFoundation symbols). Pin SecretService / KWallet / Windows / macOS
+    explicitly so foreign backends are never imported.
+    """
+    global _keyring_backend_pinned
+    if _keyring_backend_pinned or not _KEYRING_AVAILABLE or _keyring_lib is None:
+        return
+    _keyring_backend_pinned = True
+    system = platform.system()
+    candidates: list[str] = []
+    if system == "Linux":
+        candidates = [
+            "keyring.backends.SecretService.Keyring",
+            "keyring.backends.libsecret.Keyring",
+            "keyring.backends.kwallet.DBusKeyring",
+        ]
+    elif system == "Darwin":
+        candidates = ["keyring.backends.macOS.Keyring"]
+    elif system == "Windows":
+        candidates = ["keyring.backends.Windows.WinVaultKeyring"]
+    for dotted in candidates:
+        try:
+            module_name, _, class_name = dotted.rpartition(".")
+            module = __import__(module_name, fromlist=[class_name])
+            cls = getattr(module, class_name)
+            backend = cls()
+            # ``priority`` raises when the backend cannot run on this host.
+            _ = backend.priority
+            _keyring_lib.set_keyring(backend)
+            return
+        except Exception as exc:
+            logger.debug("Skipping keyring backend %s (%s)", dotted, exc)
 
 
 def get_default_store() -> SecretStore:
@@ -259,6 +299,7 @@ def get_default_store() -> SecretStore:
         return _default_store
 
     if _KEYRING_AVAILABLE and _keyring_lib is not None:
+        _pin_platform_keyring_backend()
         store = KeyringSecretStore()
         # Self-test: some backends (e.g. ``keyring.backends.fail.Keyring``
         # on Linux without a desktop daemon) accept registration but throw
@@ -305,8 +346,9 @@ def get_secret(ref: str) -> str | None:
 
 def reset_default_store() -> None:
     """Clear the cached store (tests only)."""
-    global _default_store
+    global _default_store, _keyring_backend_pinned
     _default_store = None
+    _keyring_backend_pinned = False
 
 
 def backend_status() -> dict[str, str]:

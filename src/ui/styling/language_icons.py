@@ -12,8 +12,15 @@ from PySide6.QtCore import Qt, QRect
 from PySide6.QtGui import QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 
-from ui.request.request_editor.scripts.script_language import normalise_script_code
 from ui.styling.icons import _device_pixel_ratio, phi
+
+
+def _normalise_script_code(language: str) -> str:
+    """Lazy import to avoid circular imports via ``request_editor`` / sidebar."""
+    from ui.request.request_editor.scripts.script_language import normalise_script_code
+
+    return normalise_script_code(language)
+
 
 logger = logging.getLogger(__name__)
 
@@ -55,18 +62,18 @@ def resolve_script_language(
 ) -> str:
     """Resolve a script language code from explicit language or a legacy badge label."""
     if language:
-        return normalise_script_code(language)
+        return _normalise_script_code(language)
     if method_badge:
         key = method_badge.strip().upper()
         if key in _BADGE_TO_LANGUAGE:
             return _BADGE_TO_LANGUAGE[key]
-        return normalise_script_code(method_badge)
+        return _normalise_script_code(method_badge)
     return "javascript"
 
 
 def language_icon_pixmap(language: str, *, size: int = 36) -> QPixmap:
     """Return a cached brand pixmap for *language* (javascript | typescript | python)."""
-    code = normalise_script_code(language)
+    code = _normalise_script_code(language)
     if code not in _LANGUAGE_FILES:
         code = "javascript"
     cache_key = (code, size)

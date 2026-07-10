@@ -48,6 +48,7 @@ class ChatMessageBubble(QWidget):
     user_fork_requested = Signal()
     user_edit_requested = Signal()
     subagent_card_clicked = Signal(str)
+    workspace_target_requested = Signal(str, int, str)
 
     def __init__(
         self,
@@ -146,6 +147,9 @@ class ChatMessageBubble(QWidget):
             elif text.strip():
                 self._markdown_body.set_markdown(text)
             self._markdown_body.height_changed.connect(self._on_markdown_height_changed)
+            self._markdown_body.workspace_target_requested.connect(
+                self.workspace_target_requested.emit
+            )
             outer.addWidget(self._markdown_body)
             if not self._answer_visible:
                 self._markdown_body.hide()

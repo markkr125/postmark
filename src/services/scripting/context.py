@@ -301,7 +301,7 @@ def normalize_events(events: Any) -> dict[str, str]:
             if isinstance(script, dict):
                 exec_lines = script.get("exec", [])
                 if isinstance(exec_lines, list):
-                    result[our_key] = "\n".join(exec_lines)
+                    result[our_key] = "\n".join(str(ln) for ln in exec_lines)
         return result
     return {}
 

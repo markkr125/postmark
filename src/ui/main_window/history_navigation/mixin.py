@@ -43,12 +43,14 @@ class _HistoryNavigationMixin:
     def _open_from_global_history(self, entry_id: int) -> None:
         """Queue open on the next event-loop tick so the tree click returns immediately."""
         if getattr(self, "_global_history_open_busy", False):
+            self._show_history_open_status("Wait for history to finish opening")
             return
         QTimer.singleShot(0, lambda eid=entry_id: self._run_open_from_global_history(eid))
 
     def _run_open_from_global_history(self, entry_id: int) -> None:
         """Load history entry into editor tabs (runs after the click handler returns)."""
         if getattr(self, "_global_history_open_busy", False):
+            self._show_history_open_status("Wait for history to finish opening")
             return
         self._global_history_open_busy = True
         try:

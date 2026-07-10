@@ -234,3 +234,31 @@ def test_noop_store_is_silent_no_op() -> None:
     store.put("ref", "x")
     assert store.get("ref") is None
     store.delete("ref")
+
+
+class TestPinPlatformKeyringBackend:
+    """Platform pin must not import foreign keyring backends (segfault risk)."""
+
+    def test_pin_sets_secret_service_on_linux(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        reset_default_store()
+        fake = MagicMock()
+        monkeypatch.setattr("services.scripting.secret_store._keyring_lib", fake)
+        monkeypatch.setattr("services.scripting.secret_store._KEYRING_AVAILABLE", True)
+        monkeypatch.setattr(
+            "services.scripting.secret_store.platform.system",
+            lambda: "Linux",
+        )
+
+        class _FakeBackend:
+            priority = 5
+
+        fake_module = MagicMock()
+        fake_module.Keyring = _FakeBackend
+        import sys
+
+        monkeypatch.setitem(sys.modules, "keyring.backends.SecretService", fake_module)
+        from services.scripting import secret_store as mod
+
+        mod._pin_platform_keyring_backend()
+        fake.set_keyring.assert_called_once()
+        assert isinstance(fake.set_keyring.call_args.args[0], _FakeBackend)

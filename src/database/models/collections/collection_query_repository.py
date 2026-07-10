@@ -8,9 +8,11 @@ live in ``collection_repository``.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
+from sqlalchemy import case
 from sqlalchemy import func as sa_func
 from sqlalchemy import select
 
@@ -47,7 +49,7 @@ def _build_tree_dict_lightweight() -> dict[str, Any]:
     dict.  Only columns needed for the tree display are fetched:
 
     - collections: ``id``, ``name``, ``parent_id``
-    - requests: ``id``, ``name``, ``method``, ``collection_id``
+    - requests: ``id``, ``name``, ``method``, ``url``, ``collection_id``
 
     Heavy columns (body, headers, JSON blobs) and ``saved_responses`` are
     never touched.
@@ -77,9 +79,10 @@ def _build_tree_dict_lightweight() -> dict[str, Any]:
             RequestModel.id,
             RequestModel.name,
             RequestModel.method,
+            RequestModel.url,
             RequestModel.collection_id,
         )
-        for rid, rname, rmethod, rcol_id in session.execute(req_stmt).yield_per(_YIELD_CHUNK):
+        for rid, rname, rmethod, rurl, rcol_id in session.execute(req_stmt).yield_per(_YIELD_CHUNK):
             parent = col_by_id.get(rcol_id)
             if parent is not None:
                 parent["children"][str(rid)] = {
@@ -87,6 +90,7 @@ def _build_tree_dict_lightweight() -> dict[str, Any]:
                     "id": rid,
                     "name": rname,
                     "method": rmethod,
+                    "url": rurl or "",
                 }
 
     # 3. Build the tree by nesting children under parents
@@ -132,6 +136,160 @@ def get_request_by_id(request_id: int) -> RequestModel | None:
             .scalars()
             .first()
         )
+
+
+def fetch_request_scripts_for_ids(
+    ids: Sequence[int],
+) -> list[tuple[int, str, dict[str, Any] | None, dict[str, Any] | list[Any] | None]]:
+    """Return ``(id, name, scripts, events)`` for the given request ids."""
+    if not ids:
+        return []
+    with get_session() as session:
+        stmt = select(
+            RequestModel.id,
+            RequestModel.name,
+            RequestModel.scripts,
+            RequestModel.events,
+        ).where(RequestModel.id.in_(ids))
+        rows = session.execute(stmt).all()
+        by_id = {
+            int(rid): (
+                int(rid),
+                str(name or ""),
+                scripts if isinstance(scripts, dict) else None,
+                events if isinstance(events, dict | list) else None,
+            )
+            for rid, name, scripts, events in rows
+        }
+        return [by_id[i] for i in ids if i in by_id]
+
+
+def fetch_request_fields_for_ids(
+    ids: Sequence[int],
+) -> list[
+    tuple[
+        int,
+        str,
+        str | None,
+        str | None,
+        dict[str, Any] | None,
+        str | None,
+        list[dict[str, Any]] | None,
+        dict[str, Any] | None,
+        list[dict[str, Any]] | None,
+    ]
+]:
+    """Return ``(id, name, body, body_mode, body_options, description, headers, auth, params)``."""
+    if not ids:
+        return []
+    with get_session() as session:
+        stmt = select(
+            RequestModel.id,
+            RequestModel.name,
+            RequestModel.body,
+            RequestModel.body_mode,
+            RequestModel.body_options,
+            RequestModel.description,
+            RequestModel.headers,
+            RequestModel.auth,
+            RequestModel.request_parameters,
+        ).where(RequestModel.id.in_(ids))
+        rows = session.execute(stmt).all()
+        by_id = {
+            int(rid): (
+                int(rid),
+                str(name or ""),
+                body,
+                body_mode,
+                body_options if isinstance(body_options, dict) else None,
+                description,
+                headers if isinstance(headers, list) else None,
+                auth if isinstance(auth, dict) else None,
+                params if isinstance(params, list) else None,
+            )
+            for (
+                rid,
+                name,
+                body,
+                body_mode,
+                body_options,
+                description,
+                headers,
+                auth,
+                params,
+            ) in rows
+        }
+        return [by_id[i] for i in ids if i in by_id]
+
+
+def fetch_folder_scripts_for_ids(
+    ids: Sequence[int],
+) -> list[tuple[int, str, dict[str, Any] | list[Any] | None]]:
+    """Return ``(id, name, events)`` for the given collection ids."""
+    if not ids:
+        return []
+    with get_session() as session:
+        stmt = select(
+            CollectionModel.id,
+            CollectionModel.name,
+            CollectionModel.events,
+        ).where(CollectionModel.id.in_(ids))
+        rows = session.execute(stmt).all()
+        by_id = {
+            int(cid): (
+                int(cid),
+                str(name or ""),
+                events if isinstance(events, dict | list) else None,
+            )
+            for cid, name, events in rows
+        }
+        return [by_id[i] for i in ids if i in by_id]
+
+
+def fetch_assertion_counts_for_ids(
+    ids: Sequence[int],
+) -> list[tuple[int, int, int]]:
+    """Return ``(request_id, total_assertions, enabled_assertions)`` for each id."""
+    if not ids:
+        return []
+    from database.models.request_assertions.model.request_assertion_model import (
+        RequestAssertionModel,
+    )
+
+    with get_session() as session:
+        stmt = (
+            select(
+                RequestAssertionModel.request_id,
+                sa_func.count(RequestAssertionModel.id),
+                sa_func.sum(case((RequestAssertionModel.enabled.is_(True), 1), else_=0)),
+            )
+            .where(RequestAssertionModel.request_id.in_(ids))
+            .group_by(RequestAssertionModel.request_id)
+        )
+        rows = session.execute(stmt).all()
+        by_id = {
+            int(rid): (int(rid), int(total or 0), int(enabled or 0)) for rid, total, enabled in rows
+        }
+        return [by_id.get(i, (i, 0, 0)) for i in ids]
+
+
+def count_all_collections() -> int:
+    """Return the total number of collection (folder) rows."""
+    with get_session() as session:
+        result = session.execute(select(sa_func.count()).select_from(CollectionModel)).scalar()
+        return int(result or 0)
+
+
+def count_all_requests() -> int:
+    """Return request rows whose collection_id references an existing folder row."""
+    with get_session() as session:
+        stmt = (
+            select(sa_func.count())
+            .select_from(RequestModel)
+            .where(RequestModel.collection_id.in_(select(CollectionModel.id)))
+        )
+        result = session.execute(stmt).scalar()
+        return int(result or 0)
 
 
 def get_request_auth_chain(request_id: int) -> dict[str, Any] | None:

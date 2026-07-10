@@ -17,6 +17,11 @@ UserMessageFooterMode = Literal["actions", "stop"]
 
 _CONFIG_BTN_SIZE = 28
 _CONFIG_ICON_SIZE = 18
+# QSS padding on QWidget/QPushButton does not affect layout geometry — only
+# QLayout contents margins do. Keep a real bottom inset under the solid stop
+# control so it is not flush with the user-bubble border.
+_FOOTER_PAD_TOP = 2
+_FOOTER_PAD_BOTTOM = 4
 
 
 class UserMessageFooterRow(QWidget):
@@ -32,7 +37,7 @@ class UserMessageFooterRow(QWidget):
         self.setObjectName("aiChatUserMessageFooter")
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(0, _FOOTER_PAD_TOP, 0, _FOOTER_PAD_BOTTOM)
         layout.setSpacing(4)
 
         self._timestamp = QLabel()
@@ -49,6 +54,12 @@ class UserMessageFooterRow(QWidget):
         self._action_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._action_btn.clicked.connect(self._on_action_clicked)
         layout.addWidget(self._action_btn, 0, Qt.AlignmentFlag.AlignRight)
+
+        # The transcript row's fixed-height clamp can squeeze this row below its
+        # hint (the wrapped prompt label reports a stale, inflated minimum), and
+        # the fixed-size action button would then be clipped at the bottom. Pin
+        # the row height (button + layout pads) so any squeeze lands on the label.
+        self.setFixedHeight(_CONFIG_BTN_SIZE + _FOOTER_PAD_TOP + _FOOTER_PAD_BOTTOM)
 
         self._sent_at: datetime | None = None
         self._footer_mode: UserMessageFooterMode = "actions"
@@ -105,18 +116,24 @@ class UserMessageFooterRow(QWidget):
         self._action_btn.setProperty("footerMode", mode)
         if mode == "stop":
             self._action_btn.setObjectName("smallPrimaryButton")
+            # Same icon-only box-model gotcha as the composer send/stop button.
+            self._action_btn.setProperty("iconOnly", True)
             self._action_btn.setFlat(False)
             self._action_btn.setIconSize(QSize(CHAT_STOP_ICON_SIZE, CHAT_STOP_ICON_SIZE))
             self._action_btn.setIcon(chat_stop_icon())
             self._action_btn.setToolTip("Stop")
         else:
             self._action_btn.setObjectName("aiChatUserMessageConfig")
+            self._action_btn.setProperty("iconOnly", False)
             self._action_btn.setFlat(True)
             self._action_btn.setIconSize(QSize(_CONFIG_ICON_SIZE, _CONFIG_ICON_SIZE))
             self._action_btn.setIcon(
                 phi("arrow-u-up-left", color=COLOR_TEXT_MUTED, size=_CONFIG_ICON_SIZE)
             )
             self._action_btn.setToolTip("Message actions")
+        # Re-pin size after polish: stylesheet padding can inflate sizeHint, and
+        # with setFixedSize the accent fill still paints edge-to-edge of the rect.
+        self._action_btn.setFixedSize(_CONFIG_BTN_SIZE, _CONFIG_BTN_SIZE)
         style = self._action_btn.style()
         style.unpolish(self._action_btn)
         style.polish(self._action_btn)

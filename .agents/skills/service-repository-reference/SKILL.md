@@ -50,6 +50,12 @@ cross-layer data interchange.
 | `get_saved_responses_for_request(request_id)` | `list[dict[str, Any]]` | Saved responses for a request |
 | `get_saved_response(response_id)` | `dict[str, Any] \| None` | Single saved response detail by ID |
 | `count_collection_requests(collection_id)` | `int` | Total request count in folder subtree |
+| `fetch_request_scripts_for_ids(ids)` | same shape | Script/events for given request ids only |
+| `fetch_request_fields_for_ids(ids)` | `(id, name, body, body_mode, body_options, description, headers, auth, params)` | Bounded request field fetch for workspace search |
+| `fetch_folder_scripts_for_ids(ids)` | `(id, name, events)` | Folder-level script events for workspace search |
+| `fetch_assertion_counts_for_ids(ids)` | `(request_id, total, enabled)` | Bulk declarative assertion counts for `scope=insights` |
+| `count_all_collections()` | `int` | Total folder row count |
+| `count_all_requests()` | `int` | Requests with a valid collection parent |
 | `get_recent_requests_for_collection(collection_id, ...)` | `list[dict[str, Any]]` | Recently modified requests in subtree |
 
 ### Import repository (`import_repository.py`)
@@ -118,6 +124,7 @@ Metadata in SQLite; bodies/snapshots via `body_store.py` under
 | Function | Returns | Purpose |
 |----------|---------|---------|
 | `fetch_all_local_scripts_tree()` | `dict[str, Any]` | Nested tree; script nodes include ``module_format`` |
+| `fetch_local_script_contents_for_ids(ids)` | `list[tuple[int, str, str]]` | Bulk ``(id, name, content)`` for search |
 | `get_script_by_id(script_id)` | `LocalScriptModel \| None` | PK lookup |
 | `get_local_script_breadcrumb(script_id)` | `list[dict[str, Any]]` | Breadcrumb segments |
 
@@ -133,6 +140,12 @@ directly to the repository with no added logic.
 | `fetch_all()` | Logging only |
 | `get_collection(id)` | Passthrough |
 | `get_request(id)` | Passthrough |
+| `fetch_request_scripts_for_ids(ids)` | Passthrough |
+| `fetch_request_fields_for_ids(ids)` | Passthrough |
+| `fetch_folder_scripts_for_ids(ids)` | Passthrough |
+| `fetch_assertion_counts_for_ids(ids)` | Passthrough |
+| `count_all_collections()` | Passthrough |
+| `count_all_requests()` | Passthrough |
 | `create_collection(name, parent_id?)` | `name.strip()`, rejects empty |
 | `rename_collection(id, new_name)` | `new_name.strip()`, rejects empty |
 | `delete_collection(id)` | Logging only |
@@ -242,7 +255,7 @@ Module-level functions; class re-exports them as `@staticmethod` aliases.
 |--------|---------|
 | `gather_send_identity(ctx, editor, data)` | Capture method/url/name at send start |
 | `record_send(identity, response, original_request, settings)` | Persist send; prune per settings; return entry id |
-| `list_for_sidebar(search?)` | List all entries (left-rail global History) |
+| `list_for_sidebar(search?, executed_from?, executed_to?, limit=500)` | Global list (left-rail global History), newest first; optional local-calendar date bounds |
 | `entry_to_http_response_dict(entry)` | Map stored entry → `ResponseViewer.load_stored_response` dict |
 | `list_for_request(request_id, search?)` | List sends for one saved request (right rail) |
 | `get_entry(entry_id)` | Full row with file payloads |
@@ -461,6 +474,7 @@ All methods are `@staticmethod`.  UI must use this module, not `database/`.
 | Method | Purpose |
 |--------|---------|
 | `fetch_all()` | Nested local-scripts tree dict (includes ``module_format`` on script nodes) |
+| `fetch_local_script_contents_for_ids(ids)` | ``(id, name, content)`` tuples for bulk search |
 | `list_virtual_paths(*, language)` | Virtual paths for ``pm.require("local:…")`` autocomplete |
 | `get_script_load_dict(script_id)` | Editor open payload (see ``LocalScriptLoadDict``) |
 | `create_script(folder_id, name, *, language, module_format="esm", content)` | Create script |
@@ -473,6 +487,17 @@ use ``pm.require("local:…/file.cjs")`` from ESM pre-request/test scripts only.
 
 **UI signals (local scripts tree):** ``new_script_clicked(str, str)`` (language,
 module_format); ``new_script_requested(object, str, str)`` on header; ``script_rename_requested(int, str, str, str)`` on ``CollectionTree`` and ``CollectionWidget``.
+
+### SnippetService (`services/snippet_service.py`)
+
+All methods are `@staticmethod`.  UI must use this module, not `snippet_repository`.
+
+| Method | Purpose |
+|--------|---------|
+| `list_all(language)` | All user snippets for an editor language |
+| `list(language, context)` | Filtered by pre/test/both context |
+| `get(snippet_id)` | One user snippet row (``UserSnippetDict``) or ``None`` |
+| `create(...)` / `update(...)` / `delete(...)` | User snippet CRUD |
 
 ### GraphQLSchemaService
 

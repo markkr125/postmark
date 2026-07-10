@@ -217,6 +217,7 @@ tests/
 │   │   │   ├── test_streaming_table.py
 │   │   │   ├── test_markdown_content_height.py
 │   │   │   ├── test_markdown_content_static.py  # MarkdownContent paint, selection, drag autoscroll
+│   │   │   ├── test_markdown_content_links.py  # postmark:// deep-links vs https external; malformed postmark:// never opens externally
 │   │   │   ├── test_chat_time_format.py
 │   │   │   ├── test_thought_collapse_height.py
 │   │   │   ├── test_thought_layout_reentrancy.py
@@ -280,7 +281,7 @@ tests/
 │       │   ├── test_message_usage.py
 │       │   ├── test_session_transcript_window.py  # Tail/older turn slicing
 │       │   ├── test_llm_service.py
-│       │   ├── test_postmark_agent_registry.py
+│       │   ├── test_postmark_agent_registry.py  # workspace prompt/desc: history routing + within_ids
 │       │   ├── test_subagent_registry.py
 │       │   ├── test_subagent_events.py
 │       │   ├── test_thinking_sections.py
@@ -290,6 +291,9 @@ tests/
 │       │   ├── test_delegate_tool.py
 │       │   ├── test_build_app_wiki.py
 │       │   ├── test_wiki_query_tool.py
+│       │   ├── test_workspace_snapshot.py  # session snapshot + last search hits
+│       │   ├── test_workspace_query_tool.py
+│       │   ├── test_workspace_query_audit.py  # redaction, within_ids/[-1], params search, dirty merge
 │       │   ├── test_pm_api_quickref.py
 │       │   ├── test_provider_ops.py
 │       │   ├── test_model_filters.py
@@ -302,7 +306,7 @@ tests/
 │       │   └── test_sdk_env.py
 │       ├── test_request_history_replay.py
 │       ├── test_request_history_snapshot_headers.py
-│       ├── test_secret_store.py     # SecretStore backends: keyring / encrypted-file / noop; default-store self-test fallback
+│       ├── test_secret_store.py     # SecretStore backends: keyring / encrypted-file / noop; default-store self-test fallback; platform keyring pin (no foreign backends)
 │       ├── test_deno_runtime_registries.py  # _build_npmrc_text + deno_ipc_argv_and_env private-registry plumbing
 │       ├── test_cjs_deno_interop.py       # Gate 0 Deno ``import *`` from ``.cjs``
 │       ├── test_local_script_pm_require.py  # pm.require("local:…") resolve + bundle + CJS runtime
@@ -336,6 +340,7 @@ tests/
     ├── conftest.py                # _no_fetch (autouse) + helper functions
    ├── main_window/
    │   └── test_ai_chat_controller.py  # AI chat controller + concurrent run registry paths
+   │   └── test_ai_chat_deeplink.py  # postmark:// deep-link navigation (request/collection/script/tab/history/environment/saved_response) + focus_section; unknown/stale/missing/unsupported-focus/history-busy show status tip
    │   └── test_main_window_ai_session_restore.py  # Persist + reopen last chat session on startup
    │   └── test_ai_chat_registry_streaming.py  # E2E registry→controller→panel incremental streaming
    │   └── test_ai_concurrent_runs.py  # E2E New chat / session switch + parallel send flows
@@ -461,6 +466,8 @@ tests/
         ├── test_script_language.py
         ├── test_http_worker.py
         ├── test_request_editor.py
+        ├── test_focus_section.py
+        ├── test_get_request_data_persist.py
         ├── test_request_editor_auth.py
         ├── test_request_editor_binary.py
         ├── test_request_editor_graphql.py

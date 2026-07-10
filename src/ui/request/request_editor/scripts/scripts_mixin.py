@@ -292,7 +292,10 @@ class _ScriptsMixin(_DebugMetadataPersistMixin):
             return
 
         def try_apply(attempt: int = 0) -> None:
-            h = splitter.height()
+            try:
+                h = splitter.height()
+            except RuntimeError:
+                return
             if h < 30 and attempt < 30:
                 QTimer.singleShot(40, partial(try_apply, attempt + 1))
                 return
@@ -423,7 +426,9 @@ class _ScriptsMixin(_DebugMetadataPersistMixin):
         if hasattr(self, "_version_capture_timer"):
             return
         initial_ms = _AUTO_SAVE_CAPTURE_MS if self._auto_save_enabled else _VERSION_CAPTURE_MS
-        self._version_capture_timer = QTimer()
+        # Parent to the editor so the timer is destroyed with the widget and
+        # cannot fire after C++ teardown (orphan QTimers are a segfault risk).
+        self._version_capture_timer = QTimer(cast(QWidget, self))
         self._version_capture_timer.setSingleShot(True)
         self._version_capture_timer.setInterval(initial_ms)
         self._version_capture_timer.timeout.connect(self._capture_script_versions)
