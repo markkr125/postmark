@@ -817,7 +817,12 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
         """Refresh subagent cards and any open detail window from disk."""
         bubble = self._resolve_streaming_bubble()
         if bubble is None or bubble.subagent_active_count() == 0:
+            was_active = self._subagent_poll_timer.isActive()  # type: ignore[attr-defined]
             self._subagent_poll_timer.stop()  # type: ignore[attr-defined]
+            if was_active:
+                schedule = getattr(self, "_schedule_context_usage_refresh", None)
+                if callable(schedule):
+                    schedule()
             return
         bubble.refresh_subagent_steps()
         dialog = getattr(self, "_subagent_detail_dialog", None)

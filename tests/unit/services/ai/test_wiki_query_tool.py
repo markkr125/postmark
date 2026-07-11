@@ -116,3 +116,4 @@ def test_execute_wiki_query_char_cap(tmp_path: Path) -> None:
 
     result = execute_wiki_query("alpha beta", root=tmp_path, char_cap=6000)
     assert len(result) <= 6000 + 200
+    assert len(result) <= 6000 + 200

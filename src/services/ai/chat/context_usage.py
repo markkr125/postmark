@@ -57,6 +57,7 @@ class ContextUsageBreakdown(TypedDict):
     categories: list[ContextUsageCategory]
     has_summarized: bool
     is_estimated: bool
+    draft_tokens: NotRequired[int]
     sqlite_message_count: NotRequired[int]
     sqlite_transcript_tokens: NotRequired[int]
     sdk_event_count: NotRequired[int]
@@ -251,6 +252,15 @@ def build_breakdown(
     )
     sqlite_message_count = len(messages)
 
+    subagent_tokens = 0
+    if session_id:
+        from services.ai.chat.subagent_transcript import count_session_subagent_context_tokens
+
+        subagent_tokens = count_session_subagent_context_tokens(
+            session_id, model, char_only=char_only
+        )
+    tokens["subagents"] = subagent_tokens
+
     summarized_tokens = 0
     has_summarized = False
     sdk_snapshot: SdkViewSnapshot | None = None
@@ -265,8 +275,10 @@ def build_breakdown(
 
     is_estimated = True
     used_sqlite_fallback = True
+    # Subagent answers typically re-enter the parent as tool observations; keep
+    # them in the Subagents bucket and exclude that slice from Conversation.
     if sdk_snapshot is not None and sdk_snapshot["view_tokens"] > 0:
-        fixed = system_tokens + tools_tokens + summarized_tokens
+        fixed = system_tokens + tools_tokens + summarized_tokens + subagent_tokens
         tokens["conversation"] = (
             max(0, sdk_snapshot["view_tokens"] - fixed) + draft_tokens + stream_tokens
         )
@@ -280,10 +292,12 @@ def build_breakdown(
         if sdk_used > 0:
             is_estimated = False
             used_sqlite_fallback = False
-            fixed = system_tokens + tools_tokens + summarized_tokens
+            fixed = system_tokens + tools_tokens + summarized_tokens + subagent_tokens
             tokens["conversation"] = max(0, sdk_used - fixed) + draft_tokens + stream_tokens
     if is_estimated:
-        tokens["conversation"] = transcript_tokens + draft_tokens + stream_tokens
+        tokens["conversation"] = (
+            max(0, transcript_tokens - subagent_tokens) + draft_tokens + stream_tokens
+        )
 
     categories = _assemble_categories(tokens)
     used_tokens = sum(category["tokens"] for category in categories)
@@ -305,6 +319,7 @@ def build_breakdown(
         categories=categories,
         has_summarized=has_summarized,
         is_estimated=is_estimated,
+        draft_tokens=draft_tokens,
         sqlite_message_count=sqlite_message_count,
         sqlite_transcript_tokens=transcript_tokens,
         sdk_event_count=sdk_event_count,

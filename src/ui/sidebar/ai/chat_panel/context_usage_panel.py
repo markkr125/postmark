@@ -10,9 +10,14 @@ from PySide6.QtCore import QObject, QThread, QTimer, Qt, Slot
 
 from services.ai.chat.agent_registry import DEFAULT_AGENT_ID
 from services.ai.chat.budget_status import ConnectionBudgetStatus, connection_budget_status
-from services.ai.chat.context_usage import ContextUsageBreakdown, ContextUsageSdkMetrics
+from services.ai.chat.context_usage import (
+    ContextUsageBreakdown,
+    ContextUsageCategory,
+    ContextUsageSdkMetrics,
+    estimate_text_tokens,
+)
 from services.ai.chat.message_usage import SessionSpendBreakdown
-from services.ai.chat.session_service import AiChatMessageDict, AiChatSessionService
+from services.ai.chat.session_service import AiChatSessionService
 from ui.sidebar.ai.chat_context_popup import AiChatContextUsagePopup
 from ui.sidebar.ai.workers.context_usage_worker import ContextUsageLoader
 
@@ -31,6 +36,7 @@ class _ChatPanelContextUsageMixin:  # type: ignore[misc]
     _pending_turn_sdk_metrics: ContextUsageSdkMetrics | None
     _context_refresh_pending: bool
     _context_refresh_generation: int
+    _context_draft_tokens: int
     _summarized_notice_session_id: str | None
     _connection_budget_status: ConnectionBudgetStatus | None
 
@@ -43,6 +49,7 @@ class _ChatPanelContextUsageMixin:  # type: ignore[misc]
         self._pending_turn_sdk_metrics = None
         self._context_refresh_pending = False
         self._context_refresh_generation = 0
+        self._context_draft_tokens = 0
         self._summarized_notice_session_id = None
         self._connection_budget_status = None
         self._context_usage_loader = ContextUsageLoader(cast(QObject, self))
@@ -54,11 +61,14 @@ class _ChatPanelContextUsageMixin:  # type: ignore[misc]
         self._context_refresh_timer.timeout.connect(self._run_context_usage_refresh)
         self._context_ring.context_requested.connect(self._toggle_context_popup)
         AiChatContextUsagePopup.instance().hidden.connect(self._restore_context_ring_tooltip)
-        self._input.textChanged.connect(self._schedule_context_usage_refresh)
+        # Typing must NOT trigger a full rebuild (LiteLLM + measure_sdk_view) —
+        # that starves the GIL and makes every keystroke lag by seconds.
+        self._input.textChanged.connect(self._on_composer_draft_changed)
 
     def set_context_breakdown(self, breakdown: ContextUsageBreakdown) -> None:
         """Apply a breakdown to the ring and cached popover state."""
         self._context_breakdown = breakdown
+        self._context_draft_tokens = int(breakdown.get("draft_tokens", 0) or 0)
         self._context_ring.set_usage(breakdown["used_tokens"], breakdown["total_tokens"])
         if breakdown["has_summarized"]:
             self.on_context_compacted()
@@ -68,6 +78,65 @@ class _ChatPanelContextUsageMixin:  # type: ignore[misc]
             if popup._mode == "context":
                 self._context_ring.setToolTip("")
         self._refresh_session_spend_breakdown()
+
+    def _on_composer_draft_changed(self) -> None:
+        """Cheap ring update while typing — never rebuild the full breakdown.
+
+        A full ``build_breakdown`` tokenizes the system prompt, tools, and
+        transcript and may call ``measure_sdk_view`` (build LLM + walk every
+        SDK event). Doing that on each ``textChanged`` freezes the composer.
+        """
+        breakdown = self._context_breakdown
+        if breakdown is None:
+            self._schedule_context_usage_refresh()
+            return
+        draft = self._input.toPlainText()
+        new_draft = estimate_text_tokens(draft, "", char_only=True)
+        old_draft = self._context_draft_tokens
+        if new_draft == old_draft:
+            return
+        delta = new_draft - old_draft
+        self._context_draft_tokens = new_draft
+        categories: list[ContextUsageCategory] = []
+        found_conversation = False
+        for category in breakdown["categories"]:
+            if category["id"] == "conversation":
+                found_conversation = True
+                categories.append(
+                    ContextUsageCategory(
+                        id=category["id"],
+                        label=category["label"],
+                        tokens=max(0, category["tokens"] + delta),
+                    )
+                )
+            else:
+                categories.append(category)
+        if not found_conversation:
+            categories.append(
+                ContextUsageCategory(
+                    id="conversation",
+                    label="Conversation",
+                    tokens=max(0, new_draft),
+                )
+            )
+        used = max(0, breakdown["used_tokens"] + delta)
+        total = breakdown["total_tokens"]
+        if total > 0:
+            used = min(used, total)
+        updated = cast(
+            ContextUsageBreakdown,
+            {
+                **breakdown,
+                "categories": categories,
+                "used_tokens": used,
+                "draft_tokens": new_draft,
+            },
+        )
+        self._context_breakdown = updated
+        self._context_ring.set_usage(used, total)
+        popup = AiChatContextUsagePopup.instance()
+        if popup.isVisible() and popup._mode == "context":
+            popup.set_breakdown(updated)
 
     def set_context_session_id(self, session_id: str | None) -> None:
         """Set the session used for full-transcript usage accounting."""
@@ -142,23 +211,25 @@ class _ChatPanelContextUsageMixin:  # type: ignore[misc]
         self._context_refresh_timer.start()
 
     def _context_usage_request_kwargs(self) -> dict[str, object] | None:
-        """Build worker parameters for the current panel state."""
+        """Build worker parameters for the current panel state.
+
+        Message loading stays in the worker thread — never call
+        ``get_messages`` here on the GUI thread.
+        """
         entry = self.current_model_entry()
         if entry is None:
             self._context_breakdown = None
+            self._context_draft_tokens = 0
             self._context_ring.set_usage(0, 0)
             return None
         session_id = getattr(self, "_virtual_session_id", None) or self._context_session_id
         agent_id = DEFAULT_AGENT_ID
-        messages: list[AiChatMessageDict] = []
         if session_id:
             row = AiChatSessionService.get_session(session_id)
             if row is not None:
                 agent_id = row.get("agent_id", DEFAULT_AGENT_ID)
-            messages = AiChatSessionService.get_messages(session_id)
         return {
             "session_id": session_id,
-            "messages": messages,
             "entry": entry,
             "agent_id": agent_id,
             "draft_text": self._input.toPlainText(),
@@ -320,6 +391,7 @@ class _ChatPanelContextUsageMixin:  # type: ignore[misc]
         self._context_refresh_pending = False
         if self._context_refresh_timer.isActive():
             self._context_refresh_timer.stop()
+        self._context_draft_tokens = 0
         self._summarized_notice_session_id = None
         self.refresh_connection_budget()
         entry = self.current_model_entry()

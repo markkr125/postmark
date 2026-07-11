@@ -364,6 +364,11 @@ class AiChatPanel(
                 if updated is not None:
                     dialog.refresh_record(updated)
         self._sync_subagent_poll_timer()  # type: ignore[attr-defined]
+        # Refresh context so the Subagents bucket updates when runs finish.
+        if any(r.get("status") in ("completed", "error") for r in normalized):
+            schedule = getattr(self, "_schedule_context_usage_refresh", None)
+            if callable(schedule):
+                schedule()
         self._request_turn_bottom_scroll()  # type: ignore[attr-defined]
         self._follow_streaming_turn_layout()  # type: ignore[attr-defined]
 

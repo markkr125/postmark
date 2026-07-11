@@ -16,7 +16,6 @@ from services.ai.budget_period import (
 from services.ai.chat.message_usage import (
     ModelSpendRow,
     SessionSpendBreakdown,
-    combined_model_entries,
     entry_for_model_id,
     format_run_context_tokens,
     format_usd_amount,
@@ -109,7 +108,7 @@ def _messages_for_connection(
     messages: list[AiChatMessageDict],
     connection_key: str,
     *,
-    resolved_entries: list[AiModelEntry],
+    models: list[AiModelEntry],
     session_models: dict[str, str | None],
 ) -> list[AiChatMessageDict]:
     """Return assistant messages attributed to *connection_key*."""
@@ -132,9 +131,7 @@ def _messages_for_connection(
                 msg_index=index,
                 session_model_id=session_model_id,
             )
-            entry = entry_for_model_id(
-                model_id, extra_entries=resolved_entries, include_configured=False
-            )
+            entry = entry_for_model_id(model_id, extra_entries=models)
             if entry is None:
                 continue
             if provider_connection_key(entry) == connection_key:
@@ -145,7 +142,7 @@ def _messages_for_connection(
 def _rollup_messages(
     messages: list[AiChatMessageDict],
     *,
-    resolved_entries: list[AiModelEntry],
+    models: list[AiModelEntry],
     session_models: dict[str, str | None],
 ) -> SessionSpendBreakdown:
     """Roll up *messages* that may span multiple sessions."""
@@ -166,7 +163,7 @@ def _rollup_messages(
         breakdown = session_spend_breakdown(
             session_msgs,
             session_model_id=session_models.get(session_id),
-            resolved_entries=resolved_entries,
+            models=models,
         )
         assistant_turns += int(breakdown.get("assistant_turns") or 0)
         priced_turns += int(breakdown.get("priced_turns") or 0)
@@ -214,7 +211,6 @@ def global_spend_summary(
 ) -> GlobalSpendSummary:
     """Compute per-connection and global spend from stored assistant messages."""
     model_list = list(models) if models is not None else list(AiConfig.get_models())
-    resolved_entries = combined_model_entries(model_list)
     budget_rows = budgets if budgets is not None else AiBudgetConfig.get_budgets()
     budget_by_key = {row["connection_key"]: row for row in budget_rows if row.get("connection_key")}
 
@@ -250,12 +246,12 @@ def global_spend_summary(
         conn_messages = _messages_for_connection(
             all_messages,
             key,
-            resolved_entries=resolved_entries,
+            models=model_list,
             session_models=session_models,
         )
         overall = _rollup_messages(
             conn_messages,
-            resolved_entries=resolved_entries,
+            models=model_list,
             session_models=session_models,
         )
         overall_known, overall_total, overall_tokens, overall_partial = _breakdown_totals(overall)
@@ -273,7 +269,7 @@ def global_spend_summary(
         else:
             period_breakdown = _rollup_messages(
                 period_messages,
-                resolved_entries=resolved_entries,
+                models=model_list,
                 session_models=session_models,
             )
         period_known, period_total, period_tokens, period_partial = _breakdown_totals(

@@ -8,7 +8,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QLabel, QPushButton
 
 from services.ai.chat.subagent_events import SubagentRunRecord
-from ui.sidebar.ai.subagent_detail_dialog import SubagentDetailDialog, _THOUGHT_BODY_MAX_PX
+from ui.sidebar.ai.subagent_detail_dialog import _THOUGHT_BODY_MAX_PX, SubagentDetailDialog
 
 
 def test_detail_dialog_shows_task_and_streams_completed_answer(qapp: QApplication, qtbot) -> None:
@@ -30,6 +30,35 @@ def test_detail_dialog_shows_task_and_streams_completed_answer(qapp: QApplicatio
     assert dialog._reply.objectName() == "aiChatAssistantText"
     assert dialog._task.text() == "Find TypeScript scripting docs in the Postmark wiki"
     assert "## TypeScript docs" in dialog._reply.markdown()
+    assert not dialog._reply.is_streaming()
+
+
+def test_detail_dialog_prefers_full_result_markdown_over_preview(qapp: QApplication, qtbot) -> None:
+    """Inline wiki cards show the full observation, not the clipped preview."""
+    dialog = SubagentDetailDialog()
+    qtbot.addWidget(dialog)
+    full = (
+        "# Wiki results for: pm.test\n\n"
+        "## docs/user-guide/scripting-javascript.md\n\n"
+        "Use `pm.test` to assert response status.\n\n"
+        "```javascript\npm.test('ok', () => { pm.response.to.have.status(200); });\n```\n"
+    )
+    record: SubagentRunRecord = {
+        "id": "wiki_tc",
+        "kind": "wiki",
+        "label": "pm.test",
+        "subagent_type": "wiki-researcher",
+        "status": "completed",
+        "task_prompt": "pm.test",
+        "result_preview": "# Wiki results for: pm.test ## docs/user-guide/…",
+        "result_markdown": full,
+    }
+    dialog.open_record(record)
+    qtbot.wait(10)
+    assert dialog._reply.markdown() == full.strip()
+    html = dialog._reply.toHtml()
+    assert "pm.test" in html
+    assert "postmark-code-copy:0" in html or "javascript" in html.lower()
     assert not dialog._reply.is_streaming()
 
 
@@ -669,4 +698,5 @@ def test_detail_dialog_activity_detail_elides_long_preview(
     assert len(detail_labels) == 1
     preview = detail_labels[0].text()
     assert preview.endswith("…")
+    assert len(preview) < len(long_detail.strip())
     assert len(preview) < len(long_detail.strip())

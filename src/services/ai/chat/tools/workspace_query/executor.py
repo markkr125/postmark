@@ -15,7 +15,10 @@ from openhands.sdk.tool.tool import (
     ToolDefinition,
     ToolExecutor,
 )
-from services.ai.chat.workspace_snapshot import get_workspace_snapshot
+from services.ai.chat.workspace_snapshot import (
+    get_workspace_snapshot,
+    resolve_workspace_session_id,
+)
 
 from .constants import _MAX_OUTPUT_CHARS, _VALID_SCOPES
 from .render import (
@@ -395,7 +398,12 @@ class WorkspaceQueryExecutor(ToolExecutor):
         """Run the workspace query and return excerpts."""
         session_id = ""
         if conversation is not None:
-            session_id = str(conversation.state.id)
+            state = conversation.state
+            persistence_dir = getattr(state, "persistence_dir", None)
+            session_id = resolve_workspace_session_id(
+                str(state.id),
+                persistence_dir=persistence_dir,
+            )
         text = execute_workspace_query(
             action.scope,
             session_id=session_id,

@@ -141,7 +141,18 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   events exist (`services/ai/chat/context_usage_sdk.py` — `measure_sdk_view`,
   `collect_compaction_diagnostics`, `SdkViewSnapshot`). SQLite full-transcript
   token estimates remain the fallback before SDK context is available or when
-  SDK token counting fails. `AiChatPanel` must **not** shut down the
+  SDK token counting fails. **Subagents** category tokens come from completed
+  child conversations under ``session_subagents_root`` (final answer, else task
+  prompt) via ``count_session_subagent_context_tokens``; that slice is excluded
+  from Conversation to avoid double-counting tool observations. Context refreshes
+  when subagent records reach ``completed``/``error`` and when the subagent poll
+  timer stops. **Composer typing** must not call full
+  `build_breakdown` / `measure_sdk_view` (GIL-heavy LiteLLM + SDK event walk);
+  `AiChatPanel._on_composer_draft_changed` adjusts the cached breakdown's
+  `draft_tokens` / conversation bucket with a char-only estimate. Full refreshes
+  run on session load, model change, and run finish via `ContextUsageLoader`
+  (SQLite `get_messages` stays on the worker thread). `AiChatPanel` must **not**
+  shut down the
   context-usage `QThread` in `hideEvent` (panel starts hidden; hide/show races
   abort Qt) — shutdown runs from `closeEvent` /
   `MainWindow._cleanup_ai_chat_threads`. Refresh is skipped while the panel is
@@ -166,11 +177,16 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   `DEFAULT_AGENT_ID` with `postmark_wiki_query`, `postmark_workspace_query`,
   OpenHands `task_tool_set` (sequential/resumable subagents), and `delegate`
   (parallel fan-out).
-  Built-in subagent types: `wiki-researcher` (`postmark_wiki_query` only) and
+  Built-in subagent types: `wiki-researcher` (`postmark_wiki_query` only),
+  `workspace-researcher` (`postmark_workspace_query` only), and
   `general-purpose` (no tools). Optional file agents from
   `.agents/agents/*.md` via `register_file_agents(project_root())`.
   **`postmark_workspace_query`** (`tools/workspace_query/`) reads the user's
   collections, requests, environments, run history, and open-tab state on demand.
+  `WorkspaceQueryExecutor` resolves the parent chat session id via
+  `resolve_workspace_session_id` / `parent_session_id_from_persistence_dir` when
+  the tool runs inside a subagent conversation under
+  ``<session_disk>/subagents/`` (live scopes still use the parent run snapshot).
   `execute_workspace_query` caps total output at `_MAX_OUTPUT_CHARS` (48k, headroom
   under OpenHands' 50k TextContent limit) via `_truncate_output` (prepends
   ``[truncated]`` and appends a trailing footer when char-capped); `open_tabs` also
@@ -241,15 +257,18 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   spawn time (`subagent_disk_registry.py`); ``SubagentEventTracker``
   (`subagent_events.py`) parses task/delegate SDK events in ``AiChatWorker.event_cb``
   and emits ``subagent_updated``. Records include ``task_prompt`` (full delegated
-  task) and ``disk_path`` (child conversation dir). Reload falls back to task-text
+  task)   and ``disk_path`` (child conversation dir). Inline wiki/task observations also store
+  ``result_markdown`` (full tool reply for ``SubagentDetailDialog``) alongside a short
+  ``result_preview`` (card/activity clip). Reload falls back to task-text
   matching under the session ``subagents/`` dir when the in-memory registry is empty.
   Clicking a transcript card opens ``SubagentDetailDialog`` (non-modal) with
   a type chip + colored status pill header, conditional Task callout (hidden when
   redundant with the title), live Activity steps (lightbulb steps filtered;
   reasoning only in Thought block) with inline detail previews, a collapsible Thought
   block from ``SubagentTranscriptView.thinking_markdown`` (scroll-capped in the dialog),
-  markdown reply streaming from disk via ``load_subagent_disk_snapshot`` (one EventLog read per
-  refresh for view + steps), and a footer **Copy message** control for the reply markdown;
+  markdown reply from disk via ``load_subagent_disk_snapshot`` when ``disk_path`` is set,
+  otherwise the full ``result_markdown`` (not the clipped preview), and a footer
+  **Copy message** control for the reply markdown;
   ``_apply_subagent_update``
   pushes worker updates (including terminal) to an open dialog.
   Parallel delegate

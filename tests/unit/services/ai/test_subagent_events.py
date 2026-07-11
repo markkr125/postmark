@@ -126,6 +126,36 @@ def test_wiki_action_and_observation_lifecycle() -> None:
     assert len(done) == 1
     assert done[0]["status"] == "completed"
     assert "Collections" in done[0].get("result_preview", "")
+    assert done[0].get("result_markdown") == "Open Collections sidebar."
+
+
+def test_wiki_observation_keeps_full_result_markdown() -> None:
+    """Detail dialog needs the full wiki observation, not only the 240-char preview."""
+    tracker = SubagentEventTracker()
+    tracker.ingest(
+        ActionEvent(
+            "postmark_wiki_query",
+            WikiQueryAction("pm.test"),
+            tool_call_id="wiki_long",
+        )
+    )
+    body = (
+        "# Wiki results for: pm.test\n\n"
+        + ("## docs/user-guide/scripting.md\n\n" + ("x" * 300) + "\n\n") * 3
+    )
+    done = tracker.ingest(
+        ObservationEvent(
+            "postmark_wiki_query",
+            WikiQueryObservation(text=body),
+            tool_call_id="wiki_long",
+        )
+    )
+    assert done[0].get("result_markdown") == body.strip()
+    preview = done[0].get("result_preview", "")
+    assert preview.endswith("…")
+    assert len(preview) <= 240
+    assert "Wiki results for: pm.test" in preview
+    assert "docs/user-guide/scripting.md" in preview
 
 
 def test_task_action_and_observation_lifecycle() -> None:
@@ -145,6 +175,7 @@ def test_task_action_and_observation_lifecycle() -> None:
     assert len(done) == 1
     assert done[0]["status"] == "completed"
     assert "Excerpt" in done[0].get("result_preview", "")
+    assert done[0].get("result_markdown") == "Excerpt from docs."
 
 
 def test_delegate_spawn_and_delegate_flow() -> None:

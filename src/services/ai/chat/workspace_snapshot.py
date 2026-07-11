@@ -3,10 +3,53 @@
 from __future__ import annotations
 
 import threading
+import uuid
+from pathlib import Path
 from typing import Any, NotRequired, TypedDict
 
 _lock = threading.Lock()
 _by_session: dict[str, dict[str, Any]] = {}
+
+
+def parent_session_id_from_persistence_dir(
+    persistence_dir: str | Path | None,
+) -> str | None:
+    """Return the parent chat session id when *persistence_dir* is under ``subagents/``.
+
+    OpenHands stores delegate/task child conversations at
+    ``<ai_conversations>/<uuid.hex>/subagents/...``. Snapshot and search-hit
+    keys use the canonical ``str(uuid.UUID(...))`` form of that hex folder.
+    """
+    if not persistence_dir:
+        return None
+    parts = Path(persistence_dir).parts
+    try:
+        idx = parts.index("subagents")
+    except ValueError:
+        return None
+    if idx < 1:
+        return None
+    try:
+        return str(uuid.UUID(parts[idx - 1]))
+    except ValueError:
+        return None
+
+
+def resolve_workspace_session_id(
+    conversation_id: str,
+    *,
+    persistence_dir: str | Path | None = None,
+) -> str:
+    """Resolve the session id used for workspace snapshots and search hits.
+
+    Parent chat conversations use ``conversation.state.id`` directly. Subagent
+    conversations use a child id; live scopes must look up the parent session
+    snapshot captured at run start.
+    """
+    parent = parent_session_id_from_persistence_dir(persistence_dir)
+    if parent:
+        return parent
+    return conversation_id or ""
 
 
 class TabSnapshot(TypedDict):

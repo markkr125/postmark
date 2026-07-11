@@ -39,5 +39,6 @@ def test_delegate_schema_tasks_values_are_plain_strings() -> None:
     assert tasks["additionalProperties"] == {"type": "string"}
     assert "Never use nested" in tasks["description"]
     assert params["properties"]["security_risk"]["description"] == (
-        "Use LOW for Postmark wiki lookup delegation."
+        "Use LOW for Postmark wiki or workspace lookup delegation."
     )
+    assert "workspace-researcher" in params["properties"]["agent_types"]["description"]

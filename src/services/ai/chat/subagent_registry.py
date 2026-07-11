@@ -13,6 +13,13 @@ _WIKI_RESEARCHER_SUFFIX = (
     "UI labels, shortcuts, or pm/postman APIs."
 )
 
+_WORKSPACE_RESEARCHER_SUFFIX = (
+    "You are a Postmark workspace specialist. Use postmark_workspace_query with a "
+    "focused scope before answering. Prefer short searches and target_id follow-ups "
+    "from tool output. Trust returned slices; copy postmark:// links verbatim. Do not "
+    "invent requests, collections, tabs, scripts, environments, or history entries."
+)
+
 _GENERAL_PURPOSE_SUFFIX = (
     "You are a focused helper for the Postmark API client. Answer concisely from the "
     "prompt only. Do not call tools unless the parent delegated tool use explicitly."
@@ -25,6 +32,15 @@ def _create_wiki_researcher(llm: object) -> Agent:
         llm=llm,  # type: ignore[arg-type]
         tools=[Tool(name="postmark_wiki_query")],
         agent_context=AgentContext(system_message_suffix=_WIKI_RESEARCHER_SUFFIX),
+    )
+
+
+def _create_workspace_researcher(llm: object) -> Agent:
+    """Factory for the workspace-researcher subagent."""
+    return Agent(
+        llm=llm,  # type: ignore[arg-type]
+        tools=[Tool(name="postmark_workspace_query")],
+        agent_context=AgentContext(system_message_suffix=_WORKSPACE_RESEARCHER_SUFFIX),
     )
 
 
@@ -49,6 +65,14 @@ def register_postmark_subagents() -> list[str]:
         description=(
             "Searches Postmark user wiki for UI workflows, scripting, and settings. "
             "Use for KB lookups instead of guessing."
+        ),
+    )
+    register_agent(
+        name="workspace-researcher",
+        factory_func=_create_workspace_researcher,
+        description=(
+            "Reads the user's Postmark workspace (collections, requests, tabs, "
+            "scripts, environments, history). Use for parallel workspace lookups."
         ),
     )
     register_agent(

@@ -17,6 +17,7 @@ SubagentStatus = Literal["warming", "running", "completed", "error"]
 
 _SUBAGENT_DISPLAY_NAMES: dict[str, str] = {
     "wiki-researcher": "Wiki researcher",
+    "workspace-researcher": "Workspace researcher",
     "general-purpose": "General purpose",
 }
 
@@ -40,6 +41,7 @@ class SubagentRunRecord(TypedDict):
     status: SubagentStatus
     task_prompt: NotRequired[str]
     result_preview: NotRequired[str]
+    result_markdown: NotRequired[str]
     disk_path: NotRequired[str]
     tool_call_id: NotRequired[str]
     started_at: NotRequired[float]
@@ -137,6 +139,26 @@ def _preview(text: str, *, limit: int = 240) -> str:
     if len(cleaned) <= limit:
         return cleaned
     return cleaned[: limit - 1].rstrip() + "…"
+
+
+def _set_result_text(record: SubagentRunRecord, text: str) -> None:
+    """Store full reply markdown plus a short card/activity preview."""
+    cleaned = text.strip()
+    if not cleaned:
+        return
+    record["result_markdown"] = cleaned
+    record["result_preview"] = _preview(cleaned)
+
+
+def record_result_markdown(record: SubagentRunRecord) -> str:
+    """Return the full reply text for the detail dialog (fallback to preview)."""
+    full = record.get("result_markdown", "")
+    if isinstance(full, str) and full.strip():
+        return full.strip()
+    preview = record.get("result_preview", "")
+    if isinstance(preview, str) and preview.strip():
+        return preview.strip()
+    return ""
 
 
 _DELEGATE_AGENT_RESULT_RE = re.compile(
@@ -405,7 +427,7 @@ class SubagentEventTracker:
         is_error = bool(getattr(observation, "is_error", False))
         record["status"] = "error" if is_error else "completed"
         if text:
-            record["result_preview"] = _preview(text)
+            _set_result_text(record, text)
         return [self._store_record(record)]
 
     def _find_running_record(
@@ -467,7 +489,7 @@ class SubagentEventTracker:
         status = str(getattr(observation, "status", "") or "")
         record["status"] = "error" if is_error or status == "error" else "completed"
         if text:
-            record["result_preview"] = _preview(text)
+            _set_result_text(record, text)
         if task_id:
             old_id = record["id"]
             record["id"] = task_id
@@ -509,10 +531,10 @@ class SubagentEventTracker:
         for record in running:
             record["status"] = final_status
             agent_result = per_agent.get(record["id"], "")
-            if agent_result and not record.get("result_preview"):
-                record["result_preview"] = agent_result
-            elif text and not record.get("result_preview"):
-                record["result_preview"] = _preview(text)
+            if agent_result and not record.get("result_markdown"):
+                _set_result_text(record, agent_result)
+            elif text and not record.get("result_markdown"):
+                _set_result_text(record, text)
             self._assign_disk_path(record)
             changed.append(self._store_record(record))
         return changed
@@ -612,6 +634,7 @@ __all__ = [
     "delegate_agent_results_from_observation",
     "enrich_subagent_records",
     "next_unassigned_subagent_disk_path",
+    "record_result_markdown",
     "records_for_assistant_turn",
     "records_for_turn_events",
     "subagent_type_display",

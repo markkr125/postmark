@@ -601,6 +601,42 @@ def test_executor_uses_conversation_session_id(make_collection_with_request: Any
     assert f"postmark://collection/{coll.id}" in text
 
 
+def test_executor_resolves_parent_session_for_subagent(
+    make_collection_with_request: Any,
+) -> None:
+    """Subagent conversations use the parent session snapshot for live scopes."""
+    coll, _req = make_collection_with_request()
+    parent_id = str(uuid.uuid4())
+    child_id = str(uuid.uuid4())
+    _seed_snapshot(
+        parent_id,
+        tabs=[
+            {
+                "index": 0,
+                "tab_type": "folder",
+                "name": coll.name,
+                "request_id": None,
+                "collection_id": coll.id,
+                "local_script_id": None,
+                "is_dirty": False,
+                "is_active": True,
+            }
+        ],
+        active_collection_id=coll.id,
+    )
+    persistence = f"/tmp/ai/{uuid.UUID(parent_id).hex}/subagents/{uuid.UUID(child_id).hex}"
+    conversation = SimpleNamespace(state=SimpleNamespace(id=child_id, persistence_dir=persistence))
+    obs = WorkspaceQueryExecutor()(
+        WorkspaceQueryAction(scope="open_tabs"),
+        cast(Any, conversation),
+    )
+    text = getattr(obs.content[0], "text", "")
+    assert f"postmark://collection/{coll.id}" in text
+    # Child id alone must not find the parent snapshot.
+    missing = execute_workspace_query("open_tabs", session_id=child_id)
+    assert "Live GUI snapshot unavailable" in missing
+
+
 def test_open_tabs_capped() -> None:
     """open_tabs caps row count at _MAX_RESULT_ROWS."""
     session_id = str(uuid.uuid4())

@@ -26,6 +26,7 @@ def test_default_agent_registered() -> None:
     assert "postmark_wiki_query" in defn.system_prompt
     assert "postmark_workspace_query" in defn.system_prompt
     assert "delegate" in defn.system_prompt
+    assert "workspace-researcher" in defn.system_prompt
     assert defn.max_iteration_per_run == 10
     assert DEFAULT_AGENT_ID in {d.id for d in list_agent_defs()}
 

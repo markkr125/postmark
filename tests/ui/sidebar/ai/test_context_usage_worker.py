@@ -107,7 +107,10 @@ def test_context_usage_refresh_requeues_when_worker_busy(
         "ui.sidebar.ai.workers.context_usage_worker.build_breakdown",
         _slow_build,
     )
-    panel._input.setPlainText("first")
+    monkeypatch.setattr(
+        "ui.sidebar.ai.workers.context_usage_worker.build_breakdown_for_session",
+        lambda *_a, **_k: _slow_build(),
+    )
     panel._run_context_usage_refresh()
     qtbot.waitUntil(first_started.is_set, timeout=2000)
     panel._input.setPlainText("second")

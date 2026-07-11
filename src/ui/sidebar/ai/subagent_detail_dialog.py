@@ -22,6 +22,7 @@ from services.ai.chat.subagent_events import (
     SubagentStatus,
     delegate_agent_result_from_observation,
     enrich_subagent_records,
+    record_result_markdown,
     subagent_type_display,
 )
 from services.ai.chat.subagent_transcript import (
@@ -348,7 +349,7 @@ class SubagentDetailDialog(QDialog):
         else:
             view = SubagentTranscriptView(
                 task_prompt=fallback,
-                answer_markdown=str(record.get("result_preview", "") or ""),
+                answer_markdown=record_result_markdown(record),
                 thinking_markdown="",
                 event_count=0,
             )
@@ -373,14 +374,15 @@ class SubagentDetailDialog(QDialog):
 
         answer = view["answer_markdown"]
         if not answer:
-            preview = record.get("result_preview", "")
-            if isinstance(preview, str) and preview.strip():
-                if record["kind"] == "delegate":
-                    answer = delegate_agent_result_from_observation(preview, record["id"])
-                    if not answer and not preview.lstrip().startswith("Completed delegation"):
-                        answer = preview
-                else:
-                    answer = preview
+            answer = record_result_markdown(record)
+            if answer and record["kind"] == "delegate":
+                # Parent delegate blobs may still need per-agent extraction when
+                # only the combined observation was stored on the record.
+                extracted = delegate_agent_result_from_observation(answer, record["id"])
+                if extracted:
+                    answer = extracted
+                elif answer.lstrip().startswith("Completed delegation"):
+                    answer = ""
 
         if (
             final

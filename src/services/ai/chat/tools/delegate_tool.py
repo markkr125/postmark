@@ -30,7 +30,7 @@ Call 2 — delegate (each task value is a PLAIN STRING, never an object):
 Hard rules — do NOT deliberate about these, they are fixed:
 - ``tasks`` values are plain strings. Never nest prompt/description/subagent_type/resume inside a task.
 - Always two separate calls: spawn first, then delegate. Never combine them.
-- ``agent_types``: use ``wiki-researcher`` for Postmark wiki lookups, ``general-purpose`` for synthesis.
+- ``agent_types``: use ``wiki-researcher`` for Postmark wiki lookups, ``workspace-researcher`` for user workspace lookups, ``general-purpose`` for synthesis.
 - Pick ids and task strings in ONE pass. Do not re-derive the schema or second-guess the format."""
 
 
@@ -66,13 +66,16 @@ class PostmarkDelegateTool(ToolDefinition[DelegateAction, DelegateObservation]):
         agent_types = properties.get("agent_types")
         if isinstance(agent_types, dict):
             agent_types["description"] = (
-                "For command='spawn' only. Use 'wiki-researcher' for wiki lookups "
-                "and 'general-purpose' for synthesis."
+                "For command='spawn' only. Use 'wiki-researcher' for wiki lookups, "
+                "'workspace-researcher' for user workspace lookups, and "
+                "'general-purpose' for synthesis."
             )
 
         security_risk = properties.get("security_risk")
         if isinstance(security_risk, dict):
-            security_risk["description"] = "Use LOW for Postmark wiki lookup delegation."
+            security_risk["description"] = (
+                "Use LOW for Postmark wiki or workspace lookup delegation."
+            )
 
         command = properties.get("command")
         if isinstance(command, dict):

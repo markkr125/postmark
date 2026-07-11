@@ -30,7 +30,10 @@ class SubagentDiskSnapshot(TypedDict):
 
 def _fallback_steps_for_record(record: SubagentRunRecord) -> list[SubagentActivityStep]:
     """Build activity steps from record metadata when disk is missing or empty."""
-    preview = record.get("result_preview", "")
+    full = record.get("result_markdown", "")
+    preview = full if isinstance(full, str) and full.strip() else record.get("result_preview", "")
+    if not isinstance(preview, str):
+        preview = ""
     status = record["status"]
     kind = record["kind"]
 
@@ -274,6 +277,49 @@ def load_subagent_transcript_preview(disk_path: str, *, limit: int = 4000) -> st
     return body
 
 
+def count_session_subagent_context_tokens(
+    session_id: str,
+    model: str,
+    *,
+    char_only: bool = False,
+    max_folders: int = 50,
+) -> int:
+    """Estimate parent-context tokens contributed by completed subagent runs.
+
+    Uses each child conversation's final answer (falling back to the task
+    prompt) — the payload that typically returns to the parent agent via the
+    delegate/task tool observation.
+    """
+    if not session_id:
+        return 0
+    from services.ai.chat.context_usage import estimate_text_tokens
+    from services.ai.chat.subagent_disk_registry import session_subagents_root
+
+    try:
+        root = session_subagents_root(session_id)
+    except (ValueError, TypeError, OSError):
+        return 0
+    if not root.is_dir():
+        return 0
+    total = 0
+    try:
+        folders = sorted(
+            (p for p in root.iterdir() if p.is_dir()),
+            key=lambda p: p.stat().st_mtime,
+        )
+    except OSError:
+        return 0
+    for path in folders[:max_folders]:
+        view = load_subagent_transcript_view(str(path))
+        answer = (view.get("answer_markdown") or "").strip()
+        task = (view.get("task_prompt") or "").strip()
+        payload = answer or task
+        if not payload:
+            continue
+        total += estimate_text_tokens(payload, model, char_only=char_only)
+    return total
+
+
 def _message_text(message: object | None) -> str:
     """Extract plaintext from an SDK llm message object."""
     if message is None:
@@ -345,6 +391,7 @@ def _collapse_search_steps(
 __all__ = [
     "SubagentDiskSnapshot",
     "SubagentTranscriptView",
+    "count_session_subagent_context_tokens",
     "load_subagent_activity_steps",
     "load_subagent_disk_snapshot",
     "load_subagent_transcript_preview",

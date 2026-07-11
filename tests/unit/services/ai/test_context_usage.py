@@ -64,6 +64,10 @@ def test_build_breakdown_keeps_cursor_eight_buckets(monkeypatch: pytest.MonkeyPa
         "services.ai.chat.context_usage.estimate_text_tokens",
         lambda text, _model, **_kw: 2 if text == "draft" else 4,
     )
+    monkeypatch.setattr(
+        "services.ai.chat.subagent_transcript.count_session_subagent_context_tokens",
+        lambda *_args, **_kw: 0,
+    )
 
     breakdown = build_breakdown(
         session_id="sess-1",
@@ -92,6 +96,7 @@ def test_build_breakdown_keeps_cursor_eight_buckets(monkeypatch: pytest.MonkeyPa
     assert token_by_id["summarized_conversation"] == 7
     assert token_by_id["conversation"] == 17
     assert breakdown["used_tokens"] == 32
+    assert breakdown["draft_tokens"] == 2
     assert breakdown["has_summarized"] is True
     assert breakdown["is_estimated"] is True
 
@@ -116,6 +121,10 @@ def test_build_breakdown_uses_sdk_metrics_when_available(monkeypatch: pytest.Mon
     )
     monkeypatch.setattr(
         "services.ai.chat.context_usage.estimate_text_tokens", lambda *_args, **_kw: 0
+    )
+    monkeypatch.setattr(
+        "services.ai.chat.subagent_transcript.count_session_subagent_context_tokens",
+        lambda *_args, **_kw: 0,
     )
 
     breakdown = build_breakdown(
@@ -152,6 +161,10 @@ def test_build_breakdown_prefers_sdk_view_when_events_exist(
         "services.ai.chat.context_usage.estimate_text_tokens",
         lambda *_args, **_kw: 0,
     )
+    monkeypatch.setattr(
+        "services.ai.chat.subagent_transcript.count_session_subagent_context_tokens",
+        lambda *_args, **_kw: 0,
+    )
     sdk_snapshot = SdkViewSnapshot(
         event_count=2,
         view_tokens=120,
@@ -181,6 +194,7 @@ def test_build_breakdown_prefers_sdk_view_when_events_exist(
     token_by_id = {category["id"]: category["tokens"] for category in breakdown["categories"]}
     assert token_by_id["summarized_conversation"] == 10
     assert token_by_id["conversation"] == 105
+    assert token_by_id["subagents"] == 0
     assert breakdown["used_tokens"] == 120
     assert breakdown["is_estimated"] is False
     assert breakdown["used_sqlite_fallback"] is False
@@ -188,6 +202,49 @@ def test_build_breakdown_prefers_sdk_view_when_events_exist(
     assert breakdown["sdk_view_tokens"] == 120
     assert breakdown["transcript_larger_than_sdk"] is True
     assert breakdown["condensation_reasons"] == ["tokens"]
+
+
+def test_build_breakdown_attributes_subagent_tokens(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Completed subagent disk answers fill the Subagents context bucket."""
+    monkeypatch.setattr(
+        "services.ai.chat.context_usage.count_system_and_tools",
+        lambda _agent_id, _model, **_kw: (5, 3),
+    )
+    monkeypatch.setattr(
+        "services.ai.chat.context_usage.count_transcript_messages",
+        lambda _messages, _model, **_kw: 40,
+    )
+    monkeypatch.setattr(
+        "services.ai.chat.context_usage.count_summarized_events",
+        lambda _session_id, _model: (0, False),
+    )
+    monkeypatch.setattr(
+        "services.ai.chat.context_usage.estimate_text_tokens",
+        lambda *_args, **_kw: 0,
+    )
+    monkeypatch.setattr(
+        "services.ai.chat.context_usage.measure_sdk_view",
+        lambda *_args, **_kw: None,
+    )
+    monkeypatch.setattr(
+        "services.ai.chat.subagent_transcript.count_session_subagent_context_tokens",
+        lambda *_args, **_kw: 12,
+    )
+
+    breakdown = build_breakdown(
+        session_id="sess-1",
+        messages=[],
+        entry=_entry(context=128_000),
+        agent_id="postmark-assistant",
+    )
+
+    token_by_id = {category["id"]: category["tokens"] for category in breakdown["categories"]}
+    assert token_by_id["subagents"] == 12
+    # Conversation excludes the subagent slice to avoid double-counting.
+    assert token_by_id["conversation"] == 28
+    assert breakdown["used_tokens"] == 5 + 3 + 12 + 28
 
 
 def test_collect_compaction_diagnostics_reports_sqlite_sdk_mismatch(

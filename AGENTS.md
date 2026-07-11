@@ -223,10 +223,10 @@ src/
 │   │   ├── llm_service.py         # AiLlmService — build/test openhands.sdk.LLM
 │   │   └── chat/                  # Multi-session AI chat (OpenHands Conversation)
 │   │       ├── agent_registry.py  # PostmarkAgentDef + DEFAULT_AGENT_ID + delegation tools
-│   │       ├── subagent_registry.py # register_postmark_subagents (wiki-researcher, general-purpose)
+│   │       ├── subagent_registry.py # register_postmark_subagents (wiki/workspace-researcher, general-purpose)
 │   │       ├── subagent_events.py # SubagentEventTracker + SubagentRunRecord parsing
 │   │       ├── subagent_disk_registry.py # spawn id → disk path registry + session-scoped resolve
-│   │       ├── workspace_snapshot.py # session-keyed GUI workspace snapshot for postmark_workspace_query
+│   │       ├── workspace_snapshot.py # session-keyed GUI snapshot + parent session id resolve for subagents
 │   │       ├── subagent_transcript.py # load_subagent_transcript_view + activity steps
 │   │       ├── subagent_limits.py # max_parallel_subagents() — QSettings ai/max_parallel_subagents
 │   │       ├── tool_registry.py   # register_postmark_tool / resolve_tools

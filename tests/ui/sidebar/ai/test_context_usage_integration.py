@@ -95,24 +95,68 @@ def test_session_load_refreshes_ring_from_sqlite(qapp: QApplication, qtbot) -> N
     panel._shutdown_context_usage_worker()
 
 
-def test_composer_typing_debounced_refresh_updates_used_tokens(
-    qapp: QApplication, qtbot, monkeypatch
+def test_composer_typing_updates_used_tokens_without_full_rebuild(
+    qapp: QApplication, qtbot
 ) -> None:
-    """Typing in the composer increases the conversation bucket without sending."""
+    """Typing adjusts the ring via a cheap char-only draft delta — no worker rebuild."""
     panel = AiChatPanel()
     qtbot.addWidget(panel)
     panel.set_models([_entry("m1", context=128_000)])
-    monkeypatch.setattr(
-        "services.ai.chat.context_usage.estimate_text_tokens",
-        lambda text, _model, **_kw: len(text),
+    panel.set_context_breakdown(
+        {
+            "used_tokens": 100,
+            "total_tokens": 128_000,
+            "categories": [
+                {"id": "system_prompt", "label": "System prompt", "tokens": 100},
+                {"id": "tools", "label": "Tools", "tokens": 0},
+                {"id": "rules", "label": "Rules", "tokens": 0},
+                {"id": "skills", "label": "Skills", "tokens": 0},
+                {"id": "mcp", "label": "MCP", "tokens": 0},
+                {"id": "subagents", "label": "Subagents", "tokens": 0},
+                {"id": "summarized_conversation", "label": "Summarized conversation", "tokens": 0},
+                {"id": "conversation", "label": "Conversation", "tokens": 0},
+            ],
+            "has_summarized": False,
+            "is_estimated": True,
+            "draft_tokens": 0,
+        }
     )
-    panel.refresh_context_usage()
-    qtbot.wait(400)
     before = panel._context_ring.used_tokens()
     panel._input.setPlainText("x" * 200)
-    qtbot.wait(400)
+    # char_only estimate is len // 4
+    assert panel._context_ring.used_tokens() == before + 50
+    assert panel._context_draft_tokens == 50
     panel._shutdown_context_usage_worker()
-    assert panel._context_ring.used_tokens() >= before
+
+
+def test_composer_typing_does_not_schedule_full_refresh_when_baseline_exists(
+    qapp: QApplication, qtbot, monkeypatch
+) -> None:
+    """Keystrokes must not arm the full context-usage worker while a baseline exists."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.set_models([_entry("m1", context=128_000)])
+    scheduled: list[int] = []
+    monkeypatch.setattr(
+        panel,
+        "_schedule_context_usage_refresh",
+        lambda *_a, **_k: scheduled.append(1),
+    )
+    panel.set_context_breakdown(
+        {
+            "used_tokens": 10,
+            "total_tokens": 128_000,
+            "categories": [
+                {"id": "conversation", "label": "Conversation", "tokens": 10},
+            ],
+            "has_summarized": False,
+            "is_estimated": True,
+            "draft_tokens": 0,
+        }
+    )
+    panel._input.setPlainText("hello")
+    assert scheduled == []
+    panel._shutdown_context_usage_worker()
 
 
 def test_model_change_updates_context_total(qapp: QApplication, qtbot) -> None:

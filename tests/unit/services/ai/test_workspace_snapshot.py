@@ -14,6 +14,8 @@ from services.ai.chat.workspace_snapshot import (
     clear_workspace_snapshot,
     get_last_search_hits,
     get_workspace_snapshot,
+    parent_session_id_from_persistence_dir,
+    resolve_workspace_session_id,
     set_last_search_hits,
     set_workspace_snapshot,
 )
@@ -23,6 +25,33 @@ from ui.main_window.ai_chat_runs import _AiChatRunsMixin
 @pytest.fixture(autouse=True)
 def _clear_snapshots() -> None:
     clear_workspace_snapshot()
+
+
+def test_parent_session_id_from_subagents_persistence_dir() -> None:
+    """Subagent dirs under <hex>/subagents resolve to the parent session UUID."""
+    parent = uuid.uuid4()
+    path = f"/tmp/ai_conversations/{parent.hex}/subagents/{uuid.uuid4().hex}"
+    assert parent_session_id_from_persistence_dir(path) == str(parent)
+
+
+def test_parent_session_id_missing_or_invalid() -> None:
+    """Non-subagent paths and bad hex folders return None."""
+    assert parent_session_id_from_persistence_dir(None) is None
+    assert parent_session_id_from_persistence_dir("/tmp/ai_conversations/abc/events") is None
+    assert (
+        parent_session_id_from_persistence_dir("/tmp/ai_conversations/not-a-uuid/subagents/x")
+        is None
+    )
+
+
+def test_resolve_workspace_session_id_prefers_parent() -> None:
+    """Child conversation ids map to the parent session via persistence_dir."""
+    parent = uuid.uuid4()
+    child = str(uuid.uuid4())
+    path = f"/data/{parent.hex}/subagents/child"
+    assert resolve_workspace_session_id(child, persistence_dir=path) == str(parent)
+    assert resolve_workspace_session_id(child, persistence_dir=None) == child
+    assert resolve_workspace_session_id("", persistence_dir=None) == ""
 
 
 def test_set_get_and_clear_one_session() -> None:

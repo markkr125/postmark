@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
+
 from services.ai.chat.subagent_events import SubagentRunRecord
 from services.ai.chat.subagent_transcript import (
     load_subagent_disk_snapshot,
@@ -265,3 +267,50 @@ def test_load_subagent_disk_snapshot_reads_event_log_once(tmp_path) -> None:
     assert snapshot["view"]["answer_markdown"] == "Done."
     assert "thinking_markdown" in snapshot["view"]
     assert any(step["summary"] == 'Searched wiki for "scripting"' for step in snapshot["steps"])
+
+
+def test_count_session_subagent_context_tokens_sums_answers(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Session subagent folders contribute answer tokens to the context bucket."""
+    from pathlib import Path
+
+    from services.ai.chat.subagent_transcript import count_session_subagent_context_tokens
+
+    root = tmp_path / "subagents"
+    root.mkdir()
+    (root / "a").mkdir()
+    (root / "b").mkdir()
+    monkeypatch.setattr(
+        "services.ai.chat.subagent_disk_registry.session_subagents_root",
+        lambda _session_id: root,
+    )
+
+    def _fake_view(path: str, **_kw: object) -> dict[str, object]:
+        name = Path(path).name
+        if name == "a":
+            return {
+                "task_prompt": "task",
+                "answer_markdown": "answer-aaaa",
+                "thinking_markdown": "",
+                "event_count": 1,
+            }
+        return {
+            "task_prompt": "task",
+            "answer_markdown": "",
+            "thinking_markdown": "",
+            "event_count": 1,
+        }
+
+    monkeypatch.setattr(
+        "services.ai.chat.subagent_transcript.load_subagent_transcript_view",
+        _fake_view,
+    )
+    monkeypatch.setattr(
+        "services.ai.chat.context_usage.estimate_text_tokens",
+        lambda text, _model, **_kw: len(text),
+    )
+
+    total = count_session_subagent_context_tokens("sess-1", "gpt-4o", char_only=True)
+    # Folder a → answer; folder b falls back to task prompt.
+    assert total == len("answer-aaaa") + len("task")
