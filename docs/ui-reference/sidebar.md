@@ -300,13 +300,17 @@ two-phase scroll model:
    per burst applies ``_apply_stream_follow()``; a ``_flush_stream_follow_retry``
    (16ms) is scheduled only when the frame pass is still off-target or scrollbar
    range grew (no synchronous follow on queue; no ``processEvents`` in the follow
-   path). Chunk flush defers ``MarkdownContent.height_changed`` and
+   path — and never ``processEvents`` inside locked-stream chunk flush either, or
+   nested timers re-enter mid-flush and scroll becomes unresponsive after lock
+   re-arms). Chunk flush defers ``MarkdownContent.height_changed`` and
    ``ChatMessageBubble.layout_height_changed`` until one batched
    ``flush_stream_layout()`` at the end of the flush; in-flush layout hook is
-   suppressed. Follow target is
+   suppressed. Short-turn spacer settling uses deferred ``QTimer.singleShot``
+   only (never a nested event-loop drain). Follow target is
    ``_stream_follow_target()``: ``bar.maximum()`` once the turn exceeds one
    viewport; while the turn still fits in one viewport, ``min(maximum,
-   turn_start)`` so the user bubble keeps its 8px top margin.
+   turn_start)`` so the user bubble keeps its 8px top margin. Programmatic
+   follow commits always go through ``_set_bar_value`` (cancels ``SmoothScroller``).
 
 Scroll-lock (2px threshold): while streaming, any **upward** user scrollbar
 movement (even 1px from the bottom) detaches follow immediately; reaching the

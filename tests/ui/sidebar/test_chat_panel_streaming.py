@@ -1839,6 +1839,27 @@ def test_chunk_flush_queues_deferred_follow_passes(qapp: QApplication, qtbot) ->
     assert bar.value() >= bar.maximum() - 2 or abs(bar.value() - panel._stream_follow_target()) <= 2
 
 
+def test_chunk_flush_does_not_process_events_while_stream_locked(qapp: QApplication, qtbot) -> None:
+    """Locked-stream chunk flush must not nest processEvents (scroll lag gotcha)."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitExposed(panel)
+    panel.resize(360, 280)
+    for index in range(16):
+        panel.add_message("user", f"fill {index} " * 8)
+    panel.add_message("user", "question")
+    panel.begin_assistant_stream()
+    qapp.processEvents()
+    qapp.processEvents()
+    panel._scroll_lock_enabled = True
+    panel.append_assistant_chunk("", "answer line\n" * 8)
+    _stop_chunk_coalesce(panel)
+    with patch.object(QApplication, "processEvents") as process_events:
+        panel._flush_pending_chunks()
+    assert process_events.call_count == 0
+
+
 def test_follow_retry_scheduled_only_when_off_target_after_frame(qapp: QApplication, qtbot) -> None:
     """Late retry remains scoped to explicit frame-follow passes."""
     panel = AiChatPanel()

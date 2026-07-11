@@ -432,8 +432,7 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
             if self._open_stream_generation > 0 and self._scroll_lock_enabled:  # type: ignore[attr-defined]
                 self._reconcile_short_turn_transcript_height()  # type: ignore[attr-defined]
                 target = self._stream_follow_target()  # type: ignore[attr-defined]
-                bar.setValue(target)
-                self._last_scroll_value = bar.value()  # type: ignore[attr-defined]
+                self._set_bar_value(bar, target)  # type: ignore[attr-defined]
                 self._stream_follow_dirty = False  # type: ignore[attr-defined]
                 self._stream_follow_frame_pending = False  # type: ignore[attr-defined]
                 self._stream_follow_retry_pending = False  # type: ignore[attr-defined]
@@ -559,31 +558,27 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
                     if self._scroll_lock_enabled:  # type: ignore[attr-defined]
                         bar = self._scroll.verticalScrollBar()  # type: ignore[attr-defined]
                         target = self._stream_follow_target()  # type: ignore[attr-defined]
-                        bar.setValue(target)
-                        self._last_scroll_value = bar.value()  # type: ignore[attr-defined]
+                        self._set_bar_value(bar, target)  # type: ignore[attr-defined]
                     del scroll_blocker
                 schedule = getattr(self, "_schedule_context_usage_refresh", None)
                 if callable(schedule):
                     schedule()
                 return
-            self._schedule_short_turn_spacer_reconcile()  # type: ignore[attr-defined]
-            self._reconcile_short_turn_spacer_after_layout(  # type: ignore[attr-defined]
-                self._short_turn_spacer_reconcile_generation  # type: ignore[attr-defined]
-            )
-            for _ in range(2):
-                QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
-            self._reconcile_streaming_viewport_overflow()  # type: ignore[attr-defined]
-            self._clamp_messages_to_viewport_width()  # type: ignore[attr-defined]
-            QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
-            self._finalize_short_turn_flush_layout()
-            QTimer.singleShot(0, self._finalize_short_turn_flush_layout)
-            QTimer.singleShot(16, self._finalize_short_turn_flush_layout)
+            # Never call QApplication.processEvents on the streaming flush path.
+            # Nested event loops re-enter follow/sticky/short-turn timers mid-flush and
+            # starve wheel/scroll after lock re-arms (classic Qt reentrancy gotcha).
+            short_turn = self._is_short_turn_extent(bubble)  # type: ignore[attr-defined]
+            if short_turn and self._scroll_lock_enabled:  # type: ignore[attr-defined]
+                self._schedule_short_turn_spacer_reconcile()  # type: ignore[attr-defined]
+                QTimer.singleShot(0, self._finalize_short_turn_flush_layout)
+                QTimer.singleShot(16, self._finalize_short_turn_flush_layout)
+            else:
+                self._clamp_messages_to_viewport_width()  # type: ignore[attr-defined]
         if scroll_blocker is not None:
             if self._open_stream_generation > 0 and self._scroll_lock_enabled:  # type: ignore[attr-defined]
                 bar = self._scroll.verticalScrollBar()  # type: ignore[attr-defined]
                 target = self._stream_follow_target()  # type: ignore[attr-defined]
-                bar.setValue(target)
-                self._last_scroll_value = bar.value()  # type: ignore[attr-defined]
+                self._set_bar_value(bar, target)  # type: ignore[attr-defined]
             del scroll_blocker
         schedule = getattr(self, "_schedule_context_usage_refresh", None)
         if callable(schedule):
@@ -623,8 +618,7 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
         finally:
             if blocker is not None:
                 target = self._stream_follow_target()  # type: ignore[attr-defined]
-                bar.setValue(target)
-                self._last_scroll_value = bar.value()  # type: ignore[attr-defined]
+                self._set_bar_value(bar, target)  # type: ignore[attr-defined]
                 del blocker
 
     def streaming_assistant_thinking(self) -> str:
