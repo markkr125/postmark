@@ -113,6 +113,43 @@ def test_format_assistant_footer_label_includes_cost_when_priced() -> None:
     assert text.startswith("GPT-4o · $")
 
 
+def test_entry_for_model_id_skips_get_models_when_extra_entries_hit(
+    monkeypatch,
+) -> None:
+    """Lookups that hit *extra_entries* must not re-read QSettings models."""
+    calls = {"n": 0}
+
+    def _boom() -> list[AiModelEntry]:
+        calls["n"] += 1
+        raise AssertionError("AiConfig.get_models must not run on extra_entries hit")
+
+    monkeypatch.setattr(
+        "services.ai.chat.message_usage.AiConfig.get_models",
+        _boom,
+    )
+    mini = _entry(id="mini", label="gpt-5.4-mini")
+    assert entry_for_model_id("mini", extra_entries=[mini]) == mini
+    assert calls["n"] == 0
+
+
+def test_entry_for_model_id_falls_back_to_get_models_on_miss(monkeypatch) -> None:
+    """Ids missing from *extra_entries* still resolve via configured models."""
+    oss = _entry(id="oss", label="gpt-oss")
+    mini = _entry(id="mini", label="gpt-5.4-mini")
+    calls = {"n": 0}
+
+    def _models() -> list[AiModelEntry]:
+        calls["n"] += 1
+        return [oss, mini]
+
+    monkeypatch.setattr(
+        "services.ai.chat.message_usage.AiConfig.get_models",
+        _models,
+    )
+    assert entry_for_model_id("mini", extra_entries=[oss]) == mini
+    assert calls["n"] == 1
+
+
 def test_resolve_model_display_name_prefers_message_model_id(monkeypatch) -> None:
     """Footer labels follow the persisted message model, not a stale entry."""
     oss = _entry(id="oss", label="gpt-oss")

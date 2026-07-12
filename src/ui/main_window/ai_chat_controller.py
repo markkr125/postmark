@@ -168,8 +168,8 @@ class _AiChatControllerMixin(_AiChatRunsMixin, _AiChatTurnFinalizeMixin, _AiChat
         panel.cancel_transcript_load()
         self._active_ai_session_id = None
         self._persist_active_chat_session_id(None)
+        # clear() already resets context/budget chrome — do not call again.
         self._right_sidebar.ai_chat_panel.clear()
-        self._right_sidebar.ai_chat_panel._reset_context_usage_chrome()
         self._sync_ai_session_title()
         self._update_active_session_busy_state()
 

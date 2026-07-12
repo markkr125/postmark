@@ -403,18 +403,31 @@ def entry_for_model_id(
     *,
     extra_entries: Iterable[AiModelEntry] | None = None,
 ) -> AiModelEntry | None:
-    """Return the configured model entry for *model_id*, if present."""
+    """Return the configured model entry for *model_id*, if present.
+
+    Searches *extra_entries* first. ``AiConfig.get_models()`` is only read
+    when the id is missing from that list — callers that already hold the
+    configured model list (spend rollups, chat chrome) must not re-parse
+    QSettings on every lookup.
+    """
     if not model_id:
         return None
     seen: set[str] = set()
-    for candidate in (*tuple(extra_entries or ()), *AiConfig.get_models()):
-        row_id = str(candidate.get("id") or "")
-        if not row_id or row_id in seen:
-            continue
-        seen.add(row_id)
-        if row_id == model_id:
-            return candidate
-    return None
+
+    def _scan(entries: Iterable[AiModelEntry]) -> AiModelEntry | None:
+        for candidate in entries:
+            row_id = str(candidate.get("id") or "")
+            if not row_id or row_id in seen:
+                continue
+            seen.add(row_id)
+            if row_id == model_id:
+                return candidate
+        return None
+
+    found = _scan(tuple(extra_entries or ()))
+    if found is not None:
+        return found
+    return _scan(AiConfig.get_models())
 
 
 def model_display_name_from_entry(entry: AiModelEntry | None) -> str | None:

@@ -347,7 +347,7 @@ Chat enforcement and Spend flyout budget card for the active model's provider co
 
 | Function | Purpose |
 |----------|---------|
-| `connection_budget_status(entry, *, spend_summary=None, models=None)` | `ConnectionBudgetStatus` — compare period `known_period_usd` vs soft/hard caps |
+| `connection_budget_status(entry, *, spend_summary=None, models=None)` | `ConnectionBudgetStatus` — compare period `known_period_usd` vs soft/hard caps; when no caps are set and `spend_summary` is omitted, skips `global_spend_summary()` (chat chrome fast path) |
 | `format_connection_budget_banner_html(status)` | Rich-text composer banner copy |
 | `format_connection_budget_card_amounts(status)` | Spend flyout amounts line |
 | `connection_budget_card_visible(status)` | Whether Spend tab shows `aiChatBudgetStatusCard` |
@@ -458,6 +458,7 @@ Per-turn token deltas, assistant footer cost labels, and session spend rollups (
 | `turn_usage_delta(sdk, previous_cumulative)` | Per-turn token delta from SDK cumulative metrics |
 | `message_turn_cost_usd(entry, prompt_tokens=…, …)` | USD for one turn when rates exist |
 | `pricing_model_id_for_assistant_message(msg, *, messages, msg_index, session_model_id)` | Model id used to price one assistant row |
+| `entry_for_model_id(model_id, *, extra_entries=None)` | Resolve configured entry; searches `extra_entries` first, then `AiConfig.get_models()` only on miss |
 | `assistant_turn_cost_for_message(msg, *, messages, msg_index, …)` | `(pricing_model_id, usd_cost)` for one assistant row |
 | `sum_assistant_turn_costs(messages, *, session_model_id=None, models=None)` | Sum priced USD across all assistant rows |
 | `format_assistant_footer_label(…)` | Model name + optional turn cost for bubble footer |

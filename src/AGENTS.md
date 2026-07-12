@@ -297,9 +297,15 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   `budget_period.py`, and `spend_rollup.global_spend_summary()` for period/all-time
   spend on the Budgets page. Chat enforcement uses
   `services/ai/chat/budget_status.connection_budget_status()` against
-  `global_spend_summary()` period totals: soft exceed shows a composer banner;
+  `global_spend_summary()` period totals when soft/hard caps are configured
+  (skips the rollup when no caps are set — New chat / send-gate chrome only needs
+  spend for enforcement). Soft exceed shows a composer banner;
   hard exceed disables send (including edit-resend) until the period resets or
-  limits change in Settings.
+  limits change in Settings. `message_usage.entry_for_model_id` searches
+  caller-supplied `extra_entries` before reading `AiConfig.get_models()` so
+  spend rollups do not re-parse QSettings per lookup. **New chat**
+  (`_on_ai_new_chat`) clears the panel once — `panel.clear()` already resets
+  context/budget chrome (do not call `_reset_context_usage_chrome` again).
   Session USD spend is computed on read in `message_usage.session_spend_breakdown`
   (per-model rows) and shown on the **Spend** tab inside `AiChatContextUsagePopup`
   (composer ring unchanged). Per-message footer costs and the Spend rollup share

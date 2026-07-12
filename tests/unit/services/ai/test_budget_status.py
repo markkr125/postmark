@@ -137,6 +137,49 @@ def test_connection_budget_status_no_limits(monkeypatch) -> None:
     assert not connection_budget_card_visible(status)
 
 
+def test_connection_budget_status_skips_rollup_when_no_limits(monkeypatch) -> None:
+    """Chat chrome must not compute global spend when no caps are configured."""
+
+    def _boom(**_kw: object) -> GlobalSpendSummary:
+        raise AssertionError("global_spend_summary must not run without limits")
+
+    monkeypatch.setattr(
+        "services.ai.chat.budget_status.AiBudgetConfig.budget_for_connection",
+        lambda _key: _budget_row(soft_limit_usd=None, hard_limit_usd=None),
+    )
+    monkeypatch.setattr(
+        "services.ai.chat.budget_status.global_spend_summary",
+        _boom,
+    )
+    status = connection_budget_status(_entry(), models=[_entry()])
+    assert status["state"] == "no_limits"
+    assert status["period_known_usd"] == 0.0
+    assert status["period_usd"] is None
+    assert not connection_budget_card_visible(status)
+
+
+def test_connection_budget_status_still_rollups_when_limits_set(monkeypatch) -> None:
+    """Soft/hard caps still require a spend rollup when no summary is passed."""
+    calls = {"n": 0}
+
+    def _summary(**_kw: object) -> GlobalSpendSummary:
+        calls["n"] += 1
+        return _spend_summary(known_period_usd=0.40)
+
+    monkeypatch.setattr(
+        "services.ai.chat.budget_status.AiBudgetConfig.budget_for_connection",
+        lambda _key: _budget_row(),
+    )
+    monkeypatch.setattr(
+        "services.ai.chat.budget_status.global_spend_summary",
+        _summary,
+    )
+    status = connection_budget_status(_entry(), models=[_entry()])
+    assert calls["n"] == 1
+    assert status["state"] == "ok"
+    assert status["period_known_usd"] == 0.40
+
+
 def test_connection_budget_status_unrated(monkeypatch) -> None:
     """Connections without USD rates skip enforcement."""
     monkeypatch.setattr(

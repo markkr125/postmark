@@ -83,7 +83,12 @@ def connection_budget_status(
     spend_summary: GlobalSpendSummary | None = None,
     models: list[AiModelEntry] | None = None,
 ) -> ConnectionBudgetStatus:
-    """Compute budget status for the connection backing *entry*."""
+    """Compute budget status for the connection backing *entry*.
+
+    When no soft/hard caps are configured and the caller did not pass a
+    precomputed *spend_summary*, skip ``global_spend_summary()`` — chat
+    chrome only needs spend totals for enforcement and the budget card.
+    """
     connection_key = provider_connection_key(entry)
     provider_label = provider_group_label(entry)
     model_list = list(models) if models is not None else AiConfig.get_models()
@@ -110,6 +115,29 @@ def connection_budget_status(
     soft_limit = budget_row.get("soft_limit_usd")
     hard_limit = budget_row.get("hard_limit_usd")
     reset_label = format_period_reset_label(period, period_anchor)
+
+    limits_enabled = _limit_enabled(soft_limit) or _limit_enabled(hard_limit)
+    if spend_summary is None and not limits_enabled:
+        state = _resolve_state(
+            rated=rated,
+            period_known_usd=0.0,
+            soft_limit_usd=soft_limit,
+            hard_limit_usd=hard_limit,
+        )
+        return ConnectionBudgetStatus(
+            connection_key=connection_key,
+            provider_label=provider_label,
+            rated=rated,
+            period=period,
+            period_reset_label=reset_label,
+            period_known_usd=0.0,
+            period_usd=None,
+            partial_period=False,
+            soft_limit_usd=soft_limit,
+            hard_limit_usd=hard_limit,
+            state=state,
+            dedupe_key=budget_period_dedupe_key(connection_key, period, period_anchor),
+        )
 
     summary = (
         spend_summary if spend_summary is not None else global_spend_summary(models=model_list)
