@@ -33,6 +33,7 @@ _VALID_SCOPES = frozenset(
         "tab",
         "settings",
         "request_script_versions",
+        "variable",
     }
 )
 

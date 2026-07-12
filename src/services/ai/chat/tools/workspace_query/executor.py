@@ -49,6 +49,7 @@ from .render import (
     _render_snippet,
     _render_snippets,
     _render_tab,
+    _render_variable,
 )
 from .helpers import _default_collection_id, _default_request_id, _default_script_id
 
@@ -80,14 +81,21 @@ script_versions, request_script_versions, script_version, globals, snippets, sni
 insights, settings. For "what is in my open / dirty tab?" prefer ``active_tab`` / ``open_tabs``
 (snapshot fields); ``scope=request`` merges dirty open-tab editor state when the snapshot
 has a matching dirty tab (``[partial]``), otherwise reads saved DB.
-``search`` matches names, methods, URLs, folder names/paths, request bodies/descriptions,
-request params tables, headers/auth types, pre_request/test script bodies, folder scripts,
-local-script names/bodies (bounded scan), and filters scope=snippets, scope=request_history,
-and scope=recent_history (supports since:YYYY-MM-DD / until:YYYY-MM-DD date tokens). History
-filters match stored URL/name/method/status only — not response bodies. Search does **not**
-cover assertions, history/saved-response bodies, globals/env values, or snippet bodies (use
-those dedicated scopes). Bodies and params are matched after secret redaction, so
-secret-value searches can return an authoritative empty result.
+``scope=variable`` looks up one variable key: definitions (globals / environments /
+collections), active override chain, and bounded ``{{key}}`` usages.
+``search`` whitespace-splits and AND-matches tokens within one item (any order) for
+names, methods, URLs, folder names/paths, request bodies/descriptions, request params tables,
+headers/auth types, pre_request/test script bodies, folder scripts, local-script
+names/bodies (bounded scan), and enabled environment/global variable keys (non-secret values;
+disabled keys are not searched).
+It also filters scope=snippets (tokenized) and scope=request_history / recent_history
+(single-phrase / date tokens — history filters are **not** tokenized; supports
+since:YYYY-MM-DD / until:YYYY-MM-DD). History filters
+match stored URL/name/method/status only — not response bodies. Search does **not**
+cover assertions, history/saved-response bodies, or snippet bodies (use those dedicated
+scopes). Bodies and params are matched after secret redaction, so secret-value searches
+can return an authoritative empty result. Multi-word empties are marked ``[partial]``
+with a retry hint; single-token empties remain ``[authoritative]`` when exhaustive.
 
 Live GUI scopes (open_tabs, active_tab, active_response, tab) and overview live fields are
 captured at **turn start** — mid-turn edits may differ until the next run.
@@ -110,7 +118,11 @@ Unsaved folder or environment editor changes are not captured in the snapshot.
 When you don't have an id, call scope=open_tabs or collection_tree to discover
 request/collection/script ids in postmark://…/<id> links, scope=overview for active context,
 then drill in; or omit target_id to target what the user is viewing.
-Use scope=insights to find requests missing test scripts or declarative assertions.
+Use scope=insights to find requests missing test scripts or declarative assertions,
+and to list duplicate method+URL groups.
+
+Routing — where is ``{{key}}`` defined / what overrides what / where used?
+→ ``scope=variable`` with ``search=<key>``.
 
 If output says a result is **authoritative**, report it and stop. If output flags a **partial**
 or **capped** scan, refine once with a narrower scope/search, then stop. Partial/authoritative
@@ -148,7 +160,7 @@ class WorkspaceQueryAction(Action):
             "Which slice to fetch: overview, open_tabs, active_tab, active_response, tab, "
             "collection_tree, collection, local_scripts, recent_history, request, "
             "request_history, history_entry, saved_responses, saved_response, runs, run, "
-            "environments, search, script, script_versions, request_script_versions, "
+            "environments, search, variable, script, script_versions, request_script_versions, "
             "script_version, globals, snippets, snippet, insights, settings. "
             "target_id: request id for request/request_history/saved_responses/"
             "request_script_versions; history-entry id for history_entry; collection id for "
@@ -169,11 +181,12 @@ class WorkspaceQueryAction(Action):
     search: str = Field(
         default="",
         description=(
-            "Filter for scope=search, collection_tree, local_scripts, snippets, "
-            "request_history, and recent_history. History filters match stored URL, name, "
-            "method, and status (supports since:YYYY-MM-DD / until:YYYY-MM-DD). "
-            "For past sends of the open tab use scope=request_history with search=… "
-            "(not scope=search)."
+            "Filter string. For scope=search / collection_tree / local_scripts / snippets: "
+            "whitespace-split tokens AND-match within one item (any order). For "
+            "scope=variable: exact variable key (casefold). For request_history and "
+            "recent_history: single-phrase filter on stored URL/name/method/status "
+            "(supports since:YYYY-MM-DD / until:YYYY-MM-DD). For past sends of the open "
+            "tab use scope=request_history with search=… (not scope=search)."
         ),
     )
     within_ids: list[int] | None = Field(
@@ -285,6 +298,8 @@ def _dispatch_workspace_query(
         return _render_insights()
     if scope == "search":
         return _render_search(search, snap=snap, within_ids=within_ids, session_id=session_id)
+    if scope == "variable":
+        return _render_variable(search, snap=snap)
 
     if scope == "request":
         rid = target_id if target_id is not None else _default_request_id(snap)

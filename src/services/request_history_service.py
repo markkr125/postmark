@@ -259,6 +259,15 @@ def list_for_request(
     return _entries_with_labels(rows)
 
 
+def latest_for_request(request_id: int) -> RequestHistoryEntryDict | None:
+    """Return the newest send for *request_id* (metadata only), or None."""
+    rows = request_history_repository.list_for_request(request_id, limit=1)
+    if not rows:
+        return None
+    labeled = _entries_with_labels(rows)
+    return labeled[0] if labeled else None
+
+
 def get_entry_metadata(entry_id: int) -> RequestHistoryEntryDict | None:
     """Load database metadata for a history row (no body/snapshot file reads)."""
     row = request_history_repository.get_entry_metadata(entry_id)
@@ -470,6 +479,7 @@ class RequestHistoryService:
     record_send = staticmethod(record_send)
     list_for_sidebar = staticmethod(list_for_sidebar)
     list_for_request = staticmethod(list_for_request)
+    latest_for_request = staticmethod(latest_for_request)
     get_entry_metadata = staticmethod(get_entry_metadata)
     get_entry = staticmethod(get_entry)
     build_replay_request_dict = staticmethod(build_replay_request_dict)

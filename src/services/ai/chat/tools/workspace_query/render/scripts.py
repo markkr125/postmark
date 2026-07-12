@@ -14,6 +14,8 @@ from ..helpers import (
     _follow_up_ids_block,
     _format_ts,
     _link,
+    _matches_tokens,
+    _search_tokens,
     _truncate_text,
     _walk_local_tree,
 )
@@ -72,7 +74,8 @@ def _render_globals() -> str:
 
 def _render_snippets(search: str = "") -> str:
     """List user snippets grouped by language and category."""
-    needle = search.strip().casefold()
+    needle = search.strip()
+    tokens = _search_tokens(needle) if needle else []
     grouped: dict[tuple[str, str], list[tuple[int, str, str, str]]] = {}
     for language in _SNIPPET_LANGUAGES:
         for row in SnippetService.list_all(language):
@@ -80,8 +83,8 @@ def _render_snippets(search: str = "") -> str:
             category = str(row.get("category", ""))
             sid = int(row["id"])
             ctx = str(row.get("context", "both"))
-            hay = f"{name} {category} {language} {ctx} {row.get('body', '')}".casefold()
-            if needle and needle not in hay:
+            hay = f"{name} {category} {language} {ctx} {row.get('body', '')}"
+            if tokens and not _matches_tokens(hay, tokens):
                 continue
             preview = _truncate_text(str(row.get("body", "")), max_len=80)
             grouped.setdefault((language, category), []).append((sid, name, ctx, preview))

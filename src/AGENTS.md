@@ -193,14 +193,18 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   caps row count at `_MAX_RESULT_ROWS` (50). `runs` (latest 10) and `recent_history`
   (latest 25) lead with ``[partial]`` when their list limits bind. Scopes: `overview`, `open_tabs`, `active_tab`, `active_response`, `tab`, `collection_tree`, `collection`, `local_scripts`, `recent_history`,
   `request`, `request_history`, `history_entry`, `saved_responses`, `saved_response`,
-  `runs`, `run`, `environments`, `search`, `script`, `script_versions`, `request_script_versions`, `script_version`, `globals`, `snippets`, `snippet`, `insights`, `settings`. Search script bodies via
+  `runs`, `run`, `environments`, `search`, `variable`, `script`, `script_versions`, `request_script_versions`, `script_version`, `globals`, `snippets`, `snippet`, `insights`, `settings`. Search uses whitespace-split AND token matching (multi-token empties are ``[partial]``; single-token empties stay ``[authoritative]`` when exhaustive); deep hits include folder-path breadcrumbs;   unrestricted search also covers **enabled** environment/global variable keys (masked secret values and disabled keys excluded from the haystack; env/global scanning is skipped under ``within_ids``). History filters (`request_history` / `recent_history`) stay single-phrase. `scope=variable` reports definitions, an active override chain labeled with environment/request-or-collection context (collection secret-typed winners masked like Definitions; ``{{key}}`` usage matching is case-sensitive / exact spelling, and always includes the search needle spelling so case-mismatched unresolved refs are still found), and bounded usages. Search script bodies via
   `CollectionService.fetch_request_scripts_for_ids()` and folder scripts via
   `fetch_folder_scripts_for_ids()`; request bodies/headers/auth via
   `fetch_request_fields_for_ids()` (includes ``request_parameters``); local-script bodies via
   `LocalScriptService.fetch_local_script_contents_for_ids()` (bounded to first 200
-  items in tree order). `scope=insights` uses
+  items in tree order). `scope=request` / `scope=collection` surface ``Last edited``;
+  `scope=request` also shows ``Last sent`` via `RequestHistoryService.latest_for_request`
+  (failed sends print the literal ``error``, never raw exception text).
+  `scope=insights` uses
   `fetch_assertion_counts_for_ids()` to flag requests missing test scripts and declarative
-  assertions. Overview uses `count_all_collections()` / `count_all_requests()`
+  assertions, and groups duplicate method+URL pairs from the collection tree (non-empty
+  URLs only; display via ``_truncate_url`` / ``_redact_url``). Overview uses `count_all_collections()` / `count_all_requests()`
   instead of loading the full tree; the active-tab line includes dirty/deferred state
   plus method/URL when available, and stamps `captured_at` from the turn-start
   snapshot. Open tabs,
@@ -241,9 +245,9 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   display cap; cleared with the workspace snapshot). Invalid ``within_ids`` error
   out (never unrestricted). ``scope=request`` merges dirty open-tab
   ``request_data`` over DB when the snapshot has a matching dirty tab. Search
-  covers params tables (after secret redaction), bodies, headers/auth, and
-  scripts; it does not cover assertions, history bodies, globals, or
-  snippet bodies. `MarkdownContent` emits `workspace_target_requested` →
+  covers params tables (after secret redaction), bodies, headers/auth, scripts,
+  and environment/global variable keys (non-secret values); it does not cover
+  assertions, history bodies, or snippet bodies. `MarkdownContent` emits `workspace_target_requested` →
   `AiChatPanel` → `MainWindow._on_workspace_target_requested` to open/focus tabs
   (`tab` → `_focus_open_tab`; `history` → `_open_from_global_history`, with a
   status tip when a second open arrives while busy; malformed `postmark://`
@@ -308,7 +312,7 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   snapshots under `user_history_root()`; metadata in `request_history_entries`.
   **Lists:** `list_for_sidebar` (left global rail; optional `limit`, default 500;
   workspace `recent_history` uses `limit=25`), `list_for_request` (right
-  per-request). **Labels:** `was_persisted_request` drives `source_label`
+  per-request), `latest_for_request` (newest send metadata, `LIMIT 1`). **Labels:** `was_persisted_request` drives `source_label`
   `(deleted)` vs `(draft)` when `request_id` is null. **Display:**
   Orphan/deleted rows: draft tab opens instantly from metadata; full payload loads
   on a worker thread (`history_navigation/orphan_open.py`). ``TabContext.variable_collection_id``

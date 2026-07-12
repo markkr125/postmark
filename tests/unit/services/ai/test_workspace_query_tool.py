@@ -677,3 +677,83 @@ def test_collection_tree_large_workspace_within_output_cap(
     assert "[partial]" in text
     assert "of 501 rows" in text or "of 501" in text
     assert len(text) <= _MAX_OUTPUT_CHARS
+
+
+def test_request_scope_shows_last_edited_and_last_sent(
+    make_collection_with_request: Any,
+    tmp_path: Any,
+    monkeypatch: Any,
+) -> None:
+    """Request scope shows last-edited and last-sent freshness lines."""
+    monkeypatch.setattr(
+        "database.data_paths.postmark_user_data_dir",
+        lambda: tmp_path / "postmark",
+    )
+    _coll, req = make_collection_with_request()
+    settings = HistorySettingsManager()
+    RequestHistoryService.record_send(
+        identity={
+            "request_id": req.id,
+            "request_name": req.name,
+            "method": "GET",
+            "url": "http://fresh.example/",
+        },
+        response={"status_code": 200, "elapsed_ms": 12.0},
+        original_request={"method": "GET", "url": "http://fresh.example/"},
+        settings=settings,
+    )
+    session_id = str(uuid.uuid4())
+    text = execute_workspace_query("request", session_id=session_id, target_id=req.id)
+    assert "Last edited:" in text
+    assert "Last sent:" in text
+    assert "→ 200" in text
+
+
+def test_request_scope_omits_last_sent_without_history(
+    make_collection_with_request: Any,
+) -> None:
+    """Request scope omits Last sent when the request has no history."""
+    _coll, req = make_collection_with_request()
+    session_id = str(uuid.uuid4())
+    text = execute_workspace_query("request", session_id=session_id, target_id=req.id)
+    assert "Last edited:" in text
+    assert "Last sent:" not in text
+
+
+def test_request_scope_last_sent_error_is_literal(
+    make_collection_with_request: Any,
+    monkeypatch: Any,
+    tmp_path: Any,
+) -> None:
+    """Failed sends print the literal ``error`` outcome, not raw exception text."""
+    monkeypatch.setattr(
+        "database.data_paths.postmark_user_data_dir",
+        lambda: tmp_path / "postmark",
+    )
+    _coll, req = make_collection_with_request()
+    settings = HistorySettingsManager()
+    RequestHistoryService.record_send(
+        identity={
+            "request_id": req.id,
+            "request_name": req.name,
+            "method": "GET",
+            "url": "http://fail.example/",
+        },
+        response={"error": "ConnectionResetError: boom"},
+        original_request={"method": "GET", "url": "http://fail.example/"},
+        settings=settings,
+    )
+    session_id = str(uuid.uuid4())
+    text = execute_workspace_query("request", session_id=session_id, target_id=req.id)
+    assert "Last sent:" in text
+    assert "→ error" in text
+    assert "ConnectionResetError" not in text
+    assert "boom" not in text
+
+
+def test_collection_scope_shows_last_edited(make_collection_with_request: Any) -> None:
+    """Collection scope includes a Last edited timestamp."""
+    coll, _req = make_collection_with_request()
+    session_id = str(uuid.uuid4())
+    text = execute_workspace_query("collection", session_id=session_id, target_id=coll.id)
+    assert "Last edited:" in text

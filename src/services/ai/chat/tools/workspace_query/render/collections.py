@@ -136,6 +136,15 @@ def _render_request(
         f"{_link('request', request_id, name)}:",
         f"  {method} {_truncate_url(url)}",
     ]
+    if getattr(row, "updated_at", None) is not None:
+        lines.append(f"  Last edited: {_format_ts(row.updated_at)}")
+    latest = RequestHistoryService.latest_for_request(request_id)
+    if latest is not None:
+        when = _format_ts(latest.get("executed_at") or "")
+        status = latest.get("status_code")
+        err = latest.get("error")
+        outcome = "error" if err else (str(status) if status is not None else "?")
+        lines.append(f"  Last sent: {when} → {outcome}")
     if description:
         lines.append(f"  Description: {_truncate_text(str(description), max_len=400)}")
     redacted_auth = _redact_auth(auth if isinstance(auth, dict) else None)
@@ -642,6 +651,8 @@ def _render_collection(collection_id: int) -> str:
         f"{_link('collection', collection_id, row.name)}:",
         f"  Path: {path}",
     ]
+    if getattr(row, "updated_at", None) is not None:
+        lines.append(f"  Last edited: {_format_ts(row.updated_at)}")
     if row.description:
         lines.append(f"  Description: {_truncate_text(str(row.description), max_len=400)}")
     auth = _redact_auth(row.auth if isinstance(row.auth, dict) else None)
@@ -748,23 +759,31 @@ def _render_recent_history(*, search: str = "") -> str:
 
 
 def _render_insights() -> str:
-    """List requests missing test scripts and declarative assertions."""
+    """List requests missing tests and duplicate method+URL groups."""
     from ..constants import _SEARCH_SCRIPT_SCAN_CAP
 
     tree = CollectionService.fetch_all()
     request_ids: list[int] = []
+    dup_groups: dict[tuple[str, str], list[tuple[int, str, str]]] = {}
 
-    def _collect_ids(nodes: dict[str, Any]) -> None:
+    def _collect(nodes: dict[str, Any]) -> None:
         for node in nodes.values():
-            if len(request_ids) >= _SEARCH_SCRIPT_SCAN_CAP:
-                return
             if node.get("type") == "folder":
-                _collect_ids(node.get("children") or {})
+                _collect(node.get("children") or {})
             elif node.get("type") == "request" and isinstance(node.get("id"), int):
-                request_ids.append(node["id"])
+                rid = int(node["id"])
+                name = str(node.get("name", ""))
+                method = str(node.get("method", "GET")).upper()
+                url_raw = str(node.get("url") or "").strip()
+                if len(request_ids) < _SEARCH_SCRIPT_SCAN_CAP:
+                    request_ids.append(rid)
+                if not url_raw:
+                    continue
+                url_key = url_raw.casefold().rstrip("/")
+                dup_groups.setdefault((method, url_key), []).append((rid, name, url_raw))
 
-    _collect_ids(tree)
-    if not request_ids:
+    _collect(tree)
+    if not request_ids and not any(len(g) > 1 for g in dup_groups.values()):
         return "No requests in the workspace."
     scripts_by_id = {
         rid: (name, scripts, events)
@@ -793,13 +812,25 @@ def _render_insights() -> str:
         lines.append("  All scanned requests have a test script or declarative assertions.")
     else:
         lines.extend(_cap_rows(missing_lines, label="requests missing tests"))
+    dupe_lines: list[str] = []
+    for (method, _url_key), group in sorted(
+        dup_groups.items(), key=lambda kv: (-len(kv[1]), kv[0][0])
+    ):
+        if len(group) < 2:
+            continue
+        names = ", ".join(_link("request", rid, name) for rid, name, _raw in group)
+        display_url = _truncate_url(group[0][2])
+        dupe_lines.append(f"- {method} {display_url}: {names}")
+    if dupe_lines:
+        lines.append("\nDuplicate requests (same method + URL):")
+        lines.extend(_cap_rows(dupe_lines, label="duplicate groups"))
     body = "\n".join(lines)
     if len(request_ids) >= _SEARCH_SCRIPT_SCAN_CAP:
         return _with_leading_markers(
             body,
             [
-                f"[partial] Scan limited to the first {_SEARCH_SCRIPT_SCAN_CAP} "
-                "requests in tree order."
+                f"[partial] Missing-test scan limited to the first {_SEARCH_SCRIPT_SCAN_CAP} "
+                "requests in tree order (duplicate scan is exhaustive)."
             ],
         )
     return body

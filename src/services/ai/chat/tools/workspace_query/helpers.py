@@ -179,15 +179,16 @@ def _cap_rows(
     rows: list[str],
     *,
     label: str,
-    limit: int = _MAX_RESULT_ROWS,
+    limit: int | None = None,
     hint: str = "narrow with a more specific scope",
 ) -> list[str]:
     """Cap a result list, putting a partial marker first when truncated."""
-    if len(rows) <= limit:
+    row_limit = _MAX_RESULT_ROWS if limit is None else limit
+    if len(rows) <= row_limit:
         return rows
-    extra = len(rows) - limit
-    marker = f"[partial] Showing first {limit} of {limit + extra} {label} ({hint})."
-    return [marker, *rows[:limit]]
+    extra = len(rows) - row_limit
+    marker = f"[partial] Showing first {row_limit} of {row_limit + extra} {label} ({hint})."
+    return [marker, *rows[:row_limit]]
 
 
 def _request_label_link(
@@ -520,6 +521,56 @@ def _format_ts(value: Any) -> str:
     return dt.astimezone().strftime("%Y-%m-%d %H:%M")
 
 
+def _search_tokens(needle: str) -> list[str]:
+    """Split a search needle into casefolded whitespace tokens."""
+    return needle.casefold().split()
+
+
+def _matches_tokens(hay: str, tokens: list[str]) -> bool:
+    """Return True when every token is a substring of *hay* (case-insensitive)."""
+    if not tokens:
+        return True
+    folded = hay.casefold()
+    return all(t in folded for t in tokens)
+
+
+def _env_global_search_matches(tokens: list[str]) -> list[str]:
+    """Build environment/global hit rows for unrestricted workspace search."""
+    from services.environment_service import EnvironmentService
+    from services.scripting.context import load_globals, mask_sensitive_value
+
+    rows: list[str] = []
+    for env in EnvironmentService.fetch_all():
+        eid = env.get("id")
+        ename = str(env.get("name", ""))
+        if not isinstance(eid, int):
+            continue
+        raw_values = env.get("values")
+        redacted = _redact_env_values(raw_values if isinstance(raw_values, list) else None)
+        hay_parts = [ename]
+        for item in redacted:
+            if item.get("enabled") is False:
+                continue
+            key = str(item.get("key", ""))
+            value = str(item.get("value", ""))
+            if value == SECRET_PLACEHOLDER:
+                hay_parts.append(key)
+            else:
+                hay_parts.append(f"{key}={value}")
+        if _matches_tokens(" ".join(hay_parts), tokens):
+            rows.append(f"- {_link('environment', eid, ename)} (environment name/variable match)")
+    globals_map = load_globals()
+    for gkey in sorted(globals_map):
+        raw = str(globals_map[gkey])
+        masked = mask_sensitive_value(gkey, raw)
+        hay_parts = [gkey]
+        if masked == raw:
+            hay_parts.append(raw)
+        if _matches_tokens(" ".join(hay_parts), tokens):
+            rows.append(f"- Globals · {gkey} (global variable match)")
+    return rows
+
+
 def _walk_tree(
     nodes: dict[str, Any],
     *,
@@ -531,7 +582,7 @@ def _walk_tree(
     """Depth-first walk of collection tree, optional case-insensitive filter."""
     if lines is None:
         lines = []
-    needle = search.casefold()
+    tokens = _search_tokens(search) if search else []
     indent = "  " * depth
     for _key, node in sorted(nodes.items(), key=lambda kv: str(kv[1].get("name", "")).casefold()):
         ntype = node.get("type")
@@ -539,7 +590,7 @@ def _walk_tree(
         nid = node.get("id")
         path = f"{prefix}/{name}" if prefix else name
         if ntype == "folder" and isinstance(nid, int):
-            if not search or needle in name.casefold() or needle in path.casefold():
+            if not search or _matches_tokens(path, tokens):
                 suffix = "" if not search else f" · in {path}"
                 lines.append(f"{indent}- {_link('collection', nid, name)} (folder){suffix}")
             _walk_tree(
@@ -552,8 +603,8 @@ def _walk_tree(
         elif ntype == "request" and isinstance(nid, int):
             method = str(node.get("method", "GET"))
             url = str(node.get("url", ""))
-            hay = f"{name} {method} {url} {path}".casefold()
-            if not search or needle in hay:
+            hay = f"{name} {method} {url} {path}"
+            if not search or _matches_tokens(hay, tokens):
                 suffix = "" if not search else f" · in {path}"
                 lines.append(
                     f"{indent}- {_link('request', nid, name)} — {method} "
@@ -573,14 +624,14 @@ def _walk_local_tree(
     """Depth-first walk of the local-script tree with optional filter."""
     if lines is None:
         lines = []
-    needle = search.casefold()
+    tokens = _search_tokens(search) if search else []
     indent = "  " * depth
     for _key, node in sorted(nodes.items(), key=lambda kv: str(kv[1].get("name", "")).casefold()):
         ntype = node.get("type")
         name = str(node.get("name", ""))
         if ntype == "folder" and isinstance(node.get("id"), int):
             path = f"{prefix}/{name}" if prefix else name
-            if not search or needle in name.casefold() or needle in path.casefold():
+            if not search or _matches_tokens(path, tokens):
                 lines.append(f"{indent}- {name} (folder)")
             _walk_local_tree(
                 node.get("children") or {},
@@ -593,8 +644,8 @@ def _walk_local_tree(
             sid = node["id"]
             lang = str(node.get("language", "javascript"))
             mod = str(node.get("module_format", "esm"))
-            hay = f"{name} {lang} {mod}".casefold()
-            if not search or needle in hay:
+            hay = f"{name} {lang} {mod}"
+            if not search or _matches_tokens(hay, tokens):
                 lines.append(f"{indent}- {_link('script', sid, name)} — {lang}/{mod}")
     return lines
 

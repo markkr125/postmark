@@ -35,6 +35,7 @@ from .scripts import (
 )
 from .search import _render_search
 from .settings import _render_settings
+from .variables import _render_variable
 
 __all__ = [
     "_render_active_response",
@@ -64,4 +65,5 @@ __all__ = [
     "_render_snippet",
     "_render_snippets",
     "_render_tab",
+    "_render_variable",
 ]

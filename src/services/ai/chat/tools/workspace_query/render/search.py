@@ -18,12 +18,15 @@ from services.local_script_service import LocalScriptService
 from ..constants import _SEARCH_SCRIPT_SCAN_CAP
 from ..helpers import (
     _cap_rows,
+    _env_global_search_matches,
     _link,
     _mask_header_value,
     _mask_param_value,
+    _matches_tokens,
     _redact_auth,
     _redact_request_body,
     _scripts_from_data,
+    _search_tokens,
     _walk_tree,
     _with_leading_markers,
 )
@@ -110,23 +113,25 @@ def _ordered_local_script_ids_for_scan(
     nodes: dict[str, Any],
     *,
     limit: int = _SEARCH_SCRIPT_SCAN_CAP,
-) -> list[int]:
-    """DFS-collect local script ids in tree order, capped for content scanning."""
-    ids: list[int] = []
+) -> list[tuple[int, str]]:
+    """DFS-collect local script (id, path) pairs in tree order, capped for scanning."""
+    items: list[tuple[int, str]] = []
 
-    def walk(ns: dict[str, Any]) -> None:
+    def walk(ns: dict[str, Any], prefix: str = "") -> None:
         for node in ns.values():
-            if len(ids) >= limit:
+            if len(items) >= limit:
                 return
+            name = str(node.get("name", ""))
+            path = f"{prefix}/{name}" if prefix else name
             if node.get("type") == "folder":
-                walk(node.get("children") or {})
+                walk(node.get("children") or {}, path)
             elif node.get("type") == "script" and isinstance(node.get("id"), int):
-                ids.append(node["id"])
-                if len(ids) >= limit:
+                items.append((node["id"], path))
+                if len(items) >= limit:
                     return
 
     walk(nodes)
-    return ids
+    return items
 
 
 _REQUEST_LINK_RE = re.compile(r"postmark://request/(\d+)")
@@ -238,7 +243,7 @@ def _render_search(
     within, within_err = _resolve_within_ids(within_ids, session_id=session_id)
     if within_err:
         return within_err
-    n = needle.casefold()
+    tokens = _search_tokens(needle)
     tree = CollectionService.fetch_all()
     lines: list[str] = []
     _walk_tree(tree, search=needle, lines=lines)
@@ -255,11 +260,13 @@ def _render_search(
             resolved = resolved.replace(f"{{{{{key}}}}}", str(value))
         return resolved
 
-    def _scan_resolved_urls(nodes: dict[str, Any]) -> None:
+    def _scan_resolved_urls(nodes: dict[str, Any], prefix: str = "") -> None:
         nonlocal saw_template_url
         for node in nodes.values():
+            name = str(node.get("name", ""))
+            path = f"{prefix}/{name}" if prefix else name
             if node.get("type") == "folder":
-                _scan_resolved_urls(node.get("children") or {})
+                _scan_resolved_urls(node.get("children") or {}, path)
             elif node.get("type") == "request" and isinstance(node.get("id"), int):
                 rid = int(node["id"])
                 if within is not None and rid not in within:
@@ -270,10 +277,12 @@ def _render_search(
                 if rid in tree_matched_request_ids:
                     continue
                 resolved = _resolve_url(raw_url)
-                name = str(node.get("name", ""))
-                if n in resolved.casefold() and n not in raw_url.casefold():
+                method = str(node.get("method", "GET"))
+                hay = f"{name} {method} {resolved} {path}"
+                raw_hay = f"{name} {method} {raw_url} {path}"
+                if _matches_tokens(hay, tokens) and not _matches_tokens(raw_hay, tokens):
                     resolved_url_hits.append(
-                        f"- {_link('request', rid, name)} (resolved URL match)"
+                        f"- {_link('request', rid, name)} (resolved URL match) · in {path}"
                     )
 
     _scan_resolved_urls(tree)
@@ -285,11 +294,14 @@ def _render_search(
     body_matches: list[str] = []
     header_matches: list[str] = []
     param_matches: list[str] = []
+    env_matches: list[str] = []
     scanned = 0
     ordered_ids = _ordered_request_ids_for_script_scan(tree)
     ordered_folder_ids = _ordered_collection_ids_for_script_scan(tree)
     local_tree = LocalScriptService.fetch_all()
-    ordered_script_ids = _ordered_local_script_ids_for_scan(local_tree)
+    ordered_script_items = _ordered_local_script_ids_for_scan(local_tree)
+    ordered_script_ids = [sid for sid, _path in ordered_script_items]
+    local_script_path_by_id = dict(ordered_script_items)
     scripts_by_id = {
         rid: (name, scripts, events)
         for rid, name, scripts, events in CollectionService.fetch_request_scripts_for_ids(
@@ -322,9 +334,11 @@ def _render_search(
         )
     }
 
-    def _scan_requests(nodes: dict[str, Any]) -> None:
+    def _scan_requests(nodes: dict[str, Any], prefix: str = "") -> None:
         nonlocal scanned
         for node in nodes.values():
+            name = str(node.get("name", ""))
+            path = f"{prefix}/{name}" if prefix else name
             if node.get("type") == "folder":
                 cid = node.get("id")
                 # Folder-script hits have no request id — drop when refining a prior list.
@@ -334,12 +348,12 @@ def _render_search(
                         fname, events = folder_row
                         norm_scripts = _scripts_from_data({"events": events})
                         for kind, src in norm_scripts.items():
-                            if n in src.casefold():
+                            if _matches_tokens(src, tokens):
                                 script_matches.append(
                                     f"- {_link('collection', cid, fname, focus=kind)} "
-                                    f"({kind} folder script match)"
+                                    f"({kind} folder script match) · in {path}"
                                 )
-                _scan_requests(node.get("children") or {})
+                _scan_requests(node.get("children") or {}, path)
             elif node.get("type") == "request" and isinstance(node.get("id"), int):
                 rid = node["id"]
                 if within is not None and rid not in within:
@@ -349,12 +363,13 @@ def _render_search(
                 scanned += 1
                 row_data = scripts_by_id.get(rid)
                 if row_data is not None:
-                    name, scripts, events = row_data
+                    rname, scripts, events = row_data
                     norm_scripts = _scripts_from_data({"scripts": scripts, "events": events})
                     for kind, src in norm_scripts.items():
-                        if n in src.casefold():
+                        if _matches_tokens(src, tokens):
                             script_matches.append(
-                                f"- {_link('request', rid, name, focus=kind)} ({kind} script match)"
+                                f"- {_link('request', rid, rname, focus=kind)} "
+                                f"({kind} script match) · in {path}"
                             )
                 field_row = fields_by_id.get(rid)
                 if field_row is not None:
@@ -376,13 +391,16 @@ def _render_search(
                     }
                     full_body = _redact_request_body(str(body or ""), body_ctx) if body else ""
                     desc = str(description or "")
-                    if (full_body and n in full_body.casefold()) or (desc and n in desc.casefold()):
+                    body_hay = f"{full_body} {desc}".strip()
+                    if body_hay and _matches_tokens(body_hay, tokens):
                         body_matches.append(
-                            f"- {_link('request', rid, fname)} (body/description match)"
+                            f"- {_link('request', rid, fname)} (body/description match) · in {path}"
                         )
                     params_hay = _params_haystack(params)
-                    if params_hay and n in params_hay.casefold():
-                        param_matches.append(f"- {_link('request', rid, fname)} (params match)")
+                    if params_hay and _matches_tokens(params_hay, tokens):
+                        param_matches.append(
+                            f"- {_link('request', rid, fname)} (params match) · in {path}"
+                        )
                     matched_header = False
                     if isinstance(headers, list):
                         for h in headers:
@@ -390,25 +408,26 @@ def _render_search(
                                 continue
                             hkey = str(h.get("key", ""))
                             hval = str(h.get("value", ""))
-                            hay = f"{hkey} {_mask_header_value(hkey, hval)}".casefold()
-                            if n in hay:
+                            hay = f"{hkey} {_mask_header_value(hkey, hval)}"
+                            if _matches_tokens(hay, tokens):
                                 header_matches.append(
-                                    f"- {_link('request', rid, fname)} (header match)"
+                                    f"- {_link('request', rid, fname)} (header match) · in {path}"
                                 )
                                 matched_header = True
                                 break
                     if isinstance(auth, dict) and not matched_header:
                         redacted_auth = _redact_auth(auth) or {}
-                        auth_type = str(redacted_auth.get("type", ""))
-                        auth_blob = json.dumps(redacted_auth, ensure_ascii=False).casefold()
-                        if n in auth_type.casefold() or n in auth_blob:
-                            header_matches.append(f"- {_link('request', rid, fname)} (auth match)")
+                        auth_blob = json.dumps(redacted_auth, ensure_ascii=False)
+                        if _matches_tokens(auth_blob, tokens):
+                            header_matches.append(
+                                f"- {_link('request', rid, fname)} (auth match) · in {path}"
+                            )
 
     _scan_requests(tree)
     # Local scripts have no request id — skip when refining a prior request list.
     if within is None:
         local_scanned = 0
-        for sid in ordered_script_ids:
+        for sid, _spath in ordered_script_items:
             if local_scanned >= _SEARCH_SCRIPT_SCAN_CAP:
                 break
             local_scanned += 1
@@ -416,13 +435,18 @@ def _render_search(
             if row is None:
                 continue
             name, content = row
-            if n in content.casefold() or n in name.casefold():
-                script_matches.append(f"- {_link('script', sid, name)} (local script match)")
+            path = local_script_path_by_id.get(sid, name)
+            if _matches_tokens(f"{name} {content}", tokens):
+                script_matches.append(
+                    f"- {_link('script', sid, name)} (local script match) · in {path}"
+                )
+        env_matches.extend(_env_global_search_matches(tokens))
     has_tree = bool(lines)
     has_scripts = bool(script_matches)
     has_body = bool(body_matches)
     has_headers = bool(header_matches)
     has_params = bool(param_matches)
+    has_env = bool(env_matches)
     all_hit_ids = sorted(
         _request_ids_from_tree_lines(lines)
         | _request_ids_from_tree_lines(body_matches)
@@ -441,12 +465,23 @@ def _render_search(
     local_capped = total_local_scripts > cap
     any_deep_capped = req_capped or folder_capped or local_capped
     markers: list[str] = []
-    markers.append(
-        "Search coverage note: does not scan assertions, history/saved-response bodies, "
-        "globals/env values, or snippet bodies (use those dedicated scopes). "
-        "Request params tables, bodies/descriptions, headers/auth, and scripts are "
-        "matched (bodies/params after secret redaction)."
-    )
+    if within is None:
+        coverage = (
+            "Search coverage note: does not scan assertions, history/saved-response bodies, "
+            "or snippet bodies (use those dedicated scopes). "
+            "Request params tables, bodies/descriptions, headers/auth, scripts, "
+            "and enabled environment/global variable keys (non-secret values) are "
+            "matched (bodies/params after secret redaction)."
+        )
+    else:
+        coverage = (
+            "Search coverage note: does not scan assertions, history/saved-response bodies, "
+            "or snippet bodies (use those dedicated scopes). "
+            "Request params tables, bodies/descriptions, headers/auth, and scripts are "
+            "matched within the prior request set. Environment/global variable keys are "
+            "not scanned under within_ids (bodies/params after secret redaction)."
+        )
+    markers.append(coverage)
     if within is not None:
         markers.append(
             f"[partial] Restricted to {len(within)} prior request ids (refine of a previous list)."
@@ -477,7 +512,18 @@ def _render_search(
     if has_scripts:
         out.append("\nScript-content matches:")
         out.extend(_cap_rows(script_matches, label="script matches"))
-    if not has_tree and not has_scripts and not has_body and not has_headers and not has_params:
+    if has_env:
+        out.append("\nEnvironment/global matches:")
+        out.extend(_cap_rows(env_matches, label="environment/global matches"))
+    empty = (
+        not has_tree
+        and not has_scripts
+        and not has_body
+        and not has_headers
+        and not has_params
+        and not has_env
+    )
+    if empty:
         if within is not None:
             markers.insert(
                 0,
@@ -510,16 +556,37 @@ def _render_search(
                 "No matches (secret-like needle — redacted values cannot be searched; "
                 "see partial marker above)."
             )
+        elif len(tokens) > 1:
+            safe_tokens = [t for t in tokens if not _needle_looks_secret_like(t)]
+            hint_token = max(safe_tokens, key=len) if safe_tokens else None
+            if hint_token is not None:
+                retry_hint = (
+                    "retry once with the most distinctive single word "
+                    f'(e.g. search="{hint_token}") or a shorter phrase before concluding '
+                    "nothing matches."
+                )
+            else:
+                retry_hint = (
+                    "retry once with a shorter non-secret name/URL/path phrase before "
+                    "concluding nothing matches."
+                )
+            markers.insert(
+                0,
+                f"[partial] No single item matched ALL {len(tokens)} words of this search "
+                "(words AND-match within one item, in any order). Absence is not confirmed — "
+                f"{retry_hint}",
+            )
+            out.append("No matches (multi-word AND — see partial marker above).")
         else:
             markers.insert(
                 0,
                 "[authoritative] No matching requests, folders, or scripts in the "
                 "scopes this search covers (names, methods, URLs, folders, "
-                "bodies/descriptions, params tables, headers/auth, and script/"
-                "local-script content). "
+                "bodies/descriptions, params tables, headers/auth, script/"
+                "local-script content, and enabled environment/global variable keys). "
                 "Do not retry query variations or fall back to the wiki for those "
-                "fields. Other scopes may still match — try snippets, recent_history, "
-                "globals, environments, saved_responses, or assertions if the user "
+                "fields. Other scopes may still match — try globals, environments, "
+                "snippets, recent_history, saved_responses, or assertions if the user "
                 "asked about those.",
             )
             out.append("No matches (see authoritative marker above).")

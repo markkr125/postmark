@@ -258,6 +258,7 @@ Module-level functions; class re-exports them as `@staticmethod` aliases.
 | `list_for_sidebar(search?, executed_from?, executed_to?, limit=500)` | Global list (left-rail global History), newest first; optional local-calendar date bounds |
 | `entry_to_http_response_dict(entry)` | Map stored entry → `ResponseViewer.load_stored_response` dict |
 | `list_for_request(request_id, search?)` | List sends for one saved request (right rail) |
+| `latest_for_request(request_id)` | Newest send metadata for one request (`LIMIT 1`), or `None` |
 | `get_entry(entry_id)` | Full row with file payloads |
 | `entry_to_detail_snapshot(entry)` | Shape for HistoryPanel read-only detail tabs |
 | `build_replay_request_dict(entry)` | Editor load dict from snapshot |

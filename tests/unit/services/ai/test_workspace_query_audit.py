@@ -2663,3 +2663,325 @@ def test_request_scope_merges_dirty_tab_overlay(
     assert "unsaved-dirty-url" in text
     assert "https://api.example.com/saved" not in text
     assert "POST" in text
+
+
+# --- Part A: tokenized search, breadcrumbs, env/global ---
+
+
+def test_search_multi_token_any_order(make_collection_with_request: Any) -> None:
+    """Multi-token search matches name tokens in any order."""
+    _coll, req = make_collection_with_request(req_name="Login User")
+    text = execute_workspace_query("search", session_id=_session(), search="user login")
+    assert f"postmark://request/{req.id}" in text
+    assert "[authoritative]" not in text
+
+
+def test_search_multi_token_across_name_and_url(make_collection_with_request: Any) -> None:
+    """Tokens may span request name and URL fields."""
+    _coll, req = make_collection_with_request(
+        req_name="Auth Gate",
+        url="https://api.example.com/v1/login",
+    )
+    text = execute_workspace_query("search", session_id=_session(), search="auth login")
+    assert f"postmark://request/{req.id}" in text
+
+
+def test_search_multi_token_empty_is_partial_not_authoritative(
+    make_collection_with_request: Any,
+) -> None:
+    """Multi-token empties are partial with a longest-token retry hint."""
+    make_collection_with_request(req_name="Users list")
+    text = execute_workspace_query(
+        "search",
+        session_id=_session(),
+        search="aa bb distinctiveword",
+    )
+    assert "[partial]" in text
+    assert "[authoritative]" not in text
+    assert "Do not retry" not in text
+    assert 'search="distinctiveword"' in text
+
+
+def test_search_multi_token_deep_body_match(make_collection_with_request: Any) -> None:
+    """Multi-token AND matching applies to body content."""
+    _coll, req = make_collection_with_request()
+    CollectionService.update_request(
+        req.id,
+        body='{"message": "welcome aboard traveler"}',
+        body_mode="raw",
+        body_options={"raw": {"language": "json"}},
+    )
+    text = execute_workspace_query(
+        "search",
+        session_id=_session(),
+        search="aboard welcome",
+    )
+    assert f"postmark://request/{req.id}" in text
+    assert "body/description match" in text
+
+
+def test_search_token_matching_on_masked_values_cannot_hit_secret(
+    make_collection_with_request: Any,
+) -> None:
+    """Secret header values stay masked; tokens cannot match the raw secret."""
+    _coll, req = make_collection_with_request()
+    CollectionService.update_request(
+        req.id,
+        headers=[{"key": "Authorization", "value": "Bearer SUPERSECRETKOKORO123", "enabled": True}],
+    )
+    text = execute_workspace_query(
+        "search",
+        session_id=_session(),
+        search="SUPERSECRETKOKORO123",
+    )
+    assert "(header match)" not in text
+    # Needle is echoed in the title; the raw header value must not appear as a hit.
+    assert "Authorization" not in text or "header match" not in text
+
+
+def test_search_deep_rows_include_breadcrumb(make_collection_with_request: Any) -> None:
+    """Deep body matches append a nested folder path breadcrumb."""
+    parent = CollectionService.create_collection("ParentCrumb")
+    child = CollectionService.create_collection("ChildCrumb", parent_id=parent.id)
+    req = CollectionService.create_request(child.id, "GET", "http://x", "BodyHit")
+    CollectionService.update_request(
+        req.id,
+        body="unique_body_crumb_xyz",
+        body_mode="raw",
+        body_options={"raw": {"language": "text"}},
+    )
+    text = execute_workspace_query(
+        "search",
+        session_id=_session(),
+        search="unique_body_crumb_xyz",
+    )
+    assert "body/description match" in text
+    assert " · in ParentCrumb/ChildCrumb/BodyHit" in text
+    assert f"postmark://request/{req.id}" in text
+
+
+def test_search_folder_and_local_script_breadcrumbs(
+    make_collection_with_request: Any,
+) -> None:
+    """Folder-script and local-script matches include path breadcrumbs."""
+    coll, _req = make_collection_with_request(name="FolderCrumbRoot")
+    CollectionService.update_collection(
+        coll.id,
+        events=[{"listen": "prerequest", "script": {"exec": ["folder_crumb_marker"]}}],
+    )
+    folder = LocalScriptService.create_folder("Utils")
+    script = LocalScriptService.create_script(
+        folder.id,
+        "helper",
+        language="javascript",
+        content="// local_crumb_marker here",
+    )
+    text = execute_workspace_query(
+        "search",
+        session_id=_session(),
+        search="folder_crumb_marker",
+    )
+    assert "folder script match" in text
+    assert f" · in {coll.name}" in text
+    local_text = execute_workspace_query(
+        "search",
+        session_id=_session(),
+        search="local_crumb_marker",
+    )
+    assert f"postmark://script/{script.id}" in local_text
+    assert " · in Utils/" in local_text or " · in Utils" in local_text
+
+
+def test_search_resolved_url_breadcrumb(make_collection_with_request: Any) -> None:
+    """Resolved-URL hits include a path breadcrumb."""
+    env = EnvironmentService.create_environment(
+        "Prod",
+        values=[{"key": "host", "value": "resolved-host.example", "enabled": True}],
+    )
+    coll, req = make_collection_with_request(
+        name="ResolvedCrumbRoot",
+        req_name="Hosted",
+        url="https://{{host}}/api",
+    )
+    session_id = _session()
+    set_workspace_snapshot(
+        session_id,
+        {
+            "active_tab_index": 0,
+            "active_collection_id": None,
+            "current_env_id": env.id,
+            "active_response": None,
+            "tabs": [
+                {
+                    "index": 0,
+                    "tab_type": "request",
+                    "name": req.name,
+                    "request_id": req.id,
+                    "collection_id": None,
+                    "local_script_id": None,
+                    "is_dirty": False,
+                    "is_active": True,
+                    "request_data": None,
+                }
+            ],
+        },
+    )
+    text = execute_workspace_query(
+        "search",
+        session_id=session_id,
+        search="resolved-host",
+    )
+    assert "resolved URL match" in text
+    assert f" · in {coll.name}/Hosted" in text
+
+
+def test_search_env_name_and_value_match() -> None:
+    """Search matches environment names and non-secret variable values."""
+    env = EnvironmentService.create_environment(
+        "Staging West",
+        values=[{"key": "region", "value": "eu-west-1", "enabled": True}],
+    )
+    text = execute_workspace_query("search", session_id=_session(), search="Staging")
+    assert f"postmark://environment/{env.id}" in text
+    value_text = execute_workspace_query("search", session_id=_session(), search="eu-west")
+    assert f"postmark://environment/{env.id}" in value_text
+    multi = execute_workspace_query(
+        "search",
+        session_id=_session(),
+        search="Staging region",
+    )
+    assert f"postmark://environment/{env.id}" in multi
+
+
+def test_search_env_secret_value_cannot_match_but_key_can() -> None:
+    """Secret env values are excluded from hay; keys remain searchable."""
+    env = EnvironmentService.create_environment(
+        "Secrets",
+        values=[
+            {"key": "api_token", "value": "RAWENVSECRET99", "enabled": True, "type": "secret"},
+        ],
+    )
+    miss = execute_workspace_query("search", session_id=_session(), search="RAWENVSECRET99")
+    assert f"postmark://environment/{env.id}" not in miss
+    hit = execute_workspace_query("search", session_id=_session(), search="api_token")
+    assert f"postmark://environment/{env.id}" in hit
+
+
+def test_search_global_key_value_and_secret(
+    tmp_path: Any,
+    monkeypatch: Any,
+) -> None:
+    """Globals match on key/non-secret value; secret globals never match by value."""
+    globals_path = tmp_path / "globals.json"
+    globals_path.write_text(
+        '{"region": "eu-central", "api_key": "GLOBALSEKRIT"}',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("services.scripting.context._GLOBALS_PATH", globals_path)
+    key_hit = execute_workspace_query("search", session_id=_session(), search="region")
+    assert "Globals · region" in key_hit
+    value_hit = execute_workspace_query("search", session_id=_session(), search="eu-central")
+    assert "Globals · region" in value_hit
+    secret_miss = execute_workspace_query("search", session_id=_session(), search="GLOBALSEKRIT")
+    assert "Globals · api_key" not in secret_miss
+    assert "(global variable match)" not in secret_miss or "api_key" not in secret_miss
+
+
+def test_search_coverage_note_includes_env_globals() -> None:
+    """Unrestricted coverage note claims enabled env/global keys are matched."""
+    text = execute_workspace_query("search", session_id=_session(), search="zzz-no-hit")
+    note = text.split("Search coverage note:", 1)[1].split("\n", 1)[0]
+    assert "enabled environment/global variable keys" in note.casefold()
+    assert "globals/env values" not in note.casefold()
+    assert "[authoritative]" in text
+    assert "globals, environments" in text.casefold()
+
+
+def test_search_coverage_note_omits_env_under_within_ids(
+    make_collection_with_request: Any,
+) -> None:
+    """within_ids refine must not claim environment/global keys are scanned."""
+    _coll, req = make_collection_with_request(req_name="WithinCov")
+    text = execute_workspace_query(
+        "search",
+        session_id=_session(),
+        search="zzz-no-hit-within",
+        within_ids=[req.id],
+    )
+    note = next(line for line in text.splitlines() if line.startswith("Search coverage note:"))
+    assert "environment/global" in note.casefold()
+    assert "not scanned under within_ids" in note.casefold()
+    assert "enabled environment/global variable keys are matched" not in note.casefold()
+
+
+# --- Part D: insights duplicates ---
+
+
+def test_insights_duplicate_method_url_groups(make_collection_with_request: Any) -> None:
+    """Insights groups duplicate method+URL pairs with slash/case normalization."""
+    coll, req_a = make_collection_with_request(
+        req_name="Alpha",
+        url="https://API.example.com/users/",
+    )
+    req_b = create_new_request(coll.id, "GET", "https://api.example.com/users", "Beta")
+    text = execute_workspace_query("insights", session_id=_session())
+    assert "Duplicate requests (same method + URL):" in text
+    assert f"postmark://request/{req_a.id}" in text
+    assert f"postmark://request/{req_b.id}" in text
+    # Both ids appear on the same duplicate group line.
+    dupe_section = text.split("Duplicate requests (same method + URL):", 1)[1]
+    dupe_line = next(
+        line
+        for line in dupe_section.splitlines()
+        if f"postmark://request/{req_a.id}" in line and f"postmark://request/{req_b.id}" in line
+    )
+    assert "GET" in dupe_line
+    assert "api.example.com/users" in dupe_line.casefold()
+
+
+def test_insights_unique_request_absent_from_duplicates(
+    make_collection_with_request: Any,
+) -> None:
+    """A unique method+URL is not listed under duplicate groups."""
+    _coll, req = make_collection_with_request(
+        req_name="OnlyOne",
+        url="https://unique.example.com/path",
+    )
+    text = execute_workspace_query("insights", session_id=_session())
+    assert "Duplicate requests (same method + URL):" not in text
+    assert f"postmark://request/{req.id}" in text or "All scanned requests" in text
+
+
+def test_insights_duplicate_urls_are_redacted(make_collection_with_request: Any) -> None:
+    """Duplicate group display redacts basic-auth and sensitive query values."""
+    coll, req_a = make_collection_with_request(
+        req_name="CredA",
+        url="https://user:hunter2pass@api.example.com/v1?api_key=live_sk_secret123",
+    )
+    req_b = create_new_request(
+        coll.id,
+        "GET",
+        "https://user:hunter2pass@api.example.com/v1?api_key=live_sk_secret123",
+        "CredB",
+    )
+    text = execute_workspace_query("insights", session_id=_session())
+    assert "Duplicate requests (same method + URL):" in text
+    assert f"postmark://request/{req_a.id}" in text
+    assert f"postmark://request/{req_b.id}" in text
+    assert "hunter2pass" not in text
+    assert "live_sk_secret123" not in text
+    assert REDACTED_PLACEHOLDER in text
+
+
+def test_insights_empty_urls_are_not_duplicates(make_collection_with_request: Any) -> None:
+    """Blank draft URLs must not form a duplicate group."""
+    coll, req_a = make_collection_with_request(req_name="DraftA", url="")
+    req_b = create_new_request(coll.id, "GET", "", "DraftB")
+    text = execute_workspace_query("insights", session_id=_session())
+    assert "Duplicate requests (same method + URL):" not in text
+    # Both blank drafts still appear under missing-tests (or coverage all-scanned).
+    assert (
+        f"postmark://request/{req_a.id}" in text
+        or f"postmark://request/{req_b.id}" in text
+        or "All scanned requests" in text
+    )
