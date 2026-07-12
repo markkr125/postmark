@@ -201,14 +201,24 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   items in tree order). `scope=request` / `scope=collection` surface ``Last edited``;
   `scope=request` also shows ``Last sent`` via `RequestHistoryService.latest_for_request`
   (failed sends print the literal ``error``, never raw exception text).
-  `scope=insights` uses
-  `fetch_assertion_counts_for_ids()` to flag requests missing test scripts and declarative
-  assertions, and groups duplicate method+URL pairs from the collection tree (non-empty
-  URLs only; display via ``_truncate_url`` / ``_redact_url``). Overview uses `count_all_collections()` / `count_all_requests()`
+  `scope=insights` is workspace health: missing tests / declarative assertions
+  (`fetch_assertion_counts_for_ids`), duplicate method+URL (non-empty URLs;
+  ``_truncate_url`` / ``_redact_url``), unresolved ``{{vars}}``, unused definitions,
+  case-mismatch refs, disabled-but-referenced, auth gaps, secret hygiene (keys only),
+  local-script breakage (`collect_direct_local_dependency_diagnostics`), request drift
+  vs last send, and script regressions. Optional ``within_ids`` / ``search`` section
+  filter. ``scope=search`` supports fielded operators via ``query_parse.py``
+  (``in:``/``method:``/``has:``/``missing:``/``resolved:1``/OR/NOT/phrases); the agent
+  prompt + tool description require translating plain-language finds into those
+  operators silently (never ask the user to type them; never quote operators /
+  coverage jargon in the chat reply — follow-ups stay plain English). Assertions
+  via ``in:assert``; optional ``goals`` (max 4) batches multi-goal explorations with
+  ``within=`` chaining (`goals.py`). Overview uses `count_all_collections()` / `count_all_requests()`
   instead of loading the full tree; the active-tab line includes dirty/deferred state
   plus method/URL when available, and stamps `captured_at` from the turn-start
   snapshot. Open tabs,
-  unsaved editor payloads, per-tab `last_response` scalars, masked `local_overrides`,
+  unsaved editor payloads (dirty request ``request_data``; dirty folder ``collection_data``;
+  dirty environments flagged), per-tab `last_response` scalars, masked `local_overrides`,
   deferred-tab chips (`is_deferred` → ``[deferred]`` not ``[saved]``),
   and the live response (including `send_error` / `viewing_stored_entry_id` when the
   viewer shows a failed send or stored history entry, plus `test_results`, `console_logs`,
@@ -246,9 +256,8 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   out (never unrestricted). ``scope=request`` merges dirty open-tab
   ``request_data`` over DB when the snapshot has a matching dirty tab. Search
   covers params tables (after secret redaction), bodies, headers/auth, scripts,
-  and environment/global variable keys (non-secret values); it does not cover
-  assertions, history bodies, or snippet bodies. `MarkdownContent` emits `workspace_target_requested` →
-  `AiChatPanel` → `MainWindow._on_workspace_target_requested` to open/focus tabs
+  assertions (``in:assert``), and environment/global variable keys (non-secret values);
+  history bodies only via ``request_history`` ``body:`` (always partial). `MarkdownContent` emits `workspace_target_requested` →  `AiChatPanel` → `MainWindow._on_workspace_target_requested` to open/focus tabs
   (`tab` → `_focus_open_tab`; `history` → `_open_from_global_history`, with a
   status tip when a second open arrives while busy; malformed `postmark://`
   paths never fall through to `QDesktopServices`;

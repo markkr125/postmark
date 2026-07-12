@@ -422,6 +422,7 @@ TypedDicts: `AiChatSessionDict`, `AiChatMessageDict` (optional `model_id`, `prom
 | Tool | Module | Purpose |
 |------|--------|---------|
 | `postmark_wiki_query` | `services/ai/chat/tools/wiki_query.py` | Read-only user KB lookup (`execute_wiki_query` in `app_wiki/query.py`) |
+| `postmark_workspace_query` | `services/ai/chat/tools/workspace_query/` | Read-only workspace explorer: health `insights`, fielded `search` (`query_parse.py`), multi-goal `goals` (max 4), entity scopes, turn-start snapshot |
 
 ### ContextUsageService (`services/ai/chat/context_usage.py`, SDK helpers in `context_usage_sdk.py`)
 

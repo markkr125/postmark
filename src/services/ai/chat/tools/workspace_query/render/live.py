@@ -28,6 +28,7 @@ from ..helpers import (
     _scripts_from_data,
     _truncate_text,
     _truncate_url,
+    _with_leading_markers,
 )
 
 
@@ -275,8 +276,35 @@ def _render_tab_entry(tab: dict[str, Any], snap: dict[str, Any]) -> str:
     elif ttype == "folder" and isinstance(tab.get("collection_id"), int):
         cid = int(tab["collection_id"])
         lines[0] = f"Tab: {_link('collection', cid, name)}"
-        lines.append("Next call: scope=collection")
+        folder_data = tab.get("collection_data")
+        if isinstance(folder_data, dict) and tab.get("is_dirty"):
+            lines.append(
+                "[partial] Showing unsaved folder editor state at turn start "
+                "(DB may differ until save)."
+            )
+            if folder_data.get("description"):
+                lines.append(
+                    f"Description: {_truncate_text(str(folder_data.get('description')), max_len=400)}"
+                )
+            scripts = _scripts_from_data(folder_data)
+            for kind, src in scripts.items():
+                lines.append(f"\n{kind} script ({_link('collection', cid, name, focus=kind)}):")
+                lines.append(_truncate_text(src, max_len=800))
+        else:
+            lines.append("Next call: scope=collection")
         lines.extend(_follow_up_ids_block([(f"collection · {name}", cid)]))
+    elif ttype == "environments":
+        if tab.get("environment_dirty"):
+            lines.append(
+                "[partial] Dirty environment editor at turn start — "
+                "unsaved values are not fully snapshotted; open the Environments tab "
+                "or scope=environments after save for authoritative values."
+            )
+            eid = tab.get("environment_id")
+            if isinstance(eid, int):
+                lines.append(f"  Editing: {_link('environment', eid, 'current environment')}")
+        else:
+            lines.append("Next call: scope=environments")
     elif ttype == "local_script" and isinstance(tab.get("local_script_id"), int):
         sid = tab["local_script_id"]
         lines[0] = f"Tab: {_link('script', sid, name)}"
@@ -312,15 +340,27 @@ def _render_active_tab(snap: dict[str, Any]) -> str:
     return text.replace("Tab:", "Active tab:", 1)
 
 
-def _render_active_response(snap: dict[str, Any]) -> str:
-    """Describe the response currently shown in the active tab."""
+def _render_active_response(snap: dict[str, Any], *, search: str = "") -> str:
+    """Describe the response currently shown in the active tab.
+
+    When ``search`` is ``diff:<history_entry_id>``, append a redacted replay-diff
+    against that stored send (always ``[partial]`` — bodies are truncated/redacted).
+    """
+    diff_id: int | None = None
+    raw = search.strip()
+    if raw.lower().startswith("diff:"):
+        try:
+            diff_id = int(raw.split(":", 1)[1].strip())
+        except ValueError:
+            return "active_response diff requires search=diff:<history_entry_id>."
+
     resp = snap.get("active_response")
     if isinstance(resp, dict):
         send_error = resp.get("send_error")
         if send_error:
             return "Last send FAILED: " + _mask_console_log_message(str(send_error))
         stored_id = resp.get("viewing_stored_entry_id")
-        if isinstance(stored_id, int):
+        if isinstance(stored_id, int) and diff_id is None:
             lines = [
                 "Viewer is showing a stored history entry — "
                 f"{_link('history', stored_id, 'open this send')} "
@@ -341,6 +381,7 @@ def _render_active_response(snap: dict[str, Any]) -> str:
     elapsed = resp.get("elapsed_ms")
     size = resp.get("size_bytes")
     parts = [header + ":"]
+    markers: list[str] = []
     stat_line = f"  {code} {status}".strip()
     if elapsed is not None:
         stat_line += f" · {int(elapsed)} ms"
@@ -360,11 +401,44 @@ def _render_active_response(snap: dict[str, Any]) -> str:
     body = resp.get("body")
     if body is not None:
         preview_lang = str(resp.get("preview_language") or "text")
-        raw = str(body)
+        raw_body = str(body)
         preview = _truncate_text(
-            _redact_response_body(raw, preview_lang, headers=headers if headers else None)
+            _redact_response_body(raw_body, preview_lang, headers=headers if headers else None)
         )
-        parts.append(f"  Body ({preview_lang}, {len(raw)} chars): {preview}")
+        parts.append(f"  Body ({preview_lang}, {len(raw_body)} chars): {preview}")
+    if diff_id is not None:
+        from services.request_history_service import RequestHistoryService
+
+        entry = RequestHistoryService.get_entry(diff_id)
+        markers.append(
+            "[partial] Replay-diff compares redacted/truncated previews only — "
+            "not a byte-identical forensic diff."
+        )
+        if entry is None:
+            parts.append(f"\n  Replay-diff: history entry {diff_id} not found.")
+        else:
+            detail = RequestHistoryService.entry_to_detail_snapshot(entry)
+            hist_code = detail.get("status_code")
+            hist_body = str(detail.get("body") or "")
+            live_code = code
+            parts.append(f"\n  Replay-diff vs {_link('history', diff_id, f'send {diff_id}')}:")
+            if live_code != hist_code:
+                parts.append(f"    Status: live={live_code} · history={hist_code}")
+            else:
+                parts.append(f"    Status: both {live_code}")
+            live_s = _truncate_text(
+                _redact_response_body(str(body or ""), "text", headers=headers),
+                max_len=200,
+            )
+            hist_s = _truncate_text(
+                _redact_response_body(hist_body, "text"),
+                max_len=200,
+            )
+            if live_s != hist_s:
+                parts.append(f"    Body live: {live_s}")
+                parts.append(f"    Body hist: {hist_s}")
+            else:
+                parts.append("    Body preview: identical (after redaction/truncation)")
     tests = resp.get("test_summary")
     if isinstance(tests, dict):
         passed = tests.get("passed", 0)
@@ -440,4 +514,7 @@ def _render_active_response(snap: dict[str, Any]) -> str:
         if console_lines:
             parts.append("  Console:")
             parts.extend(_cap_rows(console_lines, label="console lines"))
-    return "\n".join(parts)
+    body_out = "\n".join(parts)
+    if markers:
+        return _with_leading_markers(body_out, markers)
+    return body_out

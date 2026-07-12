@@ -24,22 +24,38 @@ _SNIPPET_LANGUAGES = ("javascript", "typescript", "python")
 
 
 def _render_local_scripts(search: str = "") -> str:
-    """Render the local-script tree with optional filter."""
+    """Render the local-script tree with optional filter and polyglot inventory."""
     tree = LocalScriptService.fetch_all()
     lines = _walk_local_tree(tree, search=search.strip())
+    # Polyglot inventory (language / module_format counts).
+    from .search.counts import _ordered_local_script_ids_for_scan
+
+    items = _ordered_local_script_ids_for_scan(tree, limit=200)
+    lang_counts: dict[str, int] = {}
+    for sid, _path in items:
+        loaded = LocalScriptService.get_script_load_dict(sid)
+        if loaded is None:
+            continue
+        key = f"{loaded.get('language', '?')}/{loaded.get('module_format', '?')}"
+        lang_counts[key] = lang_counts.get(key, 0) + 1
+    inventory = ""
+    if lang_counts:
+        bits = ", ".join(f"{k}={v}" for k, v in sorted(lang_counts.items()))
+        inventory = f"\n  Polyglot inventory (scanned): {bits}"
     if not lines:
-        return (
+        empty = (
             "No local scripts match." if search.strip() else "No local script folders or scripts."
         )
+        return empty + inventory
     title = "Local scripts"
     if search.strip():
         title += f' (filter: "{search.strip()}")'
     body = _cap_rows(lines, label="rows")
-    return title + ":\n" + "\n".join(body)
+    return title + ":" + inventory + "\n" + "\n".join(body)
 
 
 def _render_script(script_id: int) -> str:
-    """Return a local script's language and source."""
+    """Return a local script's language, source, and local dependency graph."""
     loaded = LocalScriptService.get_script_load_dict(script_id)
     if loaded is None:
         return "Local script not found."
@@ -55,6 +71,78 @@ def _render_script(script_id: int) -> str:
         f"  Language: {lang}/{mod}",
         _truncate_text(content, max_len=2000),
     ]
+    # Dependency graph (requires / dependents) — Postmark-only local-script moat.
+    try:
+        from services.scripting.local_script_modules import (
+            lookup_rel_path_by_script_id,
+            resolve_required,
+        )
+
+        rel = lookup_rel_path_by_script_id(script_id)
+        requires: list[str] = []
+        if content.strip():
+            try:
+                mods = resolve_required(str(content), str(lang))
+                for rpath, mod_obj in mods.items():
+                    sid = getattr(mod_obj, "script_id", None)
+                    if isinstance(sid, int):
+                        requires.append(f"    - {_link('script', sid, rpath)}")
+                    else:
+                        requires.append(f"    - {rpath}")
+            except Exception as exc:
+                requires.append(f"    - (resolve error: {exc})")
+        if requires:
+            lines.append("\n  Requires (local):")
+            lines.extend(requires[:30])
+        dependents: list[str] = []
+        if rel:
+            tree = LocalScriptService.fetch_all()
+            from .search.counts import _ordered_local_script_ids_for_scan
+
+            items = _ordered_local_script_ids_for_scan(tree, limit=100)
+            contents = {
+                sid: (n, c)
+                for sid, n, c in LocalScriptService.fetch_local_script_contents_for_ids(
+                    [sid for sid, _p in items]
+                )
+            }
+            for sid, spath in items:
+                if sid == script_id:
+                    continue
+                row = contents.get(sid)
+                if row is None:
+                    continue
+                _n, src = row
+                if f"local:{rel}" not in str(src):
+                    continue
+                loaded_other = LocalScriptService.get_script_load_dict(sid)
+                other_lang = (
+                    str(loaded_other.get("language", "javascript"))
+                    if loaded_other
+                    else "javascript"
+                )
+                try:
+                    mods = resolve_required(str(src or ""), other_lang)
+                except Exception:
+                    dependents.append(f"    - {_link('script', sid, spath)}")
+                    continue
+                if any(getattr(m, "script_id", None) == script_id for m in mods.values()):
+                    dependents.append(f"    - {_link('script', sid, spath)}")
+        if dependents:
+            lines.append("\n  Required by:")
+            lines.extend(dependents[:30])
+    except Exception:
+        pass
+    debug_meta = loaded.get("debug_metadata")
+    if isinstance(debug_meta, dict) and debug_meta:
+        bps = debug_meta.get("breakpoints")
+        watches = debug_meta.get("watches")
+        if bps or watches:
+            lines.append("\n  Debug metadata:")
+            if isinstance(bps, list) and bps:
+                lines.append(f"    Breakpoints: {len(bps)} stored")
+            if isinstance(watches, list) and watches:
+                lines.append(f"    Watches: {len(watches)} stored")
     return "\n".join(lines)
 
 

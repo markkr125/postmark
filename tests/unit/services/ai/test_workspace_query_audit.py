@@ -1783,7 +1783,7 @@ def test_test_error_masked(monkeypatch: Any) -> None:
         }
     ]
     monkeypatch.setattr(
-        "services.ai.chat.tools.workspace_query.render.collections.RunHistoryService.get_run_results",
+        "services.ai.chat.tools.workspace_query.render.collections.examples.RunHistoryService.get_run_results",
         lambda _rid: results,
     )
     run_out = _render_run(1)
@@ -1866,7 +1866,7 @@ def test_capped_summary_wording(make_collection_with_request: Any, monkeypatch: 
         ]
 
     monkeypatch.setattr(
-        "services.ai.chat.tools.workspace_query.render.collections.RequestHistoryService.list_for_request",
+        "services.ai.chat.tools.workspace_query.render.collections.history.RequestHistoryService.list_for_request",
         _fake_list,
     )
     text = execute_workspace_query(
@@ -1900,7 +1900,7 @@ def test_iteration_prefix(monkeypatch: Any) -> None:
         },
     ]
     monkeypatch.setattr(
-        "services.ai.chat.tools.workspace_query.render.collections.RunHistoryService.get_run_results",
+        "services.ai.chat.tools.workspace_query.render.collections.examples.RunHistoryService.get_run_results",
         lambda _rid: results,
     )
     text = _render_run(1)
@@ -1923,11 +1923,11 @@ def test_sent_request_rendered(monkeypatch: Any) -> None:
         },
     }
     monkeypatch.setattr(
-        "services.ai.chat.tools.workspace_query.render.collections.RequestHistoryService.get_entry",
+        "services.ai.chat.tools.workspace_query.render.collections.history.RequestHistoryService.get_entry",
         lambda _eid: {"id": 1},
     )
     monkeypatch.setattr(
-        "services.ai.chat.tools.workspace_query.render.collections.RequestHistoryService.entry_to_detail_snapshot",
+        "services.ai.chat.tools.workspace_query.render.collections.history.RequestHistoryService.entry_to_detail_snapshot",
         lambda _entry: detail,
     )
     text = execute_workspace_query("history_entry", session_id=_session(), target_id=1)

@@ -21,6 +21,7 @@ from services.ai.chat.workspace_snapshot import (
 )
 
 from .constants import _MAX_OUTPUT_CHARS, _VALID_SCOPES
+from .goals import execute_goals
 from .render import (
     _render_active_response,
     _render_active_tab,
@@ -83,19 +84,39 @@ insights, settings. For "what is in my open / dirty tab?" prefer ``active_tab`` 
 has a matching dirty tab (``[partial]``), otherwise reads saved DB.
 ``scope=variable`` looks up one variable key: definitions (globals / environments /
 collections), active override chain, and bounded ``{{key}}`` usages.
-``search`` whitespace-splits and AND-matches tokens within one item (any order) for
-names, methods, URLs, folder names/paths, request bodies/descriptions, request params tables,
-headers/auth types, pre_request/test script bodies, folder scripts, local-script
-names/bodies (bounded scan), and enabled environment/global variable keys (non-secret values;
-disabled keys are not searched).
+``search`` supports fielded operators for scope=search: ``in:url|body|header|script|auth|
+params|assert|env|local|name``, ``method:``, ``path:``, ``lang:``, ``format:``, ``has:``/
+``missing:`` (test|assert|auth|unresolved), ``resolved:1``, ``OR``, ``-exclude``, and
+``"phrases"``. Unknown operators error hard. **Translate the user's plain-language find
+request into these operators yourself** — do not ask the user to type them, and do not
+echo the operator string (or coverage/partial jargon like ``resolved:1`` / ``within_ids``)
+in the chat reply — follow-ups stay plain English, and you run the refined tool call.
+Examples:
+"Find POST requests that mention checkout in the body" →
+``search="method:POST in:body checkout"``;
+"requests under Auth/ missing tests" → ``search="path:Auth/ missing:test"``;
+"scripts that set access_token" → ``search="in:script access_token"``.
+Prefer fielded constraints over multi-word bare AND. Bare whitespace-split tokens
+AND-match within one item (any order) for names, methods, URLs, folder names/paths,
+request bodies/descriptions, request params tables, headers/auth types, pre_request/test
+script bodies, folder scripts, local-script names/bodies (bounded scan), assertions, and
+enabled environment/global variable keys (non-secret values; disabled keys are not searched).
 It also filters scope=snippets (tokenized) and scope=request_history / recent_history
 (single-phrase / date tokens — history filters are **not** tokenized; supports
-since:YYYY-MM-DD / until:YYYY-MM-DD). History filters
-match stored URL/name/method/status only — not response bodies. Search does **not**
-cover assertions, history/saved-response bodies, or snippet bodies (use those dedicated
-scopes). Bodies and params are matched after secret redaction, so secret-value searches
-can return an authoritative empty result. Multi-word empties are marked ``[partial]``
-with a retry hint; single-token empties remain ``[authoritative]`` when exhaustive.
+since:YYYY-MM-DD / until:YYYY-MM-DD; prefix ``body:`` for redacted latest-N history body
+search, always ``[partial]``). Search does **not** cover history/saved-response bodies
+(except body: on request_history) or snippet bodies by default. Bodies and params are
+matched after secret redaction. Multi-word empties are marked ``[partial]`` with a retry
+hint; single-token empties remain ``[authoritative]`` when exhaustive.
+
+Optional ``goals`` (max 4) runs a multi-goal exploration in one call — each goal has id,
+scope, search, optional within (prior goal id) / within_ids / sections (insights). Prefer
+one multi-goal call over serial search→insights→variable loops for compound questions.
+``scope=insights`` accepts ``search`` as a comma-separated section filter
+(missing_tests,duplicates,unresolved,unused,case_mismatch,disabled_ref,auth,secret_hygiene,
+local_deps,drift,script_regression). ``scope=environments`` with ``search=diff:<idA>:<idB>``
+compares two environments (keys only / masked value diffs). ``scope=active_response`` with
+``search=diff:<history_entry_id>`` compares the live response to a stored send.
 
 Live GUI scopes (open_tabs, active_tab, active_response, tab) and overview live fields are
 captured at **turn start** — mid-turn edits may differ until the next run.
@@ -118,8 +139,10 @@ Unsaved folder or environment editor changes are not captured in the snapshot.
 When you don't have an id, call scope=open_tabs or collection_tree to discover
 request/collection/script ids in postmark://…/<id> links, scope=overview for active context,
 then drill in; or omit target_id to target what the user is viewing.
-Use scope=insights to find requests missing test scripts or declarative assertions,
-and to list duplicate method+URL groups.
+Use scope=insights for workspace health: missing tests, duplicate URLs, unresolved
+``{{vars}}``, unused definitions, case-mismatch refs, disabled-but-referenced vars,
+auth gaps, secret hygiene (keys only), local-script breakage, request drift vs last send,
+and script regressions. Optional ``within_ids`` restricts request-scoped sections.
 
 Routing — where is ``{{key}}`` defined / what overrides what / where used?
 → ``scope=variable`` with ``search=<key>``.
@@ -192,12 +215,21 @@ class WorkspaceQueryAction(Action):
     within_ids: list[int] | None = Field(
         default=None,
         description=(
-            "Optional request-id allowlist for scope=search only. When refining a prior "
-            'result list ("that list" / "those requests"), pass request ids from the '
-            "previous observation's postmark://request/<id> links, or pass [-1] to reuse "
-            "the last scope=search hit set stored for this conversation (survives "
-            "compaction). Invalid/empty within_ids error out — they never widen to a "
-            "full-workspace search. Folder/script-only hits are dropped when set."
+            "Optional request-id allowlist for scope=search and scope=insights. When "
+            'refining a prior result list ("that list" / "those requests"), pass request '
+            "ids from the previous observation's postmark://request/<id> links, or pass "
+            "[-1] to reuse the last scope=search hit set stored for this conversation "
+            "(survives compaction). Invalid/empty within_ids error out — they never widen "
+            "to a full-workspace search. Folder/script-only hits are dropped when set."
+        ),
+    )
+    goals: list[dict[str, object]] | None = Field(
+        default=None,
+        description=(
+            "Optional multi-goal batch (max 4). Each item: {id, scope, search?, target_id?, "
+            "within? (prior goal id), within_ids?, sections? (insights)}. When set, scope/"
+            "search/target_id/within_ids on the top-level action are ignored — goals run in "
+            "dependency order into one labeled observation with a shared output budget."
         ),
     )
 
@@ -206,7 +238,10 @@ class WorkspaceQueryAction(Action):
         """Return Rich Text for the action."""
         content = Text()
         content.append("Workspace query: ", style="bold cyan")
-        content.append(self.scope, style="white")
+        if self.goals:
+            content.append(f"goalsx{len(self.goals)}", style="white")
+        else:
+            content.append(self.scope, style="white")
         if self.target_id is not None:
             content.append(f" (id={self.target_id})", style="dim")
         if self.search:
@@ -275,7 +310,7 @@ def _dispatch_workspace_query(
     if scope == "active_tab":
         return _render_active_tab(snap)
     if scope == "active_response":
-        return _render_active_response(snap)
+        return _render_active_response(snap, search=search)
     if scope == "tab":
         if target_id is None:
             return "Set target_id to a 1-based tab index from scope=open_tabs."
@@ -289,13 +324,26 @@ def _dispatch_workspace_query(
     if scope == "recent_history":
         return _render_recent_history(search=search)
     if scope == "environments":
-        return _render_environments(env_id=target_id)
+        return _render_environments(env_id=target_id, search=search)
     if scope == "globals":
         return _render_globals()
     if scope == "snippets":
         return _render_snippets(search)
     if scope == "insights":
-        return _render_insights()
+        sections: list[str] | None = None
+        raw = search.strip()
+        if raw:
+            parts = [p.strip() for p in raw.split(",") if p.strip()]
+            from .render.insights import _SECTION_KEYS
+
+            if parts and all(p in _SECTION_KEYS for p in parts):
+                sections = parts
+        return _render_insights(
+            snap=snap,
+            within_ids=within_ids,
+            session_id=session_id,
+            sections=sections,
+        )
     if scope == "search":
         return _render_search(search, snap=snap, within_ids=within_ids, session_id=session_id)
     if scope == "variable":
@@ -383,14 +431,23 @@ def _dispatch_workspace_query(
 
 
 def execute_workspace_query(
-    scope: str,
+    scope: str = "overview",
     *,
     session_id: str,
     target_id: int | None = None,
     search: str = "",
     within_ids: list[int] | None = None,
+    goals: list[dict[str, object]] | None = None,
 ) -> str:
-    """Run one workspace query and return markdown text."""
+    """Run one workspace query (or a multi-goal batch) and return markdown text."""
+    if goals:
+        return _truncate_output(
+            execute_goals(
+                [dict(g) for g in goals],
+                session_id=session_id,
+                dispatch=_dispatch_workspace_query,
+            )
+        )
     return _truncate_output(
         _dispatch_workspace_query(
             scope,
@@ -425,6 +482,7 @@ class WorkspaceQueryExecutor(ToolExecutor):
             target_id=action.target_id,
             search=action.search,
             within_ids=action.within_ids,
+            goals=action.goals,
         )
         return WorkspaceQueryObservation.from_text(text)
 

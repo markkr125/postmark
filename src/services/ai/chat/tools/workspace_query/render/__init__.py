@@ -7,7 +7,6 @@ from .collections import (
     _render_collection_tree,
     _render_environments,
     _render_history_entry,
-    _render_insights,
     _render_recent_history,
     _render_request,
     _render_request_history,
@@ -16,6 +15,7 @@ from .collections import (
     _render_saved_response,
     _render_saved_responses,
 )
+from .insights import _render_insights
 from .live import (
     _render_active_response,
     _render_active_tab,

@@ -62,6 +62,9 @@ def test_default_agent_workspace_prompt_phrases() -> None:
         "scope=request_history",
         "within_ids",
         "Do not use scope=search for send history",
+        "translate silently into",
+        "method:POST in:body checkout",
+        "User-facing replies must stay natural language only",
     ):
         assert phrase in prompt
     for desc_phrase in (
@@ -87,6 +90,9 @@ def test_default_agent_workspace_prompt_phrases() -> None:
         "tool arguments only",
         "prefer ``active_tab``",
         "request params tables",
+        "Translate the user's plain-language find",
+        "method:POST in:body checkout",
+        "follow-ups stay plain English",
         "scope=request_history",
         "within_ids",
         "within_ids=[-1]",

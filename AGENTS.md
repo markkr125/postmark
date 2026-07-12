@@ -241,7 +241,9 @@ src/
 │   │       │   ├── workspace_query/ # postmark_workspace_query (read-only workspace slices)
 │   │       │   │   ├── constants.py
 │   │       │   │   ├── helpers.py
-│   │       │   │   ├── render/      # live, collections, search, scripts, settings + variables/
+│   │       │   │   ├── query_parse.py # fielded search operators (in:/method:/has:/…)
+│   │       │   │   ├── goals.py       # multi-goal batching (max 4)
+│   │       │   │   ├── render/      # live, scripts, settings + collections/ + search/ + insights/ + variables/
 │   │       │   │   └── executor.py
 │   │       │   ├── delegate_tool.py # PostmarkDelegateTool (parallel subagent fan-out)
 │   │       │   └── delegate_executor.py # PostmarkDelegateExecutor — registers disk paths at spawn
@@ -713,6 +715,7 @@ tests/
 │       │   ├── test_workspace_query_tool.py
 │       │   ├── test_workspace_query_audit.py
 │       │   ├── test_workspace_query_variable.py
+│       │   ├── test_workspace_query_insights.py  # health insights, fielded search, goals, env diff
 │       │   ├── test_pm_api_quickref.py
 │       │   ├── test_model_metadata.py
 │       │   └── test_llm_service.py

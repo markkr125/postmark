@@ -514,6 +514,15 @@ class _AiChatRunsMixin:
             }
             if ctx.tab_type == "request" and ctx.editor is not None:
                 tab["request_data"] = ctx.editor.get_request_data(cancel_pending_persist=False)
+            if ctx.tab_type == "folder" and ctx.folder_editor is not None and ctx.is_dirty:
+                tab["collection_data"] = ctx.folder_editor.get_collection_data()
+            if ctx.tab_type == "environments" and ctx.is_dirty:
+                tab["environment_dirty"] = True
+                env_ed = getattr(ctx, "environment_editor", None)
+                if env_ed is not None:
+                    eid = getattr(env_ed, "_current_env_id", None)
+                    if isinstance(eid, int):
+                        tab["environment_id"] = eid
             if ctx.tab_type in ("request", "draft") and ctx.response_viewer is not None:
                 viewer = ctx.response_viewer
                 if viewer.has_live_response():

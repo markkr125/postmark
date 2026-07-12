@@ -295,6 +295,7 @@ tests/
 │       │   ├── test_workspace_query_tool.py
 │       │   ├── test_workspace_query_audit.py  # redaction, within_ids/[-1], params search, dirty merge, tokenized search
 │       │   ├── test_workspace_query_variable.py  # scope=variable definitions/resolution/usages
+│       │   ├── test_workspace_query_insights.py  # workspace health, fielded ops, multi-goal, env diff
 │       │   ├── test_pm_api_quickref.py
 │       │   ├── test_provider_ops.py
 │       │   ├── test_model_filters.py
