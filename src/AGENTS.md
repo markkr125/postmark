@@ -193,7 +193,7 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   caps row count at `_MAX_RESULT_ROWS` (50). `runs` (latest 10) and `recent_history`
   (latest 25) lead with ``[partial]`` when their list limits bind. Scopes: `overview`, `open_tabs`, `active_tab`, `active_response`, `tab`, `collection_tree`, `collection`, `local_scripts`, `recent_history`,
   `request`, `request_history`, `history_entry`, `saved_responses`, `saved_response`,
-  `runs`, `run`, `environments`, `search`, `variable`, `script`, `script_versions`, `request_script_versions`, `script_version`, `globals`, `snippets`, `snippet`, `insights`, `settings`. Search uses whitespace-split AND token matching (multi-token empties are ``[partial]``; single-token empties stay ``[authoritative]`` when exhaustive); deep hits include folder-path breadcrumbs;   unrestricted search also covers **enabled** environment/global variable keys (masked secret values and disabled keys excluded from the haystack; env/global scanning is skipped under ``within_ids``). History filters (`request_history` / `recent_history`) stay single-phrase. `scope=variable` reports definitions, an active override chain labeled with environment/request-or-collection context (collection secret-typed winners masked like Definitions; ``{{key}}`` usage matching is case-sensitive / exact spelling, and always includes the search needle spelling so case-mismatched unresolved refs are still found), and bounded usages. Search script bodies via
+  `runs`, `run`, `environments`, `env_reach`, `search`, `variable`, `script`, `script_versions`, `request_script_versions`, `script_version`, `globals`, `snippets`, `snippet`, `insights`, `dependencies`, `walkthrough`, `settings`. Search uses whitespace-split AND token matching (multi-token empties are ``[partial]``; single-token empties stay ``[authoritative]`` when exhaustive); deep hits include folder-path breadcrumbs;   unrestricted search also covers **enabled** environment/global variable keys (masked secret values and disabled keys excluded from the haystack; env/global scanning is skipped under ``within_ids``). History filters (`request_history` / `recent_history`) stay single-phrase. `scope=variable` reports definitions, an active override chain labeled with environment/request-or-collection context (collection secret-typed winners masked like Definitions; ``{{key}}`` usage matching is case-sensitive / exact spelling, and always includes the search needle spelling so case-mismatched unresolved refs are still found), and bounded usages. `scope=env_reach` maps requests to resolved hostnames under an environment (`target_id` or snapshot current; `search=diff:<idA>:<idB>` compares hosts). `scope=dependencies` builds a static producer→consumer graph from literal `pm.*.set("key", …)` plus `{{key}}` usages (standing static-analysis caveat). `scope=walkthrough` assembles a collection narrative from those edges. Search script bodies via
   `CollectionService.fetch_request_scripts_for_ids()` and folder scripts via
   `fetch_folder_scripts_for_ids()`; request bodies/headers/auth via
   `fetch_request_fields_for_ids()` (includes ``request_parameters``); local-script bodies via
@@ -201,12 +201,15 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   items in tree order). `scope=request` / `scope=collection` surface ``Last edited``;
   `scope=request` also shows ``Last sent`` via `RequestHistoryService.latest_for_request`
   (failed sends print the literal ``error``, never raw exception text).
-  `scope=insights` is workspace health: missing tests / declarative assertions
+  `scope=insights` is workspace health (`render/insights/scans/`): missing tests / declarative assertions
   (`fetch_assertion_counts_for_ids`), duplicate method+URL (non-empty URLs;
   ``_truncate_url`` / ``_redact_url``), unresolved ``{{vars}}``, unused definitions,
   case-mismatch refs, disabled-but-referenced, auth gaps, secret hygiene (keys only),
   local-script breakage (`collect_direct_local_dependency_diagnostics`), request drift
-  vs last send, and script regressions. Optional ``within_ids`` / ``search`` section
+  vs last send, script regressions, dead requests (`request_ids_with_history` /
+  `request_ids_with_saved_responses`), JWT token expiry (relative only; `now`-injected),
+  and response-shape drift (typed paths of latest two 2xx JSON sends via
+  `latest_two_json_success_entry_ids`). Optional ``within_ids`` / ``search`` section
   filter. ``scope=search`` supports fielded operators via ``query_parse.py``
   (``in:``/``method:``/``has:``/``missing:``/``resolved:1``/OR/NOT/phrases); the agent
   prompt + tool description require translating plain-language finds into those

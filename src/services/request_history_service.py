@@ -268,6 +268,16 @@ def latest_for_request(request_id: int) -> RequestHistoryEntryDict | None:
     return labeled[0] if labeled else None
 
 
+def request_ids_with_history(ids: list[int]) -> set[int]:
+    """Return request ids from *ids* that have at least one send-history row."""
+    return request_history_repository.request_ids_with_history(ids)
+
+
+def latest_two_json_success_entry_ids(ids: list[int]) -> dict[int, list[int]]:
+    """Return request ids mapped to their two newest 2xx JSON history entry ids."""
+    return request_history_repository.latest_success_json_entry_ids(ids, per_request=2)
+
+
 def get_entry_metadata(entry_id: int) -> RequestHistoryEntryDict | None:
     """Load database metadata for a history row (no body/snapshot file reads)."""
     row = request_history_repository.get_entry_metadata(entry_id)
@@ -480,6 +490,8 @@ class RequestHistoryService:
     list_for_sidebar = staticmethod(list_for_sidebar)
     list_for_request = staticmethod(list_for_request)
     latest_for_request = staticmethod(latest_for_request)
+    request_ids_with_history = staticmethod(request_ids_with_history)
+    latest_two_json_success_entry_ids = staticmethod(latest_two_json_success_entry_ids)
     get_entry_metadata = staticmethod(get_entry_metadata)
     get_entry = staticmethod(get_entry)
     build_replay_request_dict = staticmethod(build_replay_request_dict)

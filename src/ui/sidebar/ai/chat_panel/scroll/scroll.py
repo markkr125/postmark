@@ -651,8 +651,10 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
         """Scroll to the transcript bottom after layout and lazy markdown settle."""
         self._messages.updateGeometry()
         self._scroll.updateGeometry()
-        for _ in range(2):
-            QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
+        if self._is_pinned_to_bottom() and not self._has_visible_deferred_markdown():
+            self._sync_sticky_turn_prompt()
+            return
+        QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
         self._render_visible_lazy_markdown(force=True)
         self._messages.updateGeometry()
         self._scroll.updateGeometry()
@@ -661,12 +663,25 @@ class _ChatPanelScrollMixin(_ChatPanelStickyPromptMixin):  # type: ignore[misc]
         max_before = bar.maximum()
         self._set_bar_value(bar, bar.maximum())
         self._arm_scroll_lock()
-        self._render_visible_lazy_markdown(force=True)
         self._messages.updateGeometry()
         self._scroll.updateGeometry()
         if bar.maximum() > max_before:
             self._set_bar_value(bar, bar.maximum())
         self._sync_sticky_turn_prompt()
+
+    def _has_visible_deferred_markdown(self) -> bool:
+        """Return whether any visible assistant body still has deferred markdown."""
+        for index in range(self._messages_layout.count()):
+            item = self._messages_layout.itemAt(index)
+            widget = item.widget() if item is not None else None
+            if not isinstance(widget, ChatMessageBubble) or widget.role != "assistant":
+                continue
+            body = widget._markdown_body
+            if body is None or not body.is_render_deferred():
+                continue
+            if self.markdown_body_intersects_viewport(body):
+                return True
+        return False
 
     def _scroll_to_turn_start(self, *, force: bool = False) -> None:
         """Scroll the transcript to the active turn anchor (forced paths only)."""

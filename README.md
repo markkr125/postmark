@@ -41,6 +41,13 @@ pm.environment.set("token", pm.response.json()["token"])
 
 ## Features
 
+### AI assistant
+- **Local-first chat** with your own LLM providers (OpenAI-compatible, Anthropic, Ollama, and more) — workspace data stays on your machine
+- **Workspace-aware answers** — the assistant can read collections, variables, environments, send history, open tabs, and live responses (read-only; secrets stay redacted)
+- **Deep-links** into requests, folders, history sends, and environments so you can jump straight from the answer into the app
+- **Spend and budgets** — optional soft/hard caps per provider connection (see Settings → AI → Budgets)
+- User guide: [AI assistant](docs/user-guide/ai-assistant/README.md) · [Workspace explorer](docs/user-guide/ai-assistant/workspace-explorer.md)
+
 ### Requests & Collections
 - Organise requests into nested collections (folders), with drag-and-drop reordering, in-place rename (rollback on failure), and **duplicate request** (copies saved responses and assertions)
 - Import from **Postman collections, cURL commands, or raw URLs**

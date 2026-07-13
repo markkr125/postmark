@@ -31,6 +31,7 @@ from database.models.collections.collection_query_repository import (
     get_request_variable_chain,
     get_saved_response,
     get_saved_responses_for_request,
+    request_ids_with_saved_responses,
 )
 from database.models.collections.collection_repository import (
     create_new_collection,
@@ -527,6 +528,11 @@ class CollectionService:
             CollectionService._format_saved_response_dict(item)
             for item in get_saved_responses_for_request(request_id)
         ]
+
+    @staticmethod
+    def request_ids_with_saved_responses(ids: list[int]) -> set[int]:
+        """Return request ids from *ids* that have at least one saved example."""
+        return request_ids_with_saved_responses(ids)
 
     @staticmethod
     def get_saved_response(response_id: int) -> SavedResponseDict | None:

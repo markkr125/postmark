@@ -52,6 +52,7 @@ When supported, add file chips from the attachment row above the prompt before s
 
 ## Related
 
+- [Workspace explorer](workspace-explorer.md) — ask about your collections, variables, and history
 - [Models and providers](../settings/ai/models-and-providers.md)
 - [Budgets](../settings/ai/budgets.md)
 - [AI assistant hub](README.md)

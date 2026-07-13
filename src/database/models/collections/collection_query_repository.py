@@ -586,6 +586,22 @@ def get_saved_responses_for_request(request_id: int) -> list[dict[str, Any]]:
         return [_saved_response_to_dict(sr) for sr in responses]
 
 
+def request_ids_with_saved_responses(ids: Sequence[int]) -> set[int]:
+    """Return the subset of *ids* that have at least one saved example."""
+    if not ids:
+        return set()
+    from .model.saved_response_model import SavedResponseModel
+
+    with get_session() as session:
+        stmt = (
+            select(SavedResponseModel.request_id)
+            .where(SavedResponseModel.request_id.in_(list(ids)))
+            .distinct()
+        )
+        rows = session.execute(stmt).scalars().all()
+    return {int(rid) for rid in rows if rid is not None}
+
+
 def get_saved_response(response_id: int) -> dict[str, Any] | None:
     """Return one saved response as a dict, or ``None`` if missing."""
     from .model.saved_response_model import SavedResponseModel

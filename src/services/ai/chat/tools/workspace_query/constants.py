@@ -34,6 +34,9 @@ _VALID_SCOPES = frozenset(
         "settings",
         "request_script_versions",
         "variable",
+        "env_reach",
+        "dependencies",
+        "walkthrough",
     }
 )
 

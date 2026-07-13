@@ -296,6 +296,7 @@ tests/
 │       │   ├── test_workspace_query_audit.py  # redaction, within_ids/[-1], params search, dirty merge, tokenized search
 │       │   ├── test_workspace_query_variable.py  # scope=variable definitions/resolution/usages
 │       │   ├── test_workspace_query_insights.py  # workspace health, fielded ops, multi-goal, env diff
+│       │   ├── test_workspace_query_explorer.py  # env_reach, dependencies, walkthrough, dead/token/response_drift
 │       │   ├── test_pm_api_quickref.py
 │       │   ├── test_provider_ops.py
 │       │   ├── test_model_filters.py
@@ -397,7 +398,7 @@ tests/
    │   ├── test_ai_chat_worker.py
    │   ├── test_ai_session_history_popup.py  # Virtualized list; RUNNING_ROLE; ⋯ menu click routing; rename/delete dialogs
    │   ├── test_ai_active_run_badge.py  # Header aiChatActiveRunsBadge count pill
-   │   ├── test_session_transcript_load.py  # Async session switch + lazy markdown
+   │   ├── test_session_transcript_load.py  # Async session switch + lazy markdown; post-load settle skips work while pinned
    │   └── ai/
    │       ├── conftest.py  # load_transcript_sync helper
    │       ├── test_transcript_window.py  # Virtual tail/prepend paging + spacers

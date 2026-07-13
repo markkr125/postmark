@@ -2,24 +2,30 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 from services.ai.chat.workspace_snapshot import get_last_search_hits, set_last_search_hits
 from services.collection_service import CollectionService
+from services.request_history_service import RequestHistoryService
 
 from ...constants import _SEARCH_SCRIPT_SCAN_CAP
 from ...helpers import _cap_rows, _with_leading_markers
+from ..dependencies.graph import graph_from_prefetch, linked_var_rids
 from ..search import _resolve_within_ids
 from .scans import (
     _collect_dup_groups,
     _walk_request_nodes,
     scan_auth_gaps,
+    scan_dead_requests,
     scan_duplicates,
     scan_local_deps,
     scan_missing_tests,
     scan_request_drift,
+    scan_response_drift,
     scan_script_regressions,
     scan_secret_hygiene,
+    scan_token_expiry,
     scan_variable_issues,
 )
 
@@ -36,6 +42,9 @@ _SECTION_KEYS = frozenset(
         "local_deps",
         "drift",
         "script_regression",
+        "dead_requests",
+        "token_expiry",
+        "response_drift",
     }
 )
 
@@ -51,6 +60,7 @@ def _render_insights(
     within_ids: list[int] | None = None,
     session_id: str | None = None,
     sections: list[str] | None = None,
+    now: datetime | None = None,
 ) -> str:
     """Render workspace health insights (read-only audits)."""
     snap = snap or {}
@@ -75,9 +85,11 @@ def _render_insights(
     dup_groups = _collect_dup_groups(tree, within=within)
 
     if not request_ids and not any(len(g) > 1 for g in dup_groups.values()):
-        if within is not None:
-            return "No matching requests in the within_ids set for insights."
-        return "No requests in the workspace."
+        need_token_only = section_filter == {"token_expiry"}
+        if not need_token_only:
+            if within is not None:
+                return "No matching requests in the within_ids set for insights."
+            return "No requests in the workspace."
 
     scripts_by_id = {
         rid: (name, scripts, events)
@@ -181,6 +193,45 @@ def _render_insights(
         if regs:
             blocks.append("\nScript regressions:")
             blocks.extend(_cap_rows(regs, label="script regressions"))
+
+    if _want(section_filter, "dead_requests"):
+        history_ids = RequestHistoryService.request_ids_with_history(request_ids)
+        example_ids = CollectionService.request_ids_with_saved_responses(request_ids)
+        # Reuse already-prefetched scripts/fields — do not rebuild via fetch_all.
+        linked = linked_var_rids(graph_from_prefetch(request_rows, scripts_by_id, fields_by_id))
+        dead = scan_dead_requests(
+            request_rows,
+            history_ids=history_ids,
+            example_ids=example_ids,
+            linked_ids=linked,
+        )
+        counts["dead_requests"] = len(dead)
+        if dead:
+            blocks.append("\nDead requests (never sent, no saved examples):")
+            blocks.extend(_cap_rows(dead, label="dead requests"))
+
+    if _want(section_filter, "token_expiry"):
+        clock = now if now is not None else datetime.now(tz=UTC)
+        token_lines, skipped = scan_token_expiry(now=clock)
+        counts["token_expiry"] = len(token_lines)
+        if token_lines or skipped:
+            blocks.append("\nToken expiry (JWT bearer/token variables):")
+            if token_lines:
+                blocks.extend(_cap_rows(token_lines, label="token expiry"))
+            else:
+                blocks.append("  (no introspectable JWTs)")
+            if skipped:
+                blocks.append(
+                    f"  ({skipped} non-JWT/opaque token var"
+                    f"{'s' if skipped != 1 else ''} skipped — cannot introspect.)"
+                )
+
+    if _want(section_filter, "response_drift"):
+        resp_drift = scan_response_drift(request_rows)
+        counts["response_drift"] = len(resp_drift)
+        if resp_drift:
+            blocks.append("\nResponse drift (latest two successful sends):")
+            blocks.extend(_cap_rows(resp_drift, label="response drift"))
 
     summary_parts = [f"{k}={v}" for k, v in counts.items() if v]
     summary = ", ".join(summary_parts) if summary_parts else "no issues in scanned sections"

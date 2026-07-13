@@ -27,7 +27,9 @@ from .render import (
     _render_active_tab,
     _render_collection,
     _render_collection_tree,
+    _render_dependencies,
     _render_environments,
+    _render_env_reach,
     _render_globals,
     _render_history_entry,
     _render_insights,
@@ -51,6 +53,7 @@ from .render import (
     _render_snippets,
     _render_tab,
     _render_variable,
+    _render_walkthrough,
 )
 from .helpers import _default_collection_id, _default_request_id, _default_script_id
 
@@ -77,9 +80,9 @@ paste those numeric ids into the user-visible message.
 Live GUI state (captured at turn start, may miss mid-turn edits): open_tabs, active_tab,
 active_response, tab; overview mixes live tab/env fields with live DB counts. Saved DB (always
 live): collection, request, collection_tree, local_scripts, saved_responses, saved_response,
-request_history, history_entry, runs, run, recent_history, environments, script,
+request_history, history_entry, runs, run, recent_history, environments, env_reach, script,
 script_versions, request_script_versions, script_version, globals, snippets, snippet,
-insights, settings. For "what is in my open / dirty tab?" prefer ``active_tab`` / ``open_tabs``
+insights, dependencies, walkthrough, settings. For "what is in my open / dirty tab?" prefer ``active_tab`` / ``open_tabs``
 (snapshot fields); ``scope=request`` merges dirty open-tab editor state when the snapshot
 has a matching dirty tab (``[partial]``), otherwise reads saved DB.
 ``scope=variable`` looks up one variable key: definitions (globals / environments /
@@ -114,8 +117,14 @@ scope, search, optional within (prior goal id) / within_ids / sections (insights
 one multi-goal call over serial search→insights→variable loops for compound questions.
 ``scope=insights`` accepts ``search`` as a comma-separated section filter
 (missing_tests,duplicates,unresolved,unused,case_mismatch,disabled_ref,auth,secret_hygiene,
-local_deps,drift,script_regression). ``scope=environments`` with ``search=diff:<idA>:<idB>``
-compares two environments (keys only / masked value diffs). ``scope=active_response`` with
+local_deps,drift,script_regression,dead_requests,token_expiry,response_drift).
+``scope=env_reach`` maps requests to resolved hostnames under an environment
+(``target_id`` = env id, default current; ``search=diff:<idA>:<idB>`` compares hosts).
+``scope=dependencies`` builds a static producer→consumer graph from literal
+``pm.*.set("key", …)`` plus ``{{key}}`` usages (``target_id`` = focus request, or omit for
+workspace order). ``scope=walkthrough`` explains a collection (``target_id`` = collection id).
+``scope=environments`` with ``search=diff:<idA>:<idB>`` compares two environments
+(keys only / masked value diffs). ``scope=active_response`` with
 ``search=diff:<history_entry_id>`` compares the live response to a stored send.
 
 Live GUI scopes (open_tabs, active_tab, active_response, tab) and overview live fields are
@@ -183,15 +192,17 @@ class WorkspaceQueryAction(Action):
             "Which slice to fetch: overview, open_tabs, active_tab, active_response, tab, "
             "collection_tree, collection, local_scripts, recent_history, request, "
             "request_history, history_entry, saved_responses, saved_response, runs, run, "
-            "environments, search, variable, script, script_versions, request_script_versions, "
-            "script_version, globals, snippets, snippet, insights, settings. "
+            "environments, env_reach, search, variable, script, script_versions, "
+            "request_script_versions, script_version, globals, snippets, snippet, insights, "
+            "dependencies, walkthrough, settings. "
             "target_id: request id for request/request_history/saved_responses/"
-            "request_script_versions; history-entry id for history_entry; collection id for "
-            "collection/runs; run id for run; local-script id for script/script_versions; "
-            "saved example id for saved_response; snippet id for snippet; version id for "
-            "script_version; environment id for environments drill-down; 1-based tab index "
-            "for tab. history_entry, saved_response, run, script_version, and snippet always "
-            "require target_id; omit for other scopes to use the active tab's matching entity."
+            "request_script_versions/dependencies; history-entry id for history_entry; "
+            "collection id for collection/runs/walkthrough; run id for run; local-script id "
+            "for script/script_versions; saved example id for saved_response; snippet id for "
+            "snippet; version id for script_version; environment id for environments/"
+            "env_reach; 1-based tab index for tab. history_entry, saved_response, run, "
+            "script_version, and snippet always require target_id; omit for other scopes to "
+            "use the active tab's matching entity."
         ),
     )
     target_id: int | None = Field(
@@ -325,6 +336,12 @@ def _dispatch_workspace_query(
         return _render_recent_history(search=search)
     if scope == "environments":
         return _render_environments(env_id=target_id, search=search)
+    if scope == "env_reach":
+        return _render_env_reach(snap=snap, env_id=target_id, search=search)
+    if scope == "dependencies":
+        return _render_dependencies(snap=snap, target_id=target_id, session_id=session_id)
+    if scope == "walkthrough":
+        return _render_walkthrough(snap=snap, collection_id=target_id)
     if scope == "globals":
         return _render_globals()
     if scope == "snippets":
@@ -334,7 +351,7 @@ def _dispatch_workspace_query(
         raw = search.strip()
         if raw:
             parts = [p.strip() for p in raw.split(",") if p.strip()]
-            from .render.insights import _SECTION_KEYS
+            from .render.insights.renderer import _SECTION_KEYS
 
             if parts and all(p in _SECTION_KEYS for p in parts):
                 sections = parts

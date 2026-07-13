@@ -48,6 +48,7 @@ cross-layer data interchange.
 | `get_request_breadcrumb(request_id)` | `list[dict[str, Any]]` | Ancestor path for breadcrumb bar |
 | `get_collection_breadcrumb(collection_id)` | `list[dict[str, Any]]` | Ancestor path for collection breadcrumb |
 | `get_saved_responses_for_request(request_id)` | `list[dict[str, Any]]` | Saved responses for a request |
+| `request_ids_with_saved_responses(ids)` | `set[int]` | Batched presence: which request ids have ≥1 saved example |
 | `get_saved_response(response_id)` | `dict[str, Any] \| None` | Single saved response detail by ID |
 | `count_collection_requests(collection_id)` | `int` | Total request count in folder subtree |
 | `fetch_request_scripts_for_ids(ids)` | same shape | Script/events for given request ids only |
@@ -98,6 +99,8 @@ Metadata in SQLite; bodies/snapshots via `body_store.py` under
 | `get_entry(entry_id)` | `dict \| None` | Row + loaded body/snapshot bytes |
 | `list_entries_for_sidebar(search?, limit?)` | `list[dict]` | Newest-first global list (left rail); search always capped by `limit` |
 | `list_for_request(request_id, search?, limit?)` | `list[dict]` | Newest-first rows for one persisted `request_id`; search capped |
+| `request_ids_with_history(ids)` | `set[int]` | Batched presence: which request ids have ≥1 history row |
+| `latest_success_json_entry_ids(ids, per_request?)` | `dict[int, list[int]]` | Newest 2xx JSON entry ids per request (response drift) |
 | `delete_entry(entry_id)` | `bool` | Delete one row and on-disk payload files |
 | `prune_old_entries(retention_days, max_items_per_day, unlimited_per_day)` | `None` | Drop rows older than retention and over per-day cap |
 | `nullify_request_id(request_id)` | `None` | Set `request_id` NULL when collection request deleted |
@@ -166,6 +169,7 @@ directly to the repository with no added logic.
 | `get_folder_request_count(collection_id)` | Passthrough |
 | `get_recent_requests(collection_id, ...)` | Passthrough |
 | `get_saved_responses(request_id)` | Formats `created_at` and `body_size` into `SavedResponseDict` |
+| `request_ids_with_saved_responses(ids)` | Batched presence set for insights dead_requests |
 | `get_saved_response(response_id)` | Formats one row into `SavedResponseDict` |
 | `save_response(request_id, ...)` | Passthrough |
 | `rename_saved_response(response_id, new_name)` | `new_name.strip()`, rejects empty |
@@ -259,6 +263,8 @@ Module-level functions; class re-exports them as `@staticmethod` aliases.
 | `entry_to_http_response_dict(entry)` | Map stored entry → `ResponseViewer.load_stored_response` dict |
 | `list_for_request(request_id, search?)` | List sends for one saved request (right rail) |
 | `latest_for_request(request_id)` | Newest send metadata for one request (`LIMIT 1`), or `None` |
+| `request_ids_with_history(ids)` | Batched presence: which request ids have ≥1 history row |
+| `latest_two_json_success_entry_ids(ids)` | Per-request newest two 2xx JSON history entry ids (for response drift) |
 | `get_entry(entry_id)` | Full row with file payloads |
 | `entry_to_detail_snapshot(entry)` | Shape for HistoryPanel read-only detail tabs |
 | `build_replay_request_dict(entry)` | Editor load dict from snapshot |
@@ -422,7 +428,7 @@ TypedDicts: `AiChatSessionDict`, `AiChatMessageDict` (optional `model_id`, `prom
 | Tool | Module | Purpose |
 |------|--------|---------|
 | `postmark_wiki_query` | `services/ai/chat/tools/wiki_query.py` | Read-only user KB lookup (`execute_wiki_query` in `app_wiki/query.py`) |
-| `postmark_workspace_query` | `services/ai/chat/tools/workspace_query/` | Read-only workspace explorer: health `insights`, fielded `search` (`query_parse.py`), multi-goal `goals` (max 4), entity scopes, turn-start snapshot |
+| `postmark_workspace_query` | `services/ai/chat/tools/workspace_query/` | Read-only workspace explorer: health `insights` (incl. dead_requests/token_expiry/response_drift), `env_reach`, `dependencies`, `walkthrough`, fielded `search` (`query_parse.py`), multi-goal `goals` (max 4), entity scopes, turn-start snapshot |
 
 ### ContextUsageService (`services/ai/chat/context_usage.py`, SDK helpers in `context_usage_sdk.py`)
 

@@ -346,7 +346,7 @@ standard object names:
 | `aiChatSubagentDetailScroll` | `QScrollArea` | Scroll container for subagent reply markdown; no right border (overrides `sidebarPanelArea QScrollArea`) |
 | `aiChatSubagentDetailScrollViewport` | `QWidget` | Scroll viewport for subagent reply; explicit no-border override |
 | `aiChatAssistantText` | `MarkdownContent` | Subagent reply body in the detail dialog (same renderer as assistant rows) |
-| `aiChatTranscriptLoading` | `QWidget` (`ChatTranscriptLoadingOverlay`) | Viewport overlay with indeterminate line animation while a session transcript loads; hidden after `_finish_load_transcript_layout` |
+| `aiChatTranscriptLoading` | `QWidget` (`ChatTranscriptLoadingOverlay`) | Viewport overlay with indeterminate line animation while a session transcript loads; hidden after `_finish_load_transcript_layout`. Post-load bottom settle (`_schedule_transcript_bottom_settle`) then watches for height growth with sparse timers and only re-runs heavy settle when the view slips off the bottom — successful pin clears `_pending_transcript_bottom_scroll` so the overlay-gone UI stays clickable |
 | `aiChatOlderLoadingRow` | `QWidget` (`TranscriptOlderLoadingRow`) | In-transcript top row with spinner + **Fetching older messages…** while a silent older page loads; hidden after `apply_older_page` |
 | `aiChatVirtualSpacer` | `QWidget` | Invisible fixed-height placeholder for evicted transcript rows (top/bottom virtual window); evicted user rows cache prompt metadata in `_evicted_turn_users` for sticky overlay |
 | `aiChatTranscriptLoadingBar` | `QWidget` | Sliding accent segment on the session-load track |

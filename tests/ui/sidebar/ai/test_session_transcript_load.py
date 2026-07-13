@@ -317,6 +317,8 @@ def test_post_load_settle_repins_when_transcript_grows_below(qapp: QApplication,
     assert panel._post_load_bottom_settle_active
     bar = panel._scroll.verticalScrollBar()
     assert panel._is_pinned_to_bottom()
+    # Successful pin clears pending; timers only re-settle on slip.
+    assert not panel._pending_transcript_bottom_scroll
     last = panel._last_assistant_bubble()
     assert last is not None and last._markdown_body is not None
     last._markdown_body.set_markdown(
@@ -325,7 +327,33 @@ def test_post_load_settle_repins_when_transcript_grows_below(qapp: QApplication,
     panel._messages.updateGeometry()
     panel._scroll.updateGeometry()
     qapp.processEvents()
+    # If growth slipped the pin, the settle watch re-pins without a pending storm.
+    panel._maybe_flush_pending_transcript_bottom_scroll()
     assert panel._is_pinned_to_bottom(), f"val={bar.value()} max={bar.maximum()}"
+
+
+def test_post_load_settle_skips_work_while_pinned(qapp: QApplication, qtbot) -> None:
+    """Post-overlay settle timers must not re-run heavy settle while still pinned."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitExposed(panel)
+    panel.resize(360, 240)
+    load_transcript_sync(panel, _long_messages(10), qtbot)
+    assert panel._post_load_bottom_settle_active
+    assert panel._is_pinned_to_bottom()
+    assert not panel._pending_transcript_bottom_scroll
+    settle_calls = {"n": 0}
+    original = panel._scroll_to_bottom_settled
+
+    def _counting() -> None:
+        settle_calls["n"] += 1
+        original()
+
+    panel._scroll_to_bottom_settled = _counting  # type: ignore[method-assign]
+    for _ in range(8):
+        panel._maybe_flush_pending_transcript_bottom_scroll()
+    assert settle_calls["n"] == 0
 
 
 def _assistant_tail_messages() -> list[AiChatMessageDict]:

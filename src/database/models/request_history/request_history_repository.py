@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
+from collections.abc import Sequence
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 
+from sqlalchemy import func as sa_func
 from sqlalchemy import or_, select
 
 from database.database import get_session
@@ -256,6 +258,100 @@ def list_for_request(
         stmt = stmt.limit(limit)
         rows = list(session.execute(stmt).scalars().all())
     return [_entry_to_dict(row) for row in rows]
+
+
+def request_ids_with_history(ids: Sequence[int]) -> set[int]:
+    """Return the subset of *ids* that have at least one send-history row."""
+    if not ids:
+        return set()
+    with get_session() as session:
+        stmt = (
+            select(RequestHistoryEntryModel.request_id)
+            .where(RequestHistoryEntryModel.request_id.in_(list(ids)))
+            .distinct()
+        )
+        rows = session.execute(stmt).scalars().all()
+    return {int(rid) for rid in rows if rid is not None}
+
+
+def latest_success_json_entry_ids(
+    ids: Sequence[int],
+    *,
+    per_request: int = 2,
+) -> dict[int, list[int]]:
+    """Return newest-first 2xx history entry ids per request (metadata filter only).
+
+    Uses a windowed subquery so at most ``per_request * 5`` recent 2xx rows are
+    considered per request (oversample so non-JSON Content-Types can be skipped).
+    """
+    if not ids or per_request < 1:
+        return {}
+    oversample = max(per_request * 5, per_request)
+    with get_session() as session:
+        rn = (
+            sa_func.row_number()
+            .over(
+                partition_by=RequestHistoryEntryModel.request_id,
+                order_by=(
+                    RequestHistoryEntryModel.executed_at.desc(),
+                    RequestHistoryEntryModel.id.desc(),
+                ),
+            )
+            .label("rn")
+        )
+        ranked = (
+            select(
+                RequestHistoryEntryModel.id,
+                RequestHistoryEntryModel.request_id,
+                RequestHistoryEntryModel.response_headers,
+                rn,
+            )
+            .where(
+                RequestHistoryEntryModel.request_id.in_(list(ids)),
+                RequestHistoryEntryModel.status_code >= 200,
+                RequestHistoryEntryModel.status_code < 300,
+                RequestHistoryEntryModel.error.is_(None),
+            )
+            .subquery()
+        )
+        stmt = (
+            select(
+                ranked.c.id,
+                ranked.c.request_id,
+                ranked.c.response_headers,
+            )
+            .where(ranked.c.rn <= oversample)
+            .order_by(ranked.c.request_id, ranked.c.rn)
+        )
+        rows = list(session.execute(stmt).all())
+
+    def _looks_json(headers: Any) -> bool:
+        if isinstance(headers, dict):
+            for key, value in headers.items():
+                if str(key).casefold() == "content-type" and "json" in str(value).casefold():
+                    return True
+            return False
+        if isinstance(headers, list):
+            for row in headers:
+                if not isinstance(row, dict):
+                    continue
+                if str(row.get("key", "")).casefold() != "content-type":
+                    continue
+                return "json" in str(row.get("value", "")).casefold()
+        return False
+
+    out: dict[int, list[int]] = {}
+    for entry_id, request_id, headers in rows:
+        if request_id is None:
+            continue
+        rid = int(request_id)
+        bucket = out.setdefault(rid, [])
+        if len(bucket) >= per_request:
+            continue
+        if not _looks_json(headers):
+            continue
+        bucket.append(int(entry_id))
+    return {rid: eids for rid, eids in out.items() if len(eids) >= 2}
 
 
 def _delete_rows(session: Any, rows: list[RequestHistoryEntryModel]) -> None:

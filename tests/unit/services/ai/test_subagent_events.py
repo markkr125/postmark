@@ -379,3 +379,25 @@ def test_turn_index_uses_full_session_not_tail_page() -> None:
     assert _turn_index_for_message(full_session, global_index) == 1
     # Tail page + global index is the transcript-load bug: must not crash.
     assert _turn_index_for_message(tail_page, global_index) == 0
+
+
+def test_records_for_assistant_turn_reuses_passed_events(monkeypatch) -> None:
+    """Transcript load passes a shared EventLog so each assistant row skips disk re-reads."""
+    from services.ai.chat.subagent_events import records_for_assistant_turn
+
+    calls = {"n": 0}
+
+    def _boom(_session_id: str) -> list[object]:
+        calls["n"] += 1
+        raise AssertionError("iter_session_events must not run when events= is passed")
+
+    monkeypatch.setattr(
+        "services.ai.chat.context_usage.iter_session_events",
+        _boom,
+    )
+    messages = [
+        {"role": "user", "id": 1},
+        {"role": "assistant", "id": 2},
+    ]
+    assert records_for_assistant_turn("sid", messages, 1, events=[]) == []
+    assert calls["n"] == 0

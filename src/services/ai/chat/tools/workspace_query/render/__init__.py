@@ -15,7 +15,9 @@ from .collections import (
     _render_saved_response,
     _render_saved_responses,
 )
-from .insights import _render_insights
+from .dependencies import _render_dependencies
+from .env_reach import _render_env_reach
+from .insights.renderer import _render_insights
 from .live import (
     _render_active_response,
     _render_active_tab,
@@ -36,12 +38,15 @@ from .scripts import (
 from .search import _render_search
 from .settings import _render_settings
 from .variables import _render_variable
+from .walkthrough import _render_walkthrough
 
 __all__ = [
     "_render_active_response",
     "_render_active_tab",
     "_render_collection",
     "_render_collection_tree",
+    "_render_dependencies",
+    "_render_env_reach",
     "_render_environments",
     "_render_globals",
     "_render_history_entry",
@@ -66,4 +71,5 @@ __all__ = [
     "_render_snippets",
     "_render_tab",
     "_render_variable",
+    "_render_walkthrough",
 ]

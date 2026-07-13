@@ -612,15 +612,21 @@ def records_for_assistant_turn(
     session_id: str,
     messages: list[Any],
     msg_index: int,
+    *,
+    events: list[Any] | None = None,
 ) -> list[SubagentRunRecord]:
-    """Rebuild subagent cards for one persisted assistant message."""
+    """Rebuild subagent cards for one persisted assistant message.
+
+    Pass *events* when loading several assistant rows from the same session so
+    the EventLog is read once instead of once per row.
+    """
     from services.ai.chat.context_usage import iter_session_events
 
-    events = iter_session_events(session_id)
-    if not events:
+    loaded = events if events is not None else iter_session_events(session_id)
+    if not loaded:
         return []
     turn_index = _turn_index_for_message(messages, msg_index)
-    slice_events = _slice_events_for_turn(events, turn_index)
+    slice_events = _slice_events_for_turn(loaded, turn_index)
     return records_for_turn_events(slice_events, session_id=session_id)
 
 

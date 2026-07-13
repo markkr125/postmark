@@ -14,6 +14,11 @@ from ui.sidebar.ai.message_bubble import ChatMessageBubble, ChatRole
 _TRANSCRIPT_LOAD_TICK_MS = 0
 _TRANSCRIPT_LOAD_MESSAGES_PER_TICK = 4
 _TRANSCRIPT_LOADING_MESSAGE = "Loading conversation…"
+# Sparse retries while the flyout/viewport gains a real size (hidden startup restore).
+_BOTTOM_PIN_RETRY_DELAYS_MS = (0, 100, 300, 800, 2000, 4000)
+# Post-load growth watch: re-pin only when the view slips off the bottom.
+_POST_LOAD_BOTTOM_SETTLE_DELAYS_MS = (0, 100, 300, 800, 2000)
+_POST_LOAD_BOTTOM_SETTLE_END_MS = 4500
 
 
 def parse_message_sent_at(raw: object) -> datetime | None:
@@ -44,6 +49,7 @@ class _ChatPanelTranscriptLoadMixin:
     _transcript_load_timer: QTimer
     _pending_transcript_bottom_scroll: bool = False
     _post_load_bottom_settle_active: bool = False
+    _session_events_cache: list[Any] | None = None
 
     def _init_transcript_load_state(self) -> None:
         """Create the incremental load timer (call from panel streaming init)."""
@@ -57,6 +63,7 @@ class _ChatPanelTranscriptLoadMixin:
         self._transcript_load_active_generation = 0
         self._pending_transcript_bottom_scroll = False
         self._post_load_bottom_settle_active = False
+        self._session_events_cache = None
 
     def _transcript_viewport_can_pin_bottom(self) -> bool:
         """Return whether the scroll viewport is large enough to pin the bottom."""
@@ -77,8 +84,9 @@ class _ChatPanelTranscriptLoadMixin:
         for _ in range(3):
             cast(Any, self)._scroll_to_bottom_settled()
             if cast(Any, self)._is_pinned_to_bottom():
-                if not self._post_load_bottom_settle_active:
-                    self._pending_transcript_bottom_scroll = False
+                # Always clear pending once pinned — post-load timers cheap-check
+                # for slip instead of re-running the full settle storm.
+                self._pending_transcript_bottom_scroll = False
                 return
             QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
         self._pending_transcript_bottom_scroll = True
@@ -93,31 +101,33 @@ class _ChatPanelTranscriptLoadMixin:
         self._finish_transcript_bottom_scroll()
 
     def _maybe_flush_pending_transcript_bottom_scroll(self) -> None:
-        """Scroll to the bottom once the transcript viewport has a real size."""
-        if not self._pending_transcript_bottom_scroll:
-            return
+        """Pin the bottom when needed; skip work while post-load pin still holds."""
         if not self._transcript_ready_for_bottom_pin():
             return
         if not cast(Any, self)._scroll_lock_enabled:
             self._pending_transcript_bottom_scroll = False
             return
-        self._finish_transcript_bottom_scroll()
+        if self._pending_transcript_bottom_scroll:
+            self._finish_transcript_bottom_scroll()
+            return
+        # Growth watch: only re-settle when lazy markdown pushed us off the bottom.
+        if self._post_load_bottom_settle_active and not cast(Any, self)._is_pinned_to_bottom():
+            self._finish_transcript_bottom_scroll()
 
     def _schedule_pending_transcript_bottom_retries(self) -> None:
         """Retry bottom pinning while the flyout or viewport is still settling."""
         if not self._pending_transcript_bottom_scroll:
             return
-        for delay_ms in (0, 50, 150, 400, 900, 1800, 3200, 5000):
+        for delay_ms in _BOTTOM_PIN_RETRY_DELAYS_MS:
             QTimer.singleShot(delay_ms, self._maybe_flush_pending_transcript_bottom_scroll)
 
     def _schedule_transcript_bottom_settle(self) -> None:
-        """Keep pinning the bottom while post-load layout and lazy markdown settle."""
+        """Watch for post-load height growth and re-pin only if the view slips."""
         self._post_load_bottom_settle_active = True
         self._pending_transcript_bottom_scroll = True
-        self._schedule_pending_transcript_bottom_retries()
-        for delay_ms in (80, 200, 500, 1200, 2500, 4500, 7000):
+        for delay_ms in _POST_LOAD_BOTTOM_SETTLE_DELAYS_MS:
             QTimer.singleShot(delay_ms, self._maybe_flush_pending_transcript_bottom_scroll)
-        QTimer.singleShot(8000, self._end_post_load_bottom_settle)
+        QTimer.singleShot(_POST_LOAD_BOTTOM_SETTLE_END_MS, self._end_post_load_bottom_settle)
 
     def _show_transcript_loading(self) -> None:
         """Show the panel-level loading overlay while a session transcript loads."""
@@ -153,6 +163,7 @@ class _ChatPanelTranscriptLoadMixin:
         self._transcript_load_lazy_markdown = False
         self._pending_transcript_bottom_scroll = False
         self._post_load_bottom_settle_active = False
+        self._session_events_cache = None
         self._hide_transcript_loading()
 
     def is_transcript_load_active(self) -> bool:
@@ -261,11 +272,21 @@ class _ChatPanelTranscriptLoadMixin:
             )
             session_id = getattr(self, "_virtual_session_id", None)
             if session_id and msg_index is not None and pricing_messages:
+                from services.ai.chat.context_usage import iter_session_events
                 from services.ai.chat.subagent_events import records_for_assistant_turn
 
+                events = self._session_events_cache
+                if events is None:
+                    events = iter_session_events(session_id)
+                    self._session_events_cache = events
                 bubble.set_subagent_session_id(session_id)
                 bubble.set_subagent_records(
-                    records_for_assistant_turn(session_id, pricing_messages, msg_index)
+                    records_for_assistant_turn(
+                        session_id,
+                        pricing_messages,
+                        msg_index,
+                        events=events,
+                    )
                 )
             if post_subagent_thinking.strip():
                 bubble.restore_post_subagent_thinking(
@@ -289,6 +310,7 @@ class _ChatPanelTranscriptLoadMixin:
         self._transcript_load_index = 0
         self._transcript_load_lazy_markdown = lazy_markdown
         self._defer_transcript_hooks = True
+        self._session_events_cache = None
         self._refresh_pricing_messages()
         if page is not None:
             self._apply_virtual_page_state(page)  # type: ignore[attr-defined]
