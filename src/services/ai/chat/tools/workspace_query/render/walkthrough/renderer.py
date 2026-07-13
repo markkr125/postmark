@@ -82,8 +82,11 @@ def _env_keys_to_supply(
             resolved = _resolve_url_for_request(
                 url, env_id=env_id, request_id=rid, use_collection=True
             )
-            # Keys still present as {{…}} after substitution were *not* supplied.
-            unresolved |= _extract_var_refs(resolved)
+            # Keys still present as {{…}} after substitution were *not* supplied
+            # by the env; script-produced keys belong under runtime_needed only.
+            leftover = _extract_var_refs(resolved)
+            unresolved |= leftover - runtime_set
+            runtime_needed |= leftover & runtime_set
             var_map = EnvironmentService.build_combined_variable_map(env_id, rid)
             for key in graph["consumer_keys"].get(rid, set()):
                 if key in runtime_set:

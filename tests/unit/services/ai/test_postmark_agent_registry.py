@@ -18,6 +18,7 @@ def test_default_agent_registered() -> None:
     assert defn.tool_names == (
         "postmark_wiki_query",
         "postmark_workspace_query",
+        "postmark_datetime",
         "task_tool_set",
         "delegate",
     )
@@ -25,6 +26,9 @@ def test_default_agent_registered() -> None:
     assert defn.system_prompt
     assert "postmark_wiki_query" in defn.system_prompt
     assert "postmark_workspace_query" in defn.system_prompt
+    assert "postmark_datetime" in defn.system_prompt
+    assert "never invent wall-clock times" in defn.system_prompt
+    assert "Unix seconds" in defn.system_prompt
     assert "delegate" in defn.system_prompt
     assert "workspace-researcher" in defn.system_prompt
     assert defn.max_iteration_per_run == 10

@@ -291,6 +291,7 @@ tests/
 │       │   ├── test_delegate_tool.py
 │       │   ├── test_build_app_wiki.py
 │       │   ├── test_wiki_query_tool.py
+│       │   ├── test_datetime_query_tool.py  # postmark_datetime now + timezone convert
 │       │   ├── test_workspace_snapshot.py  # session snapshot + last search hits
 │       │   ├── test_workspace_query_tool.py
 │       │   ├── test_workspace_query_audit.py  # redaction, within_ids/[-1], params search, dirty merge, tokenized search

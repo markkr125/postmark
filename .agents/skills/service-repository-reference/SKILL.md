@@ -423,12 +423,13 @@ OpenHands SDK disk state under `session_disk_dir(id)`. Worker thread builds
 | `fork_session_at_user_message(source_session_id, user_message_id)` | New session with prefix **before** the user row (empty + no disk copy when first message); returns ``AiChatUserForkResult`` with ``composer_draft`` = user message text |
 
 TypedDicts: `AiChatSessionDict`, `AiChatMessageDict` (optional `model_id`, `prompt_tokens`, `completion_tokens`, `reasoning_tokens` on assistant rows; optional `send_*` fields on user rows), `UserMessageSendSnapshot`, `AiChatUserForkResult` (`session`, `composer_draft`). Agent/tool registries:
-`PostmarkAgentDef`, `DEFAULT_AGENT_ID` (`postmark-assistant`, `postmark_wiki_query` tool, `max_iteration_per_run=5`).
+`PostmarkAgentDef`, `DEFAULT_AGENT_ID` (`postmark-assistant`, `postmark_wiki_query` + `postmark_workspace_query` + `postmark_datetime` tools, `max_iteration_per_run=10`).
 
 | Tool | Module | Purpose |
 |------|--------|---------|
 | `postmark_wiki_query` | `services/ai/chat/tools/wiki_query.py` | Read-only user KB lookup (`execute_wiki_query` in `app_wiki/query.py`) |
 | `postmark_workspace_query` | `services/ai/chat/tools/workspace_query/` | Read-only workspace explorer: health `insights` (incl. dead_requests/token_expiry/response_drift), `env_reach`, `dependencies`, `walkthrough`, fielded `search` (`query_parse.py`), multi-goal `goals` (max 4), entity scopes, turn-start snapshot |
+| `postmark_datetime` | `services/ai/chat/tools/datetime_query/` | Current date/time (`operation=now`) + free-text timezone / Unix-epoch convert (`operation=convert`; stdlib `zoneinfo`; past/future relative to now) |
 
 ### ContextUsageService (`services/ai/chat/context_usage.py`, SDK helpers in `context_usage_sdk.py`)
 

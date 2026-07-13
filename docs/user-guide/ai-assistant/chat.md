@@ -50,6 +50,10 @@ Use the **⋯** menu on user or assistant messages:
 
 When supported, add file chips from the attachment row above the prompt before sending.
 
+## Date and time
+
+Ask the assistant for the current date or time, to convert a time between timezones (for example, “what time is it in Australia right now?”), or to interpret a Unix timestamp / JWT `exp` epoch (“convert 1752386400 to my local timezone — is that in the past?”). The assistant uses your computer’s local timezone when the source zone is not specified; Unix timestamps are always UTC.
+
 ## Related
 
 - [Workspace explorer](workspace-explorer.md) — ask about your collections, variables, and history

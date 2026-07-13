@@ -173,14 +173,23 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   and rewinds SDK disk state before the controller resubmits on the same bubble.
   Postmark agent/tool registries
   (`agent_registry.py`, `tool_registry.py`, `tools/wiki_query.py`,
-  `tools/workspace_query/`, `tools/delegate_tool.py`, `subagent_registry.py`) ship
+  `tools/datetime_query/`, `tools/workspace_query/`, `tools/delegate_tool.py`,
+  `subagent_registry.py`) ship
   `DEFAULT_AGENT_ID` with `postmark_wiki_query`, `postmark_workspace_query`,
+  `postmark_datetime` (current date/time + free-text timezone / Unix-epoch convert),
   OpenHands `task_tool_set` (sequential/resumable subagents), and `delegate`
   (parallel fan-out).
   Built-in subagent types: `wiki-researcher` (`postmark_wiki_query` only),
   `workspace-researcher` (`postmark_workspace_query` only), and
   `general-purpose` (no tools). Optional file agents from
   `.agents/agents/*.md` via `register_file_agents(project_root())`.
+  **`postmark_datetime`** (`tools/datetime_query/`) answers wall-clock
+  questions with `operation=now` (local date/time/full + UTC + Unix seconds) or
+  `operation=convert` (flexible `when` / `from_tz` / `to_tz`, including Unix
+  epoch seconds/ms; omitted `from_tz` → OS local except epoch→UTC; ambiguous
+  labels like `australia` → documented default with an assumption note;
+  convert observations include past/future relative to now). Stdlib `zoneinfo`
+  only.
   **`postmark_workspace_query`** (`tools/workspace_query/`) reads the user's
   collections, requests, environments, run history, and open-tab state on demand.
   `WorkspaceQueryExecutor` resolves the parent chat session id via

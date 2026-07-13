@@ -238,6 +238,9 @@ src/
 │   │       │   └── schema.py      # WIKI.md body for tool workflow
 │   │       ├── tools/             # OpenHands custom tools
 │   │       │   ├── wiki_query.py  # postmark_wiki_query Action/Observation/Executor
+│   │       │   ├── datetime_query/ # postmark_datetime — now + timezone/Unix convert
+│   │       │   │   ├── ops.py     # resolve_zone, parse_when, execute_datetime_query
+│   │       │   │   └── tool.py    # Action/Observation/Executor registration
 │   │       │   ├── workspace_query/ # postmark_workspace_query (read-only workspace slices)
 │   │       │   │   ├── constants.py
 │   │       │   │   ├── helpers.py
@@ -711,6 +714,7 @@ tests/
 │       │   ├── test_delegate_tool.py
 │       │   ├── test_build_app_wiki.py
 │       │   ├── test_wiki_query_tool.py
+│       │   ├── test_datetime_query_tool.py  # postmark_datetime now + timezone convert
 │       │   ├── test_workspace_snapshot.py
 │       │   ├── test_workspace_query_tool.py
 │       │   ├── test_workspace_query_audit.py

@@ -48,6 +48,15 @@ _SECTION_KEYS = frozenset(
     }
 )
 
+# Sections that do not need any request rows (env/globals/local-scripts only).
+_REQUEST_INDEPENDENT_SECTIONS = frozenset(
+    {
+        "token_expiry",
+        "secret_hygiene",
+        "local_deps",
+    }
+)
+
 
 def _want(sections: set[str] | None, key: str) -> bool:
     """Return True when *key* should be rendered."""
@@ -85,8 +94,10 @@ def _render_insights(
     dup_groups = _collect_dup_groups(tree, within=within)
 
     if not request_ids and not any(len(g) > 1 for g in dup_groups.values()):
-        need_token_only = section_filter == {"token_expiry"}
-        if not need_token_only:
+        independent_only = (
+            section_filter is not None and section_filter <= _REQUEST_INDEPENDENT_SECTIONS
+        )
+        if not independent_only:
             if within is not None:
                 return "No matching requests in the within_ids set for insights."
             return "No requests in the workspace."

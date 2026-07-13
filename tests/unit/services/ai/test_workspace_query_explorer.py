@@ -411,6 +411,66 @@ def test_walkthrough_env_supply_unresolved(make_collection_with_request: Any) ->
     assert secret not in text
 
 
+def test_walkthrough_runtime_var_not_double_listed(make_collection_with_request: Any) -> None:
+    """Script-set URL vars stay under runtime-set, not supply, when an env is active."""
+    env = EnvironmentService.create_environment("WalkRuntimeEnv")
+    EnvironmentService.update_environment_values(
+        env.id,
+        [
+            {
+                "key": "baseUrl",
+                "value": "https://api.example.com",
+                "enabled": True,
+                "type": "default",
+            }
+        ],
+    )
+    coll, login = make_collection_with_request(req_name="WalkRtLogin")
+    checkout = CollectionService.create_request(
+        coll.id,
+        "GET",
+        "{{baseUrl}}/me?t={{token}}",
+        "WalkRtCheckout",
+    )
+    CollectionService.update_request(
+        login.id,
+        scripts={"test": 'pm.environment.set("token", "from_script");'},
+    )
+    sid = _session()
+    set_workspace_snapshot(sid, {"current_env_id": env.id, "tabs": [], "active_tab_index": 0})
+    text = execute_workspace_query("walkthrough", session_id=sid, target_id=coll.id)
+    env_line = next(line for line in text.splitlines() if line.startswith("Environment:"))
+    assert "runtime-set" in env_line
+    assert "{{token}}" in env_line
+    if "supply" in env_line:
+        supply_part = env_line.split("supply", 1)[1].split("runtime-set", 1)[0]
+        assert "token" not in supply_part
+    assert f"postmark://request/{checkout.id}" in text or "Walkthrough" in text
+
+
+def test_insights_secret_hygiene_without_requests() -> None:
+    """secret_hygiene runs on an empty request workspace (request-independent section)."""
+    env = EnvironmentService.create_environment("HygieneOnlyEnv")
+    EnvironmentService.update_environment_values(
+        env.id,
+        [
+            {
+                "key": "access_token",
+                "value": "plain_not_secret_typed",
+                "enabled": True,
+                "type": "default",
+            }
+        ],
+    )
+    text = execute_workspace_query(
+        "insights",
+        session_id=_session(),
+        search="secret_hygiene",
+    )
+    assert "No requests in the workspace." not in text
+    assert "Secret hygiene" in text or "access_token" in text
+
+
 def test_walkthrough_no_edges_degrades(make_collection_with_request: Any) -> None:
     """With no static edges, walkthrough does not invent a run order and keeps the caveat."""
     coll, _req = make_collection_with_request(req_name="FlatA")

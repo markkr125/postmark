@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import openhands.tools.task.definition  # noqa: F401 — registers TaskToolSet
 
 from services.ai.chat.subagent_registry import register_postmark_subagents
+from services.ai.chat.tools.datetime_query import register_datetime_query_tool
 from services.ai.chat.tools.delegate_tool import register_postmark_delegate_tool
 from services.ai.chat.tools.wiki_query import register_wiki_query_tool
 from services.ai.chat.tools.workspace_query import register_workspace_query_tool
@@ -26,6 +27,13 @@ _WIKI_SYSTEM_PROMPT = (
     "service; do not confuse the two and do not speculate about what the app is. "
     "Help the user with API development, HTTP requests, scripting, and using the app. "
     "Be concise and practical. "
+    "For questions about the current date, current time, full date/time, converting a "
+    "time between timezones, or interpreting a Unix timestamp / JWT exp epoch, call "
+    "postmark_datetime — never invent wall-clock times, offsets, or epoch calendar math "
+    "from memory. Use operation=now for 'what time/date is it'; use operation=convert "
+    "with free-text when/from_tz/to_tz (omit from_tz to assume local; omit when or pass "
+    "now/rn for the current instant; pass Unix seconds as when with from_tz=UTC and "
+    "to_tz=local for 'to my local timezone'). "
     "For questions about how Postmark works (UI, workflows, settings, scripting, debugging), "
     "call postmark_wiki_query with short keywords before answering — do not guess exact "
     "file paths, and do not invent menu items or shortcuts. "
@@ -170,6 +178,7 @@ def _register_defaults() -> None:
     """Ship the default chat agent with wiki + delegation tools."""
     register_wiki_query_tool()
     register_workspace_query_tool()
+    register_datetime_query_tool()
     register_postmark_delegate_tool()
     register_postmark_subagents()
     register_postmark_agent(
@@ -180,6 +189,7 @@ def _register_defaults() -> None:
             tool_names=(
                 "postmark_wiki_query",
                 "postmark_workspace_query",
+                "postmark_datetime",
                 "task_tool_set",
                 "delegate",
             ),
