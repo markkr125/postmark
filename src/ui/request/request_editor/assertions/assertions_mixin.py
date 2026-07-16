@@ -77,6 +77,12 @@ class _AssertionsMixin:
         if getattr(self, "_assertions_editor_materialized", False):
             self._assertions_table.set_rows([])
 
+    def _cancel_assertions_persist(self) -> None:
+        """Stop a pending assertions auto-save so a reload cannot be overwritten."""
+        timer = getattr(self, "_assertions_save_timer", None)
+        if timer is not None and timer.isActive():
+            timer.stop()
+
     def _on_assertions_changed(self) -> None:
         """Debounce persistence and refresh tab indicators."""
         sync = getattr(self, "_sync_tab_indicators", None)

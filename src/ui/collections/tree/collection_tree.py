@@ -442,9 +442,14 @@ class CollectionTree(_TreeActionsMixin, QWidget):
     def select_item_by_id(self, item_id: int, item_type: str) -> None:
         """Select and scroll to the item with the given ID and type after data load."""
         target = self._find_item_by_id(self._tree.invisibleRootItem(), item_id, item_type)
-        if target:
-            self._tree.setCurrentItem(target)
-            self._tree.scrollToItem(target, QTreeWidget.ScrollHint.EnsureVisible)
+        if target is None:
+            return
+        parent = target.parent()
+        while parent is not None and parent is not self._tree.invisibleRootItem():
+            parent.setExpanded(True)
+            parent = parent.parent()
+        self._tree.setCurrentItem(target)
+        self._tree.scrollToItem(target, QTreeWidget.ScrollHint.EnsureVisible)
 
     def start_rename_by_id(self, item_id: int, item_type: str) -> None:
         """Select the item and immediately enter in-place rename mode."""

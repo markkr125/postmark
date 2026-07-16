@@ -319,6 +319,8 @@ class FolderEditorWidget(_AuthMixin, _RunsMixin, _ScriptsMixin, QWidget):
         """
         self._loading = True
         try:
+            if self._debounce_timer.isActive():
+                self._debounce_timer.stop()
             self._collection_id = collection_id
             self._set_content_visible(True)
 

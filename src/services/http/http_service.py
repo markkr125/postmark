@@ -158,6 +158,7 @@ class HttpService:
         url: str,
         headers: str | None = None,
         body: str | None = None,
+        body_mode: str | None = None,
         timeout: float = DEFAULT_TIMEOUT,
     ) -> HttpResponseDict:
         """Execute an HTTP request and return the response.
@@ -169,7 +170,11 @@ class HttpService:
             method: HTTP method (GET, POST, etc.).
             url: Full request URL.
             headers: Newline-separated ``Key: Value`` header string.
-            body: Request body text (sent as-is).
+            body: Request body text, or filesystem path when
+                *body_mode* is ``binary``.
+            body_mode: Body mode from the request editor (e.g. ``raw``,
+                ``binary``). When ``binary``, *body* is treated as a
+                filesystem path and file bytes are sent.
             timeout: Timeout in seconds.
 
         Returns:
@@ -181,7 +186,22 @@ class HttpService:
             {"key": k, "value": v} for k, v in parsed_headers.items()
         ]
         request_method_value = method.strip().upper() if method else "GET"
-        content: bytes | None = body.encode("utf-8") if body else None
+        mode = (body_mode or "").strip().casefold()
+        content: bytes | None
+        if mode == "binary":
+            from services.http.binary_body import resolve_binary_body_bytes
+
+            content, bin_err = resolve_binary_body_bytes(body or "")
+            if bin_err:
+                return HttpResponseDict(
+                    error=bin_err,
+                    elapsed_ms=0.0,
+                    request_method=request_method_value,
+                    request_url=url,
+                    request_headers=request_headers_list,
+                )
+        else:
+            content = body.encode("utf-8") if body else None
 
         # -- 1. DNS pre-resolve ----------------------------------------
         parsed_url = urlparse(url)

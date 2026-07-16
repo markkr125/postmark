@@ -8,9 +8,6 @@ assertions.
 
 from __future__ import annotations
 
-import csv
-import json
-from io import StringIO
 from typing import Any
 
 from PySide6.QtCore import Qt
@@ -271,42 +268,14 @@ class RunnerResultsView(QWidget):
 
     def _export_csv(self, path: str) -> None:
         """Write results to a CSV file."""
-        output = StringIO()
-        writer = csv.writer(output)
-        writer.writerow(["Name", "Method", "Status", "Time (ms)", "Tests", "Result"])
-        for r in self._results:
-            tests = r.get("test_results", [])
-            passed = sum(1 for t in tests if t.get("passed"))
-            total = len(tests)
-            test_str = f"{passed}/{total}" if total else "-"
-            status = "SKIP" if r.get("_skipped") else str(r.get("status_code", 0))
-            writer.writerow(
-                [
-                    r.get("name", ""),
-                    r.get("method", ""),
-                    status,
-                    f"{r.get('elapsed_ms', 0):.0f}",
-                    test_str,
-                    r.get("error", "") or "OK",
-                ]
-            )
+        from services.run_export import export_run_results_csv
+
         with open(path, "w", encoding="utf-8", newline="") as f:
-            f.write(output.getvalue())
+            f.write(export_run_results_csv(self._results))
 
     def _export_json(self, path: str) -> None:
         """Write results to a JSON file."""
-        export = []
-        for r in self._results:
-            export.append(
-                {
-                    "name": r.get("name", ""),
-                    "method": r.get("method", ""),
-                    "status_code": r.get("status_code", 0),
-                    "elapsed_ms": r.get("elapsed_ms", 0),
-                    "error": r.get("error"),
-                    "skipped": bool(r.get("_skipped")),
-                    "test_results": r.get("test_results", []),
-                }
-            )
+        from services.run_export import export_run_results_json
+
         with open(path, "w", encoding="utf-8") as f:
-            json.dump(export, f, indent=2, default=str)
+            f.write(export_run_results_json(self._results))

@@ -11,10 +11,13 @@ from PySide6.QtWidgets import QFrame, QLabel, QSizePolicy, QVBoxLayout, QWidget
 from services.ai.ai_config import AiModelEntry
 from services.ai.chat.message_usage import format_assistant_footer_label
 from services.ai.chat.session_service import AiChatMessageDict
+from services.ai.chat.execute_events import ExecuteRunRecord
 from services.ai.chat.subagent_events import SubagentRunRecord, enrich_subagent_records
 from ui.sidebar.ai.chat_panel.scroll.widget_coords import map_widget_y_to_ancestor
 from ui.sidebar.ai.message_bubble.activity_row import AssistantActivityRow
 from ui.sidebar.ai.message_bubble.assistant_message.footer import AssistantMessageFooterRow
+from ui.sidebar.ai.message_bubble.confirm.group import PendingToolGroup
+from ui.sidebar.ai.message_bubble.execute.group import ExecuteResultGroup
 from ui.sidebar.ai.message_bubble.markdown_content import MarkdownContent
 from ui.sidebar.ai.message_bubble.thought_section import ThoughtSection
 from ui.sidebar.ai.message_bubble.subagent.group import SubagentTaskGroup
@@ -49,6 +52,8 @@ class ChatMessageBubble(QWidget):
     user_edit_requested = Signal()
     subagent_card_clicked = Signal(str)
     workspace_target_requested = Signal(str, int, str)
+    confirmation_approve_requested = Signal()
+    confirmation_reject_requested = Signal()
 
     def __init__(
         self,
@@ -80,6 +85,9 @@ class ChatMessageBubble(QWidget):
         self._subagent_records: dict[str, SubagentRunRecord] = {}
         self._subagent_session_id: str | None = None
         self._subagents_all_complete = False
+        self._execute_group: ExecuteResultGroup | None = None
+        self._execute_records: dict[str, ExecuteRunRecord] = {}
+        self._pending_group: PendingToolGroup | None = None
         self._activity_row: AssistantActivityRow | None = None
         self._user_frame: QFrame | None = None
         self._user_section: UserMessageSection | None = None
@@ -140,6 +148,14 @@ class ChatMessageBubble(QWidget):
 
             self._subagent_group = SubagentTaskGroup(self)
             outer.addWidget(self._subagent_group)
+
+            self._pending_group = PendingToolGroup(self)
+            self._pending_group.approve_requested.connect(self.confirmation_approve_requested.emit)
+            self._pending_group.reject_requested.connect(self.confirmation_reject_requested.emit)
+            outer.addWidget(self._pending_group)
+
+            self._execute_group = ExecuteResultGroup(self)
+            outer.addWidget(self._execute_group)
 
             self._markdown_body = MarkdownContent("")
             if lazy_markdown and text.strip():
@@ -613,6 +629,8 @@ class ChatMessageBubble(QWidget):
 
     def show_activity(self, message: str) -> None:
         """Show the waiting spinner and status caption (assistant only)."""
+        if self.has_pending_confirmation():
+            return
         if self._activity_row is not None:
             self.set_assistant_turn_complete(False)
             self._activity_row.show_activity(message)
@@ -621,6 +639,8 @@ class ChatMessageBubble(QWidget):
 
     def set_activity_message(self, message: str) -> None:
         """Update the waiting status caption without changing visibility."""
+        if self.has_pending_confirmation():
+            return
         if self._activity_row is not None:
             self._activity_row.set_message(message)
 
@@ -652,6 +672,80 @@ class ChatMessageBubble(QWidget):
             self._subagent_group.clear_cards()
             self.updateGeometry()
             self._commit_stream_row_layout()
+
+    def clear_execute_cards(self) -> None:
+        """Remove all agent-execute result cards."""
+        self._execute_records.clear()
+        if self._execute_group is not None:
+            self._execute_group.clear_cards()
+
+    def show_pending_confirmation(self, payload: object) -> None:
+        """Show inline pending-tool Approve cards for *payload*."""
+        if self._pending_group is None:
+            return
+        self._pending_group.show_pending(payload)
+        self.refresh_pending_activity()
+        self.updateGeometry()
+        self._commit_stream_row_layout()
+        self.layout_height_changed.emit()
+
+    def clear_pending_confirmation(self) -> None:
+        """Hide inline pending-tool Approve cards."""
+        if self._pending_group is None:
+            return
+        if not self._pending_group.has_pending():
+            self._pending_group.clear_pending()
+            return
+        self._pending_group.clear_pending()
+        self.updateGeometry()
+        self._commit_stream_row_layout()
+        self.layout_height_changed.emit()
+
+    def has_pending_confirmation(self) -> bool:
+        """Return whether Approve cards are visible on this row."""
+        return self._pending_group is not None and self._pending_group.has_pending()
+
+    def refresh_pending_activity(self) -> None:
+        """Hide generic activity row while pending Approve cards are the loader."""
+        if self._pending_group is not None and self._pending_group.has_pending():
+            self.hide_activity()
+            self.updateGeometry()
+            self._commit_stream_row_layout()
+
+    def upsert_execute_record(self, record: ExecuteRunRecord) -> None:
+        """Create or update one agent-execute result card."""
+        if self._execute_group is None:
+            return
+        self._execute_records[record["id"]] = record
+        card = self._execute_group.upsert_record(record)
+        if not card.property("_execute_click_wired"):
+            card.clicked.connect(self._on_execute_card_clicked)
+            card.setProperty("_execute_click_wired", True)
+        self.updateGeometry()
+        self._commit_stream_row_layout()
+        self.layout_height_changed.emit()
+
+    def set_execute_records(self, records: list[ExecuteRunRecord]) -> None:
+        """Replace execute cards (transcript reload or live sync)."""
+        if self._execute_group is None:
+            return
+        self._execute_records = {r["id"]: r for r in records}
+        cards = self._execute_group.sync_records(records)
+        for card in cards:
+            if not card.property("_execute_click_wired"):
+                card.clicked.connect(self._on_execute_card_clicked)
+                card.setProperty("_execute_click_wired", True)
+        self.updateGeometry()
+        self._commit_stream_row_layout()
+        self.layout_height_changed.emit()
+
+    def execute_record(self, record_id: str) -> ExecuteRunRecord | None:
+        """Return one stored execute record by id."""
+        return self._execute_records.get(record_id)
+
+    def execute_records(self) -> list[ExecuteRunRecord]:
+        """Return all execute records on this assistant row."""
+        return list(self._execute_records.values())
 
     def set_subagent_session_id(self, session_id: str | None) -> None:
         """Set the chat session used to resolve subagent disk paths."""
@@ -707,6 +801,9 @@ class ChatMessageBubble(QWidget):
 
     def refresh_subagent_activity(self) -> None:
         """Hide generic activity row while subagent cards are the loader."""
+        if self.has_pending_confirmation():
+            self.hide_activity()
+            return
         if self._subagent_group is None:
             return
         if (
@@ -740,6 +837,42 @@ class ChatMessageBubble(QWidget):
 
     def _on_subagent_card_clicked(self, record_id: str) -> None:
         self.subagent_card_clicked.emit(record_id)
+
+    def _on_execute_card_clicked(self, record_id: str) -> None:
+        """Open the stored send (or request/script) from an execute result card."""
+        record = self._execute_records.get(record_id)
+        if record is None:
+            return
+        operation = str(record.get("operation") or "")
+        hist = record.get("history_entry_id")
+        if isinstance(hist, int) and hist > 0:
+            self.workspace_target_requested.emit("history", hist, "response")
+            return
+        if operation == "run_local_script":
+            script_id = record.get("local_script_id")
+            if isinstance(script_id, int) and script_id > 0:
+                self.workspace_target_requested.emit("script", script_id, "")
+            return
+        if operation == "run_scripts":
+            req = record.get("request_id")
+            if isinstance(req, int) and req > 0:
+                phase = str(record.get("script_phase") or "both")
+                focus = "pre_request" if phase == "pre" else "test"
+                self.workspace_target_requested.emit("request", req, focus)
+            return
+        if operation == "run_iterations":
+            req = record.get("request_id")
+            if isinstance(req, int) and req > 0:
+                self.workspace_target_requested.emit("request", req, "test")
+            return
+        if operation == "run_collection":
+            coll = record.get("collection_id")
+            if isinstance(coll, int) and coll > 0:
+                self.workspace_target_requested.emit("collection", coll, "runs")
+            return
+        req = record.get("request_id")
+        if isinstance(req, int) and req > 0:
+            self.workspace_target_requested.emit("request", req, "")
 
     def append_content(self, text: str, *, defer_geometry: bool = False) -> None:
         """Append streaming answer text below the thought block."""

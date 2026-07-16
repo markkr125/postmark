@@ -10,6 +10,8 @@ from services.ai.chat.subagent_registry import register_postmark_subagents
 from services.ai.chat.tools.datetime_query import register_datetime_query_tool
 from services.ai.chat.tools.delegate_tool import register_postmark_delegate_tool
 from services.ai.chat.tools.wiki_query import register_wiki_query_tool
+from services.ai.chat.tools.workspace_execute import register_workspace_execute_tool
+from services.ai.chat.tools.workspace_mutate import register_workspace_mutate_tool
 from services.ai.chat.tools.workspace_query import register_workspace_query_tool
 
 DEFAULT_AGENT_ID = "postmark-assistant"
@@ -75,8 +77,14 @@ _WIKI_SYSTEM_PROMPT = (
     "environments, env_reach, globals, snippets, insights, dependencies, walkthrough, "
     "settings, search, and variable. Live GUI scopes "
     "(open_tabs, active_tab, active_response) are captured at turn start; DB scopes are "
-    "always live. postmark_workspace_query is read-only — you cannot send, edit, or delete "
-    "requests; describe UI steps (via wiki) when the user asks you to act. Unsaved folder or "
+    "always live. postmark_workspace_query is read-only. In Agent mode you always have "
+    "postmark_workspace_mutate and postmark_workspace_execute to create/edit/delete "
+    "collections and requests, write tests, and send — the app pauses for user Approve "
+    "unless that action kind is auto-approved. Ask and Plan modes never get "
+    "mutate/execute tools; if those tools are absent, tell the user to switch the mode "
+    "pill to Agent. Do not invent UI clicks as a substitute when mutate/execute are "
+    "available. "
+    "Unsaved folder or "
     "environment editor changes are not captured in the snapshot. Discover ids via open_tabs "
     "or collection_tree links, scope=overview for active context, or scope=insights for "
     "workspace health (missing tests, unresolved vars, unused defs, case-mismatch, "
@@ -179,6 +187,8 @@ def _register_defaults() -> None:
     register_wiki_query_tool()
     register_workspace_query_tool()
     register_datetime_query_tool()
+    register_workspace_mutate_tool()
+    register_workspace_execute_tool()
     register_postmark_delegate_tool()
     register_postmark_subagents()
     register_postmark_agent(
@@ -190,6 +200,8 @@ def _register_defaults() -> None:
                 "postmark_wiki_query",
                 "postmark_workspace_query",
                 "postmark_datetime",
+                "postmark_workspace_mutate",
+                "postmark_workspace_execute",
                 "task_tool_set",
                 "delegate",
             ),

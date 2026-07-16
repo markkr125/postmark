@@ -5,13 +5,32 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QSpinBox, QVBoxLayout, QWidget
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QInputDialog,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QPushButton,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
+)
 
 from services.ai.chat.chat_run_limits import (
     MAX_MAX_CONCURRENT_CHAT_RUNS,
     MIN_MAX_CONCURRENT_CHAT_RUNS,
     max_concurrent_chat_runs,
     set_max_concurrent_chat_runs,
+)
+from services.ai.chat.mutation.auto_approve import (
+    CATALOG,
+    add_rule,
+    clear_rules,
+    kind_label,
+    list_rules,
+    remove_rule,
 )
 from services.ai.chat.subagent_limits import (
     MAX_MAX_PARALLEL_SUBAGENTS,
@@ -27,6 +46,10 @@ class AiAgentsPageWidgets:
 
     max_concurrent_spin: QSpinBox
     max_parallel_subagents_spin: QSpinBox
+    auto_approve_list: QListWidget
+    auto_approve_add: QPushButton
+    auto_approve_remove: QPushButton
+    auto_approve_remove_all: QPushButton
 
 
 class AiAgentsPageController:
@@ -38,6 +61,10 @@ class AiAgentsPageController:
         self._on_changed = on_changed
         widgets.max_concurrent_spin.valueChanged.connect(on_changed)
         widgets.max_parallel_subagents_spin.valueChanged.connect(on_changed)
+        widgets.auto_approve_add.clicked.connect(self._on_add_rule)
+        widgets.auto_approve_remove.clicked.connect(self._on_remove_selected)
+        widgets.auto_approve_remove_all.clicked.connect(self._on_remove_all)
+        widgets.auto_approve_list.itemSelectionChanged.connect(self._sync_remove_enabled)
         self.reload()
 
     def reload(self) -> None:
@@ -50,11 +77,74 @@ class AiAgentsPageController:
         parallel.blockSignals(True)
         parallel.setValue(max_parallel_subagents())
         parallel.blockSignals(False)
+        self._reload_auto_approve_list()
 
     def apply(self) -> None:
         """Persist current widget state."""
         set_max_concurrent_chat_runs(self._widgets.max_concurrent_spin.value())
         set_max_parallel_subagents(self._widgets.max_parallel_subagents_spin.value())
+        # Auto-approve rules are written immediately on Add/Remove.
+
+    def _reload_auto_approve_list(self) -> None:
+        """Populate the auto-approve list from persisted rules."""
+        lst = self._widgets.auto_approve_list
+        lst.blockSignals(True)
+        lst.clear()
+        for kind in list_rules():
+            item = QListWidgetItem(kind_label(kind))
+            item.setData(Qt.ItemDataRole.UserRole, kind)
+            lst.addItem(item)
+        lst.blockSignals(False)
+        self._sync_remove_enabled()
+
+    def _sync_remove_enabled(self) -> None:
+        """Enable Remove when a row is selected; Remove all when any rules exist."""
+        has_selection = self._widgets.auto_approve_list.currentItem() is not None
+        self._widgets.auto_approve_remove.setEnabled(has_selection)
+        has_any = self._widgets.auto_approve_list.count() > 0
+        self._widgets.auto_approve_remove_all.setEnabled(has_any)
+
+    def _on_add_rule(self) -> None:
+        """Offer catalog kinds not already listed and persist the choice."""
+        existing = set(list_rules())
+        choices = sorted(
+            ((label, kind) for kind, label in CATALOG.items() if kind not in existing),
+            key=lambda pair: pair[0].lower(),
+        )
+        if not choices:
+            return
+        labels = [label for label, _kind in choices]
+        picked, ok = QInputDialog.getItem(
+            self._widgets.auto_approve_list,
+            "Auto-approve action",
+            "Action kind to auto-approve:",
+            labels,
+            0,
+            False,
+        )
+        if not ok or not picked:
+            return
+        kind = next(k for label, k in choices if label == picked)
+        if add_rule(kind):
+            self._reload_auto_approve_list()
+            self._on_changed()
+
+    def _on_remove_selected(self) -> None:
+        """Remove the selected auto-approve rule."""
+        item = self._widgets.auto_approve_list.currentItem()
+        if item is None:
+            return
+        kind = item.data(Qt.ItemDataRole.UserRole)
+        if isinstance(kind, str) and kind:
+            remove_rule(kind)
+            self._reload_auto_approve_list()
+            self._on_changed()
+
+    def _on_remove_all(self) -> None:
+        """Clear the entire auto-approve whitelist."""
+        clear_rules()
+        self._reload_auto_approve_list()
+        self._on_changed()
 
 
 def build_ai_agents_page(
@@ -72,7 +162,9 @@ def build_ai_agents_page(
 
     intro = QLabel(
         "Control how Postmark runs AI chat agents in parallel. Background runs "
-        "continue when you switch sessions or start a new chat."
+        "continue when you switch sessions or start a new chat. In Agent mode, "
+        "workspace edits and sends are always available — risky kinds pause for "
+        "Approve unless listed under auto-approve below."
     )
     intro.setObjectName("mutedLabel")
     intro.setWordWrap(True)
@@ -124,11 +216,50 @@ def build_ai_agents_page(
     parallel_help.setWordWrap(True)
     layout.addWidget(parallel_help)
 
+    auto_heading = QLabel("Auto-approved Agent actions")
+    auto_heading.setObjectName("sectionLabel")
+    layout.addWidget(auto_heading)
+
+    auto_help = QLabel(
+        "In Agent mode, write/send actions pause for Approve unless listed here. "
+        "An empty list means ask every time."
+    )
+    auto_help.setObjectName("mutedLabel")
+    auto_help.setWordWrap(True)
+    layout.addWidget(auto_help)
+
+    auto_list = QListWidget()
+    auto_list.setObjectName("aiAgentsAutoApproveList")
+    auto_list.setMinimumHeight(120)
+    layout.addWidget(auto_list)
+
+    auto_btns = QHBoxLayout()
+    add_btn = QPushButton("Add…")
+    add_btn.setObjectName("aiAgentsAutoApproveAdd")
+    add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+    remove_btn = QPushButton("Remove")
+    remove_btn.setObjectName("aiAgentsAutoApproveRemove")
+    remove_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+    remove_btn.setEnabled(False)
+    remove_all_btn = QPushButton("Remove all")
+    remove_all_btn.setObjectName("aiAgentsAutoApproveRemoveAll")
+    remove_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+    remove_all_btn.setEnabled(False)
+    auto_btns.addWidget(add_btn)
+    auto_btns.addWidget(remove_btn)
+    auto_btns.addWidget(remove_all_btn)
+    auto_btns.addStretch()
+    layout.addLayout(auto_btns)
+
     layout.addStretch()
 
     widgets = AiAgentsPageWidgets(
         max_concurrent_spin=concurrent_spin,
         max_parallel_subagents_spin=parallel_spin,
+        auto_approve_list=auto_list,
+        auto_approve_add=add_btn,
+        auto_approve_remove=remove_btn,
+        auto_approve_remove_all=remove_all_btn,
     )
     controller = AiAgentsPageController(widgets, on_changed)
     return page, controller

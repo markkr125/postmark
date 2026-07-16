@@ -60,6 +60,18 @@ class _AiChatRunsMixin:
             self._on_registry_subagent_updated,
             queued,
         )
+        self._chat_run_registry.confirmation_needed.connect(
+            self._on_registry_confirmation_needed,
+            queued,
+        )
+        self._chat_run_registry.confirmation_cleared.connect(
+            self._on_registry_confirmation_cleared,
+            queued,
+        )
+        self._chat_run_registry.mutation_bridge_ready.connect(
+            self._on_registry_mutation_bridge_ready,
+            queued,
+        )
         self._chat_run_registry.assistant_finished.connect(
             self._on_registry_assistant_finished,
             queued,
@@ -193,6 +205,11 @@ class _AiChatRunsMixin:
             status=handle.status_text,
             subagent_records=handle.subagent_records,
         )
+        pending = getattr(handle.worker, "_pending_confirmation", None)
+        if pending is not None:
+            panel.show_confirmation(pending)
+        else:
+            panel.clear_confirmation()
         metrics = handle.pending_sdk_metrics
         if metrics is not None:
             panel.deliver_context_usage_metrics(metrics)
@@ -243,6 +260,67 @@ class _AiChatRunsMixin:
         if handle is None or handle.context.run_generation != run_generation:
             return
         self._right_sidebar.ai_chat_panel.deliver_subagent_update(records)
+
+    @Slot(str, int, object)
+    def _on_registry_confirmation_needed(
+        self,
+        session_id: str,
+        run_generation: int,
+        payload: object,
+    ) -> None:
+        """Show Approve chrome for the visible session only."""
+        handle = self._chat_run_registry.run_for(session_id)
+        if handle is None or handle.context.run_generation != run_generation:
+            return
+        if session_id != self._active_ai_session_id:
+            return
+        self._right_sidebar.ai_chat_panel.show_confirmation(payload)
+
+    @Slot(str, int)
+    def _on_registry_confirmation_cleared(self, session_id: str, run_generation: int) -> None:
+        """Hide Approve chrome and drain mutation bridge events."""
+        handle = self._chat_run_registry.run_for(session_id)
+        if handle is None or handle.context.run_generation != run_generation:
+            return
+        if session_id == self._active_ai_session_id:
+            self._right_sidebar.ai_chat_panel.clear_confirmation()
+        self._drain_mutation_bridge()
+
+    @Slot(str, int)
+    def _on_registry_mutation_bridge_ready(self, session_id: str, run_generation: int) -> None:
+        """Drain mutation bridge events after tool side effects."""
+        del session_id, run_generation
+        self._drain_mutation_bridge()
+
+    def _drain_mutation_bridge(self) -> None:
+        """Apply queued mutate/execute GUI side effects on the main thread."""
+        from ui.main_window.mutation_drain import drain_mutation_bridge
+
+        drain_mutation_bridge(cast(Any, self))
+
+    def _reload_open_request_from_db(self, request_id: int) -> None:
+        """Reload a materialised request tab from the database (Agent wins)."""
+        from ui.main_window.mutation_drain import reload_open_request_from_db
+
+        reload_open_request_from_db(cast(Any, self), request_id)
+
+    def _reload_open_folder_from_db(self, collection_id: int) -> None:
+        """Reload an open folder tab from the database (Agent wins)."""
+        from ui.main_window.mutation_drain import reload_open_folder_from_db
+
+        reload_open_folder_from_db(cast(Any, self), collection_id)
+
+    def _close_tabs_for_mutation_ids(self, ids: dict[str, int]) -> None:
+        """Close open tabs matching deleted request/collection ids."""
+        from ui.main_window.mutation_drain import close_tabs_for_mutation_ids
+
+        close_tabs_for_mutation_ids(cast(Any, self), ids)
+
+    def _close_stale_workspace_tabs(self) -> None:
+        """Close request/folder tabs whose DB rows no longer exist."""
+        from ui.main_window.mutation_drain import close_stale_workspace_tabs
+
+        close_stale_workspace_tabs(cast(Any, self))
 
     @Slot(str, int, object)
     def _on_registry_usage_updated(
@@ -311,6 +389,7 @@ class _AiChatRunsMixin:
             self._finalize_background_turn(
                 session_id, run_generation, thinking, content, failed=False
             )
+        self._drain_mutation_bridge()
 
     @Slot(str, int, str, str, str)
     def _on_registry_failed(
@@ -356,6 +435,7 @@ class _AiChatRunsMixin:
             if session_id == self._active_ai_session_id:
                 self._host(self)._rollback_pre_stream_stop(ctx)
             self._stopped_generations.pop(run_generation, None)
+            self._drain_mutation_bridge()
             return
 
         visible = session_id == self._active_ai_session_id
@@ -374,6 +454,7 @@ class _AiChatRunsMixin:
                     footer="Stopped.",
                 )
             self._stopped_generations.pop(run_generation, None)
+            self._drain_mutation_bridge()
             return
 
         if visible:
@@ -388,6 +469,7 @@ class _AiChatRunsMixin:
                 failed=True,
                 footer=footer,
             )
+        self._drain_mutation_bridge()
 
     def _finalize_background_turn(
         self,

@@ -275,6 +275,13 @@ class EnvironmentSidebarPanel(QWidget):
         self._rebuild_rows(self._last_envs, emit_if_changed=False)
         self.environment_changed.emit(None)
 
+    def set_active_environment(self, env_id: int | None) -> None:
+        """Set or clear the active environment (Agent / programmatic)."""
+        if env_id is None:
+            self._clear_active()
+            return
+        self._activate_env(int(env_id))
+
     def _toggle_section_info(self) -> None:
         """Show or hide the Environments help popup below the info button."""
         if self._info_btn is None:

@@ -99,6 +99,8 @@ class CollectionWidget(QWidget):
 
     # Emitted when the initial background fetch completes
     load_finished = Signal()
+    # Emitted when a subsequent :meth:`refresh_collections` finishes
+    refresh_finished = Signal()
 
     # Emitted when the user wants a draft (unsaved) request tab
     draft_request_requested = Signal()
@@ -112,6 +114,8 @@ class CollectionWidget(QWidget):
         self._pending_select_id: int | None = None
         self._pending_select_request_id: int | None = None
         self._fetch_started = False
+        self._fetch_generation = 0
+        self._fetch_emits_load_finished = False
         self._thread: QThread | None = None
         self._worker: _CollectionFetcher | None = None
 
@@ -186,22 +190,65 @@ class CollectionWidget(QWidget):
     # Background fetch
     # ------------------------------------------------------------------
     def _start_fetch(self) -> None:
-        """Launch the worker thread and show the loading bar."""
+        """Launch the one-shot async startup fetch (no-op after the first call)."""
         if self._fetch_started:
             return
         self._fetch_started = True
+        self._fetch_emits_load_finished = True
+        self._fetch_generation += 1
+        generation = self._fetch_generation
         self._loading_bar.show()
         self._tree_widget.show_loading()
-        self._thread = QThread(self)
-        self._worker = _CollectionFetcher(tree_kind=self._tree_kind)
-        self._worker.moveToThread(self._thread)
-        self._thread.started.connect(self._worker.run)
-        self._worker.finished.connect(self._on_collections_ready)
-        self._worker.finished.connect(self._thread.quit)
-        self._worker.finished.connect(self._worker.deleteLater)
-        self._thread.finished.connect(self._thread.deleteLater)
-        self._thread.finished.connect(self._clear_fetch_refs)
-        self._thread.start()
+        thread = QThread(self)
+        worker = _CollectionFetcher(tree_kind=self._tree_kind)
+        worker.moveToThread(thread)
+        self._thread = thread
+        self._worker = worker
+        thread.started.connect(worker.run)
+
+        def _on_finished(payload: dict[str, Any], gen: int = generation) -> None:
+            self._on_collections_ready(payload, gen)
+
+        worker.finished.connect(_on_finished)
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+
+        def _clear_if_current(finished_thread: QThread = thread) -> None:
+            if self._thread is finished_thread:
+                self._clear_fetch_refs()
+
+        thread.finished.connect(_clear_if_current)
+        thread.start()
+
+    def refresh_collections(
+        self,
+        *,
+        select_request_id: int | None = None,
+        select_collection_id: int | None = None,
+    ) -> None:
+        """Re-fetch the tree from the database on the GUI thread.
+
+        Safe after the initial load (unlike :meth:`_start_fetch`). Optional
+        *select_request_id* / *select_collection_id* are applied after the new
+        data is installed. Emits :attr:`refresh_finished` (not
+        :attr:`load_finished`) so startup session restore is not re-triggered.
+        """
+        if select_collection_id is not None:
+            self._pending_select_id = select_collection_id
+        if select_request_id is not None:
+            self._pending_select_request_id = select_request_id
+        self._fetch_started = True
+        self._fetch_generation += 1
+        generation = self._fetch_generation
+        self._fetch_emits_load_finished = False
+        self._loading_bar.show()
+        self._tree_widget.show_loading()
+        if self._tree_kind == "local_scripts":
+            payload = LocalScriptService.fetch_all()
+        else:
+            payload = CollectionService.fetch_all()
+        self._on_collections_ready(payload, generation)
 
     def _clear_fetch_refs(self) -> None:
         """Drop fetch worker/thread references after completion."""
@@ -217,14 +264,18 @@ class CollectionWidget(QWidget):
             self._thread.wait(5000)
         self._clear_fetch_refs()
 
-    @Slot(dict)
-    def _on_collections_ready(self, collection_dict: dict[str, Any]) -> None:
-        """Called once the background fetch finishes."""
+    def _on_collections_ready(self, collection_dict: dict[str, Any], generation: int) -> None:
+        """Apply fetch results when *generation* is still current."""
+        if generation != self._fetch_generation:
+            return
         self._loading_bar.hide()
         self._tree_widget.hide_loading()
         self._tree_widget.set_collections(collection_dict)
 
-        self.load_finished.emit()
+        if self._fetch_emits_load_finished:
+            self.load_finished.emit()
+        else:
+            self.refresh_finished.emit()
 
         if self._pending_select_id is not None:
             self._tree_widget.select_item_by_id(self._pending_select_id, "folder")
@@ -482,5 +533,5 @@ class CollectionWidget(QWidget):
         from ui.dialogs.import_dialog import ImportDialog
 
         dialog = ImportDialog(self)
-        dialog.import_completed.connect(self._start_fetch)
+        dialog.import_completed.connect(self.refresh_collections)
         dialog.exec()

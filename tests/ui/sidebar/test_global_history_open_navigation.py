@@ -76,6 +76,66 @@ class TestGlobalHistoryOpenNavigation:
             timeout=5000,
         )
 
+    def test_open_existing_request_with_centre_response(
+        self,
+        tmp_path,
+        monkeypatch,
+        qapp: QApplication,
+        qtbot,
+    ) -> None:
+        """AI execute cards load the stored body into the centre Response viewer."""
+        monkeypatch.setattr(
+            "database.data_paths.postmark_user_data_dir",
+            lambda: tmp_path / "postmark",
+        )
+        from database.models.collections.collection_repository import (
+            create_new_collection,
+            create_new_request,
+        )
+        from tests.ui.conftest import finish_main_window_startup
+        from ui.styling.history_settings_manager import HistorySettingsManager
+
+        coll = create_new_collection("C")
+        req = create_new_request(coll.id, "GET", "http://nav.example", "NavReq")
+        settings = HistorySettingsManager()
+        entry_id = RequestHistoryService.record_send(
+            identity={
+                "request_id": req.id,
+                "request_name": "NavReq",
+                "method": "GET",
+                "url": "http://nav.example",
+            },
+            response={
+                "status_code": 418,
+                "elapsed_ms": 3.0,
+                "headers": [{"key": "X-Test", "value": "1"}],
+                "body": "teapot-centre",
+            },
+            original_request={
+                "method": "GET",
+                "url": "http://nav.example",
+                "name": "NavReq",
+            },
+            settings=settings,
+        )
+        assert entry_id is not None
+        window = MainWindow()
+        qtbot.addWidget(window)
+        finish_main_window_startup(window)
+        window._run_open_from_global_history(entry_id, load_centre_response=True)
+        qtbot.waitUntil(
+            lambda: window._tab_context_for_request_id(req.id) is not None,
+            timeout=5000,
+        )
+        ctx = window._tab_context_for_request_id(req.id)
+        assert ctx is not None
+        viewer = ctx.response_viewer
+        assert viewer is not None
+        qtbot.waitUntil(
+            lambda: "teapot-centre" in viewer._body_edit.toPlainText().lower(),
+            timeout=5000,
+        )
+
     def test_open_deleted_request_creates_draft(
         self,
         tmp_path,

@@ -5,10 +5,42 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import date
 from http import HTTPStatus
-from typing import Any, TypedDict, cast
+from typing import Any, Protocol, TypedDict, cast
 
 from database.models.request_history import request_history_repository
-from ui.styling.history_settings_manager import HistorySettingsManager
+
+
+class HistorySettingsLike(Protocol):
+    """Minimal settings surface needed by :func:`record_send`."""
+
+    @property
+    def retention_days(self) -> int:
+        """Days to retain history entries."""
+        ...
+
+    @property
+    def max_items_per_day(self) -> int:
+        """Max entries kept per calendar day."""
+        ...
+
+    @property
+    def unlimited_per_day(self) -> bool:
+        """When true, do not cap entries per day."""
+        ...
+
+    @property
+    def save_responses(self) -> bool:
+        """Whether response bodies/headers are persisted."""
+        ...
+
+    @property
+    def max_response_bytes(self) -> int:
+        """Max response body bytes to store."""
+        ...
+
+    def max_response_bytes_for_storage(self) -> int:
+        """Return the body size cap used when persisting response bodies."""
+        ...
 
 
 class HistorySendPayloadDict(TypedDict):
@@ -172,7 +204,7 @@ def record_send(
     identity: SendIdentityDict,
     response: dict[str, Any],
     original_request: dict[str, Any] | None,
-    settings: HistorySettingsManager,
+    settings: HistorySettingsLike,
 ) -> int | None:
     """Persist one send to history; return new entry id or ``None`` on failure."""
     snapshot = enrich_snapshot_for_history(original_request, response)

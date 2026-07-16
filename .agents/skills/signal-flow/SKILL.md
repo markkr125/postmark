@@ -704,6 +704,10 @@ All connections made in `MainWindow.__init__` (and `_create_menus`):
 **From right sidebar AI chat:**
 - `ai_chat_panel.message_submitted` → `_on_ai_message_submitted` (per-session send guard via `ChatRunRegistry`; concurrency cap blocks excess starts)
 - `ai_chat_panel.stop_requested` → `_on_ai_chat_stop` → `_handle_chat_stop` (cancels visible session only via `ChatRunRegistry.cancel`)
+- `ai_chat_panel.confirmation_approve_requested` → `_on_confirmation_approve` → `ChatRunRegistry.approve_confirmation` → worker `approve_confirmation`
+- `ai_chat_panel.confirmation_reject_requested` → `_on_confirmation_reject` → `ChatRunRegistry.reject_confirmation`
+- `ChatRunRegistry.confirmation_needed` → `_on_registry_confirmation_needed` → `AiChatPanel.show_confirmation` → inline `PendingToolCard` on streaming bubble
+- `ChatRunRegistry.confirmation_cleared` / `mutation_bridge_ready` / assistant finish → `_drain_mutation_bridge`
 - `ChatRunRegistry.running_sessions_changed` → `_sync_running_chrome` → `RightSidebar.set_ai_active_run_count` + history `RUNNING_ROLE`
 - `ai_chat_panel.manage_models_requested` → `_on_open_ai_models_settings`
 - `ai_settings_requested` → `_on_open_ai_settings`

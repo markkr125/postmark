@@ -423,6 +423,8 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
             self._streaming_bubble = self.add_message("assistant", "", thinking="")
             self._streaming_bubble.begin_streaming()
             self._streaming_bubble.clear_subagent_cards()
+            self._streaming_bubble.clear_execute_cards()
+            self._streaming_bubble.clear_pending_confirmation()
             self._attach_streaming_bubble_height_hook(self._streaming_bubble)
             self._streaming_bubble.show_activity(_ACTIVITY_DEFAULT_MESSAGE)
             self._apply_streaming_viewport_spacer()  # type: ignore[attr-defined]

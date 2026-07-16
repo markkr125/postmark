@@ -216,6 +216,29 @@ hooks to capture timing, and inspects the connection for TLS/network data.
 |--------|---------|
 | `send_request(method, url, headers, body, timeout)` | Execute HTTP request, return `HttpResponseDict` |
 
+### SharedSendCore (`services/ai/chat/execution/`)
+
+Non-Qt send orchestration shared by UI Send and agent execute.  No debug
+protocol — that stays in `HttpSendWorker` only.
+
+| Symbol | Purpose |
+|--------|---------|
+| `run_shared_send(...)` | Vars → auth → pre-scripts → HTTP → tests/declarative; returns `SendCoreResult` |
+| `apply_send_auth(...)` | Variable-sub + auth injection into URL/headers |
+| `redact_send_result(response)` | Mask secrets for agent observations |
+| `resolve_execute_preview_url(action)` | Approve chrome URL: env-sub + redact (`preview_url.py`) |
+| `ExecuteRunRecord` / `records_for_assistant_turn` (`execute_events.py`) | Clickable send cards in chat; history_entry_id + EventLog rebuild |
+| `acquire_agent_slot=True` | Optional process-wide semaphore (max 3, wait ≤60s) |
+| `run_agent_send_request/draft/replay_history` | Agent wrappers (`acquire_agent_slot=True`); optional `record_history` → `RequestHistoryService.record_send` |
+| `run_agent_scripts(request_id, phase=…)` | Pre/test/both scripts without HTTP (`persist_globals` default false) |
+
+`persist_globals` defaults **false** (agent opt-in).  UI `HttpSendWorker`
+passes `persist_globals=True`.  Pre-request `(runtime error)` results are
+kept out of `test_results` (console + `pre_request_errors` only).
+Agent sends with `record_history=True` persist via
+`RequestHistoryService.record_send` + `HistoryRetentionConfig` /
+`load_history_retention_config` on success (no UI imports).
+
 ### EnvironmentService
 
 All methods are `@staticmethod`.  Wraps the environment repository and adds
@@ -273,8 +296,9 @@ Module-level functions; class re-exports them as `@staticmethod` aliases.
 
 TypedDicts: `SendIdentityDict`, `RequestHistoryEntryDict` (includes `was_persisted_request` for `(deleted)` / `(draft)` labels).
 
-Settings: `HistorySettingsManager` (`history/retention_days`, `max_items_per_day`,
-`unlimited_per_day`, `save_responses`, `max_response_bytes`).
+Settings: `services/history_retention_config.py` (`HistoryRetentionConfig`,
+`load_history_retention_config`) owns `history/*` QSettings keys/defaults/clamps.
+`HistorySettingsManager` wraps that module for the Settings UI (re-exports constants).
 
 ### AiConfig / AiLlmService (`services/ai/`)
 
@@ -392,7 +416,30 @@ threshold but does not block sends.
 | `count_running()` | Number of active handles |
 | `at_capacity()` | `True` when `count_running() >= max_concurrent_chat_runs()` |
 | `cancel(session_id)` | `worker.cancel()` for one session |
+| `approve_confirmation(session_id)` | Queue `approve_confirmation` on the worker thread |
+| `reject_confirmation(session_id, reason="")` | Queue `reject_confirmation` on the worker thread |
 | `cancel_all()` | Interrupt all runs (window teardown) |
+
+Registry fan-out signals also include `confirmation_needed(session_id, run_generation, payload)`,
+`confirmation_cleared(session_id, run_generation)`, and
+`mutation_bridge_ready(session_id, run_generation)`.
+
+### Agent workspace mutation settings (`services/ai/chat/mutation/`)
+
+| Function | Purpose |
+|----------|---------|
+| `tools_for_turn(agent_id, send_mode=…)` | Ask/Plan strip mutate/execute; Agent always includes them |
+| `apply_confirmation_policy(conversation, send_mode=…)` | Agent → ConfirmRisky + analyzer; Ask/Plan → NeverConfirm |
+| `is_auto_approved(kind)` / `add_rule` / `list_rules` | Whitelist kinds that skip Approve (`ai/agent_auto_approve_rules`) |
+| `list_rules()` / `add_rule(kind)` / `remove_rule(kind)` / `clear_rules()` | Auto-approve whitelist (`ai/agent_auto_approve_rules`) |
+| `kind_label(kind)` / `CATALOG` | Human labels for Settings + Always allow (incl. Phase 2 `mutate:update:assertion_set`, `execute:run_scripts`) |
+| `drain_mutation_events()` / `enqueue_mutation_event` | GUI-thread drain of mutate/execute side-effect queue; mutate → reload open editors + `refresh_collections` |
+| `PostmarkWorkspaceSecurityAnalyzer` | Mutate/execute HIGH unless auto-approved; wiki/query LOW |
+| `apply_confirmation_policy(conversation, send_mode=…)` | Agent+mutations → ConfirmRisky; else NeverConfirm |
+| `tools_for_turn` / `max_iterations_for_turn` (`agent_tools.py`) | Ask/Plan always read-only; Agent gains mutate/execute only when setting on |
+| `pending_actions_payload(conversation)` (`confirmation_payload.py`) | Build Approve-card payload (`title`/`detail`/`url`/`risk`; `tool_name` debug-only) from unmatched pending tool actions |
+| `run_shared_send` / `run_agent_send_*` (`execution/`) | Non-Qt send/replay/scripts path + `redact_send_result` for agent observations |
+| `WorkspaceMutateAction` / `WorkspaceExecuteAction` (`tools/workspace_mutate`, `workspace_execute`) | Agent write ops (collections + `events`, local scripts, env/globals/active_environment, history delete, import, script_version restore, debug_metadata breakpoints/watches, allowlisted settings, auth placeholders, snippets, saved examples) + send/run_scripts/run_local_script/run_collection/run_iterations/fetch_graphql_schema/generate_snippet/export_workspace_artifact/oauth_get_token v1; pause for Approve unless auto-approved; auth/environment_secret/oauth_get_token never Always-allow |
 
 ### AiChatSessionService (`services/ai/chat/session_service.py`)
 

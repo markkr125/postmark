@@ -125,6 +125,34 @@ class _WorkerSignalBridge(QObject):
             records,
         )
 
+    @Slot(str, object)
+    def on_confirmation_needed(self, session_id: str, payload: object) -> None:
+        """Forward confirmation pause from the worker thread."""
+        del session_id
+        self._registry.confirmation_needed.emit(
+            self._session_id,
+            self._run_generation,
+            payload,
+        )
+
+    @Slot(str)
+    def on_confirmation_cleared(self, session_id: str) -> None:
+        """Forward confirmation clear from the worker thread."""
+        del session_id
+        self._registry.confirmation_cleared.emit(
+            self._session_id,
+            self._run_generation,
+        )
+
+    @Slot(str)
+    def on_mutation_bridge_ready(self, session_id: str) -> None:
+        """Forward mutation-bridge drain request from the worker thread."""
+        del session_id
+        self._registry.mutation_bridge_ready.emit(
+            self._session_id,
+            self._run_generation,
+        )
+
     @Slot()
     def on_thread_finished(self) -> None:
         """Release registry state after the worker thread exits."""
@@ -145,6 +173,9 @@ class ChatRunRegistry(QObject):
     usage_updated = Signal(str, int, object)
     context_compacted = Signal(str, int)
     subagent_updated = Signal(str, int, object)
+    confirmation_needed = Signal(str, int, object)
+    confirmation_cleared = Signal(str, int)
+    mutation_bridge_ready = Signal(str, int)
     assistant_finished = Signal(str, int, str, str)
     failed = Signal(str, int, str, str, str)
     run_finished = Signal(str, int)
@@ -240,6 +271,15 @@ class ChatRunRegistry(QObject):
         subagent_signal = getattr(worker, "subagent_updated", None)
         if subagent_signal is not None:
             subagent_signal.connect(bridge.on_subagent_updated, queued)
+        confirmation_needed = getattr(worker, "confirmation_needed", None)
+        if confirmation_needed is not None:
+            confirmation_needed.connect(bridge.on_confirmation_needed, queued)
+        confirmation_cleared = getattr(worker, "confirmation_cleared", None)
+        if confirmation_cleared is not None:
+            confirmation_cleared.connect(bridge.on_confirmation_cleared, queued)
+        mutation_bridge_ready = getattr(worker, "mutation_bridge_ready", None)
+        if mutation_bridge_ready is not None:
+            mutation_bridge_ready.connect(bridge.on_mutation_bridge_ready, queued)
         worker.assistant_finished.connect(bridge.on_finished, queued)
         worker.failed.connect(bridge.on_failed, queued)
         worker.assistant_finished.connect(thread.quit, queued)
@@ -258,11 +298,59 @@ class ChatRunRegistry(QObject):
         thread.start()
         return handle
 
+    def is_awaiting_confirmation(self, session_id: str | None) -> bool:
+        """Return whether *session_id*'s worker is parked for Approve."""
+        if not session_id:
+            return False
+        handle = self._handles.get(session_id)
+        if handle is None:
+            return False
+        checker = getattr(handle.worker, "is_awaiting_confirmation", None)
+        return bool(checker()) if callable(checker) else False
+
+    def cancel_if_awaiting_confirmation(self, session_id: str | None) -> None:
+        """Cancel a run that is parked for Approve (abandon / session switch)."""
+        if self.is_awaiting_confirmation(session_id) and session_id:
+            self.cancel(session_id)
+
     def cancel(self, session_id: str) -> None:
         """Interrupt the worker for *session_id*, if running."""
         handle = self._handles.get(session_id)
         if handle is not None:
             handle.worker.cancel()
+
+    def approve_confirmation(self, session_id: str) -> None:
+        """Queue Approve on the worker thread for *session_id*."""
+        handle = self._handles.get(session_id)
+        if handle is None:
+            return
+        worker = handle.worker
+        if not hasattr(worker, "approve_confirmation"):
+            return
+        from PySide6.QtCore import QMetaObject
+
+        QMetaObject.invokeMethod(
+            worker,
+            "approve_confirmation",
+            Qt.ConnectionType.QueuedConnection,
+        )
+
+    def reject_confirmation(self, session_id: str, reason: str = "") -> None:
+        """Queue Reject on the worker thread for *session_id*."""
+        handle = self._handles.get(session_id)
+        if handle is None:
+            return
+        worker = handle.worker
+        if not hasattr(worker, "reject_confirmation"):
+            return
+        from PySide6.QtCore import Q_ARG, QMetaObject
+
+        QMetaObject.invokeMethod(
+            worker,
+            "reject_confirmation",
+            Qt.ConnectionType.QueuedConnection,
+            Q_ARG(str, reason or "user rejected"),
+        )
 
     def cancel_all(self) -> None:
         """Interrupt every in-flight worker (app shutdown)."""
@@ -348,6 +436,15 @@ class ChatRunRegistry(QObject):
             subagent_signal = getattr(worker, "subagent_updated", None)
             if subagent_signal is not None:
                 subagent_signal.disconnect()
+            confirmation_needed = getattr(worker, "confirmation_needed", None)
+            if confirmation_needed is not None:
+                confirmation_needed.disconnect()
+            confirmation_cleared = getattr(worker, "confirmation_cleared", None)
+            if confirmation_cleared is not None:
+                confirmation_cleared.disconnect()
+            mutation_bridge_ready = getattr(worker, "mutation_bridge_ready", None)
+            if mutation_bridge_ready is not None:
+                mutation_bridge_ready.disconnect()
             worker.assistant_finished.disconnect()
             worker.failed.disconnect()
             thread.finished.disconnect(bridge.on_thread_finished)

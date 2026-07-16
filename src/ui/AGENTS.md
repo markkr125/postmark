@@ -318,11 +318,26 @@ standard object names:
 | `aiChatThoughtBlock` | `QFrame` | Collapsible thinking section above assistant answer (collapsed by default after answer) |
 | `aiChatThoughtToggle` | `QPushButton` | Thought header (`Thought for Ns`; click to expand/collapse); toggling emits `ThoughtSection.layout_height_changed` → `ChatMessageBubble.layout_height_changed`; panel compensates scroll so the answer below stays visually stable |
 | `aiChatThoughtText` | `QLabel` | Muted thinking trace inside the thought block; wheel events forward to transcript `QScrollArea`. Uses `_WrappingLabel` height-for-width measurement with a large bounding-rect height; never measure wrapped text with a zero-height rectangle or streaming thought text clips after the first visual line. Before measuring streamed thought growth, `ThoughtSection` releases the prior `setFixedHeight()` clamp and activates its local layout so the next height-for-width query uses the current label width |
-| `aiChatActivityRow` | `QWidget` | Spinner + status caption while waiting for the first stream token; hidden while subagent cards are active (cards are the loader) |
+| `aiChatActivityRow` | `QWidget` | Spinner + status caption while waiting for the first stream token; hidden while subagent or pending Approve cards are active (cards are the loader) |
 | `aiChatActivitySpinner` | `QLabel` | Braille spinner in the activity row (reuses `busyChipSpinner` QSS) |
 | `aiChatActivityLabel` | `QLabel` | Muted activity caption (`Thinking…`, SDK status, long-wait escalation, subagent aggregate) |
 | `aiChatSubagentGroup` | `QWidget` (`SubagentTaskGroup`) | Vertical stack of subagent summary cards between thought block(s) and assistant markdown |
 | `aiChatSubagentCard` | `QFrame` (`SubagentTaskCard`) | Compact subagent row: sharp corners, accent border on hover (`cardHovered`); title, agent type, status; click opens detail dialog |
+| `aiChatExecuteGroup` | `QWidget` (`ExecuteResultGroup`) | Vertical stack of agent-execute result cards (send/replay/scripts) between pending Approve cards and assistant markdown |
+| `aiChatExecuteCard` | `QFrame` (`ExecuteResultCard`) | Compact execute row; click opens `postmark://history/<id>?focus=response` (centre Response prefilled) or the request tab |
+| `aiChatExecuteHeader` | `QWidget` | Title row container for execute cards |
+| `aiChatExecuteTitleIcon` | `QLabel` | Paper-plane icon left of the execute card title |
+| `aiChatExecuteLabel` | `QLabel` | Bold summary label (e.g. Sent GET Ping) |
+| `aiChatExecuteOpChip` | `QLabel` | Muted operation chip (`Send` / `Replay` / …) |
+| `aiChatExecuteOpenIcon` | `QLabel` | Open affordance on the execute card header |
+| `aiChatExecuteStatusLabel` | `QLabel` | Muted status/URL caption under the title |
+| `aiChatPendingToolGroup` | `QWidget` (`PendingToolGroup`) | Stack of pending Agent action cards between subagent and execute cards; hides activity row while visible |
+| `aiChatPendingToolCard` | `QFrame` (`PendingToolCard`) | Inline Approve card (title + detail); accent border, `risk=destructive` for deletes |
+| `aiChatPendingToolTitle` | `QLabel` | Human kind label (e.g. Create collection) |
+| `aiChatPendingToolDetail` | `QLabel` | Friendly one-liner (name, URL, …) — not raw tool ids |
+| `aiChatPendingAllow` | `QPushButton` | Allow (or Allow all) — solid accent primary |
+| `aiChatPendingReject` | `QPushButton` | Reject (or Reject all) — outline |
+| `aiChatPendingAlwaysAllow` | `QPushButton` | Whitelist pending kind(s) then Allow |
 | `aiChatSubagentHeader` | `QWidget` | Title row container; minimum height follows wrapped `aiChatSubagentLabel` |
 | `aiChatSubagentTitleIcon` | `QLabel` | Cpu icon left of the card title |
 | `aiChatSubagentLabel` | `_WrappingLabel` | Bold wrapped task title in the card header |
@@ -370,6 +385,11 @@ standard object names:
 | `aiAgentsConcurrentRunsSpin` | `QSpinBox` | Settings → AI → Agents advisory concurrent-run threshold |
 | `aiAgentsConcurrentRunsLabel` | `QLabel` | Settings → AI → Agents concurrent-run row label |
 | `aiAgentsMaxParallelSubagentsSpin` | `QSpinBox` | Settings → AI → Agents hard cap for parallel `delegate` subagents per turn (QSettings `ai/max_parallel_subagents`) |
+| `aiAgentsAutoApproveList` | `QListWidget` | Settings → AI → Agents: kinds that skip Approve in Agent mode |
+| `aiAgentsAutoApproveList` | `QListWidget` | Settings → AI → Agents auto-approved action kinds |
+| `aiAgentsAutoApproveAdd` | `QPushButton` | Add a catalog kind to the auto-approve whitelist |
+| `aiAgentsAutoApproveRemove` | `QPushButton` | Remove the selected auto-approve rule |
+| `aiAgentsAutoApproveRemoveAll` | `QPushButton` | Clear all auto-approve rules |
 | `aiBudgetActionsButton` | `QPushButton` | Per-row gear — opens `aiBudgetConnectionDialog` |
 | `aiBudgetConnectionDialog` | `QDialog` | Tabbed limits + spend editor; scoped QSS on schedule pickers + `aiBudgetLimitSpin` |
 | `aiBudgetConnectionTabs` | `QTabWidget` | **Limits** + **Spend details**; box tabs (same QSS as `importTabs`) |

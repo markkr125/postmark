@@ -59,6 +59,16 @@ def _reset_ai_ui_log_sink() -> Generator[None, None, None]:
 
 
 @pytest.fixture(autouse=True)
+def _clear_mutation_bridge_queue() -> Generator[None, None, None]:
+    """Isolate Agent mutate/execute GUI bridge events across tests."""
+    from services.ai.chat.mutation.bridge import clear_mutation_events
+
+    clear_mutation_events()
+    yield
+    clear_mutation_events()
+
+
+@pytest.fixture(autouse=True)
 def _reap_child_processes() -> Generator[None, None, None]:
     """Reap sandbox and worker child zombies so repeated runs do not accumulate."""
     yield

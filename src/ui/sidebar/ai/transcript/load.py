@@ -288,6 +288,18 @@ class _ChatPanelTranscriptLoadMixin:
                         events=events,
                     )
                 )
+                from services.ai.chat.execute_events import (
+                    records_for_assistant_turn as execute_records_for_turn,
+                )
+
+                bubble.set_execute_records(
+                    execute_records_for_turn(
+                        session_id,
+                        pricing_messages,
+                        msg_index,
+                        events=events,
+                    )
+                )
             if post_subagent_thinking.strip():
                 bubble.restore_post_subagent_thinking(
                     post_subagent_thinking,

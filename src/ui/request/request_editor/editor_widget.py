@@ -447,6 +447,9 @@ class RequestEditorWidget(
         self._loading = True
         self._url_input.blockSignals(True)
         try:
+            cancel_assert = getattr(self, "_cancel_assertions_persist", None)
+            if callable(cancel_assert):
+                cancel_assert()
             self._request_id = request_id
             self._set_content_visible(True)
             self._loaded_request_snapshot = dict(data)

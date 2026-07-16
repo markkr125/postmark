@@ -43,7 +43,7 @@ class _DeepLinkHost(_AiChatControllerMixin):
         self.open_script_calls: list[int] = []
         self.focus_calls: list[str] = []
         self.focus_open_tab_calls: list[int] = []
-        self.history_open_calls: list[int] = []
+        self.history_open_calls: list[tuple[int, bool]] = []
         self.env_open_calls: list[int | None] = []
         self.sidebar_refresh_calls: int = 0
         self.panel_open_calls: list[str] = []
@@ -80,8 +80,13 @@ class _DeepLinkHost(_AiChatControllerMixin):
         self.focus_open_tab_calls.append(index)
         return self.focus_tab_succeeds
 
-    def _open_from_global_history(self, entry_id: int) -> None:
-        self.history_open_calls.append(entry_id)
+    def _open_from_global_history(
+        self,
+        entry_id: int,
+        *,
+        load_centre_response: bool = False,
+    ) -> None:
+        self.history_open_calls.append((entry_id, load_centre_response))
 
     def _open_environments_tab(self, *, environment_id: int | None = None) -> bool:
         self.env_open_calls.append(environment_id)
@@ -172,7 +177,10 @@ def test_history_environment_saved_response_deeplinks(deeplink_host: _DeepLinkHo
     """History, environment, and saved_response kinds open via real handlers."""
     host = deeplink_host
     host._on_workspace_target_requested("history", 7, "")
-    assert host.history_open_calls == [7]
+    assert host.history_open_calls == [(7, False)]
+
+    host._on_workspace_target_requested("history", 8, "response")
+    assert host.history_open_calls[-1] == (8, True)
 
     host._on_workspace_target_requested("environment", 3, "")
     assert host.env_open_calls == [3]

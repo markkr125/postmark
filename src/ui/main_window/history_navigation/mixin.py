@@ -40,25 +40,49 @@ class _HistoryNavigationMixin:
         if panel is not None:
             panel.refresh()
 
-    def _open_from_global_history(self, entry_id: int) -> None:
-        """Queue open on the next event-loop tick so the tree click returns immediately."""
+    def _open_from_global_history(
+        self,
+        entry_id: int,
+        *,
+        load_centre_response: bool = False,
+    ) -> None:
+        """Queue open on the next event-loop tick so the tree click returns immediately.
+
+        When *load_centre_response* is True (AI execute cards / ``?focus=response``),
+        also fill the request tab Response viewer from the stored send.
+        """
         if getattr(self, "_global_history_open_busy", False):
             self._show_history_open_status("Wait for history to finish opening")
             return
-        QTimer.singleShot(0, lambda eid=entry_id: self._run_open_from_global_history(eid))
+        QTimer.singleShot(
+            0,
+            lambda eid=entry_id, load=load_centre_response: self._run_open_from_global_history(
+                eid, load_centre_response=load
+            ),
+        )
 
-    def _run_open_from_global_history(self, entry_id: int) -> None:
+    def _run_open_from_global_history(
+        self,
+        entry_id: int,
+        *,
+        load_centre_response: bool = False,
+    ) -> None:
         """Load history entry into editor tabs (runs after the click handler returns)."""
         if getattr(self, "_global_history_open_busy", False):
             self._show_history_open_status("Wait for history to finish opening")
             return
         self._global_history_open_busy = True
         try:
-            self._open_from_global_history_impl(entry_id)
+            self._open_from_global_history_impl(entry_id, load_centre_response=load_centre_response)
         finally:
             self._global_history_open_busy = False
 
-    def _open_from_global_history_impl(self, entry_id: int) -> None:
+    def _open_from_global_history_impl(
+        self,
+        entry_id: int,
+        *,
+        load_centre_response: bool = False,
+    ) -> None:
         """Open a history row in the editor and per-request History flyout."""
         meta = RequestHistoryService.get_entry_metadata(entry_id)
         if meta is None:
@@ -71,7 +95,11 @@ class _HistoryNavigationMixin:
             if CollectionService.get_request(rid) is not None:
                 QTimer.singleShot(
                     0,
-                    lambda: self._open_existing_request_from_history(rid, entry_id),
+                    lambda: self._open_existing_request_from_history(
+                        rid,
+                        entry_id,
+                        load_centre_response=load_centre_response,
+                    ),
                 )
                 return
         self._open_orphan_history_as_draft(entry_id)
@@ -86,6 +114,8 @@ class _HistoryNavigationMixin:
         self,
         request_id: int,
         entry_id: int,
+        *,
+        load_centre_response: bool = False,
     ) -> None:
         """Activate a saved request tab and select the send in the right History panel."""
         ctx = self._tab_context_for_request_id(request_id)
@@ -99,15 +129,21 @@ class _HistoryNavigationMixin:
             return
         QTimer.singleShot(
             0,
-            lambda: self._finish_open_existing_history(request_id, entry_id),
+            lambda: self._finish_open_existing_history(
+                request_id,
+                entry_id,
+                load_centre_response=load_centre_response,
+            ),
         )
 
     def _finish_open_existing_history(
         self,
         request_id: int,
         entry_id: int,
+        *,
+        load_centre_response: bool = False,
     ) -> None:
-        """Focus the request tab, then load the send detail on the right asynchronously."""
+        """Focus the request tab, then load History detail (and optionally centre Response)."""
         ctx = self._tab_context_for_request_id(request_id)
         if ctx is None or ctx.tab_type != "request" or ctx.request_id != request_id:
             self._show_history_open_status("Could not open request tab")
@@ -115,6 +151,14 @@ class _HistoryNavigationMixin:
         if ctx.is_sending:
             self._show_history_open_status("Wait for the current send to finish")
             return
+        if load_centre_response:
+            entry = RequestHistoryService.get_entry(entry_id)
+            viewer = ctx.response_viewer
+            if entry is not None and viewer is not None:
+                http = RequestHistoryService.entry_to_http_response_dict(entry)
+                viewer.load_stored_response(http)
+            elif entry is None:
+                self._show_history_open_status("History entry is no longer available")
         self._refresh_sidebar(history_load_detail=False)  # type: ignore[attr-defined]
         self._right_sidebar.open_panel("request_history")
         panel = getattr(self, "_request_history_panel", None)

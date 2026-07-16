@@ -234,6 +234,7 @@ class MainWindow(
 
         # Wire loading screen
         self.collection_widget.load_finished.connect(self._on_load_finished)
+        self.collection_widget.refresh_finished.connect(self._on_collections_refresh_finished)
         self._left_sidebar.panel_state_changed.connect(self._sync_sidebar_toggle_btn)
         self._left_sidebar.panel_activated.connect(self._on_left_sidebar_panel_activated)
 
@@ -778,6 +779,11 @@ class MainWindow(
         self._schedule_startup_task(150, self._restore_tabs)
         self._schedule_startup_task(750, self._start_ai_model_backfill)
 
+    def _on_collections_refresh_finished(self) -> None:
+        """Re-highlight the active tab's tree row after a sidebar tree rebuild."""
+        ctx = self._tabs.get(self._tab_bar.currentIndex())
+        self._sync_tree_selection(ctx)
+
     def refresh_snippets_sidebar(self) -> None:
         """Refresh the left-flyout snippets list and the open snippet picker."""
         if hasattr(self, "snippets_sidebar_panel"):
@@ -899,7 +905,7 @@ class MainWindow(
         from ui.dialogs.import_dialog import ImportDialog
 
         dialog = ImportDialog(self)
-        dialog.import_completed.connect(self.collection_widget._start_fetch)
+        dialog.import_completed.connect(self.collection_widget.refresh_collections)
         dialog.exec()
 
     # ------------------------------------------------------------------

@@ -225,6 +225,7 @@ src/
 │   │       ├── agent_registry.py  # PostmarkAgentDef + DEFAULT_AGENT_ID + delegation tools
 │   │       ├── subagent_registry.py # register_postmark_subagents (wiki/workspace-researcher, general-purpose)
 │   │       ├── subagent_events.py # SubagentEventTracker + SubagentRunRecord parsing
+│   │       ├── execute_events.py  # ExecuteRunRecord parsing + EventLog rebuild for send cards
 │   │       ├── subagent_disk_registry.py # spawn id → disk path registry + session-scoped resolve
 │   │       ├── workspace_snapshot.py # session-keyed GUI snapshot + parent session id resolve for subagents
 │   │       ├── subagent_transcript.py # load_subagent_transcript_view + activity steps
@@ -248,8 +249,38 @@ src/
 │   │       │   │   ├── goals.py       # multi-goal batching (max 4)
 │   │       │   │   ├── render/      # live, scripts, settings + collections/ + search/ + insights/scans/ + variables/ + env_reach/ + dependencies/ + walkthrough/
 │   │       │   │   └── executor.py
+│   │       │   ├── workspace_mutate/ # postmark_workspace_mutate (Agent write ops)
+│   │       │   │   ├── common.py      # WorkspaceMutateObservation + secrets policy helpers
+│   │       │   │   ├── collection_ops.py # collection/request/assertion_set filter + apply
+│   │       │   │   ├── local_ops.py   # local_script / local_script_folder
+│   │       │   │   ├── debug_ops.py   # breakpoints/watches via merge_*_debug APIs
+│   │       │   │   ├── settings_ops/  # allowlisted settings mutate
+│   │       │   │   ├── data_ops/      # environment/globals/snippet/saved_response + session (active env, history, import, version restore)
+│   │       │   │   └── tool.py        # Action/Observation/Executor + dispatch
+│   │       │   ├── workspace_execute/ # postmark_workspace_execute (Agent send/run)
+│   │       │   │   ├── tool.py        # Action/Observation + thin executor
+│   │       │   │   └── dispatch.py    # operation dispatch → execution/* helpers
 │   │       │   ├── delegate_tool.py # PostmarkDelegateTool (parallel subagent fan-out)
 │   │       │   └── delegate_executor.py # PostmarkDelegateExecutor — registers disk paths at spawn
+│   │       ├── mutation/          # Agent write confirm (auto-approve + ConfirmRisky), bridge, audit
+│   │       │   ├── auto_approve.py # CATALOG + whitelist rules for ConfirmRisky skip
+│   │       │   ├── bridge.py      # enqueue/drain GUI side-effect events
+│   │       │   ├── security.py    # PostmarkWorkspaceSecurityAnalyzer + apply_confirmation_policy
+│   │       │   └── audit.py       # append_mutation_audit
+│   │       ├── execution/         # SharedSendCore — non-Qt send orchestration + result redaction
+│   │       │   ├── send_core.py   # run_shared_send + apply_send_auth + agent send semaphore + body_mode
+│   │       │   ├── agent_send.py  # run_agent_send_request/draft/replay/scripts + record_history
+│   │       │   ├── agent_local_script.py  # run_agent_local_script via run_local_entry
+│   │       │   ├── preview_url.py # resolve_execute_preview_url — Approve chrome (env-substituted + redacted)
+│   │       │   ├── redact_result.py # redact_send_result for agent observations
+│   │       │   ├── binary/        # Agent binary path allowlist
+│   │       │   ├── graphql/       # fetch_graphql_schema
+│   │       │   ├── codegen/       # generate_snippet ({{var}} auth)
+│   │       │   ├── export/        # export_workspace_artifact
+│   │       │   ├── oauth/         # oauth_get_token v1 (non-browser)
+│   │       │   └── runner/        # run_agent_collection + run_agent_iterations (non-Qt)
+│   │       ├── agent_tools.py     # tools_for_turn / max_iterations_for_turn (Ask/Plan/Agent)
+│   │       ├── confirmation_payload.py # pending_actions_payload for Approve chrome
 │   │       ├── response_text.py   # Turn-scoped thinking/answer extraction from SDK messages + stream chunks
 │   │       ├── thinking_sections.py # Pack/unpack primary vs post-subagent thinking in one SQLite column
 │   │       ├── compaction.py      # CHAT_CONDENSER_MAX_* constants for LLMSummarizingCondenser
@@ -268,6 +299,7 @@ src/
 │   ├── environment_service.py     # EnvironmentService (variable substitution + TypedDicts)
 │   ├── import_service.py          # ImportService (parse + persist)
 │   ├── run_history_service.py     # RunHistoryService (run history CRUD bridge)
+│   ├── history_retention_config.py # HistoryRetentionConfig + load_* — history/* QSettings (no UI imports)
 │   ├── request_history_service.py # RequestHistoryService — gather_send_identity, record_send, get/list
 │   ├── script_service.py          # ScriptService (script chain resolution)
 │   ├── scripting/                 # Script execution sub-package
@@ -364,6 +396,7 @@ src/
     │   ├── ai_chat_controller.py  # _AiChatControllerMixin — AI chat sessions + worker wiring
     │   ├── ai_chat_host_protocol.py # _AiChatHostProtocol — typing for composed mixins
     │   ├── ai_chat_runs.py        # _AiChatRunsMixin — ChatRunRegistry signal routing + re-attach; run-start workspace snapshot
+    │   ├── mutation_drain/        # drain_mutation_bridge — mutate/execute GUI side effects
     │   ├── ai_chat_turn_finalize.py # _AiChatTurnFinalizeMixin — persist/stop/fail assistant turns
     │   ├── ai_chat_title.py       # _AiChatTitleMixin — AiChatTitleWorker lifecycle
     │   ├── session_restore.py   # Delayed, batched session tab restore after load_finished
@@ -434,6 +467,12 @@ src/
     │   │   │   ├── subagent/            # SubagentTaskCard + SubagentTaskGroup summary rows
     │   │   │   │   ├── card.py
     │   │   │   │   └── group.py
+    │   │   │   ├── confirm/             # PendingToolCard + PendingToolGroup (inline Agent Approve)
+    │   │   │   │   ├── card.py
+    │   │   │   │   └── group.py
+    │   │   │   ├── execute/             # ExecuteResultCard + ExecuteResultGroup (agent send click-through)
+    │   │   │   │   ├── card.py
+    │   │   │   │   └── group.py
     │   │   │   ├── assistant_message/   # Assistant footer + actions popup
     │   │   │   │   ├── footer.py        # AssistantMessageFooterRow — model/cost + ⋯ menu
     │   │   │   │   ├── actions_popup.py # AiAssistantMessageActionsPopup — Fork chat / Copy message
@@ -480,7 +519,7 @@ src/
     │   ├── language_icons.py      # Brand SVG pixmaps for JS / TS / Python tiles
     │   ├── theme_manager.py       # ThemeManager — QPalette + QSettings
     │   ├── tab_settings_manager.py # TabSettingsManager — request-tab QSettings bridge (preview, limits, activate-on-close, wrap mode)
-    │   ├── history_settings_manager.py # HistorySettingsManager — QSettings history/* send retention
+    │   ├── history_settings_manager.py # HistorySettingsManager — wraps history_retention_config for Settings UI
     │   ├── global_qss.py          # build_global_qss() — global stylesheet builder
     │   └── icons.py               # Phosphor font-glyph icon provider (phi(), phi_qss_image_url())
     ├── widgets/                   # Reusable shared components
@@ -541,7 +580,7 @@ src/
     │   └── variable_popup.py      # VariablePopup — singleton hover popup for variable details
     ├── collections/               # Collection sidebar
     │   ├── collection_header.py
-    │   ├── collection_widget.py
+    │   ├── collection_widget.py  # CollectionWidget — refresh_collections + startup _start_fetch
     │   ├── new_item_popup.py      # NewItemPopup — Postman-style icon grid popup
     │   ├── new_local_script_popup.py  # NewLocalScriptItemPopup — Script / Folder tiles
     │   └── tree/                  # Tree widget sub-package
@@ -556,7 +595,7 @@ src/
     │   │   ├── history_page.py    # Settings → History page (retention, bodies, storage path)
     │   │   ├── ai_provider_dialog.py # Add/edit provider credentials + model (in-dialog Test connection)
     │   │   ├── ai_provider_workers.py # Setup worker + AiRefreshUiBridge (GUI-thread refresh slot)
-    │   │   ├── ai_agents/         # Settings → AI → Agents (concurrent-run advisory limit)
+    │   │   ├── ai_agents/         # Settings → AI → Agents (concurrent runs, mutations, auto-approve)
     │   │   ├── ai_budget/         # Settings → AI → Budgets (page, row_actions, period_reset_panel, limits_dialog, breakdown_dialog)
     │   │   ├── ai_page.py         # Settings → AI → Models tree; refresh updates children only
     │   │   └── ai_page_actions.py # Provider actions + resizable tree header (QSettings)
@@ -708,6 +747,7 @@ tests/
 │       │   ├── test_postmark_agent_registry.py
 │       │   ├── test_subagent_registry.py
 │       │   ├── test_subagent_events.py
+│       │   ├── test_execute_events.py  # Agent execute observation → clickable card records
 │       │   ├── test_subagent_disk_registry.py
 │       │   ├── test_subagent_transcript.py
 │       │   ├── test_subagent_limits.py
@@ -721,6 +761,26 @@ tests/
 │       │   ├── test_workspace_query_variable.py
 │       │   ├── test_workspace_query_insights.py  # health insights, fielded search, goals, env diff
 │       │   ├── test_workspace_query_explorer.py # env_reach, dependencies, walkthrough, dead/token/response_drift
+│       │   ├── test_send_core_parity.py # SharedSendCore parity vs HttpSendWorker path
+│       │   ├── test_confirmation_spike.py # ConfirmRisky pause/resume/reject + whitelist
+│       │   ├── test_confirmation_payload.py # human_preview + Approve title/detail (no raw tool names)
+│       │   ├── test_agent_tools_for_turn.py # Ask/Plan/Agent tools_for_turn (Agent always has write tools)
+│       │   ├── test_agent_tools_for_turn.py # Ask/Plan/Agent × mutations on/off
+│       │   ├── test_workspace_security.py # analyzer HIGH/LOW + confirmation policy
+│       │   ├── test_mutation_bridge.py # enqueue/drain GUI bridge
+│       │   ├── test_mutation_auto_approve.py # whitelist CRUD + Phase 2 catalog
+│       │   ├── test_workspace_mutate_collections.py # mutate CRUD + assertion_set
+│       │   ├── test_workspace_mutate_local.py # local scripts + secrets/auth/env/snippet mutate
+│       │   ├── test_workspace_mutate_session.py # active env, history delete, import, version restore, folder events
+│       │   ├── test_workspace_mutate_debug_metadata.py # breakpoints/watches merge mutate
+│       │   ├── test_workspace_mutate_settings.py # allowlisted settings mutate
+│       │   ├── test_binary_body.py # binary path policy + HttpService byte send
+│       │   ├── test_agent_graphql_fetch.py # execute fetch_graphql_schema
+│       │   ├── test_agent_codegen_export.py # generate_snippet + export artifact
+│       │   ├── test_agent_oauth_get_token.py # oauth_get_token v1 credential-blind
+│       │   ├── test_agent_runner_execute.py # run_collection + run_iterations execute ops
+│       │   ├── test_agent_local_script_execute.py # run_agent_local_script + execute dispatch
+│       │   ├── test_agent_send_execute.py # history record + scripts + execute dispatch
 │       │   ├── test_pm_api_quickref.py
 │       │   ├── test_model_metadata.py
 │       │   └── test_llm_service.py
@@ -754,6 +814,7 @@ tests/
     ├── sidebar/                   # Sidebar widget tests
     │   ├── test_ai_chat_panel.py
     │   ├── test_ai_chat_worker.py
+    │   ├── test_ai_pending_tool_cards.py  # Inline Allow/Reject/Always allow on streaming bubble
     │   ├── test_ai_session_history_popup.py
     │   ├── test_ai_active_run_badge.py
     │   ├── test_sidebar.py
@@ -793,6 +854,7 @@ tests/
     │   ├── test_collection_tree_actions.py
     │   ├── test_collection_tree_delegate.py
     │   ├── test_collection_widget.py
+    │   ├── test_collection_refresh.py  # refresh_collections + active folder highlight + open-tab reload
     │   ├── test_new_item_popup.py
     │   └── test_new_local_script_popup.py
     ├── dialogs/                   # Dialog tests

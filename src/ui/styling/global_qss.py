@@ -1839,6 +1839,114 @@ def build_global_qss(p: ThemePalette) -> str:
         border-color: {p["accent"]};
         background: {"rgba(79,193,255,0.08)" if p is DARK_PALETTE else "rgba(52,152,219,0.06)"};
     }}
+    QWidget[objectName="aiChatExecuteGroup"] {{
+        background: transparent;
+    }}
+    QFrame[objectName="aiChatExecuteCard"] {{
+        background: {p["bg_alt"]};
+        border: 1px solid {p["border"]};
+        border-radius: 0;
+    }}
+    QFrame[objectName="aiChatExecuteCard"][cardHovered="true"] {{
+        border-color: {p["accent"]};
+        background: {"rgba(79,193,255,0.08)" if p is DARK_PALETTE else "rgba(52,152,219,0.06)"};
+    }}
+    QWidget[objectName="aiChatPendingToolGroup"] {{
+        background: transparent;
+    }}
+    QFrame[objectName="aiChatPendingToolCard"] {{
+        background: {p["bg_alt"]};
+        border: 1px solid {p["accent"]};
+        border-radius: 0;
+    }}
+    QFrame[objectName="aiChatPendingToolCard"][risk="destructive"] {{
+        border-color: {p["danger"]};
+    }}
+    QLabel[objectName="aiChatPendingToolTitle"] {{
+        background: transparent;
+        border: none;
+        color: {p["text"]};
+        font-size: 13px;
+        font-weight: 600;
+        padding: 0;
+        margin: 0;
+    }}
+    QLabel[objectName="aiChatPendingToolDetail"] {{
+        background: transparent;
+        border: none;
+        color: {p["text_muted"]};
+        font-size: 12px;
+        padding: 0;
+        margin: 0;
+    }}
+    QPushButton[objectName="aiChatPendingAllow"] {{
+        background: {p["accent"]};
+        color: {p["solid_button_fg"]};
+        border: none;
+        padding: 4px 12px;
+        font-size: 11px;
+        font-weight: 600;
+        border-radius: 0;
+    }}
+    QPushButton[objectName="aiChatPendingAllow"]:hover {{
+        background: {p["accent_hover"]};
+    }}
+    QPushButton[objectName="aiChatPendingReject"] {{
+        background: transparent;
+        color: {p["text"]};
+        border: 1px solid {p["border"]};
+        padding: 4px 12px;
+        font-size: 11px;
+        border-radius: 0;
+    }}
+    QPushButton[objectName="aiChatPendingReject"]:hover {{
+        background: {"rgba(255,255,255,0.06)" if p is DARK_PALETTE else "rgba(0,0,0,0.04)"};
+        border-color: {p["text_muted"]};
+    }}
+    QPushButton[objectName="aiChatPendingAlwaysAllow"] {{
+        background: transparent;
+        color: {p["accent"]};
+        border: none;
+        padding: 4px 12px;
+        font-size: 11px;
+        border-radius: 0;
+    }}
+    QPushButton[objectName="aiChatPendingAlwaysAllow"]:hover {{
+        background: {"rgba(255,255,255,0.06)" if p is DARK_PALETTE else "rgba(0,0,0,0.04)"};
+    }}
+    QPushButton[objectName="aiChatPendingAlwaysAllow"]:disabled {{
+        color: {p["text_muted"]};
+    }}
+    QLabel[objectName="aiChatExecuteTitleIcon"] {{
+        background: transparent;
+        border: none;
+        padding: 0;
+        margin: 0;
+    }}
+    QLabel[objectName="aiChatExecuteLabel"] {{
+        background: transparent;
+        border: none;
+        color: {p["text"]};
+        font-size: 13px;
+        font-weight: 600;
+        padding: 0;
+        margin: 0;
+    }}
+    QLabel[objectName="aiChatExecuteOpChip"] {{
+        background: transparent;
+        border: none;
+        color: {p["text_muted"]};
+        font-size: 11px;
+    }}
+    QLabel[objectName="aiChatExecuteStatusLabel"] {{
+        background: transparent;
+        border: none;
+        color: {p["text_muted"]};
+        font-size: 11px;
+    }}
+    QWidget[objectName="aiChatExecuteHeader"] {{
+        background: transparent;
+    }}
     QWidget[objectName="aiChatSubagentHeader"] {{
         background: transparent;
     }}

@@ -1,6 +1,6 @@
 # Workspace explorer
 
-Ask the AI about your **collections, environments, history, and open tabs** — it reads your local workspace and answers with clickable links into Postmark. Secrets stay redacted; the assistant cannot send, edit, or delete anything.
+Ask the AI about your **collections, environments, history, and open tabs** — it reads your local workspace and answers with clickable links into Postmark. Secrets stay redacted. This page covers **read-only** questions; to let **Agent** edit or send (with your Approve), see [Agent workspace edits](agent-edits.md).
 
 ## What you can ask
 
@@ -30,5 +30,6 @@ You can also ask about **open tabs**, the **live response**, **send history**, *
 ## Related
 
 - [Chat](chat.md) — panel chrome, modes, sessions
+- [Agent workspace edits](agent-edits.md) — Agent mode writes and sends
 - [AI assistant hub](README.md)
 - [AI settings](../settings/ai/README.md)

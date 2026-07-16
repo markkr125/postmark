@@ -55,8 +55,10 @@ TabSettingsManager  ──QSettings──►        persistent request-tab prefe
                     ──settings_changed──► MainWindow / RequestTabBar
 
 RequestEditorWidget  ──send_requested──►  MainWindow
-  MainWindow → HttpSendWorker (QThread) → HttpService.send_request()
-    → HttpSendWorker.finished(HttpResponseDict) → ResponseViewerWidget.load_response()
+  MainWindow → HttpSendWorker (QThread) → run_shared_send() (services/ai/chat/execution/)
+    → HttpService.send_request() → HttpSendWorker.finished(HttpResponseDict)
+    → ResponseViewerWidget.load_response()
+  (Debug Send keeps step-through in HttpSendWorker only; agent execute never uses debug.)
 
 RequestEditorWidget / FolderEditorWidget  ──open_scripting_settings_requested──►  MainWindow
   → ``SettingsDialog`` (``initial_category="Scripting"``)
@@ -126,11 +128,39 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   `_WorkerSignalBridge` (`@Slot` QObject) connects worker signals to the registry
   on the GUI thread — **never use Python lambdas** for cross-thread
   `QueuedConnection` (defers delivery until `worker.run()` returns and breaks
-  streaming). Bridge includes `subagent_updated` for delegation lifecycle.
+  streaming). Bridge includes `subagent_updated` for delegation lifecycle plus
+  `confirmation_needed` / `confirmation_cleared` / `mutation_bridge_ready` for
+  Agent workspace Approve chrome and GUI bridge drain. Worker stubs
+  `approve_confirmation()` / `reject_confirmation(reason)` are invoked from the
+  panel via `ChatRunRegistry` (`QMetaObject.invokeMethod`, QueuedConnection).
+  Pending-action payloads for inline Approve cards come from
+  `confirmation_payload.pending_actions_payload` (kinds via
+  `mutation.auto_approve.kind_from_action_event`; display fields `title` /
+  `detail` / `url` / `risk` from Action `human_preview` / `preview_url`).
+  Execute rows include
+  `resolve_execute_preview_url` (`execution/preview_url.py`): env-substituted
+  when possible, then redacted for Approve chrome.
+  Successful executes enqueue bridge ``executed`` events; the GUI shows
+  clickable ``ExecuteResultCard`` rows (``execute_events.py`` +
+  ``message_bubble/execute/``). Pending confirms show as
+  ``PendingToolCard`` rows (``message_bubble/confirm/``) on the streaming
+  assistant bubble — not a composer banner. Click → ``postmark://history/<id>?focus=response``
+  opens the request tab with ``load_stored_response`` in the centre viewer
+  (left-rail history open without ``focus=response`` still only focuses the
+  History flyout).
   `_AiChatRunsMixin` (`ui/main_window/ai_chat_runs.py`) routes worker signals by
   `session_id` + `run_generation`; only the visible session streams into
   `AiChatPanel`; background sessions buffer chunks on `ChatRunHandle` and persist
-  on finish. Switching sessions or **New chat** does not cancel in-flight workers.
+  on finish.   `_drain_mutation_bridge()` delegates to
+  `ui/main_window/mutation_drain/drain_mutation_bridge()` on
+  finish / confirmation clear / `mutation_bridge_ready` (open_target →
+  `_on_workspace_target_requested`, mutated → collection/local tree refresh +
+  reload open editors, env/globals/snippets/saved_responses refresh, delete →
+  close matching tabs; executed → `load_stored_response` for sends,
+  run_scripts/run_local_script → Scripts/Output panels + execute cards).
+  Settings → AI → Agents: auto-approve list
+  (`services/ai/chat/mutation/auto_approve.py`) — Agent mode always has
+  mutate/execute; writes pause for Approve unless whitelisted. Switching sessions or **New chat** does not cancel in-flight workers.
   `running_sessions_changed` refreshes `aiChatActiveRunsBadge` and session-history
   `RUNNING_ROLE`. SDK state persists under
   `session_disk_dir(id)`; searchable metadata in `ai_chat_sessions` /
@@ -177,6 +207,9 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   `subagent_registry.py`) ship
   `DEFAULT_AGENT_ID` with `postmark_wiki_query`, `postmark_workspace_query`,
   `postmark_datetime` (current date/time + free-text timezone / Unix-epoch convert),
+  `postmark_workspace_mutate` / `postmark_workspace_execute` (always registered;
+  `tools_for_turn` exposes them in Agent mode only — Ask/Plan stay read-only;
+  write safety is Approve / auto-approve),
   OpenHands `task_tool_set` (sequential/resumable subagents), and `delegate`
   (parallel fan-out).
   Built-in subagent types: `wiki-researcher` (`postmark_wiki_query` only),
@@ -192,6 +225,34 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   only.
   **`postmark_workspace_query`** (`tools/workspace_query/`) reads the user's
   collections, requests, environments, run history, and open-tab state on demand.
+  **Shared send orchestration** lives in `services/ai/chat/execution/`
+  (`run_shared_send`, `apply_send_auth`, `redact_send_result`, agent wrappers in
+  `agent_send.py`): UI `HttpSendWorker` (non-debug) and agent execute share this
+  path; `agent_local_script.py` runs local script tabs via `run_local_entry`.
+  Debug step-through stays in the worker only. Agent concurrent sends may
+  set `acquire_agent_slot=True` (process-wide semaphore, max 3, wait ≤60s).
+  `run_agent_scripts` runs pre/test/both without HTTP; `run_agent_local_script`
+  runs a local script tab without HTTP; successful agent sends
+  with `record_history=True` call `RequestHistoryService.record_send`.
+  Mutate (`tools/workspace_mutate/`: `tool.py` dispatches to `collection_ops`,
+  `local_ops`, `data_ops/`, `debug_ops`, `settings_ops/`; `common.py` secrets policy) supports
+  collection/request CRUD + `assertion_set` replace, local scripts/folders,
+  environments, **active_environment** (bridge-only UI set/clear), globals,
+  snippets, saved responses, **history_entry** delete, **import** create,
+  **script_version** restore (merge-safe), collection **events** (folder
+  scripts), **debug_metadata** (breakpoints/watches via merge APIs), and
+  **settings** (allowlisted RuntimeSettings / history / tab prefs; never AI credentials).
+  Create request applies
+  `description`/`body_mode`/`body_options`/optional `auth` via `update_request`
+  after create (auth-only collection/request updates delegate to `data_ops.apply_auth_update`).
+  Binary `body_mode` paths are validated with `execution/binary/path_policy` on mutate and send.
+  Execute (`tools/workspace_execute/dispatch.py` → `execution/*`) includes send/draft/replay,
+  `run_scripts`, `run_local_script`, **`run_collection`**, **`run_iterations`**,
+  **`fetch_graphql_schema`**, **`generate_snippet`** (auth secrets as `{{var}}`),
+  **`export_workspace_artifact`**, and **`oauth_get_token`** v1 (client_credentials/password;
+  token bound to env secret var; never Always-allow). Drain refreshes `_env_selector` for env CRUD / active env,
+  history panels on history delete, attaches GraphQL schemas to open editors, and opens folder Runs / Scripts for
+  collection / iteration executes.
   `WorkspaceQueryExecutor` resolves the parent chat session id via
   `resolve_workspace_session_id` / `parent_session_id_from_persistence_dir` when
   the tool runs inside a subagent conversation under
@@ -335,7 +396,9 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   `on_send_finished` (skipped when `_suppress_history_record` is set during
   debug replay); refreshes `_global_history_panel` always and
   `_request_history_panel` when the active tab matches the recorded request.
-  Settings: `HistorySettingsManager` (`history/*` QSettings). Bodies and
+  Settings: `services/history_retention_config.py` is the single source of
+  truth for `history/*` QSettings keys/defaults/clamps (`load_history_retention_config`);
+  `HistorySettingsManager` wraps it for the Settings UI. Bodies and
   snapshots under `user_history_root()`; metadata in `request_history_entries`.
   **Lists:** `list_for_sidebar` (left global rail; optional `limit`, default 500;
   workspace `recent_history` uses `limit=25`), `list_for_request` (right

@@ -107,6 +107,8 @@ class AiChatPanel(
     attachments_changed = Signal(list)
     manage_models_requested = Signal()
     budget_settings_requested = Signal()
+    confirmation_approve_requested = Signal()
+    confirmation_reject_requested = Signal()
     effort_changed = Signal(str, str)
     context_requested = Signal()
     transcript_load_finished = Signal()
@@ -372,6 +374,27 @@ class AiChatPanel(
         self._request_turn_bottom_scroll()  # type: ignore[attr-defined]
         self._follow_streaming_turn_layout()  # type: ignore[attr-defined]
 
+    def deliver_execute_update(self, records: object) -> None:
+        """Upsert agent-execute result cards onto the active streaming bubble."""
+        if not isinstance(records, list):
+            return
+        from typing import cast
+
+        from services.ai.chat.execute_events import ExecuteRunRecord
+
+        bubble = self._resolve_streaming_bubble()  # type: ignore[attr-defined]
+        if bubble is None:
+            if self._open_stream_generation == 0:  # type: ignore[attr-defined]
+                return
+            bubble = self._ensure_streaming_turn_widgets()  # type: ignore[attr-defined]
+        else:
+            self._streaming_bubble = bubble  # type: ignore[attr-defined]
+        for record in records:
+            if isinstance(record, dict) and record.get("id"):
+                bubble.upsert_execute_record(cast(ExecuteRunRecord, record))
+        self._request_turn_bottom_scroll()  # type: ignore[attr-defined]
+        self._follow_streaming_turn_layout()  # type: ignore[attr-defined]
+
     @Slot(str)
     def deliver_activity_status(self, raw_status: str) -> None:
         """GUI-thread slot for worker ``status_changed`` (QueuedConnection)."""
@@ -414,6 +437,26 @@ class AiChatPanel(
         if not busy:
             self._deactivate_streaming_turn_user_footer()
             self._apply_budget_send_gate()
+            self.clear_confirmation()
+
+    def show_confirmation(self, payload: object) -> None:
+        """Show pending Agent action cards on the streaming assistant bubble."""
+        bubble = self._resolve_streaming_bubble()  # type: ignore[attr-defined]
+        if bubble is None:
+            bubble = self._ensure_streaming_turn_widgets()  # type: ignore[attr-defined]
+        if not bubble.property("_pending_confirm_wired"):
+            bubble.confirmation_approve_requested.connect(self.confirmation_approve_requested.emit)
+            bubble.confirmation_reject_requested.connect(self.confirmation_reject_requested.emit)
+            bubble.setProperty("_pending_confirm_wired", True)
+        bubble.show_pending_confirmation(payload)
+
+    def clear_confirmation(self) -> None:
+        """Hide pending Agent action cards on the streaming assistant bubble."""
+        bubble = self._resolve_streaming_bubble()  # type: ignore[attr-defined]
+        if bubble is None:
+            bubble = self._last_assistant_bubble()  # type: ignore[attr-defined]
+        if bubble is not None:
+            bubble.clear_pending_confirmation()
 
     def restore_composer_text(self, text: str) -> None:
         """Put unsent prompt text back into the composer input."""
@@ -456,6 +499,7 @@ class AiChatPanel(
         self._cancel_inline_edit_if_active()
         self._hide_context_popup()
         self._reset_context_usage_chrome()
+        self.clear_confirmation()
         self.clear_streaming_transcript()
 
     def _model_button_label(self) -> str:

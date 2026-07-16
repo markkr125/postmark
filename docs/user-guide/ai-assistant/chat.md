@@ -19,8 +19,10 @@ Click **Stop** on the composer or user-message footer to cancel an in-flight run
 
 | Control | Options |
 |---------|---------|
-| **Mode pill** | **Agent**, **Ask**, or **Plan** — changes system behaviour |
+| **Mode pill** | **Ask** / **Plan** — read-only help and planning. **Agent** — can propose workspace edits and sends; you **Approve** (or auto-approve) before they run |
 | **Model button** | Pick an enabled model; gear/edit for context tier, thinking, reasoning |
+
+See [Agent workspace edits](agent-edits.md) for the inline Approve card (**Allow** / **Reject** / **Always allow**) and auto-approved kinds.
 
 ## Sessions
 
@@ -56,6 +58,7 @@ Ask the assistant for the current date or time, to convert a time between timezo
 
 ## Related
 
+- [Agent workspace edits](agent-edits.md) — turn on edits, Approve / Reject, auto-approve
 - [Workspace explorer](workspace-explorer.md) — ask about your collections, variables, and history
 - [Models and providers](../settings/ai/models-and-providers.md)
 - [Budgets](../settings/ai/budgets.md)

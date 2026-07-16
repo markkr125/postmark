@@ -6,21 +6,25 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QObject, Signal, Slot
+from PySide6.QtCore import QEventLoop, QObject, Signal, Slot
 
 from services.ai.ai_config import AiModelEntry
-from services.ai.chat.response_text import (
-    chunk_parts_from_stream,
-    merge_stream_text,
-    resolve_assistant_parts,
-)
 from services.ai.chat.compaction import (
     CHAT_CONDENSER_DIAGNOSTIC_USAGE_FRACTION,
     log_compaction_diagnostics,
 )
+from services.ai.chat.confirmation_payload import (
+    is_waiting_for_confirmation,
+    pending_actions_payload,
+)
 from services.ai.chat.context_usage import (
     ContextUsageService,
     metrics_from_conversation,
+)
+from services.ai.chat.response_text import (
+    chunk_parts_from_stream,
+    merge_stream_text,
+    resolve_assistant_parts,
 )
 from services.ai.chat.session_service import AiChatSessionService, ComposerRunContext
 from services.ai.chat.subagent_events import SubagentEventTracker
@@ -73,12 +77,37 @@ def _safe_close(conv: BaseConversation | None) -> None:
         logger.exception("AI chat conversation close failed")
 
 
+_MUTATE_EXECUTE_TOOLS = frozenset(
+    {
+        "postmark_workspace_mutate",
+        "postmark_workspace_execute",
+    }
+)
+
+
+def _is_mutate_or_execute_observation(event: object) -> bool:
+    """Return True for ObservationEvents from mutate/execute tools."""
+    name = type(event).__name__
+    if name != "ObservationEvent":
+        try:
+            from openhands.sdk.event.llm_convertible.observation import ObservationEvent
+
+            if not isinstance(event, ObservationEvent):
+                return False
+        except Exception:
+            return False
+    tool_name = str(getattr(event, "tool_name", "") or "")
+    return tool_name in _MUTATE_EXECUTE_TOOLS
+
+
 class AiChatWorker(QObject):
     """Run one AI chat turn on a background thread.
 
     Configure via setters before ``moveToThread`` / ``QThread.start``.
     Uses ``Conversation.arun()`` so :meth:`cancel` can interrupt in-flight LLM
-    calls without deadlocking the GUI on the conversation state lock.
+    calls. When the SDK pauses for confirmation, the worker keeps the
+    Conversation alive and parks on a nested ``QEventLoop`` until Approve,
+    Reject, or Stop.
     """
 
     chunk_received = Signal(str, str)
@@ -88,6 +117,9 @@ class AiChatWorker(QObject):
     context_compacted = Signal()
     usage_updated = Signal(object)
     subagent_updated = Signal(object)
+    confirmation_needed = Signal(str, object)
+    confirmation_cleared = Signal(str)
+    mutation_bridge_ready = Signal(str)
 
     def __init__(self) -> None:
         """Initialise with empty run parameters."""
@@ -103,6 +135,11 @@ class AiChatWorker(QObject):
         self._content_buffer = ""
         self._compaction_status_emitted = False
         self._subagent_tracker = SubagentEventTracker()
+        self._confirmation_decision: str | None = None
+        self._reject_reason: str = ""
+        self._pending_confirmation: object | None = None
+        self._confirm_loop: QEventLoop | None = None
+        self._waiting_for_confirmation = False
 
     def set_run(
         self,
@@ -125,13 +162,27 @@ class AiChatWorker(QObject):
         self._content_buffer = ""
         self._compaction_status_emitted = False
         self._subagent_tracker = SubagentEventTracker(session_id=session_id)
+        self._confirmation_decision = None
+        self._reject_reason = ""
+        self._pending_confirmation = None
+        self._confirm_loop = None
+        self._waiting_for_confirmation = False
 
     def cancel(self) -> None:
         """Request interruption of the in-flight conversation run.
 
-        Safe to call from the GUI thread while ``arun()`` is active.
+        Safe to call from the GUI thread. While waiting for Approve, only set
+        stop flags and quit the nested confirm loop — ``reject_pending_actions``
+        runs on the worker thread after the loop exits (never mutate SDK state
+        from the GUI thread).
         """
         self._stop_requested = True
+        if self._waiting_for_confirmation:
+            self._confirmation_decision = "stop"
+            loop = self._confirm_loop
+            if loop is not None and loop.isRunning():
+                loop.quit()
+            return
         conv = self._conv
         if conv is None:
             return
@@ -139,6 +190,106 @@ class AiChatWorker(QObject):
             conv.interrupt()
         except Exception:
             logger.exception("AI chat interrupt failed")
+
+    def is_awaiting_confirmation(self) -> bool:
+        """Return whether this worker is parked for Approve/Reject."""
+        return self._waiting_for_confirmation
+
+    def notify_mutation_bridge_ready(self) -> None:
+        """Signal the GUI thread to drain mutation bridge events."""
+        self.mutation_bridge_ready.emit(self._session_id)
+
+    @Slot()
+    def approve_confirmation(self) -> None:
+        """Resume the parked run after user Approve (SDK implicit confirm)."""
+        self._confirmation_decision = "approve"
+        self._pending_confirmation = None
+        if self._session_id:
+            self.confirmation_cleared.emit(self._session_id)
+        loop = self._confirm_loop
+        if loop is not None and loop.isRunning():
+            loop.quit()
+
+    @Slot(str)
+    def reject_confirmation(self, reason: str = "") -> None:
+        """Reject pending actions then resume so the agent can continue."""
+        self._confirmation_decision = "reject"
+        self._reject_reason = reason or "user rejected"
+        self._pending_confirmation = None
+        conv = self._conv
+        if conv is not None:
+            reject = getattr(conv, "reject_pending_actions", None)
+            if callable(reject):
+                try:
+                    reject(reason=self._reject_reason)
+                except Exception:
+                    logger.exception("AI chat reject_pending_actions failed")
+        if self._session_id:
+            self.confirmation_cleared.emit(self._session_id)
+        loop = self._confirm_loop
+        if loop is not None and loop.isRunning():
+            loop.quit()
+
+    def _wait_for_confirmation_decision(self, conv: BaseConversation) -> str:
+        """Park on a nested event loop until Approve, Reject, or Stop.
+
+        Returns ``approve``, ``reject``, or ``stop``.
+        """
+        # Mark waiting before emit so a concurrent cancel() takes the waiting branch.
+        self._waiting_for_confirmation = True
+        self._confirmation_decision = None
+        if self._stop_requested:
+            self._waiting_for_confirmation = False
+            self._reject_pending_on_worker(conv, _STOPPED_MESSAGE)
+            return "stop"
+
+        payload = pending_actions_payload(conv)
+        self._pending_confirmation = payload
+        self.confirmation_needed.emit(self._session_id, payload)
+        self.status_changed.emit("Waiting for approval…")
+
+        # TOCTOU: cancel may have arrived after WAITING but before the loop starts.
+        if self._stop_requested or self._confirmation_decision == "stop":
+            self._waiting_for_confirmation = False
+            self._pending_confirmation = None
+            if self._session_id:
+                self.confirmation_cleared.emit(self._session_id)
+            self._reject_pending_on_worker(conv, _STOPPED_MESSAGE)
+            return "stop"
+
+        loop = QEventLoop()
+        self._confirm_loop = loop
+        try:
+            if self._stop_requested or self._confirmation_decision == "stop":
+                decision = "stop"
+            else:
+                loop.exec()
+                decision = self._confirmation_decision or "stop"
+        finally:
+            self._confirm_loop = None
+            self._waiting_for_confirmation = False
+
+        if decision == "stop":
+            self._reject_pending_on_worker(conv, _STOPPED_MESSAGE)
+            if self._session_id:
+                self.confirmation_cleared.emit(self._session_id)
+        return decision
+
+    def _reject_pending_on_worker(
+        self,
+        conv: BaseConversation | None,
+        reason: str,
+    ) -> None:
+        """Reject unmatched actions on the worker thread only."""
+        if conv is None:
+            return
+        reject = getattr(conv, "reject_pending_actions", None)
+        if not callable(reject):
+            return
+        try:
+            reject(reason=reason)
+        except Exception:
+            logger.exception("AI chat reject_pending_actions failed")
 
     def _emit_failure(
         self,
@@ -150,13 +301,52 @@ class AiChatWorker(QObject):
         failed_records = self._subagent_tracker.fail_inflight()
         if failed_records:
             self.subagent_updated.emit(self._subagent_tracker.records())
+        self.notify_mutation_bridge_ready()
         _safe_close(conv)
         self._conv = None
         self.failed.emit(message, parts.thinking, parts.content)
 
+    def _finish_success(
+        self,
+        conv: BaseConversation,
+        *,
+        baseline_cost: float,
+        ring_total: int,
+        ring_used: int,
+        diagnostics: object,
+    ) -> None:
+        """Emit usage + assistant_finished and close the conversation."""
+        final = resolve_assistant_parts(conv, self._thinking_buffer, self._content_buffer)
+        think_tail = final.thinking[len(self._thinking_buffer) :]
+        content_tail = final.content[len(self._content_buffer) :]
+        if think_tail or content_tail:
+            self.chunk_received.emit(think_tail, content_tail)
+        self._thinking_buffer = final.thinking
+        self._content_buffer = final.content
+        sdk_metrics = metrics_from_conversation(
+            conv,
+            self._session_id,
+            baseline_accumulated_cost=baseline_cost,
+        )
+        if sdk_metrics is not None:
+            self.usage_updated.emit(sdk_metrics)
+        if ring_total > 0 and ring_used / ring_total >= CHAT_CONDENSER_DIAGNOSTIC_USAGE_FRACTION:
+            log_compaction_diagnostics(
+                session_id=self._session_id,
+                diagnostics=diagnostics,  # type: ignore[arg-type]
+                condensation_occurred=self._compaction_status_emitted,
+            )
+        self.notify_mutation_bridge_ready()
+        _safe_close(conv)
+        self._conv = None
+        if not final.thinking.strip() and not final.content.strip():
+            self.failed.emit("No response from model", "", "")
+            return
+        self.assistant_finished.emit(final.thinking, final.content)
+
     @Slot()
     def run(self) -> None:
-        """Execute ``send_message`` + ``arun`` and stream tokens back."""
+        """Execute ``send_message`` + ``arun``, pausing for confirmation as needed."""
         conv = None
         try:
             entry = self._entry
@@ -194,6 +384,9 @@ class AiChatWorker(QObject):
                 changed = self._subagent_tracker.ingest(event)
                 if changed:
                     self.subagent_updated.emit(self._subagent_tracker.records())
+                if _is_mutate_or_execute_observation(event):
+                    # Mid-turn drain so Allow UI / tree / Output update promptly.
+                    self.notify_mutation_bridge_ready()
                 status = getattr(event, "status", None)
                 if status is not None:
                     text = str(status)
@@ -256,42 +449,33 @@ class AiChatWorker(QObject):
             except Exception:
                 baseline_cost = 0.0
 
-            asyncio.run(conv.arun())
+            # Confirmation loop: arun may return WAITING multiple times per turn.
+            while True:
+                asyncio.run(conv.arun())
+                if self._stop_requested:
+                    self._emit_failure(conv, _STOPPED_MESSAGE)
+                    return
+                if not is_waiting_for_confirmation(conv):
+                    break
+                decision = self._wait_for_confirmation_decision(conv)
+                if decision == "stop" or self._stop_requested:
+                    self._emit_failure(conv, _STOPPED_MESSAGE)
+                    return
+                if decision == "reject":
+                    # Rejection already applied in reject_confirmation; resume
+                    # so the agent can continue with UserRejectObservation.
+                    continue
+                # approve → second arun implicitly confirms pending actions
+                continue
 
-            if self._stop_requested:
-                self._emit_failure(conv, _STOPPED_MESSAGE)
-                return
-
-            final = resolve_assistant_parts(conv, self._thinking_buffer, self._content_buffer)
-            think_tail = final.thinking[len(self._thinking_buffer) :]
-            content_tail = final.content[len(self._content_buffer) :]
-            if think_tail or content_tail:
-                self.chunk_received.emit(think_tail, content_tail)
-            self._thinking_buffer = final.thinking
-            self._content_buffer = final.content
-            sdk_metrics = metrics_from_conversation(
+            self._finish_success(
                 conv,
-                self._session_id,
-                baseline_accumulated_cost=baseline_cost,
+                baseline_cost=baseline_cost,
+                ring_total=ring_total,
+                ring_used=ring_used,
+                diagnostics=diagnostics,
             )
-            if sdk_metrics is not None:
-                self.usage_updated.emit(sdk_metrics)
-            if (
-                ring_total > 0
-                and ring_used / ring_total >= CHAT_CONDENSER_DIAGNOSTIC_USAGE_FRACTION
-            ):
-                log_compaction_diagnostics(
-                    session_id=self._session_id,
-                    diagnostics=diagnostics,
-                    condensation_occurred=self._compaction_status_emitted,
-                )
-            _safe_close(conv)
             conv = None
-            self._conv = None
-            if not final.thinking.strip() and not final.content.strip():
-                self.failed.emit("No response from model", "", "")
-                return
-            self.assistant_finished.emit(final.thinking, final.content)
         except Exception as exc:
             logger.exception("AI chat run failed")
             if self._stop_requested:

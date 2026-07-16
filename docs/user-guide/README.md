@@ -16,6 +16,6 @@ documentation, see the main [docs index](../README.md).
 | [History](history/README.md) | Send history and replay |
 | [Local scripts](local-scripts/README.md) | Reusable script modules |
 | [Settings](settings/README.md) | Appearance, tabs, AI, scripting runtimes |
-| [AI assistant](ai-assistant/README.md) | Right-rail chat + workspace explorer |
+| [AI assistant](ai-assistant/README.md) | Right-rail chat, workspace explorer, and Agent workspace edits |
 
 Maintainers: see [AGENTS.md](AGENTS.md) before editing this tree.

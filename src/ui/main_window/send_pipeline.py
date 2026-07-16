@@ -161,7 +161,9 @@ class _SendPipelineMixin:
             return
 
         headers = editor.get_headers_text()
-        body = editor.get_request_data().get("body") or None
+        request_data = editor.get_request_data()
+        body = request_data.get("body") or None
+        body_mode = request_data.get("body_mode") or None
 
         # 2. Gather auth (with inheritance) and env_id for worker thread
         from services.collection_service import CollectionService
@@ -252,6 +254,7 @@ class _SendPipelineMixin:
             url=url,
             headers=headers,
             body=body,
+            body_mode=body_mode,
             auth_data=auth_data,
             request_id=request_id,
             request_name=request_name,
@@ -303,6 +306,7 @@ class _SendPipelineMixin:
         pre_scripts: list[Any] | None = None,
         test_scripts: list[Any] | None = None,
         declarative_test_script: Any = None,
+        body_mode: str | None = None,
     ) -> None:
         """Start ``HttpSendWorker`` without modifying the request editor."""
         from ui.request.http_worker import HttpSendWorker
@@ -325,6 +329,7 @@ class _SendPipelineMixin:
             url=url,
             headers=headers,
             body=body,
+            body_mode=body_mode,
             env_id=env_id,
             request_id=request_id,
             request_name=request_name,

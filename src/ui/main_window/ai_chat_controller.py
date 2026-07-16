@@ -86,6 +86,8 @@ class _AiChatControllerMixin(_AiChatRunsMixin, _AiChatTurnFinalizeMixin, _AiChat
         panel.user_edit_requested.connect(self._on_user_edit_requested)
         panel.user_edit_submitted.connect(self._on_user_edit_submitted)
         panel.workspace_target_requested.connect(self._on_workspace_target_requested)
+        panel.confirmation_approve_requested.connect(self._on_confirmation_approve)
+        panel.confirmation_reject_requested.connect(self._on_confirmation_reject)
         self._right_sidebar.ai_new_chat_requested.connect(self._on_ai_new_chat)
         self._right_sidebar.ai_session_history_requested.connect(self._on_ai_session_history)
         self._right_sidebar.ai_session_title_renamed.connect(self._on_ai_session_title_renamed)
@@ -161,11 +163,17 @@ class _AiChatControllerMixin(_AiChatRunsMixin, _AiChatTurnFinalizeMixin, _AiChat
 
     def _on_ai_new_chat(self) -> None:
         """Clear transcript UI; next send creates a fresh session."""
+        registry = getattr(self, "_chat_run_registry", None)
+        prev = self._active_ai_session_id
+        if registry is not None and prev is not None:
+            # Abandon Approve wait on the session being left (P0-W5).
+            registry.cancel_if_awaiting_confirmation(prev)
         self._session_load_generation += 1
         self._session_loader.cancel()
         panel = self._right_sidebar.ai_chat_panel
         panel._cancel_inline_edit_if_active()
         panel.cancel_transcript_load()
+        panel.clear_confirmation()
         self._active_ai_session_id = None
         self._persist_active_chat_session_id(None)
         # clear() already resets context/budget chrome — do not call again.
@@ -199,14 +207,19 @@ class _AiChatControllerMixin(_AiChatRunsMixin, _AiChatTurnFinalizeMixin, _AiChat
         """Load *session_id* into the panel and persist it as the active chat."""
         if session_id == self._active_ai_session_id:
             return
+        registry = getattr(self, "_chat_run_registry", None)
+        prev = self._active_ai_session_id
+        if registry is not None and prev is not None:
+            # Leaving a session parked on Approve abandons that wait (P0-W5).
+            registry.cancel_if_awaiting_confirmation(prev)
         self._persist_active_chat_session_id(session_id)
         self._session_loader.cancel()
         self._session_load_generation += 1
         generation = self._session_load_generation
         panel = self._right_sidebar.ai_chat_panel
         panel._cancel_inline_edit_if_active()
+        panel.clear_confirmation()
         panel._reset_context_usage_chrome()
-        registry = getattr(self, "_chat_run_registry", None)
         panel.set_run_busy(registry.is_running(session_id) if registry is not None else False)
         panel.prepare_transcript_load(lazy_markdown=True)
         self._session_loader.load_tail(session_id, generation)
@@ -343,6 +356,7 @@ class _AiChatControllerMixin(_AiChatRunsMixin, _AiChatTurnFinalizeMixin, _AiChat
             reasoning_effort=panel.current_reasoning_effort(),
             thinking_enabled=panel.current_thinking_enabled(),
             run_context_tokens=panel.current_run_context_tokens(),
+            send_mode=panel.current_mode(),
         )
         session_row = AiChatSessionService.get_session(session_id)
         agent_id = session_row["agent_id"] if session_row else DEFAULT_AGENT_ID
@@ -455,6 +469,7 @@ class _AiChatControllerMixin(_AiChatRunsMixin, _AiChatTurnFinalizeMixin, _AiChat
                 reasoning_effort=composer.current_reasoning_effort(),
                 thinking_enabled=composer.current_thinking_enabled(),
                 run_context_tokens=composer.current_run_context_tokens(),
+                send_mode=composer.current_mode(),
             ),
         )
 
@@ -488,7 +503,7 @@ class _AiChatControllerMixin(_AiChatRunsMixin, _AiChatTurnFinalizeMixin, _AiChat
             "test",
         }
     )
-    _COLLECTION_FOCUS_KEYS = frozenset({"pre_request", "test"})
+    _COLLECTION_FOCUS_KEYS = frozenset({"pre_request", "test", "runs"})
 
     @Slot(str, int, str)
     def _on_workspace_target_requested(self, kind: str, entity_id: int, focus: str) -> None:
@@ -521,7 +536,9 @@ class _AiChatControllerMixin(_AiChatRunsMixin, _AiChatTurnFinalizeMixin, _AiChat
                         )
             return
         if kind == "collection":
-            if focus_key in self._COLLECTION_FOCUS_KEYS:
+            if focus_key == "runs":
+                host._open_folder(entity_id, focus_runner_panel=True)
+            elif focus_key in self._COLLECTION_FOCUS_KEYS:
                 host._open_folder(entity_id, focus_scripts_kind=focus_key)
             else:
                 host._open_folder(entity_id)
@@ -540,7 +557,11 @@ class _AiChatControllerMixin(_AiChatRunsMixin, _AiChatTurnFinalizeMixin, _AiChat
                 )
             return
         if kind == "history":
-            host._open_from_global_history(entity_id)
+            load_response = focus_key in {"response", "viewer", "body"}
+            host._open_from_global_history(
+                entity_id,
+                load_centre_response=load_response,
+            )
             return
         if kind == "environment":
             if not host._open_environments_tab(environment_id=entity_id):
@@ -591,6 +612,20 @@ class _AiChatControllerMixin(_AiChatRunsMixin, _AiChatTurnFinalizeMixin, _AiChat
         forked = result["session"]
         self._pending_fork_composer = (forked["id"], result["composer_draft"])
         self._activate_chat_session(forked["id"])
+
+    def _on_confirmation_approve(self) -> None:
+        """Forward Approve to the active session's chat worker."""
+        session_id = self._active_ai_session_id
+        if not session_id:
+            return
+        self._chat_run_registry.approve_confirmation(session_id)
+
+    def _on_confirmation_reject(self) -> None:
+        """Forward Reject to the active session's chat worker."""
+        session_id = self._active_ai_session_id
+        if not session_id:
+            return
+        self._chat_run_registry.reject_confirmation(session_id, "user rejected")
 
     def _on_ai_chat_stop(self) -> None:
         """Interrupt the in-flight chat worker and reset UI immediately."""

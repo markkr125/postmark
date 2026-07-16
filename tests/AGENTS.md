@@ -284,6 +284,7 @@ tests/
 │       │   ├── test_postmark_agent_registry.py  # workspace prompt/desc: history routing + within_ids
 │       │   ├── test_subagent_registry.py
 │       │   ├── test_subagent_events.py
+│       │   ├── test_execute_events.py  # Agent execute observation → clickable card records
 │       │   ├── test_thinking_sections.py
 │       │   ├── test_subagent_disk_registry.py
 │       │   ├── test_subagent_transcript.py
@@ -298,6 +299,25 @@ tests/
 │       │   ├── test_workspace_query_variable.py  # scope=variable definitions/resolution/usages
 │       │   ├── test_workspace_query_insights.py  # workspace health, fielded ops, multi-goal, env diff
 │       │   ├── test_workspace_query_explorer.py  # env_reach, dependencies, walkthrough, dead/token/response_drift
+│       │   ├── test_send_core_parity.py  # SharedSendCore: pre-request errors, overrides, globals, redact
+│       │   ├── test_confirmation_spike.py  # ConfirmRisky pause/resume/reject + whitelist skip
+│       │   ├── test_confirmation_payload.py  # human_preview + Approve title/detail (no raw tool names)
+│       │   ├── test_agent_tools_for_turn.py  # Ask/Plan/Agent tools_for_turn (Agent always has write tools)
+│       │   ├── test_workspace_security.py  # PostmarkWorkspaceSecurityAnalyzer + policy
+│       │   ├── test_mutation_bridge.py  # enqueue/drain mutation GUI events
+│       │   ├── test_mutation_auto_approve.py  # whitelist add/remove/clear + Phase 2 kinds
+│       │   ├── test_workspace_mutate_collections.py  # mutate CRUD + assertion_set + field filter
+│       │   ├── test_workspace_mutate_local.py  # local scripts + secrets/auth/env/snippet mutate
+│       │   ├── test_workspace_mutate_session.py  # active env, history delete, import, version restore, folder events
+│       │   ├── test_workspace_mutate_debug_metadata.py  # breakpoints/watches merge mutate
+│       │   ├── test_workspace_mutate_settings.py  # allowlisted settings mutate
+│       │   ├── test_binary_body.py  # binary path policy + HttpService byte send
+│       │   ├── test_agent_graphql_fetch.py  # execute fetch_graphql_schema
+│       │   ├── test_agent_codegen_export.py  # generate_snippet + export artifact
+│       │   ├── test_agent_oauth_get_token.py  # oauth_get_token v1 credential-blind
+│       │   ├── test_agent_runner_execute.py  # execute:run_collection + run_iterations
+│       │   ├── test_agent_send_execute.py  # record_history, run_agent_scripts, execute dispatch
+│       │   ├── test_agent_local_script_execute.py  # run_agent_local_script + local kinds + secrets rejection
 │       │   ├── test_pm_api_quickref.py
 │       │   ├── test_provider_ops.py
 │       │   ├── test_model_filters.py
@@ -397,9 +417,13 @@ tests/
    │   ├── test_chat_panel_smooth_scroll.py
    │   ├── test_chat_panel_resize.py
    │   ├── test_ai_chat_worker.py
-   │   ├── test_ai_session_history_popup.py  # Virtualized list; RUNNING_ROLE; ⋯ menu click routing; rename/delete dialogs
-   │   ├── test_ai_active_run_badge.py  # Header aiChatActiveRunsBadge count pill
-   │   ├── test_session_transcript_load.py  # Async session switch + lazy markdown; post-load settle skips work while pinned
+│   ├── test_ai_chat_worker_confirmation.py  # Approve/Reject/Stop-while-waiting slots
+│   ├── test_ai_chat_worker_confirm_loop.py  # P0-W: real run() WAITING→Approve/Reject/Stop; preview_url env-sub + draft/replay
+│   ├── test_ai_execute_cards.py  # Execute result cards → history?focus=response / request deeplink
+│   ├── test_ai_pending_tool_cards.py  # Inline Allow/Reject/Always allow cards on streaming bubble
+│   ├── test_ai_session_history_popup.py  # Virtualized list; RUNNING_ROLE; ⋯ menu click routing; rename/delete dialogs
+│   ├── test_ai_active_run_badge.py  # Header aiChatActiveRunsBadge count pill
+│   ├── test_session_transcript_load.py  # Async session switch + lazy markdown; post-load settle skips work while pinned
    │   └── ai/
    │       ├── conftest.py  # load_transcript_sync helper
    │       ├── test_transcript_window.py  # Virtual tail/prepend paging + spacers
@@ -442,6 +466,7 @@ tests/
     │   ├── test_collection_tree_actions.py
     │   ├── test_collection_tree_delegate.py
     │   ├── test_collection_widget.py
+    │   ├── test_collection_refresh.py  # refresh_collections + folder highlight + open-tab reload
     │   ├── test_local_scripts_tree_breadcrumb.py
     │   ├── test_local_scripts_tree_folder_expand.py  # expand must not rewrite folder label to Unnamed
     │   ├── test_local_scripts_tree_icons.py

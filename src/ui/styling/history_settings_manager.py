@@ -4,78 +4,65 @@ from __future__ import annotations
 
 import logging
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, QSettings, Signal
 
-from ui.styling.tab_settings_manager import _as_bool
+from services.history_retention_config import (
+    DEFAULT_MAX_ITEMS_PER_DAY,
+    DEFAULT_MAX_RESPONSE_BYTES,
+    DEFAULT_RETENTION_DAYS,
+    KEY_MAX_ITEMS_PER_DAY,
+    KEY_MAX_RESPONSE_BYTES,
+    KEY_RETENTION_DAYS,
+    KEY_SAVE_RESPONSES,
+    KEY_UNLIMITED_PER_DAY,
+    MAX_MAX_ITEMS_PER_DAY,
+    MAX_MAX_RESPONSE_BYTES,
+    MAX_RETENTION_DAYS,
+    MIN_MAX_ITEMS_PER_DAY,
+    MIN_MAX_RESPONSE_BYTES,
+    MIN_RETENTION_DAYS,
+    clamp_history_int,
+    load_history_retention_config,
+)
 from ui.styling.theme_manager import _APP, _ORG
 
 logger = logging.getLogger(__name__)
 
-_KEY_RETENTION_DAYS = "history/retention_days"
-_KEY_MAX_ITEMS_PER_DAY = "history/max_items_per_day"
-_KEY_UNLIMITED_PER_DAY = "history/unlimited_per_day"
-_KEY_SAVE_RESPONSES = "history/save_responses"
-_KEY_MAX_RESPONSE_BYTES = "history/max_response_bytes"
-
-DEFAULT_RETENTION_DAYS = 30
-MIN_RETENTION_DAYS = 1
-MAX_RETENTION_DAYS = 365
-
-DEFAULT_MAX_ITEMS_PER_DAY = 100
-MIN_MAX_ITEMS_PER_DAY = 1
-MAX_MAX_ITEMS_PER_DAY = 10_000
-
-DEFAULT_MAX_RESPONSE_BYTES = 1_048_576
-MAX_MAX_RESPONSE_BYTES = 10_485_760
-MIN_MAX_RESPONSE_BYTES = DEFAULT_MAX_RESPONSE_BYTES
-
-
-def _clamp_int(value: object, default: int, low: int, high: int) -> int:
-    """Parse and clamp an integer QSettings value."""
-    try:
-        parsed = int(str(value))
-    except (TypeError, ValueError):
-        parsed = default
-    return max(low, min(high, parsed))
+# Re-export bounds for Settings UI / tests that import from this module.
+__all__ = [
+    "DEFAULT_MAX_ITEMS_PER_DAY",
+    "DEFAULT_MAX_RESPONSE_BYTES",
+    "DEFAULT_RETENTION_DAYS",
+    "MAX_MAX_ITEMS_PER_DAY",
+    "MAX_MAX_RESPONSE_BYTES",
+    "MAX_RETENTION_DAYS",
+    "MIN_MAX_ITEMS_PER_DAY",
+    "MIN_MAX_RESPONSE_BYTES",
+    "MIN_RETENTION_DAYS",
+    "HistorySettingsManager",
+]
 
 
 class HistorySettingsManager(QObject):
-    """Persisted preferences for HTTP send history retention and body storage."""
+    """Persisted preferences for HTTP send history retention and body storage.
+
+    Values are loaded from the shared service-layer
+    :func:`~services.history_retention_config.load_history_retention_config`
+    so agent sends and the UI Settings page share one QSettings schema.
+    """
 
     settings_changed = Signal()
 
     def __init__(self, parent: QObject | None = None) -> None:
         """Load history settings from QSettings."""
         super().__init__(parent)
-        from PySide6.QtCore import QSettings
-
         self._settings = QSettings(_ORG, _APP)
-        self._retention_days = _clamp_int(
-            self._settings.value(_KEY_RETENTION_DAYS, DEFAULT_RETENTION_DAYS),
-            DEFAULT_RETENTION_DAYS,
-            MIN_RETENTION_DAYS,
-            MAX_RETENTION_DAYS,
-        )
-        self._max_items_per_day = _clamp_int(
-            self._settings.value(_KEY_MAX_ITEMS_PER_DAY, DEFAULT_MAX_ITEMS_PER_DAY),
-            DEFAULT_MAX_ITEMS_PER_DAY,
-            MIN_MAX_ITEMS_PER_DAY,
-            MAX_MAX_ITEMS_PER_DAY,
-        )
-        self._unlimited_per_day = _as_bool(
-            self._settings.value(_KEY_UNLIMITED_PER_DAY, False),
-            False,
-        )
-        self._save_responses = _as_bool(
-            self._settings.value(_KEY_SAVE_RESPONSES, True),
-            True,
-        )
-        self._max_response_bytes = _clamp_int(
-            self._settings.value(_KEY_MAX_RESPONSE_BYTES, DEFAULT_MAX_RESPONSE_BYTES),
-            DEFAULT_MAX_RESPONSE_BYTES,
-            MIN_MAX_RESPONSE_BYTES,
-            MAX_MAX_RESPONSE_BYTES,
-        )
+        cfg = load_history_retention_config(self._settings)
+        self._retention_days = cfg.retention_days
+        self._max_items_per_day = cfg.max_items_per_day
+        self._unlimited_per_day = cfg.unlimited_per_day
+        self._save_responses = cfg.save_responses
+        self._max_response_bytes = cfg.max_response_bytes
 
     @property
     def retention_days(self) -> int:
@@ -84,11 +71,13 @@ class HistorySettingsManager(QObject):
 
     @retention_days.setter
     def retention_days(self, value: int) -> None:
-        clamped = _clamp_int(value, DEFAULT_RETENTION_DAYS, MIN_RETENTION_DAYS, MAX_RETENTION_DAYS)
+        clamped = clamp_history_int(
+            value, DEFAULT_RETENTION_DAYS, MIN_RETENTION_DAYS, MAX_RETENTION_DAYS
+        )
         if self._retention_days == clamped:
             return
         self._retention_days = clamped
-        self._settings.setValue(_KEY_RETENTION_DAYS, clamped)
+        self._settings.setValue(KEY_RETENTION_DAYS, clamped)
         self.settings_changed.emit()
 
     @property
@@ -98,7 +87,7 @@ class HistorySettingsManager(QObject):
 
     @max_items_per_day.setter
     def max_items_per_day(self, value: int) -> None:
-        clamped = _clamp_int(
+        clamped = clamp_history_int(
             value,
             DEFAULT_MAX_ITEMS_PER_DAY,
             MIN_MAX_ITEMS_PER_DAY,
@@ -107,7 +96,7 @@ class HistorySettingsManager(QObject):
         if self._max_items_per_day == clamped:
             return
         self._max_items_per_day = clamped
-        self._settings.setValue(_KEY_MAX_ITEMS_PER_DAY, clamped)
+        self._settings.setValue(KEY_MAX_ITEMS_PER_DAY, clamped)
         self.settings_changed.emit()
 
     @property
@@ -121,7 +110,7 @@ class HistorySettingsManager(QObject):
         if self._unlimited_per_day == parsed:
             return
         self._unlimited_per_day = parsed
-        self._settings.setValue(_KEY_UNLIMITED_PER_DAY, parsed)
+        self._settings.setValue(KEY_UNLIMITED_PER_DAY, parsed)
         self.settings_changed.emit()
 
     @property
@@ -135,7 +124,7 @@ class HistorySettingsManager(QObject):
         if self._save_responses == parsed:
             return
         self._save_responses = parsed
-        self._settings.setValue(_KEY_SAVE_RESPONSES, parsed)
+        self._settings.setValue(KEY_SAVE_RESPONSES, parsed)
         self.settings_changed.emit()
 
     @property
@@ -145,7 +134,7 @@ class HistorySettingsManager(QObject):
 
     @max_response_bytes.setter
     def max_response_bytes(self, value: int) -> None:
-        clamped = _clamp_int(
+        clamped = clamp_history_int(
             value,
             DEFAULT_MAX_RESPONSE_BYTES,
             MIN_MAX_RESPONSE_BYTES,
@@ -154,7 +143,7 @@ class HistorySettingsManager(QObject):
         if self._max_response_bytes == clamped:
             return
         self._max_response_bytes = clamped
-        self._settings.setValue(_KEY_MAX_RESPONSE_BYTES, clamped)
+        self._settings.setValue(KEY_MAX_RESPONSE_BYTES, clamped)
         self.settings_changed.emit()
 
     def max_response_bytes_for_storage(self) -> int:

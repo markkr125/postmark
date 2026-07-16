@@ -50,7 +50,7 @@ from database.models.ai_chat.ai_chat_repository import (
 )
 from services.ai.ai_config import AiConfig, AiModelEntry
 from services.ai.ai_logging import log as ai_log
-from services.ai.chat.agent_registry import DEFAULT_MAX_ITERATIONS, get_agent_def
+from services.ai.chat.agent_registry import get_agent_def
 from services.ai.chat.compaction import (
     CHAT_CONDENSER_MAX_EVENTS,
     CHAT_CONDENSER_MINIMUM_PROGRESS,
@@ -137,6 +137,7 @@ class ComposerRunContext(TypedDict, total=False):
     run_context_tokens: int | None
     thinking_enabled: str | None
     reasoning_effort: str | None
+    send_mode: str | None
 
 
 class AiChatUserForkResult(TypedDict):
@@ -881,6 +882,9 @@ class AiChatSessionService:
         from openhands.sdk.context.condenser import LLMSummarizingCondenser
         from openhands.sdk.workspace import LocalWorkspace
 
+        from services.ai.chat.agent_tools import max_iterations_for_turn, tools_for_turn
+        from services.ai.chat.mutation.security import apply_confirmation_policy
+
         def_ = get_agent_def(agent_id)
         disk = session_disk_dir(session_id)
         disk.mkdir(parents=True, exist_ok=True)
@@ -888,8 +892,13 @@ class AiChatSessionService:
         reasoning_effort = composer.get("reasoning_effort") if composer else None
         thinking_enabled = composer.get("thinking_enabled") if composer else None
         run_context_tokens = composer.get("run_context_tokens") if composer else None
+        send_mode = composer.get("send_mode") if composer else None
         if run_context_tokens is None:
             run_context_tokens = effective_run_context_tokens(entry)
+        tool_names = tools_for_turn(
+            agent_id,
+            send_mode=send_mode,
+        )
         base = resolve_llm_base_url(entry) or "(default)"
         usage_id = f"postmark-chat-{session_id}"
         with _allow_short_context_when_needed(entry):
@@ -925,15 +934,18 @@ class AiChatSessionService:
 
         agent = Agent(
             llm=llm,
-            tools=resolve_tools(def_.tool_names),
+            tools=resolve_tools(tool_names),
             system_prompt=def_.system_prompt,
             include_default_tools=list(def_.include_default_tools),
             condenser=condenser,
         )
         workspace = LocalWorkspace(working_dir=str(disk))
-        max_iter = max(def_.max_iteration_per_run or DEFAULT_MAX_ITERATIONS, 3)
+        max_iter = max_iterations_for_turn(
+            agent_id,
+            send_mode=send_mode,
+        )
 
-        return cast(
+        conversation = cast(
             "BaseConversation",
             Conversation(
                 agent=agent,
@@ -946,6 +958,11 @@ class AiChatSessionService:
                 delete_on_close=False,
             ),
         )
+        apply_confirmation_policy(
+            conversation,
+            send_mode=send_mode,
+        )
+        return conversation
 
     @staticmethod
     def generate_session_title(

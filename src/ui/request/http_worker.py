@@ -11,6 +11,10 @@ Workers:
 
 Supports **cancellation**: the owning tab calls ``cancel()`` which sets a
 ``threading.Event`` flag checked before and after the network call.
+
+The non-debug send path delegates to
+:func:`services.ai.chat.execution.send_core.run_shared_send`.  Debug
+protocol step-through stays in this worker only.
 """
 
 from __future__ import annotations
@@ -58,6 +62,7 @@ class HttpSendWorker(QObject):
         self._url: str = ""
         self._headers: str | None = None
         self._body: str | None = None
+        self._body_mode: str | None = None
         self._timeout: float = 30.0
         self._env_id: int | None = None
         self._request_id: int | None = None
@@ -80,6 +85,7 @@ class HttpSendWorker(QObject):
         url: str,
         headers: str | None = None,
         body: str | None = None,
+        body_mode: str | None = None,
         timeout: float = 30.0,
         env_id: int | None = None,
         request_id: int | None = None,
@@ -107,11 +113,15 @@ class HttpSendWorker(QObject):
         *pre_scripts* and *test_scripts* are the script inheritance
         chains resolved by ``ScriptService``.  Pre-request scripts
         run before the HTTP call; test scripts run after.
+
+        *body_mode* ``binary`` means *body* is a filesystem path whose
+        bytes are sent (not the path string).
         """
         self._method = method
         self._url = url
         self._headers = headers
         self._body = body
+        self._body_mode = body_mode
         self._timeout = timeout
         self._env_id = env_id
         self._request_id = request_id
@@ -156,12 +166,59 @@ class HttpSendWorker(QObject):
 
         Pre-request scripts run after variable substitution but before
         the HTTP call.  Test scripts run after the response arrives.
+
+        Non-debug sends use :func:`run_shared_send`.  Debug protocol
+        step-through remains inline in :meth:`_run_debug_path`.
         """
         # 1. Check cancellation before starting the request
         if self._cancel_event.is_set():
             self.error.emit("Request cancelled")
             return
 
+        if self._debug_protocol is not None:
+            self._run_debug_path()
+            return
+
+        try:
+            from services.ai.chat.execution.send_core import run_shared_send
+
+            result = run_shared_send(
+                method=self._method,
+                url=self._url,
+                headers=self._headers,
+                body=self._body,
+                body_mode=self._body_mode,
+                timeout=self._timeout,
+                request_id=self._request_id,
+                request_name=self._request_name,
+                env_id=self._env_id,
+                variable_collection_id=self._variable_collection_id,
+                local_overrides=self._local_overrides,
+                auth_data=self._auth_data,
+                pre_scripts=self._pre_scripts,
+                test_scripts=self._test_scripts,
+                declarative_test_script=self._declarative_test_script,
+                persist_globals=True,
+                cancel_event=self._cancel_event,
+                acquire_agent_slot=False,
+            )
+            if result.get("cancelled"):
+                self.error.emit("Request cancelled")
+                return
+            if not result.get("ok"):
+                self.error.emit(str(result.get("error") or "Send failed"))
+                return
+            response = result.get("response")
+            if not isinstance(response, dict):
+                self.error.emit("Send failed: empty response")
+                return
+            self.finished.emit(response)
+        except Exception as exc:
+            logger.exception("HTTP send worker failed")
+            self.error.emit(str(exc))
+
+    def _run_debug_path(self) -> None:
+        """Send with debug protocol step-through (worker-only path)."""
         try:
             method = self._method
             url = self._url
@@ -208,11 +265,10 @@ class HttpSendWorker(QObject):
                 load_globals,
                 save_globals,
             )
+            from services.scripting.engine import run_debug_chain
 
             env_name = ""
             if self._env_id is not None:
-                from services.environment_service import EnvironmentService
-
                 env = EnvironmentService.get_environment(self._env_id)
                 if env is not None:
                     env_name = str(env.name or "")
@@ -220,6 +276,9 @@ class HttpSendWorker(QObject):
             global_vars = load_globals() if (self._pre_scripts or self._test_scripts) else {}
 
             pre_output = None
+            protocol = self._debug_protocol
+            assert protocol is not None
+
             if self._pre_scripts:
                 header_dict = parse_header_dict(headers) if headers else {}
                 pre_ctx = build_pre_request_context(
@@ -239,25 +298,15 @@ class HttpSendWorker(QObject):
                     auth=self._auth_data,
                     environment_name=env_name,
                 )
-                from services.scripting.engine import ScriptEngine
-
-                if self._debug_protocol:
-                    from services.scripting.engine import run_debug_chain
-
-                    self._debug_protocol.start(
-                        on_pause=lambda info: self.debug_paused.emit(info),
-                    )
-                    pre_output = run_debug_chain(
-                        self._pre_scripts,
-                        pre_ctx,
-                        self._debug_protocol,
-                        script_type="pre_request",
-                    )
-                else:
-                    pre_output = ScriptEngine.run_pre_request_scripts(
-                        self._pre_scripts,
-                        pre_ctx,
-                    )
+                protocol.start(
+                    on_pause=lambda info: self.debug_paused.emit(info),
+                )
+                pre_output = run_debug_chain(
+                    self._pre_scripts,
+                    pre_ctx,
+                    protocol,
+                    script_type="pre_request",
+                )
                 # Persist global variable changes.
                 if pre_output.get("global_variable_changes"):
                     save_globals(pre_output["global_variable_changes"])
@@ -287,6 +336,7 @@ class HttpSendWorker(QObject):
                 url=url,
                 headers=headers,
                 body=body,
+                body_mode=self._body_mode,
                 timeout=self._timeout,
             )
 
@@ -295,7 +345,7 @@ class HttpSendWorker(QObject):
                 self.error.emit("Request cancelled")
                 return
 
-            # 6. Run test scripts
+            # 6. Run test scripts (debug path skips declarative tests)
             all_test_results: list[Any] = []
             all_console_logs: list[Any] = []
             all_var_changes: dict[str, str] = {}
@@ -303,11 +353,6 @@ class HttpSendWorker(QObject):
             pre_console_logs: list[Any] = []
             pre_var_changes: dict[str, str] = {}
 
-            # Collect pre-request script outputs — only console logs and
-            # variable changes.  Pre-request results (including runtime
-            # errors) must NOT appear in the Test Results tab; runtime
-            # errors are surfaced as console error entries and also
-            # collected separately for the response viewer.
             if pre_output:
                 for tr in pre_output.get("test_results", []):
                     if tr.get("name") == "(runtime error)":
@@ -326,12 +371,8 @@ class HttpSendWorker(QObject):
                 pre_var_changes = dict(pre_output.get("variable_changes", {}))
                 all_var_changes.update(pre_var_changes)
 
-            run_post_response = self._test_scripts or (
-                self._declarative_test_script and not self._debug_protocol
-            )
-            if run_post_response:
+            if self._test_scripts:
                 from services.scripting.context import build_script_info, build_test_context
-                from services.scripting.engine import ScriptEngine
 
                 test_ctx = build_test_context(
                     request_data={
@@ -364,46 +405,22 @@ class HttpSendWorker(QObject):
                     environment_name=env_name,
                 )
 
-            if self._test_scripts:
                 test_output: dict[str, Any] | ScriptOutput
-                if self._debug_protocol:
-                    from services.scripting.engine import run_debug_chain
-
-                    if not self._debug_protocol._stop_requested:
-                        self._debug_protocol.start(
-                            on_pause=lambda info: self.debug_paused.emit(info),
-                        )
-                    test_output = run_debug_chain(
-                        self._test_scripts,
-                        test_ctx,
-                        self._debug_protocol,
-                        script_type="test",
+                if not protocol._stop_requested:
+                    protocol.start(
+                        on_pause=lambda info: self.debug_paused.emit(info),
                     )
-                else:
-                    test_output = ScriptEngine.run_test_scripts(
-                        self._test_scripts,
-                        test_ctx,
-                    )
+                test_output = run_debug_chain(
+                    self._test_scripts,
+                    test_ctx,
+                    protocol,
+                    script_type="test",
+                )
                 all_test_results.extend(test_output.get("test_results", []))
                 all_console_logs.extend(test_output.get("console_logs", []))
                 all_var_changes.update(test_output.get("variable_changes", {}))
-                # Persist global variable changes from test scripts.
                 if test_output.get("global_variable_changes"):
                     save_globals(test_output["global_variable_changes"])
-
-            if self._declarative_test_script and not self._debug_protocol:
-                decl_code = self._declarative_test_script.get("code", "")
-                if decl_code.strip():
-                    decl_output = ScriptEngine.run_single(
-                        decl_code,
-                        self._declarative_test_script.get("language", "javascript"),
-                        test_ctx,
-                    )
-                    all_test_results.extend(decl_output.get("test_results", []))
-                    all_console_logs.extend(decl_output.get("console_logs", []))
-                    all_var_changes.update(decl_output.get("variable_changes", {}))
-                    if decl_output.get("global_variable_changes"):
-                        save_globals(decl_output["global_variable_changes"])
 
             # 7. Attach script results to the response dict
             final = dict(result)
@@ -419,7 +436,6 @@ class HttpSendWorker(QObject):
                 final["pre_request_console_logs"] = pre_console_logs
             if pre_var_changes:
                 final["pre_request_variable_changes"] = pre_var_changes
-            # Flag indicating pre-request scripts were present.
             if self._pre_scripts:
                 final["has_pre_request_scripts"] = True
 
@@ -440,46 +456,18 @@ class HttpSendWorker(QObject):
     ) -> tuple[str, str | None]:
         """Inject auth credentials into the URL or headers.
 
-        Substitutes environment variables in auth entry values, then
-        delegates to :func:`services.http.auth_handler.apply_auth`.
-        Returns the (possibly modified) ``url`` and ``headers``.
+        Delegates to :func:`services.ai.chat.execution.send_core.apply_send_auth`.
         """
-        if not auth_data:
-            return url, headers
+        from services.ai.chat.execution.send_core import apply_send_auth
 
-        from services.environment_service import EnvironmentService
-        from services.http.auth_handler import apply_auth
-        from services.http.header_utils import parse_header_dict
-
-        sub = EnvironmentService.substitute
-        auth_type = auth_data.get("type", "noauth")
-
-        # Substitute variables in entry values (shallow copy to avoid mutation)
-        entries = auth_data.get(auth_type, [])
-        if entries and variables:
-            substituted = dict(auth_data)
-            substituted[auth_type] = [
-                {**e, "value": sub(str(e.get("value", "")), variables)}
-                if isinstance(e, dict)
-                else e
-                for e in entries
-            ]
-        else:
-            substituted = auth_data
-
-        # Convert header string to dict, apply auth, convert back
-        hdr_dict = parse_header_dict(headers)
-        url, hdr_dict = apply_auth(
-            substituted,
+        return apply_send_auth(
+            auth_data,
             url,
-            hdr_dict,
+            headers,
+            variables,
             method=method,
             body=body,
         )
-        new_headers: str | None = (
-            "\n".join(f"{k}: {v}" for k, v in hdr_dict.items()) if hdr_dict else None
-        )
-        return url, new_headers
 
 
 class SchemaFetchWorker(QObject):
@@ -576,5 +564,4 @@ class OAuth2TokenWorker(QObject):
                 self.finished.emit(dict(result))
         except Exception as exc:
             logger.exception("OAuth 2.0 token worker failed")
-            self.error.emit(str(exc))
             self.error.emit(str(exc))
