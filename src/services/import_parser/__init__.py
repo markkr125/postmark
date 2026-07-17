@@ -1,4 +1,4 @@
-"""Import parser package — detects and parses Postman, cURL, and URL data.
+"""Import parser package — detects and parses Postman, OpenAPI, WSDL, cURL, and URL data.
 
 Usage::
 
@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from .curl_parser import is_curl, parse_curl
 from .models import (
+    ImportedCollectionRef,
     ImportResult,
     ImportSummary,
     ParsedCollection,
@@ -24,11 +25,12 @@ from .postman_parser import (
     parse_environment_file,
     parse_json_text,
 )
-from .url_parser import fetch_and_parse_url, parse_raw_text
+from .url_parser import fetch_and_parse_url, parse_raw_text, try_parse_spec_text
 
 __all__ = [
     "ImportResult",
     "ImportSummary",
+    "ImportedCollectionRef",
     "ParsedCollection",
     "ParsedEnvironment",
     "ParsedFolder",
@@ -43,4 +45,5 @@ __all__ = [
     "parse_environment_file",
     "parse_json_text",
     "parse_raw_text",
+    "try_parse_spec_text",
 ]

@@ -62,6 +62,7 @@ On-demand skills — read the relevant `SKILL.md` when the task matches (see `de
 | [service-repository-reference](.agents/skills/service-repository-reference/SKILL.md) | Repository function catalogues, service method tables, TypedDict schemas |
 | [widget-patterns](.agents/skills/widget-patterns/SKILL.md) | Tree badge rendering, data roles, InfoPopup, VariablePopup, theme module, new widget checklist |
 | [test-writing](.agents/skills/test-writing/SKILL.md) | Test patterns for all layers — repository, service, UI widget, MainWindow |
+| [openhands-tools](.agents/skills/openhands-tools/SKILL.md) | Add/change Postmark AI tools on the OpenHands SDK — dedicated tools, not mutate+prompt hacks |
 | [import-parser](.agents/skills/import-parser/SKILL.md) | How to add a new import format parser to the import system |
 | [customization-guide](.agents/skills/customization-guide/SKILL.md) | How to create, update, or debug agent instructions, nested `AGENTS.md`, skills, and project conventions |
 
@@ -225,6 +226,7 @@ src/
 │   │       ├── agent_registry.py  # PostmarkAgentDef + DEFAULT_AGENT_ID + delegation tools
 │   │       ├── subagent_registry.py # register_postmark_subagents (wiki/workspace-researcher, general-purpose)
 │   │       ├── subagent_events.py # SubagentEventTracker + SubagentRunRecord parsing
+│   │       ├── tool_activity_events.py # ToolActivityTracker + main-agent tool cards
 │   │       ├── execute_events.py  # ExecuteRunRecord parsing + EventLog rebuild for send cards
 │   │       ├── subagent_disk_registry.py # spawn id → disk path registry + session-scoped resolve
 │   │       ├── workspace_snapshot.py # session-keyed GUI snapshot + parent session id resolve for subagents
@@ -255,8 +257,11 @@ src/
 │   │       │   │   ├── local_ops.py   # local_script / local_script_folder
 │   │       │   │   ├── debug_ops.py   # breakpoints/watches via merge_*_debug APIs
 │   │       │   │   ├── settings_ops/  # allowlisted settings mutate
-│   │       │   │   ├── data_ops/      # environment/globals/snippet/saved_response + session (active env, history, import, version restore)
+│   │       │   │   ├── data_ops/      # environment/globals/snippet/saved_response + session (active env, history, version restore)
 │   │       │   │   └── tool.py        # Action/Observation/Executor + dispatch
+│   │       │   ├── workspace_import/  # postmark_import (OpenAPI/WSDL/Postman/cURL)
+│   │       │   │   ├── apply.py       # shared ImportService apply + bridge events
+│   │       │   │   └── tool.py        # Action url|path|text|curl + Executor
 │   │       │   ├── workspace_execute/ # postmark_workspace_execute (Agent send/run)
 │   │       │   │   ├── tool.py        # Action/Observation + thin executor
 │   │       │   │   └── dispatch.py    # operation dispatch → execution/* helpers
@@ -380,9 +385,15 @@ src/
 │   │   └── header_utils.py        # Shared header parsing utility
 │   └── import_parser/             # Parser sub-package
 │       ├── models.py              # TypedDict schemas for parsed data
-│       ├── postman_parser.py      # Postman collection/environment parser
+│       ├── postman_parser.py      # Postman collection/environment parser (+ OpenAPI/WSDL file dispatch)
 │       ├── curl_parser.py         # cURL command parser
-│       └── url_parser.py          # URL/raw-text auto-detect parser
+│       ├── url_parser.py          # URL/raw-text auto-detect + try_parse_spec_text
+│       ├── openapi/               # OpenAPI 3 / Swagger 2 (JSON/YAML) → collection
+│       │   ├── parser.py
+│       │   └── mapping.py
+│       └── wsdl/                  # WSDL 1.1 → SOAP POST requests
+│           ├── parser.py
+│           └── soap.py
 └── ui/                            # PySide6 widgets
     ├── main_window/               # Top-level MainWindow sub-package
     │   ├── window.py              # MainWindow widget + signal wiring
@@ -465,6 +476,7 @@ src/
     │   │   │   ├── activity_row.py      # AssistantActivityRow spinner row
     │   │   │   ├── wrapping_label.py    # _WrappingLabel — height-for-width QLabel
     │   │   │   ├── subagent/            # SubagentTaskCard + SubagentTaskGroup summary rows
+    │   │   │   ├── tool_activity/       # ToolActivityCard + ToolActivityGroup main-agent tool rows
     │   │   │   │   ├── card.py
     │   │   │   │   └── group.py
     │   │   │   ├── confirm/             # PendingToolCard + PendingToolGroup (inline Agent Approve)
@@ -747,6 +759,7 @@ tests/
 │       │   ├── test_postmark_agent_registry.py
 │       │   ├── test_subagent_registry.py
 │       │   ├── test_subagent_events.py
+│       │   ├── test_tool_activity_events.py
 │       │   ├── test_execute_events.py  # Agent execute observation → clickable card records
 │       │   ├── test_subagent_disk_registry.py
 │       │   ├── test_subagent_transcript.py
@@ -815,6 +828,7 @@ tests/
     │   ├── test_ai_chat_panel.py
     │   ├── test_ai_chat_worker.py
     │   ├── test_ai_pending_tool_cards.py  # Inline Allow/Reject/Always allow on streaming bubble
+    │   ├── test_ai_tool_activity_cards.py # Main-agent tool activity cards + execute handoff
     │   ├── test_ai_session_history_popup.py
     │   ├── test_ai_active_run_badge.py
     │   ├── test_sidebar.py

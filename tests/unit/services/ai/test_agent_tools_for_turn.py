@@ -5,6 +5,7 @@ from __future__ import annotations
 from services.ai.chat.agent_registry import DEFAULT_AGENT_ID
 from services.ai.chat.agent_tools import (
     EXECUTE_TOOL,
+    IMPORT_TOOL,
     MUTATE_TOOL,
     MUTATING_MAX_ITERATIONS,
     max_iterations_for_turn,
@@ -16,25 +17,28 @@ class TestToolsForTurn:
     """Ask/Plan stay read-only; Agent always gets write tools."""
 
     def test_ask_plan_exclude_write_tools(self) -> None:
-        """Ask and Plan never expose mutate/execute."""
+        """Ask and Plan never expose mutate/execute/import."""
         for mode in ("ask", "plan", "ASK", "Plan"):
             names = tools_for_turn(DEFAULT_AGENT_ID, send_mode=mode)
             assert MUTATE_TOOL not in names
             assert EXECUTE_TOOL not in names
+            assert IMPORT_TOOL not in names
             assert "postmark_wiki_query" in names
             assert "postmark_workspace_query" in names
 
     def test_agent_always_includes_write_tools(self) -> None:
-        """Agent mode always receives mutate/execute."""
+        """Agent mode always receives mutate/execute/import."""
         names = tools_for_turn(DEFAULT_AGENT_ID, send_mode="agent")
         assert MUTATE_TOOL in names
         assert EXECUTE_TOOL in names
+        assert IMPORT_TOOL in names
 
     def test_default_mode_is_ask_readonly(self) -> None:
         """Missing/None send_mode behaves like ask."""
         names = tools_for_turn(DEFAULT_AGENT_ID, send_mode=None)
         assert MUTATE_TOOL not in names
         assert EXECUTE_TOOL not in names
+        assert IMPORT_TOOL not in names
 
 
 class TestMaxIterationsForTurn:

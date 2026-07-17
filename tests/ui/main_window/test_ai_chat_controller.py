@@ -954,6 +954,7 @@ def test_reattach_replays_background_buffers(qapp: QApplication, qtbot) -> None:
         *,
         status: str = "",
         subagent_records: object = None,
+        tool_activity_records: object = None,
     ) -> None:
         resume_calls.append((thinking, content, status))
 

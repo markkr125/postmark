@@ -55,7 +55,6 @@ MutateEntity = Literal[
     "snippet",
     "saved_response",
     "history_entry",
-    "import",
     "script_version",
     "debug_metadata",
     "settings",
@@ -71,7 +70,6 @@ _DATA_ENTITIES = frozenset(
         "snippet",
         "saved_response",
         "history_entry",
-        "import",
         "script_version",
     }
 )
@@ -144,14 +142,6 @@ class WorkspaceMutateAction(Action):
                 return name or "New snippet"
             if self.entity == "saved_response":
                 return name or "New saved example"
-            if self.entity == "import":
-                if "curl" in fields:
-                    return "Import from cURL"
-                if "url" in fields:
-                    return "Import from URL"
-                if "path" in fields:
-                    return f"Import {fields.get('path')}"
-                return "Import workspace"
         if self.action == "rename" and name:
             if self.entity == "snippet" and category and self.target_id is None:
                 return f"{category} → {name}"
@@ -222,7 +212,6 @@ Entities:
 - environment, active_environment (update: set environment_id or null to clear), globals
 - snippet, saved_response
 - history_entry (delete only)
-- import (create: exactly one of text|curl|url|path)
 - script_version (restore only; merges into request scripts / collection events / local content)
 - debug_metadata (update: breakpoints/watches via merge APIs; fields.target_kind + target_id + per_type)
 - settings (update: allowlisted prefs only — never AI credentials)

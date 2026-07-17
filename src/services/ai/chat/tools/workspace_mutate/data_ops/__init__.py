@@ -23,7 +23,6 @@ from services.ai.chat.tools.workspace_mutate.data_ops.media import (
 from services.ai.chat.tools.workspace_mutate.data_ops.session import (
     _apply_active_environment,
     _apply_history_entry_delete,
-    _apply_import,
     _apply_script_version_restore,
 )
 
@@ -65,12 +64,6 @@ def apply_data_mutation(
             return _apply_history_entry_delete(
                 target_id=target_id,
                 mutation_id=mutation_id,
-            )
-        if entity == "import":
-            return _apply_import(
-                fields=fields,
-                mutation_id=mutation_id,
-                open_after=open_after,
             )
         if entity == "script_version":
             return _apply_script_version_restore(

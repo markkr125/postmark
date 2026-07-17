@@ -6,13 +6,18 @@ OpenAPI) to the import pipeline.
 ## Architecture
 
 ```
-ImportDialog (UI)
-  -> ImportService.import_files / import_text / import_folder
-    -> Parser module (postman / curl / url / YOUR PARSER)
+ImportDialog (UI) / Agent postmark_import
+    -> ImportService.import_files / import_text / import_url / import_folder
+    -> Parser module (postman / curl / url / openapi/ / wsdl/)
       -> Returns ImportResult (ParsedCollection + ParsedEnvironment)
     -> import_repository.import_collection_tree() (DB persist)
-  -> ImportSummary dict returned to UI
+    -> ImportSummary dict returned to UI / observation
 ```
+
+Built-in formats include Postman JSON, cURL, OpenAPI 3 / Swagger 2 (JSON/YAML),
+and WSDL 1.1. Prefer a sub-package under `import_parser/` when adding a format
+(directory file limit: ≤5 `.py` excluding `__init__.py`). Agent import uses the
+dedicated OpenHands tool ``postmark_import`` (not mutate).
 
 ## Steps
 

@@ -1830,6 +1830,31 @@ def build_global_qss(p: ThemePalette) -> str:
     QWidget[objectName="aiChatSubagentGroup"] {{
         background: transparent;
     }}
+    QWidget[objectName="aiChatToolActivityGroup"] {{
+        background: transparent;
+    }}
+    QFrame[objectName="aiChatToolActivityCard"] {{
+        background: {p["bg_alt"]};
+        border: 1px solid {p["border"]};
+        border-radius: 0;
+    }}
+    QLabel[objectName="aiChatToolActivityTitle"] {{
+        background: transparent;
+        border: none;
+        color: {p["text"]};
+        font-size: 13px;
+        font-weight: 600;
+        padding: 0;
+        margin: 0;
+    }}
+    QLabel[objectName="aiChatToolActivityDetail"] {{
+        background: transparent;
+        border: none;
+        color: {p["text_muted"]};
+        font-size: 12px;
+        padding: 0;
+        margin: 0;
+    }}
     QFrame[objectName="aiChatSubagentCard"] {{
         background: {p["bg_alt"]};
         border: 1px solid {p["border"]};

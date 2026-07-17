@@ -4,7 +4,7 @@ import logging
 from functools import partial
 from typing import Any, TypedDict
 
-from PySide6.QtCore import QObject, QThread, Signal, Slot
+from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
 from PySide6.QtWidgets import QMessageBox, QProgressBar, QVBoxLayout, QWidget
 
 from services.collection_service import CollectionService
@@ -51,15 +51,16 @@ _DEFAULT_SCRIPT_FOLDER_NAME = "new_folder"
 class _CollectionFetcher(QObject):
     """Worker that fetches collections on a background thread.
 
-    Emits ``finished(dict)`` with the nested dict consumed by
-    :meth:`CollectionTree.set_collections`.
+    Emits ``finished(dict, int)`` with the nested dict consumed by
+    :meth:`CollectionTree.set_collections` and the fetch generation.
     """
 
-    finished = Signal(dict)
+    finished = Signal(dict, int)
 
-    def __init__(self, *, tree_kind: str = "collections") -> None:
+    def __init__(self, *, tree_kind: str = "collections", generation: int = 0) -> None:
         super().__init__()
         self._tree_kind = tree_kind
+        self._generation = generation
 
     @Slot()
     def run(self) -> None:
@@ -77,7 +78,7 @@ class _CollectionFetcher(QObject):
         else:
             payload = CollectionService.fetch_all()
         if isValid(self):
-            self.finished.emit(payload)
+            self.finished.emit(payload, self._generation)
 
 
 # ----------------------------------------------------------------------
@@ -200,16 +201,17 @@ class CollectionWidget(QWidget):
         self._loading_bar.show()
         self._tree_widget.show_loading()
         thread = QThread(self)
-        worker = _CollectionFetcher(tree_kind=self._tree_kind)
+        worker = _CollectionFetcher(tree_kind=self._tree_kind, generation=generation)
         worker.moveToThread(thread)
         self._thread = thread
         self._worker = worker
         thread.started.connect(worker.run)
-
-        def _on_finished(payload: dict[str, Any], gen: int = generation) -> None:
-            self._on_collections_ready(payload, gen)
-
-        worker.finished.connect(_on_finished)
+        # Must be QueuedConnection onto a QObject slot: a plain lambda would run
+        # on the worker thread and touch QTimer / QProgressBar (timer thread errors).
+        worker.finished.connect(
+            self._on_fetch_finished,
+            Qt.ConnectionType.QueuedConnection,
+        )
         worker.finished.connect(thread.quit)
         worker.finished.connect(worker.deleteLater)
         thread.finished.connect(thread.deleteLater)
@@ -220,6 +222,11 @@ class CollectionWidget(QWidget):
 
         thread.finished.connect(_clear_if_current)
         thread.start()
+
+    @Slot(dict, int)
+    def _on_fetch_finished(self, payload: dict[str, Any], generation: int) -> None:
+        """GUI-thread handler for background collection fetch results."""
+        self._on_collections_ready(payload, generation)
 
     def refresh_collections(
         self,

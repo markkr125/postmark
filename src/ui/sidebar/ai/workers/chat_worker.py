@@ -21,6 +21,11 @@ from services.ai.chat.context_usage import (
     ContextUsageService,
     metrics_from_conversation,
 )
+from services.ai.chat.mutation.claim_guard import observation_indicates_write
+from services.ai.chat.mutation.write_ledger import (
+    clear_workspace_writes,
+    record_workspace_write,
+)
 from services.ai.chat.response_text import (
     chunk_parts_from_stream,
     merge_stream_text,
@@ -28,6 +33,10 @@ from services.ai.chat.response_text import (
 )
 from services.ai.chat.session_service import AiChatSessionService, ComposerRunContext
 from services.ai.chat.subagent_events import SubagentEventTracker
+from services.ai.chat.tool_activity_events import (
+    ToolActivityTracker,
+    tool_call_ids_from_confirmation_payload,
+)
 from services.ai.provider_catalog import effective_run_context_tokens
 
 if TYPE_CHECKING:
@@ -81,6 +90,7 @@ _MUTATE_EXECUTE_TOOLS = frozenset(
     {
         "postmark_workspace_mutate",
         "postmark_workspace_execute",
+        "postmark_import",
     }
 )
 
@@ -100,6 +110,20 @@ def _is_mutate_or_execute_observation(event: object) -> bool:
     return tool_name in _MUTATE_EXECUTE_TOOLS
 
 
+def _observation_text(event: object) -> str:
+    """Return the observation payload text carried by *event*."""
+    observation = getattr(event, "observation", None)
+    if observation is None:
+        return ""
+    text = getattr(observation, "text", None)
+    if isinstance(text, str):
+        return text
+    content = getattr(observation, "content", None)
+    if isinstance(content, str):
+        return content
+    return str(observation)
+
+
 class AiChatWorker(QObject):
     """Run one AI chat turn on a background thread.
 
@@ -117,6 +141,7 @@ class AiChatWorker(QObject):
     context_compacted = Signal()
     usage_updated = Signal(object)
     subagent_updated = Signal(object)
+    tool_activity_updated = Signal(object)
     confirmation_needed = Signal(str, object)
     confirmation_cleared = Signal(str)
     mutation_bridge_ready = Signal(str)
@@ -135,6 +160,7 @@ class AiChatWorker(QObject):
         self._content_buffer = ""
         self._compaction_status_emitted = False
         self._subagent_tracker = SubagentEventTracker()
+        self._tool_activity_tracker = ToolActivityTracker()
         self._confirmation_decision: str | None = None
         self._reject_reason: str = ""
         self._pending_confirmation: object | None = None
@@ -161,7 +187,9 @@ class AiChatWorker(QObject):
         self._thinking_buffer = ""
         self._content_buffer = ""
         self._compaction_status_emitted = False
+        clear_workspace_writes(session_id)
         self._subagent_tracker = SubagentEventTracker(session_id=session_id)
+        self._tool_activity_tracker = ToolActivityTracker()
         self._confirmation_decision = None
         self._reject_reason = ""
         self._pending_confirmation = None
@@ -202,6 +230,9 @@ class AiChatWorker(QObject):
     @Slot()
     def approve_confirmation(self) -> None:
         """Resume the parked run after user Approve (SDK implicit confirm)."""
+        ids = tool_call_ids_from_confirmation_payload(self._pending_confirmation)
+        if self._tool_activity_tracker.on_confirmation_approved(ids):
+            self.tool_activity_updated.emit(self._tool_activity_tracker.records())
         self._confirmation_decision = "approve"
         self._pending_confirmation = None
         if self._session_id:
@@ -213,6 +244,9 @@ class AiChatWorker(QObject):
     @Slot(str)
     def reject_confirmation(self, reason: str = "") -> None:
         """Reject pending actions then resume so the agent can continue."""
+        ids = tool_call_ids_from_confirmation_payload(self._pending_confirmation)
+        if self._tool_activity_tracker.on_confirmation_rejected(ids):
+            self.tool_activity_updated.emit(self._tool_activity_tracker.records())
         self._confirmation_decision = "reject"
         self._reject_reason = reason or "user rejected"
         self._pending_confirmation = None
@@ -301,6 +335,8 @@ class AiChatWorker(QObject):
         failed_records = self._subagent_tracker.fail_inflight()
         if failed_records:
             self.subagent_updated.emit(self._subagent_tracker.records())
+        if self._tool_activity_tracker.fail_inflight():
+            self.tool_activity_updated.emit(self._tool_activity_tracker.records())
         self.notify_mutation_bridge_ready()
         _safe_close(conv)
         self._conv = None
@@ -384,8 +420,12 @@ class AiChatWorker(QObject):
                 changed = self._subagent_tracker.ingest(event)
                 if changed:
                     self.subagent_updated.emit(self._subagent_tracker.records())
+                if self._tool_activity_tracker.ingest(event):
+                    self.tool_activity_updated.emit(self._tool_activity_tracker.records())
                 if _is_mutate_or_execute_observation(event):
                     # Mid-turn drain so Allow UI / tree / Output update promptly.
+                    if observation_indicates_write(_observation_text(event)):
+                        record_workspace_write(self._session_id)
                     self.notify_mutation_bridge_ready()
                 status = getattr(event, "status", None)
                 if status is not None:

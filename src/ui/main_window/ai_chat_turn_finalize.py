@@ -6,6 +6,8 @@ import logging
 from typing import TYPE_CHECKING, cast, Literal
 
 from services.ai.chat.context_usage import ContextUsageSdkMetrics
+from services.ai.chat.mutation.claim_guard import unverified_write_note
+from services.ai.chat.mutation.write_ledger import take_workspace_write
 from services.ai.chat.response_text import pick_richest_text
 from services.ai.chat.thinking_sections import resolve_thinking_for_persist
 from services.ai.chat.run_registry import AiChatRunContext
@@ -43,6 +45,11 @@ class _AiChatTurnFinalizeMixin:
         panel_thinking = panel.streaming_assistant_thinking_for_persist()
         thinking = resolve_thinking_for_persist(thinking, panel_thinking)
         content = pick_richest_text(content, panel_content)
+        # Applied to the *final* text: an earlier append could be dropped here by
+        # pick_richest_text choosing the panel's streamed copy instead.
+        note = unverified_write_note(content, write_observed=take_workspace_write(session_id))
+        if note is not None:
+            content = f"{content.rstrip()}\n\n{note}" if content.strip() else note
         panel.end_assistant_stream(content, thinking=thinking)
         thinking_duration, post_thinking_duration = panel.last_assistant_thinking_durations()
         self._persist_assistant_turn(

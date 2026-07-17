@@ -33,6 +33,10 @@ and what implicit contracts exist.
     `X | None` from the start and add proper guards at usage sites.
     If you only need to drop the reference for GC, `del` the owning
     object instead.
+12. **OpenHands AI tools: one user-facing job → one dedicated `postmark_*`
+    tool.**  Do not bury new capabilities in mutate/execute and “fix”
+    discovery with system-prompt / wiki hacks. Load the
+    [`openhands-tools`](../.agents/skills/openhands-tools/SKILL.md) skill.
 
 ## Layering recap
 
@@ -128,7 +132,9 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   `_WorkerSignalBridge` (`@Slot` QObject) connects worker signals to the registry
   on the GUI thread — **never use Python lambdas** for cross-thread
   `QueuedConnection` (defers delivery until `worker.run()` returns and breaks
-  streaming). Bridge includes `subagent_updated` for delegation lifecycle plus
+  streaming). Bridge includes `subagent_updated` for delegation lifecycle,
+  `tool_activity_updated` for main-agent tool rows (query/datetime/import/mutate/execute;
+  excludes wiki/delegate), plus
   `confirmation_needed` / `confirmation_cleared` / `mutation_bridge_ready` for
   Agent workspace Approve chrome and GUI bridge drain. Worker stubs
   `approve_confirmation()` / `reject_confirmation(reason)` are invoked from the
@@ -207,9 +213,9 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   `subagent_registry.py`) ship
   `DEFAULT_AGENT_ID` with `postmark_wiki_query`, `postmark_workspace_query`,
   `postmark_datetime` (current date/time + free-text timezone / Unix-epoch convert),
-  `postmark_workspace_mutate` / `postmark_workspace_execute` (always registered;
-  `tools_for_turn` exposes them in Agent mode only — Ask/Plan stay read-only;
-  write safety is Approve / auto-approve),
+  `postmark_workspace_mutate` / `postmark_workspace_execute` / `postmark_import`
+  (always registered; `tools_for_turn` exposes them in Agent mode only — Ask/Plan
+  stay read-only; write safety is Approve / auto-approve),
   OpenHands `task_tool_set` (sequential/resumable subagents), and `delegate`
   (parallel fan-out).
   Built-in subagent types: `wiki-researcher` (`postmark_wiki_query` only),
@@ -223,6 +229,11 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   labels like `australia` → documented default with an assumption note;
   convert observations include past/future relative to now). Stdlib `zoneinfo`
   only.
+  **`postmark_import`** (`tools/workspace_import/`) is the dedicated OpenHands
+  tool for OpenAPI/Swagger, WSDL, Postman, cURL, URL, or file import — Action
+  fields `url`|`path`|`text`|`curl` (exactly one); executor calls
+  `apply_workspace_import` → `ImportService`; Approve kind
+  `mutate:create:import`. Import is **not** a mutate entity.
   **`postmark_workspace_query`** (`tools/workspace_query/`) reads the user's
   collections, requests, environments, run history, and open-tab state on demand.
   **Shared send orchestration** lives in `services/ai/chat/execution/`
@@ -238,7 +249,7 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   `local_ops`, `data_ops/`, `debug_ops`, `settings_ops/`; `common.py` secrets policy) supports
   collection/request CRUD + `assertion_set` replace, local scripts/folders,
   environments, **active_environment** (bridge-only UI set/clear), globals,
-  snippets, saved responses, **history_entry** delete, **import** create,
+  snippets, saved responses, **history_entry** delete,
   **script_version** restore (merge-safe), collection **events** (folder
   scripts), **debug_metadata** (breakpoints/watches via merge APIs), and
   **settings** (allowlisted RuntimeSettings / history / tab prefs; never AI credentials).

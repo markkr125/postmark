@@ -27,7 +27,6 @@ _SAVED_CREATE = frozenset(
     }
 )
 _SAVED_RENAME = frozenset({"name"})
-_IMPORT_CREATE = frozenset({"text", "curl", "url", "path", "format"})
 
 
 def filter_data_fields(
@@ -55,10 +54,6 @@ def filter_data_fields(
         if action != "delete":
             return None, mutate_obs("ok: false\nerror: history_entry_requires_delete\n")
         allowed = frozenset()
-    elif entity == "import":
-        if action != "create":
-            return None, mutate_obs("ok: false\nerror: import_requires_create\n")
-        allowed = _IMPORT_CREATE
     elif entity == "script_version":
         if action != "restore":
             return None, mutate_obs("ok: false\nerror: script_version_requires_restore\n")
@@ -94,12 +89,6 @@ def filter_data_fields(
         if key not in allowed:
             return None, mutate_obs(f"ok: false\nerror: unsupported_field\nfield: {key}\n")
         cleaned[key] = value
-    if entity == "import":
-        sources = [k for k in ("text", "curl", "url", "path") if k in cleaned]
-        if len(sources) != 1:
-            return None, mutate_obs(
-                "ok: false\nerror: import_requires_exactly_one_source\nfields: text|curl|url|path\n"
-            )
     return cleaned, None
 
 

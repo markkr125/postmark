@@ -13,6 +13,7 @@ from services.ai.chat.message_usage import format_assistant_footer_label
 from services.ai.chat.session_service import AiChatMessageDict
 from services.ai.chat.execute_events import ExecuteRunRecord
 from services.ai.chat.subagent_events import SubagentRunRecord, enrich_subagent_records
+from services.ai.chat.tool_activity_events import ToolActivityRecord
 from ui.sidebar.ai.chat_panel.scroll.widget_coords import map_widget_y_to_ancestor
 from ui.sidebar.ai.message_bubble.activity_row import AssistantActivityRow
 from ui.sidebar.ai.message_bubble.assistant_message.footer import AssistantMessageFooterRow
@@ -21,6 +22,7 @@ from ui.sidebar.ai.message_bubble.execute.group import ExecuteResultGroup
 from ui.sidebar.ai.message_bubble.markdown_content import MarkdownContent
 from ui.sidebar.ai.message_bubble.thought_section import ThoughtSection
 from ui.sidebar.ai.message_bubble.subagent.group import SubagentTaskGroup
+from ui.sidebar.ai.message_bubble.tool_activity.group import ToolActivityGroup
 from ui.sidebar.ai.message_bubble.user_message import UserMessageFooterRow, UserMessageSection
 from ui.sidebar.ai.message_bubble.user_message.footer import UserMessageFooterMode
 
@@ -81,6 +83,8 @@ class ChatMessageBubble(QWidget):
 
         self._thought_section: ThoughtSection | None = None
         self._post_subagent_thought_section: ThoughtSection | None = None
+        self._tool_activity_group: ToolActivityGroup | None = None
+        self._tool_activity_records: dict[str, ToolActivityRecord] = {}
         self._subagent_group: SubagentTaskGroup | None = None
         self._subagent_records: dict[str, SubagentRunRecord] = {}
         self._subagent_session_id: str | None = None
@@ -145,6 +149,9 @@ class ChatMessageBubble(QWidget):
             if thinking.strip():
                 self._thought_section.set_collapsed(True)
             outer.addWidget(self._thought_section)
+
+            self._tool_activity_group = ToolActivityGroup(self)
+            outer.addWidget(self._tool_activity_group)
 
             self._subagent_group = SubagentTaskGroup(self)
             outer.addWidget(self._subagent_group)
@@ -717,6 +724,12 @@ class ChatMessageBubble(QWidget):
         if self._execute_group is None:
             return
         self._execute_records[record["id"]] = record
+        execute_id = str(record.get("id") or "")
+        if execute_id and execute_id in self._tool_activity_records:
+            remaining = [
+                row for row in self._tool_activity_records.values() if row["id"] != execute_id
+            ]
+            self.set_tool_activity_records(remaining)
         card = self._execute_group.upsert_record(record)
         if not card.property("_execute_click_wired"):
             card.clicked.connect(self._on_execute_card_clicked)
@@ -800,7 +813,7 @@ class ChatMessageBubble(QWidget):
         self.layout_height_changed.emit()
 
     def refresh_subagent_activity(self) -> None:
-        """Hide generic activity row while subagent cards are the loader."""
+        """Hide generic activity row while subagent or tool cards are the loader."""
         if self.has_pending_confirmation():
             self.hide_activity()
             return
@@ -813,8 +826,7 @@ class ChatMessageBubble(QWidget):
             and self._thought_section.duration_seconds() is None
         ):
             self._thought_section.finalize_thinking(collapse=True)
-        active = self._subagent_group.active_count()
-        if active > 0:
+        if self.loader_active_count() > 0:
             self.hide_activity()
             return
         if self._subagent_records:
@@ -824,6 +836,38 @@ class ChatMessageBubble(QWidget):
                 self.hide_activity()
             else:
                 self.show_activity("Working…")
+
+    def set_tool_activity_records(self, records: list[ToolActivityRecord]) -> None:
+        """Replace tool activity cards (transcript reload or live sync)."""
+        if self._tool_activity_group is None:
+            return
+        self._tool_activity_records = {r["id"]: r for r in records}
+        self._tool_activity_group.sync_records(records)
+        self.refresh_subagent_activity()
+        self.updateGeometry()
+        self._commit_stream_row_layout()
+        self.layout_height_changed.emit()
+
+    def upsert_tool_activity_record(self, record: ToolActivityRecord) -> None:
+        """Create or update one tool activity card."""
+        if self._tool_activity_group is None:
+            return
+        self._tool_activity_records[record["id"]] = record
+        self._tool_activity_group.upsert_record(record)
+        self.refresh_subagent_activity()
+        self.updateGeometry()
+        self._commit_stream_row_layout()
+        self.layout_height_changed.emit()
+
+    def tool_activity_active_count(self) -> int:
+        """Return running main-agent tool activity cards."""
+        if self._tool_activity_group is None:
+            return 0
+        return self._tool_activity_group.active_count()
+
+    def loader_active_count(self) -> int:
+        """Return warming/running subagent cards plus running tool activity cards."""
+        return self.subagent_active_count() + self.tool_activity_active_count()
 
     def subagent_record(self, record_id: str) -> SubagentRunRecord | None:
         """Return one stored subagent record by id."""

@@ -12,13 +12,20 @@ Postmark import pipeline.
 
 ```
 Import flow:
-  UI (ImportDialog)
-    → ImportService.import_files / import_text / import_folder
-      → Parser (postman_parser / curl_parser / url_parser / YOUR_PARSER)
+  UI (ImportDialog) / Agent postmark_import
+    → ImportService.import_files / import_text / import_url / import_folder
+      → Parser (postman / curl / url / openapi/ / wsdl/)
         → Returns ParsedCollection / ParsedEnvironment
       → import_repository.import_collection_tree() (DB persist)
-    → ImportSummary dict returned to UI
+    → ImportSummary dict returned to UI / observation
 ```
+
+Built-in formats: Postman Collection/Environment JSON, cURL, raw URL,
+**OpenAPI 3 / Swagger 2** (JSON or YAML), **WSDL 1.1** (SOAP 1.1 POSTs).
+Detection lives in ``url_parser.try_parse_spec_text`` (OpenAPI then WSDL)
+and is shared by file load, paste, and URL fetch. Agent import is the dedicated
+OpenHands tool ``postmark_import`` (Action: ``url`` | ``path`` | ``text`` | ``curl``),
+not a mutate entity.
 
 ## TypedDict schemas (`services/import_parser/models.py`)
 

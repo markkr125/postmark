@@ -11,6 +11,7 @@ from services.ai.ai_config import AiModelEntry
 from services.ai.chat.response_text import merge_stream_text
 from services.ai.chat.session_service import ComposerRunContext
 from services.ai.chat.subagent_events import SubagentRunRecord
+from services.ai.chat.tool_activity_events import ToolActivityRecord
 from services.ai.chat.chat_run_limits import (
     DEFAULT_MAX_CONCURRENT_CHAT_RUNS,
     max_concurrent_chat_runs,
@@ -45,6 +46,7 @@ class ChatRunHandle:
     pending_sdk_metrics: object | None = None
     status_text: str = ""
     subagent_records: list[SubagentRunRecord] = field(default_factory=list)
+    tool_activity_records: list[ToolActivityRecord] = field(default_factory=list)
 
 
 class _WorkerSignalBridge(QObject):
@@ -125,6 +127,15 @@ class _WorkerSignalBridge(QObject):
             records,
         )
 
+    @Slot(object)
+    def on_tool_activity_updated(self, records: object) -> None:
+        """Forward main-agent tool activity updates from the worker thread."""
+        self._registry._on_tool_activity_updated(
+            self._session_id,
+            self._run_generation,
+            records,
+        )
+
     @Slot(str, object)
     def on_confirmation_needed(self, session_id: str, payload: object) -> None:
         """Forward confirmation pause from the worker thread."""
@@ -173,6 +184,7 @@ class ChatRunRegistry(QObject):
     usage_updated = Signal(str, int, object)
     context_compacted = Signal(str, int)
     subagent_updated = Signal(str, int, object)
+    tool_activity_updated = Signal(str, int, object)
     confirmation_needed = Signal(str, int, object)
     confirmation_cleared = Signal(str, int)
     mutation_bridge_ready = Signal(str, int)
@@ -271,6 +283,9 @@ class ChatRunRegistry(QObject):
         subagent_signal = getattr(worker, "subagent_updated", None)
         if subagent_signal is not None:
             subagent_signal.connect(bridge.on_subagent_updated, queued)
+        tool_activity_signal = getattr(worker, "tool_activity_updated", None)
+        if tool_activity_signal is not None:
+            tool_activity_signal.connect(bridge.on_tool_activity_updated, queued)
         confirmation_needed = getattr(worker, "confirmation_needed", None)
         if confirmation_needed is not None:
             confirmation_needed.connect(bridge.on_confirmation_needed, queued)
@@ -406,6 +421,19 @@ class ChatRunRegistry(QObject):
             handle.subagent_records = records  # type: ignore[assignment]
         self.subagent_updated.emit(session_id, run_generation, records)
 
+    def _on_tool_activity_updated(
+        self,
+        session_id: str,
+        run_generation: int,
+        records: object,
+    ) -> None:
+        handle = self._handles.get(session_id)
+        if handle is None or handle.context.run_generation != run_generation:
+            return
+        if isinstance(records, list):
+            handle.tool_activity_records = records  # type: ignore[assignment]
+        self.tool_activity_updated.emit(session_id, run_generation, records)
+
     def _on_usage(self, session_id: str, run_generation: int, metrics: object) -> None:
         handle = self._handles.get(session_id)
         if handle is None or handle.context.run_generation != run_generation:
@@ -436,6 +464,9 @@ class ChatRunRegistry(QObject):
             subagent_signal = getattr(worker, "subagent_updated", None)
             if subagent_signal is not None:
                 subagent_signal.disconnect()
+            tool_activity_signal = getattr(worker, "tool_activity_updated", None)
+            if tool_activity_signal is not None:
+                tool_activity_signal.disconnect()
             confirmation_needed = getattr(worker, "confirmation_needed", None)
             if confirmation_needed is not None:
                 confirmation_needed.disconnect()

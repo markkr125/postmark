@@ -98,4 +98,5 @@ class TestMutationAutoApprove:
             )
             == "execute:run_local_script"
         )
+        assert kind_from_tool_args("postmark_import") == "mutate:create:import"
         assert kind_from_tool_args("postmark_wiki_query") is None

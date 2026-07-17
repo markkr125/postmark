@@ -50,7 +50,7 @@ def detect_postman_type(
 
 
 def parse_collection_file(path: Path) -> ImportResult:
-    """Parse a single Postman Collection v2.1.0 JSON file.
+    """Parse a collection file (Postman JSON, OpenAPI, or WSDL).
 
     Returns an ``ImportResult`` with one collection in ``collections``
     or errors if the file is invalid.
@@ -61,8 +61,28 @@ def parse_collection_file(path: Path) -> ImportResult:
             return ImportResult(
                 collections=[], environments=[], errors=[f"Empty file: {path.name}"]
             )
+    except OSError as exc:
+        return ImportResult(collections=[], environments=[], errors=[f"{path.name}: {exc}"])
+
+    from services.import_parser.url_parser import try_parse_spec_text
+
+    spec = try_parse_spec_text(text)
+    if spec is not None:
+        if spec.get("collections") or spec.get("environments"):
+            return spec
+        if spec.get("errors"):
+            return spec
+
+    try:
         data = json.loads(text)
-    except (json.JSONDecodeError, OSError) as exc:
+    except json.JSONDecodeError as exc:
+        suffix = path.suffix.lower()
+        if suffix in {".yaml", ".yml", ".wsdl", ".xml"}:
+            return ImportResult(
+                collections=[],
+                environments=[],
+                errors=[f"{path.name}: not a recognised OpenAPI or WSDL document"],
+            )
         return ImportResult(collections=[], environments=[], errors=[f"{path.name}: {exc}"])
 
     file_type = detect_postman_type(data)
@@ -75,7 +95,7 @@ def parse_collection_file(path: Path) -> ImportResult:
     return ImportResult(
         collections=[],
         environments=[],
-        errors=[f"{path.name}: unrecognised Postman format"],
+        errors=[f"{path.name}: unrecognised collection format"],
     )
 
 

@@ -1,4 +1,4 @@
-"""Tests for active env, history delete, import, version restore, folder events."""
+"""Tests for active env, history delete, version restore, folder events."""
 
 from __future__ import annotations
 
@@ -303,48 +303,6 @@ class TestHistoryEntryDelete:
         drain_mutation_bridge(host)
         assert "global" in calls
         assert "request" in calls
-
-
-class TestImportMutate:
-    """Workspace import via mutate entity=import."""
-
-    def setup_method(self) -> None:
-        """Clear bridge queue before each case."""
-        clear_mutation_events()
-
-    def teardown_method(self) -> None:
-        """Clear bridge queue after each case."""
-        clear_mutation_events()
-
-    def test_import_curl(self) -> None:
-        """Import a minimal cURL command."""
-        obs = _apply_mutation(
-            WorkspaceMutateAction(
-                action="create",
-                entity="import",
-                fields={"curl": "curl https://example.com/agent-import"},
-                open_after=False,
-            )
-        )
-        assert _obs_ok(obs)
-        assert "collections_imported:" in _obs_text(obs)
-        events = drain_mutation_events()
-        mutated = next(e for e in events if e.get("type") == "mutated")
-        assert mutated["entity"] == "import"
-        assert "mutate:create:import" in CATALOG
-
-    def test_import_requires_one_source(self) -> None:
-        """Reject multiple sources."""
-        from services.ai.chat.tools.workspace_mutate.data_ops import filter_data_fields
-
-        cleaned, err = filter_data_fields(
-            "import",
-            "create",
-            {"text": "{}", "curl": "curl x"},
-        )
-        assert cleaned is None
-        assert err is not None
-        assert "import_requires_exactly_one_source" in _obs_text(err)
 
 
 class TestScriptVersionRestore:

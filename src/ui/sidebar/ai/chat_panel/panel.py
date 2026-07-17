@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QLabel, QLayout, QPushButton, QScrollArea, QVBoxLa
 from services.ai.ai_config import AiModelEntry, model_entry_enabled
 from services.ai.chat.session_service import AiChatMessageDict
 from services.ai.chat.subagent_events import SubagentRunRecord
+from services.ai.chat.tool_activity_events import ToolActivityRecord
 from ui.sidebar.ai.agent_mode_popup import AiAgentModePopup
 from ui.sidebar.ai.chat_panel.composer import AiChatComposer
 from ui.sidebar.ai.chat_panel.composer.budget_banner import AiChatBudgetBanner
@@ -118,6 +119,7 @@ class AiChatPanel(
     _context_usage_refresh_delivery_requested = Signal()
     _context_usage_schedule_requested = Signal()
     _subagent_update_delivery_requested = Signal(object)
+    _tool_activity_update_delivery_requested = Signal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Build the transcript scroll area and the composer."""
@@ -249,6 +251,10 @@ class AiChatPanel(
             self._apply_subagent_update,
             queued,
         )
+        self._tool_activity_update_delivery_requested.connect(
+            self._apply_tool_activity_update,
+            queued,
+        )
 
         self._subagent_detail_dialog: SubagentDetailDialog | None = None
 
@@ -371,6 +377,33 @@ class AiChatPanel(
             schedule = getattr(self, "_schedule_context_usage_refresh", None)
             if callable(schedule):
                 schedule()
+        self._request_turn_bottom_scroll()  # type: ignore[attr-defined]
+        self._follow_streaming_turn_layout()  # type: ignore[attr-defined]
+
+    def deliver_tool_activity_update(self, records: object) -> None:
+        """GUI-thread slot for worker ``tool_activity_updated`` (QueuedConnection)."""
+        if QThread.currentThread() != self.thread():
+            self._tool_activity_update_delivery_requested.emit(records)
+            return
+        self._apply_tool_activity_update(records)
+
+    @Slot(object)
+    def _apply_tool_activity_update(self, records: object) -> None:
+        """Apply tool activity card updates to the active streaming bubble."""
+        if not isinstance(records, list):
+            return
+        normalized: list[ToolActivityRecord] = []
+        for record in records:
+            if isinstance(record, dict) and record.get("id"):
+                normalized.append(record)  # type: ignore[arg-type]
+        bubble = self._resolve_streaming_bubble()  # type: ignore[attr-defined]
+        if bubble is None:
+            if self._open_stream_generation == 0:  # type: ignore[attr-defined]
+                return
+            bubble = self._ensure_streaming_turn_widgets()  # type: ignore[attr-defined]
+        else:
+            self._streaming_bubble = bubble  # type: ignore[attr-defined]
+        bubble.set_tool_activity_records(normalized)
         self._request_turn_bottom_scroll()  # type: ignore[attr-defined]
         self._follow_streaming_turn_layout()  # type: ignore[attr-defined]
 

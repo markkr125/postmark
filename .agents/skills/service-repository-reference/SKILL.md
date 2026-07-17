@@ -201,11 +201,14 @@ All methods are `@staticmethod`.  Each parses the input, then persists via
 
 | Method | Input |
 |--------|-------|
-| `import_files(paths)` | List of JSON files (auto-detect collection vs environment) |
-| `import_folder(path)` | Postman archive folder or directory of JSON files |
-| `import_text(text)` | Raw text — auto-detects cURL, JSON, or URL |
+| `import_files(paths)` | Files — Postman JSON, OpenAPI (JSON/YAML), WSDL/XML |
+| `import_folder(path)` | Postman archive folder or directory of importable files |
+| `import_text(text)` | Raw text — cURL, OpenAPI/WSDL body, Postman JSON, or lone URL (fetches) |
 | `import_curl(text)` | One or more cURL commands |
-| `import_url(url)` | Fetch URL contents and parse |
+| `import_url(url)` | Fetch URL — OpenAPI / WSDL / Postman, else single GET |
+
+OpenAPI (`import_parser/openapi/`) and WSDL (`import_parser/wsdl/`) are
+detected via ``try_parse_spec_text`` shared by file, paste, and URL fetch.
 
 ### HttpService
 

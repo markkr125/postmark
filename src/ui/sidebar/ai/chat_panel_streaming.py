@@ -449,11 +449,14 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
         *,
         status: str = "",
         subagent_records: object | None = None,
+        tool_activity_records: object | None = None,
     ) -> None:
         """Reattach streaming UI for a session with an in-flight background run."""
         self.begin_assistant_stream()
         if isinstance(subagent_records, list):
             cast(Any, self).deliver_subagent_update(subagent_records)
+        if isinstance(tool_activity_records, list):
+            cast(Any, self).deliver_tool_activity_update(tool_activity_records)
         if thinking or content:
             self.append_assistant_chunk(thinking, content)
             self._flush_pending_chunks()
@@ -496,7 +499,7 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
             scroll_blocker = QSignalBlocker(self._scroll.verticalScrollBar())  # type: ignore[attr-defined]
 
         self._cancel_activity_timer()
-        if (thinking_delta or content_delta) and bubble.subagent_active_count() == 0:
+        if (thinking_delta or content_delta) and bubble.loader_active_count() == 0:
             bubble.hide_activity()
 
         bubble.set_defer_layout_height_changed(True)
@@ -793,7 +796,7 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
         bubble = self._resolve_streaming_bubble()
         if bubble is None or not bubble.is_activity_visible():
             return
-        if bubble.subagent_active_count() > 0:
+        if bubble.loader_active_count() > 0:
             return
         label = format_activity_status(raw_status)
         if label is not None:
@@ -802,7 +805,7 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
     def _sync_subagent_poll_timer(self) -> None:
         """Poll subagent disk transcripts while cards are still active."""
         bubble = self._resolve_streaming_bubble()
-        if bubble is None or bubble.subagent_active_count() == 0:
+        if bubble is None or bubble.loader_active_count() == 0:
             self._subagent_poll_timer.stop()  # type: ignore[attr-defined]
             return
         if not self._subagent_poll_timer.isActive():  # type: ignore[attr-defined]
@@ -812,7 +815,7 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
     def _poll_active_subagent_cards(self) -> None:
         """Refresh subagent cards and any open detail window from disk."""
         bubble = self._resolve_streaming_bubble()
-        if bubble is None or bubble.subagent_active_count() == 0:
+        if bubble is None or bubble.loader_active_count() == 0:
             was_active = self._subagent_poll_timer.isActive()  # type: ignore[attr-defined]
             self._subagent_poll_timer.stop()  # type: ignore[attr-defined]
             if was_active:

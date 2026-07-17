@@ -83,7 +83,7 @@ class TestGlobalHistoryOpenNavigation:
         qapp: QApplication,
         qtbot,
     ) -> None:
-        """AI execute cards load the stored body into the centre Response viewer."""
+        """AI execute path loads Response but keeps the AI flyout open."""
         monkeypatch.setattr(
             "database.data_paths.postmark_user_data_dir",
             lambda: tmp_path / "postmark",
@@ -122,11 +122,10 @@ class TestGlobalHistoryOpenNavigation:
         window = MainWindow()
         qtbot.addWidget(window)
         finish_main_window_startup(window)
+        assert window._open_request(req.id, push_history=True, is_preview=False)
+        window._right_sidebar.open_panel("ai")
+        assert window._right_sidebar.active_panel == "ai"
         window._run_open_from_global_history(entry_id, load_centre_response=True)
-        qtbot.waitUntil(
-            lambda: window._tab_context_for_request_id(req.id) is not None,
-            timeout=5000,
-        )
         ctx = window._tab_context_for_request_id(req.id)
         assert ctx is not None
         viewer = ctx.response_viewer
@@ -135,6 +134,8 @@ class TestGlobalHistoryOpenNavigation:
             lambda: "teapot-centre" in viewer._body_edit.toPlainText().lower(),
             timeout=5000,
         )
+        # Agent / execute-card opens must not steal the AI assistant flyout.
+        assert window._right_sidebar.active_panel == "ai"
 
     def test_open_deleted_request_creates_draft(
         self,

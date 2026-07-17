@@ -102,6 +102,7 @@ to *specific tasks* (e.g. "add a widget", "debug signals"), put it in a skill.
 | `widget-patterns` | Widgets, delegates, workers |
 | `test-writing` | New tests |
 | `import-parser` | New import format |
+| `openhands-tools` | New/changed Postmark AI OpenHands tools |
 | `customization-guide` | Changing agent layout |
 
 ## Mandatory sync after changes

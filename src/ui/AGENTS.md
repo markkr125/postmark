@@ -322,6 +322,10 @@ standard object names:
 | `aiChatActivitySpinner` | `QLabel` | Braille spinner in the activity row (reuses `busyChipSpinner` QSS) |
 | `aiChatActivityLabel` | `QLabel` | Muted activity caption (`Thinking…`, SDK status, long-wait escalation, subagent aggregate) |
 | `aiChatSubagentGroup` | `QWidget` (`SubagentTaskGroup`) | Vertical stack of subagent summary cards between thought block(s) and assistant markdown |
+| `aiChatToolActivityGroup` | `QWidget` (`ToolActivityGroup`) | Vertical stack of main-agent tool activity cards (after thought, before subagent cards) |
+| `aiChatToolActivityCard` | `QFrame` (`ToolActivityCard`) | In-flight tool row: icon, title, detail, spinner while running; success/error/rejected chips |
+| `aiChatToolActivityTitle` | `_WrappingLabel` | Bold wrapped tool title |
+| `aiChatToolActivityDetail` | `_WrappingLabel` | Muted detail + status caption |
 | `aiChatSubagentCard` | `QFrame` (`SubagentTaskCard`) | Compact subagent row: sharp corners, accent border on hover (`cardHovered`); title, agent type, status; click opens detail dialog |
 | `aiChatExecuteGroup` | `QWidget` (`ExecuteResultGroup`) | Vertical stack of agent-execute result cards (send/replay/scripts) between pending Approve cards and assistant markdown |
 | `aiChatExecuteCard` | `QFrame` (`ExecuteResultCard`) | Compact execute row; click opens `postmark://history/<id>?focus=response` (centre Response prefilled) or the request tab |

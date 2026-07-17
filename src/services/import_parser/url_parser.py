@@ -1,7 +1,7 @@
 """Parser for raw text and URL imports.
 
-Attempts to auto-detect the content type (Postman JSON, cURL, or plain
-URL) and delegates to the appropriate specialised parser.
+Attempts to auto-detect the content type (OpenAPI, WSDL, Postman JSON,
+cURL, or plain URL) and delegates to the appropriate specialised parser.
 """
 
 from __future__ import annotations
@@ -22,14 +22,26 @@ logger = logging.getLogger(__name__)
 _URL_RE = re.compile(r"^https?://\S+$", re.IGNORECASE)
 
 
+def try_parse_spec_text(text: str) -> ImportResult | None:
+    """Try OpenAPI then WSDL parsers; return None when neither matches."""
+    from services.import_parser.openapi import load_openapi_text
+    from services.import_parser.wsdl import load_wsdl_text
+
+    result = load_openapi_text(text)
+    if result is not None:
+        return result
+    return load_wsdl_text(text)
+
+
 def parse_raw_text(text: str) -> ImportResult:
     """Auto-detect and parse raw text input.
 
     Detection order:
-    1. If it looks like a cURL command, parse with the cURL parser.
-    2. If it parses as JSON, treat as a Postman collection/environment.
-    3. If it looks like a URL, create a single GET request.
-    4. Otherwise, return an error.
+    1. cURL command
+    2. Lone URL → fetch and parse (OpenAPI / WSDL / Postman / fallback GET)
+    3. OpenAPI or WSDL document body
+    4. Postman JSON
+    5. Error
     """
     stripped = text.strip()
     if not stripped:
@@ -39,31 +51,35 @@ def parse_raw_text(text: str) -> ImportResult:
     if is_curl(stripped):
         return parse_curl(stripped)
 
-    # 2. JSON
+    # 2. Lone URL — fetch (do not wrap as a bare GET without fetching)
+    if _URL_RE.match(stripped):
+        return fetch_and_parse_url(stripped)
+
+    # 3. OpenAPI / WSDL
+    spec = try_parse_spec_text(stripped)
+    if spec is not None:
+        return spec
+
+    # 4. JSON (Postman)
     if stripped.startswith("{") or stripped.startswith("["):
         try:
             json.loads(stripped)
             return parse_json_text(stripped)
         except json.JSONDecodeError:
-            pass  # Fall through to URL check
-
-    # 3. URL
-    if _URL_RE.match(stripped):
-        return _url_to_request(stripped)
+            pass
 
     return ImportResult(
         collections=[],
         environments=[],
-        errors=["Could not detect format — expected cURL, JSON, or URL"],
+        errors=["Could not detect format — expected cURL, OpenAPI, WSDL, JSON, or URL"],
     )
 
 
 def fetch_and_parse_url(url: str) -> ImportResult:
     """HTTP GET the *url* and parse the response body.
 
-    If the response is JSON containing a Postman collection or
-    environment, it is parsed accordingly.  Otherwise the URL is
-    imported as a single GET request.
+    Tries OpenAPI, WSDL, then Postman JSON. Falls back to importing the
+    URL as a single GET request when no structured format is detected.
     """
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Postmark/1.0"})
@@ -76,7 +92,13 @@ def fetch_and_parse_url(url: str) -> ImportResult:
             errors=[f"Failed to fetch URL: {exc}"],
         )
 
-    # Try to parse as Postman JSON
+    spec = try_parse_spec_text(body)
+    if spec is not None:
+        if spec.get("collections") or spec.get("environments"):
+            return spec
+        if spec.get("errors"):
+            return spec
+
     try:
         json.loads(body)
         result = parse_json_text(body)
@@ -85,7 +107,6 @@ def fetch_and_parse_url(url: str) -> ImportResult:
     except json.JSONDecodeError:
         pass
 
-    # Fall back to importing the URL as a simple GET request
     return _url_to_request(url)
 
 

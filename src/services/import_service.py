@@ -14,6 +14,7 @@ from database.models.collections.import_repository import import_collection_tree
 from database.models.environments.environment_repository import create_environment
 
 from .import_parser import (
+    ImportedCollectionRef,
     ImportResult,
     ImportSummary,
     fetch_and_parse_url,
@@ -57,7 +58,7 @@ class ImportService:
 
     @staticmethod
     def import_text(text: str) -> ImportSummary:
-        """Import from raw text — auto-detects cURL, JSON, or URL."""
+        """Import from raw text — auto-detects cURL, OpenAPI/WSDL, JSON, or URL."""
         result = parse_raw_text(text)
         return _persist(result)
 
@@ -69,7 +70,7 @@ class ImportService:
 
     @staticmethod
     def import_url(url: str) -> ImportSummary:
-        """Fetch a URL and import its contents."""
+        """Fetch a URL and import OpenAPI, WSDL, Postman, or a single GET."""
         result = fetch_and_parse_url(url)
         return _persist(result)
 
@@ -83,6 +84,7 @@ def _persist(result: ImportResult) -> ImportSummary:
         environments_imported=0,
         scripts_detected=_count_scripts(result),
         errors=list(result.get("errors", [])),
+        imported_collections=[],
     )
 
     # 1. Import collections
@@ -92,6 +94,14 @@ def _persist(result: ImportResult) -> ImportSummary:
             summary["collections_imported"] += counters["collections_imported"]
             summary["requests_imported"] += counters["requests_imported"]
             summary["responses_imported"] += counters["responses_imported"]
+            root_id = counters.get("root_collection_id")
+            if root_id:
+                summary["imported_collections"].append(
+                    ImportedCollectionRef(
+                        id=int(root_id),
+                        name=str(coll.get("name") or "Imported Collection"),
+                    )
+                )
         except Exception as exc:
             name = coll.get("name", "<unknown>")
             summary["errors"].append(f"Failed to import collection {name!r}: {exc}")

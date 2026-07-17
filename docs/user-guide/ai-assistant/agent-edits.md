@@ -61,13 +61,16 @@ With your approval (or auto-approve), Agent can:
 - Merge-write **global** variables
 - Secret-typed keys and credential-like names accept only empty values or `{{var}}` placeholders — raw tokens are rejected
 
-### Folder scripts, history, import, versions, debug metadata
+### Folder scripts, history, versions, debug metadata
 
 - Update **folder / collection scripts** via `events` (pre-request and test), then open the Scripts tab
 - **Delete** a request-history entry (refreshes per-request and global history)
-- **Import** collections/environments from text, cURL, URL, or a file/folder path
 - **Restore** a script version into a request, collection, or local script (merges without wiping sibling script bodies)
 - Update **breakpoints / watches** metadata on requests, collections, or local scripts (does not start a debug session)
+
+### Import
+
+- **Import** collections/environments from text, cURL, URL, or a file/folder path — including **OpenAPI / Swagger** (JSON or YAML) and **WSDL** (SOAP operations). Prefer asking in Agent mode (e.g. “make a collection from this OpenAPI URL”); the import action pauses for **Allow**.
 
 ### Snippets and saved examples
 
@@ -90,7 +93,7 @@ With your approval (or auto-approve), Agent can:
 - **Export** test results or collection-run CSV/JSON from history / run ids
 - **OAuth Get Token** for `client_credentials` / `password` grants — binds the token to an environment `{{var}}` (token never appears in chat). Browser grants (authorization code / implicit) are not supported yet.
 
-Successful sends appear as a **clickable card** in the assistant message. Click the card to open the request tab with that response loaded. Script-run cards focus the matching Scripts phase (pre-request or test). Local-script run cards open the script tab. Collection-run cards open the folder **Runs** panel. Iteration-run cards focus Scripts → test.
+Successful sends appear as a **clickable card** in the assistant message. Click the card to open the request tab with that response loaded in the centre pane — the **AI assistant stays open** (the right flyout does not switch to Request History). Script-run cards focus the matching Scripts phase (pre-request or test). Local-script run cards open the script tab. Collection-run cards open the folder **Runs** panel. Iteration-run cards focus Scripts → test.
 
 Successful edits refresh the relevant sidebar (collections, local scripts, environments, snippets, saved examples, history) and any already-open editors (you do not need to reopen the tab). If a tab had unsaved local edits, Allow still applies the Agent change and replaces that editor state.
 
@@ -120,6 +123,7 @@ For those, edit in the normal UI. Use [Workspace explorer](workspace-explorer.md
 4. Confirm the new request appears in the collection tree (and may open in a tab) without restarting.
 5. Ask Agent to send it; **Allow** again (or add **Send request** under **Auto-approved Agent actions** if you want to skip next time).
 6. Optional: ask Agent to create a local helper script and run it — Allow, then check the script tab Output.
+7. Optional: “Make a collection from this OpenAPI URL: …” — Allow the import; the new collection appears in the left tree.
 
 ## Tips
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+from PySide6.QtCore import QThread
 from PySide6.QtWidgets import QApplication
 
 from services.collection_service import CollectionService
@@ -9,6 +11,9 @@ from ui.collections.collection_widget import CollectionWidget
 from ui.collections.tree import ROLE_ITEM_ID
 
 from ..conftest import make_collection_dict, top_level_items
+
+# Captured before the autouse ``_no_fetch`` patch replaces it.
+_REAL_START_FETCH = CollectionWidget._start_fetch
 
 
 class TestCollectionWidget:
@@ -168,3 +173,32 @@ class TestCollectionWidget:
         moved = svc.get_collection(child.id)
         assert moved is not None
         assert moved.parent_id == parent.id
+
+
+def test_background_fetch_applies_on_gui_thread(
+    qapp: QApplication,
+    qtbot,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Startup fetch must stop loading timers on the GUI thread, not the worker."""
+    # Undo the autouse ``_no_fetch`` patch so the real background path runs.
+    monkeypatch.setattr(CollectionWidget, "_start_fetch", _REAL_START_FETCH)
+
+    CollectionService.create_collection("FetchMe")
+    on_gui: list[bool] = []
+    original = CollectionWidget._on_collections_ready
+
+    def _track(self: CollectionWidget, payload: dict, generation: int) -> None:
+        on_gui.append(QThread.currentThread() is self.thread())
+        original(self, payload, generation)
+
+    monkeypatch.setattr(CollectionWidget, "_on_collections_ready", _track)
+
+    widget = CollectionWidget()
+    qtbot.addWidget(widget)
+    widget._start_fetch()
+    qtbot.waitUntil(lambda: bool(on_gui), timeout=5000)
+    assert on_gui == [True]
+    # Loading stack should leave the spinner page after apply.
+    assert widget._tree_widget._stack.currentIndex() != 2
+    assert not widget._tree_widget._loading_timer.isActive()

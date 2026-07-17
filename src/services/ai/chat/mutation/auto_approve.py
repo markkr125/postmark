@@ -96,6 +96,7 @@ _READ_ONLY_TOOLS = frozenset(
 
 _MUTATE_TOOL = "postmark_workspace_mutate"
 _EXECUTE_TOOL = "postmark_workspace_execute"
+_IMPORT_TOOL = "postmark_import"
 
 
 def _get_settings() -> QSettings:
@@ -181,6 +182,8 @@ def kind_from_tool_args(
     """Build a catalog kind from tool name + action fields."""
     if tool_name in _READ_ONLY_TOOLS:
         return None
+    if tool_name == _IMPORT_TOOL:
+        return "mutate:create:import"
     if tool_name == _MUTATE_TOOL:
         if not action or not entity:
             return None
@@ -255,8 +258,8 @@ def _fields_have_secret_env_writes(fields: dict[str, object]) -> bool:
 
 
 def is_mutate_or_execute_tool(tool_name: str) -> bool:
-    """Return True for Postmark mutate/execute tool names."""
-    return tool_name in {_MUTATE_TOOL, _EXECUTE_TOOL}
+    """Return True for Postmark mutate/execute/import tool names."""
+    return tool_name in {_MUTATE_TOOL, _EXECUTE_TOOL, _IMPORT_TOOL}
 
 
 __all__ = [

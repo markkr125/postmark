@@ -500,8 +500,15 @@ class TestParseRawText:
         assert len(result["collections"]) == 1
 
     def test_detects_url(self) -> None:
-        """A plain URL is wrapped as a GET request."""
-        result = parse_raw_text("https://api.example.com/health")
+        """A plain URL is fetched; non-spec bodies fall back to a GET request."""
+        from unittest.mock import MagicMock, patch
+
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = b"<html>not a spec</html>"
+        mock_resp.__enter__.return_value = mock_resp
+        mock_resp.__exit__.return_value = None
+        with patch("urllib.request.urlopen", return_value=mock_resp):
+            result = parse_raw_text("https://api.example.com/health")
         assert len(result["collections"]) == 1
         item: Any = result["collections"][0]["items"][0]
         assert item["method"] == "GET"

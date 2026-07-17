@@ -6,7 +6,8 @@ from services.ai.chat.agent_registry import get_agent_def
 
 MUTATE_TOOL = "postmark_workspace_mutate"
 EXECUTE_TOOL = "postmark_workspace_execute"
-_WRITE_TOOLS = frozenset({MUTATE_TOOL, EXECUTE_TOOL})
+IMPORT_TOOL = "postmark_import"
+_WRITE_TOOLS = frozenset({MUTATE_TOOL, EXECUTE_TOOL, IMPORT_TOOL})
 
 MUTATING_MAX_ITERATIONS = 15
 
@@ -18,7 +19,7 @@ def tools_for_turn(
 ) -> tuple[str, ...]:
     """Return tool names for this turn based on composer mode.
 
-    Ask and Plan are always read-only. Agent always receives mutate/execute;
+    Ask and Plan are always read-only. Agent always receives mutate/execute/import;
     write safety is Approve / auto-approve, not a Settings master switch.
     """
     def_ = get_agent_def(agent_id)
@@ -45,6 +46,7 @@ def max_iterations_for_turn(
 
 __all__ = [
     "EXECUTE_TOOL",
+    "IMPORT_TOOL",
     "MUTATE_TOOL",
     "MUTATING_MAX_ITERATIONS",
     "max_iterations_for_turn",

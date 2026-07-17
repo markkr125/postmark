@@ -280,7 +280,10 @@ on_send_finished → _record_request_history
 HistoryPanel.entry_open_requested(int entry_id)  [global instance only]
   → MainWindow._open_from_global_history
     → existing request: _open_request + right History schedule_detail_load (async detail)
-      + RightSidebar.open_panel("request_history") + focus_entry (deferred)
+      + RightSidebar.open_panel("request_history") when load_centre_response=False
+        (left-rail History); when load_centre_response=True (Agent execute / AI
+        deep-link ?focus=response) load centre Response and keep the current
+        flyout (do not steal the AI panel)
     → orphan/deleted: _open_draft_request + load_request(snapshot) + load_stored_response
       (draft sidebar: History/Saved Responses disabled)
 

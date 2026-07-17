@@ -88,6 +88,7 @@ class _ImportWorker(QObject):
                     environments_imported=0,
                     scripts_detected=0,
                     errors=["No input provided"],
+                    imported_collections=[],
                 )
             self.finished.emit(dict(result))
         except Exception as exc:

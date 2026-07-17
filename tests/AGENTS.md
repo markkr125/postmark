@@ -232,6 +232,8 @@ tests/
 │       ├── test_service.py
 │       ├── test_environment_service.py
 │       ├── test_import_parser.py
+│       ├── test_openapi_parser.py  # OpenAPI 3 / Swagger 2 / YAML / URL fetch
+│       ├── test_wsdl_parser.py     # WSDL 1.1 → SOAP POST collection
 │       ├── test_import_service.py
 │       ├── test_script_bridge_globals.py
 │       ├── test_script_debug.py
@@ -284,6 +286,7 @@ tests/
 │       │   ├── test_postmark_agent_registry.py  # workspace prompt/desc: history routing + within_ids
 │       │   ├── test_subagent_registry.py
 │       │   ├── test_subagent_events.py
+│       │   ├── test_tool_activity_events.py
 │       │   ├── test_execute_events.py  # Agent execute observation → clickable card records
 │       │   ├── test_thinking_sections.py
 │       │   ├── test_subagent_disk_registry.py
@@ -303,12 +306,13 @@ tests/
 │       │   ├── test_confirmation_spike.py  # ConfirmRisky pause/resume/reject + whitelist skip
 │       │   ├── test_confirmation_payload.py  # human_preview + Approve title/detail (no raw tool names)
 │       │   ├── test_agent_tools_for_turn.py  # Ask/Plan/Agent tools_for_turn (Agent always has write tools)
+│       │   ├── test_agent_import_tool.py  # postmark_import Action schema + ImportService executor
 │       │   ├── test_workspace_security.py  # PostmarkWorkspaceSecurityAnalyzer + policy
 │       │   ├── test_mutation_bridge.py  # enqueue/drain mutation GUI events
 │       │   ├── test_mutation_auto_approve.py  # whitelist add/remove/clear + Phase 2 kinds
 │       │   ├── test_workspace_mutate_collections.py  # mutate CRUD + assertion_set + field filter
 │       │   ├── test_workspace_mutate_local.py  # local scripts + secrets/auth/env/snippet mutate
-│       │   ├── test_workspace_mutate_session.py  # active env, history delete, import, version restore, folder events
+│       │   ├── test_workspace_mutate_session.py  # active env, history delete, version restore, folder events
 │       │   ├── test_workspace_mutate_debug_metadata.py  # breakpoints/watches merge mutate
 │       │   ├── test_workspace_mutate_settings.py  # allowlisted settings mutate
 │       │   ├── test_binary_body.py  # binary path policy + HttpService byte send
@@ -421,6 +425,7 @@ tests/
 │   ├── test_ai_chat_worker_confirm_loop.py  # P0-W: real run() WAITING→Approve/Reject/Stop; preview_url env-sub + draft/replay
 │   ├── test_ai_execute_cards.py  # Execute result cards → history?focus=response / request deeplink
 │   ├── test_ai_pending_tool_cards.py  # Inline Allow/Reject/Always allow cards on streaming bubble
+│   ├── test_ai_tool_activity_cards.py # Main-agent tool activity cards + execute handoff
 │   ├── test_ai_session_history_popup.py  # Virtualized list; RUNNING_ROLE; ⋯ menu click routing; rename/delete dialogs
 │   ├── test_ai_active_run_badge.py  # Header aiChatActiveRunsBadge count pill
 │   ├── test_session_transcript_load.py  # Async session switch + lazy markdown; post-load settle skips work while pinned
@@ -458,7 +463,7 @@ tests/
    │   ├── test_request_history_panel.py
    │   ├── test_global_history_panel.py
    │   ├── test_left_sidebar_global_history.py
-   │   ├── test_global_history_open_navigation.py
+   │   ├── test_global_history_open_navigation.py  # left-rail opens History; AI execute keeps AI flyout
    │   └── test_right_sidebar_request_history.py
     ├── collections/               # Collection sidebar tests
     │   ├── test_collection_header.py

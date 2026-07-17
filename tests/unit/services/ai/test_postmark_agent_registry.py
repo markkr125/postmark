@@ -21,6 +21,7 @@ def test_default_agent_registered() -> None:
         "postmark_datetime",
         "postmark_workspace_mutate",
         "postmark_workspace_execute",
+        "postmark_import",
         "task_tool_set",
         "delegate",
     )
@@ -31,6 +32,8 @@ def test_default_agent_registered() -> None:
     assert "postmark_datetime" in defn.system_prompt
     assert "postmark_workspace_mutate" in defn.system_prompt
     assert "postmark_workspace_execute" in defn.system_prompt
+    assert "postmark_import" in defn.system_prompt
+    assert "OpenAPI" in defn.system_prompt
     assert "never invent wall-clock times" in defn.system_prompt
     assert "Unix seconds" in defn.system_prompt
     assert "delegate" in defn.system_prompt

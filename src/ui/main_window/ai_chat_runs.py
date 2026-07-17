@@ -60,6 +60,10 @@ class _AiChatRunsMixin:
             self._on_registry_subagent_updated,
             queued,
         )
+        self._chat_run_registry.tool_activity_updated.connect(
+            self._on_registry_tool_activity_updated,
+            queued,
+        )
         self._chat_run_registry.confirmation_needed.connect(
             self._on_registry_confirmation_needed,
             queued,
@@ -204,6 +208,7 @@ class _AiChatRunsMixin:
             handle.content_buffer,
             status=handle.status_text,
             subagent_records=handle.subagent_records,
+            tool_activity_records=handle.tool_activity_records,
         )
         pending = getattr(handle.worker, "_pending_confirmation", None)
         if pending is not None:
@@ -260,6 +265,21 @@ class _AiChatRunsMixin:
         if handle is None or handle.context.run_generation != run_generation:
             return
         self._right_sidebar.ai_chat_panel.deliver_subagent_update(records)
+
+    @Slot(str, int, object)
+    def _on_registry_tool_activity_updated(
+        self,
+        session_id: str,
+        run_generation: int,
+        records: object,
+    ) -> None:
+        """Update tool activity cards for the visible session only."""
+        if session_id != self._active_ai_session_id:
+            return
+        handle = self._chat_run_registry.run_for(session_id)
+        if handle is None or handle.context.run_generation != run_generation:
+            return
+        self._right_sidebar.ai_chat_panel.deliver_tool_activity_update(records)
 
     @Slot(str, int, object)
     def _on_registry_confirmation_needed(

@@ -85,6 +85,13 @@ class ImportResult(TypedDict):
     errors: list[str]
 
 
+class ImportedCollectionRef(TypedDict):
+    """Identity of one root collection created by an import."""
+
+    id: int
+    name: str
+
+
 class ImportSummary(TypedDict):
     """Summary of what was actually persisted to the database."""
 
@@ -94,3 +101,4 @@ class ImportSummary(TypedDict):
     environments_imported: int
     scripts_detected: int
     errors: list[str]
+    imported_collections: list[ImportedCollectionRef]

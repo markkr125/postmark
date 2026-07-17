@@ -288,6 +288,18 @@ class _ChatPanelTranscriptLoadMixin:
                         events=events,
                     )
                 )
+                from services.ai.chat.tool_activity_events import (
+                    records_for_assistant_turn as tool_activity_records_for_turn,
+                )
+
+                bubble.set_tool_activity_records(
+                    tool_activity_records_for_turn(
+                        session_id,
+                        pricing_messages,
+                        msg_index,
+                        events=events,
+                    )
+                )
                 from services.ai.chat.execute_events import (
                     records_for_assistant_turn as execute_records_for_turn,
                 )

@@ -11,6 +11,7 @@ from services.ai.chat.tools.datetime_query import register_datetime_query_tool
 from services.ai.chat.tools.delegate_tool import register_postmark_delegate_tool
 from services.ai.chat.tools.wiki_query import register_wiki_query_tool
 from services.ai.chat.tools.workspace_execute import register_workspace_execute_tool
+from services.ai.chat.tools.workspace_import import register_workspace_import_tool
 from services.ai.chat.tools.workspace_mutate import register_workspace_mutate_tool
 from services.ai.chat.tools.workspace_query import register_workspace_query_tool
 
@@ -36,6 +37,13 @@ _WIKI_SYSTEM_PROMPT = (
     "with free-text when/from_tz/to_tz (omit from_tz to assume local; omit when or pass "
     "now/rn for the current instant; pass Unix seconds as when with from_tz=UTC and "
     "to_tz=local for 'to my local timezone'). "
+    "When importing OpenAPI/Swagger, WSDL, Postman, cURL, a URL, or a file into the "
+    "workspace, call postmark_import with exactly one of url, path, text, or curl. "
+    "Call postmark_import yourself — never hand an import to a subagent via delegate: the "
+    "researcher subagents have no import tool, so a delegated import silently does nothing. "
+    "Never report an import you did not actually perform — claim collections were created "
+    "only when postmark_import itself returned ok: true, and link each created collection "
+    "by name using the postmark://collection/<id> values from its deep_links output. "
     "For questions about how Postmark works (UI, workflows, settings, scripting, debugging), "
     "call postmark_wiki_query with short keywords before answering — do not guess exact "
     "file paths, and do not invent menu items or shortcuts. "
@@ -78,12 +86,12 @@ _WIKI_SYSTEM_PROMPT = (
     "settings, search, and variable. Live GUI scopes "
     "(open_tabs, active_tab, active_response) are captured at turn start; DB scopes are "
     "always live. postmark_workspace_query is read-only. In Agent mode you always have "
-    "postmark_workspace_mutate and postmark_workspace_execute to create/edit/delete "
-    "collections and requests, write tests, and send — the app pauses for user Approve "
-    "unless that action kind is auto-approved. Ask and Plan modes never get "
-    "mutate/execute tools; if those tools are absent, tell the user to switch the mode "
-    "pill to Agent. Do not invent UI clicks as a substitute when mutate/execute are "
-    "available. "
+    "postmark_workspace_mutate, postmark_workspace_execute, and postmark_import to "
+    "create/edit/delete collections and requests, write tests, send, and import specs — "
+    "the app pauses for user Approve unless that action kind is auto-approved. Ask and "
+    "Plan modes never get mutate/execute/import tools; if those tools are absent, tell "
+    "the user to switch the mode pill to Agent. Do not invent UI clicks as a substitute "
+    "when write tools are available. "
     "Unsaved folder or "
     "environment editor changes are not captured in the snapshot. Discover ids via open_tabs "
     "or collection_tree links, scope=overview for active context, or scope=insights for "
@@ -189,6 +197,7 @@ def _register_defaults() -> None:
     register_datetime_query_tool()
     register_workspace_mutate_tool()
     register_workspace_execute_tool()
+    register_workspace_import_tool()
     register_postmark_delegate_tool()
     register_postmark_subagents()
     register_postmark_agent(
@@ -202,6 +211,7 @@ def _register_defaults() -> None:
                 "postmark_datetime",
                 "postmark_workspace_mutate",
                 "postmark_workspace_execute",
+                "postmark_import",
                 "task_tool_set",
                 "delegate",
             ),

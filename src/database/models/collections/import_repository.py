@@ -143,7 +143,8 @@ def import_collection_tree(parsed: dict[str, Any]) -> dict[str, int]:
 
     Returns:
         A dict with ``collections_imported``, ``requests_imported``, and
-        ``responses_imported`` counts.
+        ``responses_imported`` counts, plus ``root_collection_id`` — the id of
+        the created root collection, so callers can deep-link to it.
     """
     counters: dict[str, int] = {
         "collections_imported": 0,
@@ -164,6 +165,7 @@ def import_collection_tree(parsed: dict[str, Any]) -> dict[str, int]:
         session.add(root)
         session.flush()
         counters["collections_imported"] += 1
+        counters["root_collection_id"] = int(root.id)
 
         # 2. Recursively import items
         items = parsed.get("items", [])

@@ -54,6 +54,7 @@ def pending_actions_payload(conversation: object) -> dict[str, Any]:
         if not detail:
             detail = title
         risk = "destructive" if _is_destructive_kind(kind) else "normal"
+        tool_call_id = str(getattr(event, "tool_call_id", "") or "").strip()
         row: dict[str, Any] = {
             "tool_name": tool_name,
             "kind": kind,
@@ -64,6 +65,8 @@ def pending_actions_payload(conversation: object) -> dict[str, Any]:
             "visualize": detail,
             "risk": risk,
         }
+        if tool_call_id:
+            row["tool_call_id"] = tool_call_id
         if url:
             row["url"] = url
         actions.append(row)

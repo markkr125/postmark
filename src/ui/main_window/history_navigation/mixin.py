@@ -143,7 +143,12 @@ class _HistoryNavigationMixin:
         *,
         load_centre_response: bool = False,
     ) -> None:
-        """Focus the request tab, then load History detail (and optionally centre Response)."""
+        """Focus the request tab, then load History detail (and optionally centre Response).
+
+        When *load_centre_response* is True (Agent execute cards / AI deep-links),
+        the centre Response viewer is filled but the right sidebar stays on the
+        current panel (typically AI) — do not switch to Request History.
+        """
         ctx = self._tab_context_for_request_id(request_id)
         if ctx is None or ctx.tab_type != "request" or ctx.request_id != request_id:
             self._show_history_open_status("Could not open request tab")
@@ -160,7 +165,9 @@ class _HistoryNavigationMixin:
             elif entry is None:
                 self._show_history_open_status("History entry is no longer available")
         self._refresh_sidebar(history_load_detail=False)  # type: ignore[attr-defined]
-        self._right_sidebar.open_panel("request_history")
+        # AI execute / deep-link ?focus=response must not steal the AI flyout.
+        if not load_centre_response:
+            self._right_sidebar.open_panel("request_history")
         panel = getattr(self, "_request_history_panel", None)
         if panel is not None:
             QTimer.singleShot(0, lambda: panel.schedule_detail_load(entry_id))

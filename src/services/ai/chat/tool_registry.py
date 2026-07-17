@@ -1,9 +1,17 @@
 """Postmark tool registry wrapper over the OpenHands SDK tool system.
 
-To add a custom tool later:
-1. Define ``Action`` / ``Observation`` / ``ToolDefinition`` (e.g. under ``chat/tools/``).
-2. Call ``register_postmark_tool("postmark_xxx", factory)``.
-3. Reference the name in a ``PostmarkAgentDef.tool_names`` tuple.
+To add a custom tool:
+1. Define ``Action`` / ``Observation`` / ``ToolDefinition`` under ``chat/tools/``.
+2. Call ``register_postmark_tool("postmark_xxx", factory)`` (wraps SDK
+   ``register_tool``).
+3. Add the name to ``PostmarkAgentDef.tool_names`` and, if it writes, to
+   ``agent_tools._WRITE_TOOLS`` plus ``mutation/auto_approve`` kind mapping /
+   ``is_mutate_or_execute_tool``.
+
+Do **not** bury a new user-facing capability inside
+``postmark_workspace_mutate`` / ``postmark_workspace_execute`` and then paper
+over discovery with system-prompt paragraphs. OpenHands discovers tools from
+Action Field schemas + the tool description — see skill ``openhands-tools``.
 """
 
 from __future__ import annotations
