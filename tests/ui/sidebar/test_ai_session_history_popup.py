@@ -419,6 +419,8 @@ def test_editor_event_menu_hit_returns_true(qapp: QApplication, qtbot) -> None:
     event = QMouseEvent(
         QEvent.Type.MouseButtonRelease,
         QPointF(menu_center),
+        QPointF(menu_center),
+        QPointF(menu_center),
         Qt.MouseButton.LeftButton,
         Qt.MouseButton.LeftButton,
         Qt.KeyboardModifier.NoModifier,

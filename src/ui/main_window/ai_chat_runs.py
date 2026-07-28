@@ -209,6 +209,8 @@ class _AiChatRunsMixin:
             status=handle.status_text,
             subagent_records=handle.subagent_records,
             tool_activity_records=handle.tool_activity_records,
+            thinking_phases=handle.thinking_phases,
+            activity_timeline=handle.activity_timeline,
         )
         pending = getattr(handle.worker, "_pending_confirmation", None)
         if pending is not None:

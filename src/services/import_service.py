@@ -74,6 +74,11 @@ class ImportService:
         result = fetch_and_parse_url(url)
         return _persist(result)
 
+    @staticmethod
+    def import_parsed(result: ImportResult) -> ImportSummary:
+        """Persist an already-parsed result assembled in code rather than by a parser."""
+        return _persist(result)
+
 
 def _persist(result: ImportResult) -> ImportSummary:
     """Persist parsed data to the database and return a summary."""

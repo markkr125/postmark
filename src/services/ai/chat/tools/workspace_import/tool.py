@@ -16,7 +16,14 @@ from openhands.sdk.tool.tool import (
     ToolDefinition,
     ToolExecutor,
 )
+from services.ai.chat.mutation.claim_guard import observation_indicates_write
 from services.ai.chat.tools.workspace_import.apply import apply_workspace_import
+from services.ai.chat.tools.workspace_import.turn_guard import (
+    import_source_key,
+    prior_import_result,
+    record_import_result,
+)
+from services.ai.chat.workspace_snapshot import resolve_workspace_session_id
 
 if TYPE_CHECKING:
     from openhands.sdk.conversation.base import BaseConversation
@@ -33,6 +40,13 @@ Pass exactly one of:
 - ``path`` — local file or folder path
 - ``text`` — pasted body
 - ``curl`` — a cURL command string
+
+Optional:
+- ``collection_name_suffix`` — append text to every imported root collection
+  name during this same import (for example ``10`` produces
+  ``Hotel Booking API 10``). Use this instead of importing and renaming in
+  separate calls. One successful call completes the import; never call this
+  tool twice for the same source in one user turn.
 
 Requires Agent mode. Pauses for user Approve unless Import workspace is auto-approved.
 
@@ -61,6 +75,15 @@ class WorkspaceImportAction(Action):
     curl: str | None = Field(
         default=None,
         description="cURL command string to import as a request/collection.",
+    )
+    collection_name_suffix: str | None = Field(
+        default=None,
+        description=(
+            "Optional text appended with one separating space to each imported root "
+            "collection name in this same operation. Example: '10' produces "
+            "'Hotel Booking API 10'. Do not re-import to rename."
+        ),
+        max_length=200,
     )
 
     @model_validator(mode="after")
@@ -104,16 +127,18 @@ class WorkspaceImportAction(Action):
     def human_preview(self) -> str:
         """Return a short human-readable detail line for Approve chrome."""
         fields = self.source_fields()
+        suffix = str(self.collection_name_suffix or "").strip()
+        suffix_note = f"; append {suffix!r} to root name" if suffix else ""
         if "curl" in fields:
-            return "Import from cURL"
+            return f"Import from cURL{suffix_note}"
         if "url" in fields:
             url = fields["url"]
             if len(url) > 80:
-                return f"Import {url[:77]}…"
-            return f"Import {url}"
+                return f"Import {url[:77]}…{suffix_note}"
+            return f"Import {url}{suffix_note}"
         if "path" in fields:
-            return f"Import {fields['path']}"
-        return "Import workspace"
+            return f"Import {fields['path']}{suffix_note}"
+        return f"Import workspace{suffix_note}"
 
 
 class WorkspaceImportObservation(Observation):
@@ -129,12 +154,39 @@ class WorkspaceImportExecutor(ToolExecutor):
         _conversation: BaseConversation | None = None,
     ) -> WorkspaceImportObservation:
         """Run ImportService and return observation text."""
+        fields = action.source_fields()
+        session_id = _conversation_session_id(_conversation)
+        source_key = import_source_key(fields)
+        prior = prior_import_result(session_id, source_key)
+        if prior is not None:
+            duplicate_result = (
+                prior.rstrip()
+                + "\nduplicate_skipped: true\n"
+                + "next_step: This source was already imported during the current user "
+                + "turn. Do not call the import tool again; use the imported_collections "
+                + "and collection_links above.\n"
+            )
+            return WorkspaceImportObservation.from_text(duplicate_result)
         mutation_id = uuid4().hex[:12]
         result = apply_workspace_import(
-            fields=action.source_fields(),
+            fields=fields,
             mutation_id=mutation_id,
+            collection_name_suffix=str(action.collection_name_suffix or ""),
         )
+        if observation_indicates_write(result.text):
+            record_import_result(session_id, source_key, result.text)
         return WorkspaceImportObservation.from_text(result.text)
+
+
+def _conversation_session_id(conversation: BaseConversation | None) -> str:
+    """Return the parent Postmark session id for per-turn duplicate guards."""
+    if conversation is None:
+        return ""
+    state = conversation.state
+    return resolve_workspace_session_id(
+        str(state.id),
+        persistence_dir=getattr(state, "persistence_dir", None),
+    )
 
 
 class PostmarkWorkspaceImportTool(

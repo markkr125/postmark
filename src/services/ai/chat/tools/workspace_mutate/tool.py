@@ -217,6 +217,8 @@ Entities:
 - settings (update: allowlisted prefs only — never AI credentials)
 
 duplicate is request-only and saved_response-only (not collections).
+Collection title: action=rename with fields.name, or action=update with fields.name (rename service).
+Collection update other fields: description, variables, auth, events (scripts gate).
 Request create may include auth in fields; create_request has no auth kwarg — auth is applied via update after create.
 Collection scripts live in fields.events (pre_request/test/languages), not scripts.
 Scripts on requests only when writing tests (allow_scripts gate).

@@ -6,8 +6,10 @@ from services.ai.chat.thinking_sections import (
     THINKING_PHASE_SEPARATOR,
     has_thinking_phase_separator,
     pack_thinking_phases,
+    pack_thinking_sections,
     resolve_thinking_for_persist,
     unpack_thinking_phases,
+    unpack_thinking_sections,
 )
 
 
@@ -39,3 +41,10 @@ def test_pack_primary_only() -> None:
     stored = pack_thinking_phases("only primary", "")
     assert stored == "only primary"
     assert THINKING_PHASE_SEPARATOR not in stored
+
+
+def test_pack_roundtrip_multiple_tool_phases() -> None:
+    """Any number of tool-interrupted thought blocks survive persistence."""
+    sections = ["Plan query.", "Inspect query result.", "Prepare final answer."]
+    stored = pack_thinking_sections(sections)
+    assert unpack_thinking_sections(stored) == sections

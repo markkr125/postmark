@@ -14,6 +14,7 @@ from services.ai.chat.subagent_events import SubagentRunRecord
 from services.ai.chat.tool_activity_events import ToolActivityRecord
 from ui.sidebar.ai.agent_mode_popup import AiAgentModePopup
 from ui.sidebar.ai.chat_panel.composer import AiChatComposer
+from ui.sidebar.ai.chat_panel.composer.attachments import compose_prompt_with_attachments
 from ui.sidebar.ai.chat_panel.composer.budget_banner import AiChatBudgetBanner
 from ui.sidebar.ai.chat_panel.context_usage_panel import _ChatPanelContextUsageMixin
 from ui.sidebar.ai.chat_panel.inline_edit import _ChatPanelInlineEditMixin
@@ -126,6 +127,7 @@ class AiChatPanel(
         super().__init__(parent)
         self.setObjectName("aiChatPanel")
         self._attachments: list[str] = []
+        self._pending_attachment_sources: list[str] = []
         self._models: list[AiModelEntry] = []
         self._streaming_bubble: ChatMessageBubble | None = None
         self._stream_generation = 0
@@ -348,6 +350,7 @@ class AiChatPanel(
         """Apply subagent card updates to the active streaming bubble."""
         if not isinstance(records, list):
             return
+        self.flush_pending_assistant_chunks()  # type: ignore[attr-defined]
         normalized: list[SubagentRunRecord] = []
         for record in records:
             if isinstance(record, dict) and record.get("id"):
@@ -392,6 +395,7 @@ class AiChatPanel(
         """Apply tool activity card updates to the active streaming bubble."""
         if not isinstance(records, list):
             return
+        self.flush_pending_assistant_chunks()  # type: ignore[attr-defined]
         normalized: list[ToolActivityRecord] = []
         for record in records:
             if isinstance(record, dict) and record.get("id"):
@@ -411,6 +415,7 @@ class AiChatPanel(
         """Upsert agent-execute result cards onto the active streaming bubble."""
         if not isinstance(records, list):
             return
+        self.flush_pending_assistant_chunks()  # type: ignore[attr-defined]
         from typing import cast
 
         from services.ai.chat.execute_events import ExecuteRunRecord
@@ -474,6 +479,7 @@ class AiChatPanel(
 
     def show_confirmation(self, payload: object) -> None:
         """Show pending Agent action cards on the streaming assistant bubble."""
+        self.flush_pending_assistant_chunks()  # type: ignore[attr-defined]
         bubble = self._resolve_streaming_bubble()  # type: ignore[attr-defined]
         if bubble is None:
             bubble = self._ensure_streaming_turn_widgets()  # type: ignore[attr-defined]
@@ -618,11 +624,22 @@ class AiChatPanel(
             self.stop_requested.emit()
             return
         text = self._docked_composer.plain_text()
-        if not text:
+        attachments = self._docked_composer.attachments()
+        if not text and not attachments:
             return
-        self.add_message("user", text, sent_at=datetime.now(tz=UTC))
+        prompt = compose_prompt_with_attachments(text, attachments)
+        # Held for the controller, which copies them once the session id exists.
+        self._pending_attachment_sources = list(attachments)
+        self.add_message("user", prompt, sent_at=datetime.now(tz=UTC))
         self._docked_composer.clear_input()
-        self.message_submitted.emit(text)
+        self._docked_composer.clear_attachments()
+        self.message_submitted.emit(prompt)
+
+    def take_pending_attachment_sources(self) -> list[str]:
+        """Return and clear the source paths of the just-sent attachments."""
+        sources = list(self._pending_attachment_sources)
+        self._pending_attachment_sources.clear()
+        return sources
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         """Coalesce transcript reflow during continuous pane resize."""

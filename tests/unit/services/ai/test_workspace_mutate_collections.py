@@ -280,3 +280,88 @@ class TestWorkspaceMutateCollections:
         assert len(rows) == 2
         assert rows[0]["expected"] == "201"
         assert rows[1]["subject"] == "body"
+
+    def test_collection_update_name_renames(self) -> None:
+        """Collection update with fields.name routes through rename_collection."""
+        col = CollectionService.create_collection("Hotel Booking API")
+        cid = int(col.id)
+        obs = _apply_mutation(
+            WorkspaceMutateAction(
+                action="update",
+                entity="collection",
+                target_id=cid,
+                fields={"name": "Hotel Booking API 2"},
+                open_after=False,
+            )
+        )
+        assert _obs_ok(obs)
+        assert "Hotel Booking API 2" in str(obs.text)
+        updated = CollectionService.get_collection(cid)
+        assert updated is not None
+        assert updated.name == "Hotel Booking API 2"
+
+    def test_collection_update_name_and_description(self) -> None:
+        """Update may rename and patch description in one mutate call."""
+        col = CollectionService.create_collection("Combo")
+        cid = int(col.id)
+        obs = _apply_mutation(
+            WorkspaceMutateAction(
+                action="update",
+                entity="collection",
+                target_id=cid,
+                fields={"name": "Combo 2", "description": "renamed folder"},
+                open_after=False,
+            )
+        )
+        assert _obs_ok(obs)
+        assert "Combo 2" in str(obs.text)
+        updated = CollectionService.get_collection(cid)
+        assert updated is not None
+        assert updated.name == "Combo 2"
+        assert updated.description == "renamed folder"
+
+    def test_collection_update_name_and_auth_mentions_rename(self) -> None:
+        """Name plus auth uses rename then auth update; summary mentions rename."""
+        col = CollectionService.create_collection("AuthRename")
+        cid = int(col.id)
+        obs = _apply_mutation(
+            WorkspaceMutateAction(
+                action="update",
+                entity="collection",
+                target_id=cid,
+                fields={
+                    "name": "AuthRename 2",
+                    "auth": {"type": "bearer", "token": "{{api_token}}"},
+                },
+                open_after=False,
+            )
+        )
+        assert _obs_ok(obs)
+        text = str(obs.text)
+        assert "AuthRename 2" in text
+        updated = CollectionService.get_collection(cid)
+        assert updated is not None
+        assert updated.name == "AuthRename 2"
+
+    def test_collection_update_name_and_variables_mentions_rename(self) -> None:
+        """Name plus variables uses rename then variables update; summary mentions rename."""
+        col = CollectionService.create_collection("VarRename")
+        cid = int(col.id)
+        obs = _apply_mutation(
+            WorkspaceMutateAction(
+                action="update",
+                entity="collection",
+                target_id=cid,
+                fields={
+                    "name": "VarRename 2",
+                    "variables": [{"key": "base", "value": "https://example.com"}],
+                },
+                open_after=False,
+            )
+        )
+        assert _obs_ok(obs)
+        text = str(obs.text)
+        assert "VarRename 2" in text
+        updated = CollectionService.get_collection(cid)
+        assert updated is not None
+        assert updated.name == "VarRename 2"

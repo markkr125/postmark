@@ -74,7 +74,7 @@ def filter_collection_fields(
         if action in {"create", "rename"}:
             allowed = frozenset({"name"})
         elif action == "update":
-            allowed_set = set(_COLLECTION_UPDATE_FIELDS)
+            allowed_set = set(_COLLECTION_UPDATE_FIELDS) | {"name"}
             if allow_scripts:
                 allowed_set |= _COLLECTION_EVENTS_FIELD
             allowed = frozenset(allowed_set)
@@ -200,24 +200,67 @@ def apply_collection_mutation(
             elif verb == "update":
                 if target_id is None:
                     return mutate_obs("ok: false\nerror: target_id_required\n")
-                field_keys = set(fields.keys())
+                update_fields = dict(fields)
+                renamed_to: str | None = None
+                if "name" in update_fields:
+                    name = str(update_fields.pop("name") or "").strip()
+                    if not name:
+                        return mutate_obs("ok: false\nerror: name_required\n")
+                    CollectionService.rename_collection(target_id, name)
+                    renamed_to = name
+                if not update_fields:
+                    ids["collection_id"] = int(target_id)
+                    summary = f"Renamed collection to {renamed_to!r}"
+                    open_target = {"kind": "collection", "id": int(target_id)}
+                    return _finish(
+                        mutation_id=mutation_id,
+                        verb=verb,
+                        entity=entity,
+                        ids=ids,
+                        summary=summary,
+                        warnings=warnings,
+                        open_after=open_after,
+                        open_target=open_target,
+                    )
+                field_keys = set(update_fields.keys())
                 if field_keys == {"auth"}:
-                    return apply_auth_update(
+                    auth_obs = apply_auth_update(
                         entity="collection",
                         target_id=target_id,
-                        auth=fields["auth"],
+                        auth=update_fields["auth"],
                         open_after=open_after,
                     )
+                    if renamed_to is not None:
+                        auth_text = str(getattr(auth_obs, "text", auth_obs))
+                        if "ok: true" in auth_text:
+                            return mutate_obs(
+                                auth_text.replace(
+                                    "summary:",
+                                    f"summary: Renamed collection to {renamed_to!r};",
+                                    1,
+                                )
+                            )
+                    return auth_obs
                 if field_keys == {"variables"}:
-                    variables = fields.get("variables")
+                    variables = update_fields.get("variables")
                     if not isinstance(variables, list):
                         return mutate_obs("ok: false\nerror: variables_list_required\n")
-                    return apply_collection_variables(
+                    vars_obs = apply_collection_variables(
                         target_id=target_id,
                         variables=variables,
                         open_after=open_after,
                     )
-                update_fields = dict(fields)
+                    if renamed_to is not None:
+                        vars_text = str(getattr(vars_obs, "text", vars_obs))
+                        if "ok: true" in vars_text:
+                            return mutate_obs(
+                                vars_text.replace(
+                                    "summary:",
+                                    f"summary: Renamed collection to {renamed_to!r};",
+                                    1,
+                                )
+                            )
+                    return vars_obs
                 if "auth" in update_fields:
                     cleaned_auth, err = sanitize_auth_payload(update_fields["auth"])
                     if err or cleaned_auth is None:
@@ -236,7 +279,12 @@ def apply_collection_mutation(
                         warnings.append("secret_keys_placeholder_only")
                 CollectionService.update_collection(target_id, **update_fields)
                 ids["collection_id"] = int(target_id)
-                summary = f"Updated collection {target_id}"
+                if renamed_to is not None:
+                    summary = (
+                        f"Renamed collection to {renamed_to!r}; updated collection {target_id}"
+                    )
+                else:
+                    summary = f"Updated collection {target_id}"
                 focus = None
                 events_payload = update_fields.get("events")
                 if isinstance(events_payload, dict):

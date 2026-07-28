@@ -7,16 +7,20 @@ from openhands.sdk.security import ConfirmRisky, NeverConfirm, SecurityRisk
 from openhands.sdk.security.analyzer import SecurityAnalyzerBase
 
 from services.ai.chat.mutation.auto_approve import (
+    draft_operation_is_write,
     is_auto_approved,
     is_mutate_or_execute_tool,
     kind_from_action_event,
 )
+
+_DRAFT_TOOL = "postmark_collection_draft"
 
 _READ_ONLY_HINT_TOOLS = frozenset(
     {
         "postmark_wiki_query",
         "postmark_workspace_query",
         "postmark_datetime",
+        "postmark_document_import",
         "delegate",
         "task",
         "task_tracker",
@@ -36,6 +40,10 @@ class PostmarkWorkspaceSecurityAnalyzer(SecurityAnalyzerBase):
         tool_name = str(action.tool_name or "")
         if tool_name in _READ_ONLY_HINT_TOOLS:
             return SecurityRisk.LOW
+        if tool_name == _DRAFT_TOOL:
+            operation = getattr(getattr(action, "action", None), "operation", None)
+            if not draft_operation_is_write(operation):
+                return SecurityRisk.LOW
         if is_mutate_or_execute_tool(tool_name):
             kind = kind_from_action_event(action)
             if is_auto_approved(kind):

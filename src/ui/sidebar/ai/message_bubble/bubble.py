@@ -83,13 +83,22 @@ class ChatMessageBubble(QWidget):
 
         self._thought_section: ThoughtSection | None = None
         self._post_subagent_thought_section: ThoughtSection | None = None
+        self._thought_sections: list[ThoughtSection] = []
+        self._active_thought_section_ref: ThoughtSection | None = None
         self._tool_activity_group: ToolActivityGroup | None = None
+        self._tool_activity_groups: list[ToolActivityGroup] = []
+        self._tool_activity_group_by_record: dict[str, ToolActivityGroup] = {}
         self._tool_activity_records: dict[str, ToolActivityRecord] = {}
+        self._tool_activity_group_boundary: dict[int, int] = {}
         self._subagent_group: SubagentTaskGroup | None = None
+        self._subagent_groups: list[SubagentTaskGroup] = []
+        self._subagent_group_by_record: dict[str, SubagentTaskGroup] = {}
         self._subagent_records: dict[str, SubagentRunRecord] = {}
         self._subagent_session_id: str | None = None
         self._subagents_all_complete = False
         self._execute_group: ExecuteResultGroup | None = None
+        self._execute_groups: list[ExecuteResultGroup] = []
+        self._execute_group_by_record: dict[str, ExecuteResultGroup] = {}
         self._execute_records: dict[str, ExecuteRunRecord] = {}
         self._pending_group: PendingToolGroup | None = None
         self._activity_row: AssistantActivityRow | None = None
@@ -149,20 +158,13 @@ class ChatMessageBubble(QWidget):
             if thinking.strip():
                 self._thought_section.set_collapsed(True)
             outer.addWidget(self._thought_section)
-
-            self._tool_activity_group = ToolActivityGroup(self)
-            outer.addWidget(self._tool_activity_group)
-
-            self._subagent_group = SubagentTaskGroup(self)
-            outer.addWidget(self._subagent_group)
+            self._thought_sections.append(self._thought_section)
+            self._active_thought_section_ref = self._thought_section
 
             self._pending_group = PendingToolGroup(self)
             self._pending_group.approve_requested.connect(self.confirmation_approve_requested.emit)
             self._pending_group.reject_requested.connect(self.confirmation_reject_requested.emit)
             outer.addWidget(self._pending_group)
-
-            self._execute_group = ExecuteResultGroup(self)
-            outer.addWidget(self._execute_group)
 
             self._markdown_body = MarkdownContent("")
             if lazy_markdown and text.strip():
@@ -203,34 +205,54 @@ class ChatMessageBubble(QWidget):
                 section.finalize_thinking(collapse=True)
 
     def _all_thought_sections(self) -> list[ThoughtSection]:
-        """Return primary and post-subagent thought blocks in display order."""
-        sections: list[ThoughtSection] = []
-        if self._thought_section is not None:
-            sections.append(self._thought_section)
-        if self._post_subagent_thought_section is not None:
-            sections.append(self._post_subagent_thought_section)
-        return sections
+        """Return every chronological thought block in display order."""
+        return list(self._thought_sections)
 
     def _active_thought_section(self) -> ThoughtSection | None:
         """Return the thought block that should receive the next thinking delta."""
         if self._role != "assistant":
             return None
-        if self._subagents_all_complete:
-            return self._ensure_post_subagent_thought_section()
-        return self._thought_section
+        if self._active_thought_section_ref is not None:
+            return self._active_thought_section_ref
+        return self._append_thought_section()
+
+    def _append_thought_section(self) -> ThoughtSection:
+        """Append a fresh thought phase at the end of the activity timeline."""
+        section = ThoughtSection(self)
+        section.layout_height_changed.connect(self._on_thought_layout_changed)
+        if self._assistant_outer is not None and self._markdown_body is not None:
+            self._assistant_outer.insertWidget(
+                self._assistant_outer.indexOf(self._markdown_body),
+                section,
+            )
+        self._thought_sections.append(section)
+        self._active_thought_section_ref = section
+        if len(self._thought_sections) == 2:
+            self._post_subagent_thought_section = section
+        return section
+
+    def _close_active_thought(self) -> None:
+        """Freeze the current thought before an interrupt card is displayed."""
+        section = self._active_thought_section_ref
+        if section is not None and section.has_text():
+            section.finalize_thinking(collapse=True)
+        self._active_thought_section_ref = None
+
+    def _move_before_answer(self, widget: QWidget) -> None:
+        """Move *widget* to the chronological end of the activity timeline."""
+        if self._assistant_outer is None or self._markdown_body is None:
+            return
+        self._assistant_outer.removeWidget(widget)
+        self._assistant_outer.insertWidget(
+            self._assistant_outer.indexOf(self._markdown_body),
+            widget,
+        )
 
     def _ensure_post_subagent_thought_section(self) -> ThoughtSection:
         """Insert a second thought block below subagent cards for synthesis."""
         if self._post_subagent_thought_section is not None:
             return self._post_subagent_thought_section
-        section = ThoughtSection(self)
-        section.layout_height_changed.connect(self._on_thought_layout_changed)
-        if self._assistant_outer is None or self._markdown_body is None:
-            return section
-        insert_at = self._assistant_outer.indexOf(self._markdown_body)
-        self._assistant_outer.insertWidget(insert_at, section)
-        self._post_subagent_thought_section = section
-        return section
+        return self._append_thought_section()
 
     def _remove_post_subagent_thought_section(self) -> None:
         """Drop the post-subagent thought block when the turn resets."""
@@ -240,6 +262,10 @@ class ChatMessageBubble(QWidget):
         if self._assistant_outer is not None:
             self._assistant_outer.removeWidget(section)
         section.deleteLater()
+        if section in self._thought_sections:
+            self._thought_sections.remove(section)
+        if self._active_thought_section_ref is section:
+            self._active_thought_section_ref = self._thought_section
         self._post_subagent_thought_section = None
 
     @property
@@ -434,16 +460,10 @@ class ChatMessageBubble(QWidget):
         return "\n\n".join(parts)
 
     def thinking_text_for_persist(self) -> str:
-        """Return thinking text with post-subagent phase marker for SQLite storage."""
-        from services.ai.chat.thinking_sections import pack_thinking_phases
+        """Return all chronological thought phases packed for SQLite storage."""
+        from services.ai.chat.thinking_sections import pack_thinking_sections
 
-        primary = (self._thought_section.text() if self._thought_section else "").strip()
-        post = (
-            self._post_subagent_thought_section.text()
-            if self._post_subagent_thought_section
-            else ""
-        ).strip()
-        return pack_thinking_phases(primary, post)
+        return pack_thinking_sections([section.text() for section in self._thought_sections])
 
     def restore_post_subagent_thinking(
         self,
@@ -463,12 +483,48 @@ class ChatMessageBubble(QWidget):
         self.updateGeometry()
         self._commit_stream_row_layout()
 
+    def restore_additional_thinking_sections(
+        self,
+        sections: list[str],
+        *,
+        duration_seconds: int | None = None,
+    ) -> None:
+        """Restore chronological thought blocks after the primary phase."""
+        interrupt_widgets: list[QWidget] = []
+        if self._assistant_outer is not None:
+            for item_index in range(self._assistant_outer.count()):
+                item = self._assistant_outer.itemAt(item_index)
+                widget = item.widget() if item is not None else None
+                if isinstance(
+                    widget,
+                    ToolActivityGroup | SubagentTaskGroup | ExecuteResultGroup,
+                ):
+                    interrupt_widgets.append(widget)
+        for index, text in enumerate(sections):
+            if not text.strip():
+                continue
+            section = self._append_thought_section()
+            if self._assistant_outer is not None and index < len(interrupt_widgets):
+                self._assistant_outer.removeWidget(section)
+                self._assistant_outer.insertWidget(
+                    self._assistant_outer.indexOf(interrupt_widgets[index]) + 1,
+                    section,
+                )
+            section.set_text(text)
+            if duration_seconds is not None and index == len(sections) - 1:
+                section.set_duration_seconds(duration_seconds)
+            section.finalize_thinking(collapse=True)
+        self._active_thought_section_ref = None
+        self._subagents_all_complete = bool(sections)
+        self.updateGeometry()
+        self._commit_stream_row_layout()
+
     def thinking_durations_for_persist(self) -> tuple[int | None, int | None]:
-        """Return frozen primary and post-subagent thinking durations."""
+        """Return frozen primary and final follow-up thinking durations."""
         primary = self._thought_section.duration_seconds() if self._thought_section else None
         post = (
-            self._post_subagent_thought_section.duration_seconds()
-            if self._post_subagent_thought_section
+            self._thought_sections[-1].duration_seconds()
+            if len(self._thought_sections) > 1
             else None
         )
         return primary, post
@@ -673,23 +729,56 @@ class ChatMessageBubble(QWidget):
     def clear_subagent_cards(self) -> None:
         """Remove all subagent delegation cards."""
         self._subagent_records.clear()
+        self._subagent_group_by_record.clear()
         self._subagents_all_complete = False
         self._remove_post_subagent_thought_section()
-        if self._subagent_group is not None:
-            self._subagent_group.clear_cards()
-            self.updateGeometry()
-            self._commit_stream_row_layout()
+        for group in self._subagent_groups:
+            if self._assistant_outer is not None:
+                self._assistant_outer.removeWidget(group)
+            group.deleteLater()
+        self._subagent_groups.clear()
+        self._subagent_group = None
+        self.updateGeometry()
+        self._commit_stream_row_layout()
+
+    def clear_tool_activity_cards(self) -> None:
+        """Remove all main-agent tool activity cards and reset thinking phase."""
+        self._tool_activity_records.clear()
+        self._tool_activity_group_by_record.clear()
+        self._subagents_all_complete = False
+        for group in self._tool_activity_groups:
+            if self._assistant_outer is not None:
+                self._assistant_outer.removeWidget(group)
+            group.deleteLater()
+        self._tool_activity_groups.clear()
+        self._tool_activity_group = None
+        for section in self._thought_sections[1:]:
+            if self._assistant_outer is not None:
+                self._assistant_outer.removeWidget(section)
+            section.deleteLater()
+        del self._thought_sections[1:]
+        self._post_subagent_thought_section = None
+        self._active_thought_section_ref = self._thought_section
+        self.updateGeometry()
+        self._commit_stream_row_layout()
 
     def clear_execute_cards(self) -> None:
         """Remove all agent-execute result cards."""
         self._execute_records.clear()
-        if self._execute_group is not None:
-            self._execute_group.clear_cards()
+        self._execute_group_by_record.clear()
+        for group in self._execute_groups:
+            if self._assistant_outer is not None:
+                self._assistant_outer.removeWidget(group)
+            group.deleteLater()
+        self._execute_groups.clear()
+        self._execute_group = None
 
     def show_pending_confirmation(self, payload: object) -> None:
         """Show inline pending-tool Approve cards for *payload*."""
         if self._pending_group is None:
             return
+        self._close_active_thought()
+        self._move_before_answer(self._pending_group)
         self._pending_group.show_pending(payload)
         self.refresh_pending_activity()
         self.updateGeometry()
@@ -704,6 +793,7 @@ class ChatMessageBubble(QWidget):
             self._pending_group.clear_pending()
             return
         self._pending_group.clear_pending()
+        self.refresh_subagent_activity()
         self.updateGeometry()
         self._commit_stream_row_layout()
         self.layout_height_changed.emit()
@@ -721,8 +811,6 @@ class ChatMessageBubble(QWidget):
 
     def upsert_execute_record(self, record: ExecuteRunRecord) -> None:
         """Create or update one agent-execute result card."""
-        if self._execute_group is None:
-            return
         self._execute_records[record["id"]] = record
         execute_id = str(record.get("id") or "")
         if execute_id and execute_id in self._tool_activity_records:
@@ -730,27 +818,39 @@ class ChatMessageBubble(QWidget):
                 row for row in self._tool_activity_records.values() if row["id"] != execute_id
             ]
             self.set_tool_activity_records(remaining)
-        card = self._execute_group.upsert_record(record)
+        group = self._execute_group_by_record.get(record["id"])
+        if group is None:
+            self._close_active_thought()
+            group = ExecuteResultGroup(self)
+            self._execute_groups.append(group)
+            self._execute_group_by_record[record["id"]] = group
+            if self._execute_group is None:
+                self._execute_group = group
+            self._move_before_answer(group)
+        card = group.upsert_record(record)
         if not card.property("_execute_click_wired"):
             card.clicked.connect(self._on_execute_card_clicked)
             card.setProperty("_execute_click_wired", True)
+        self.refresh_subagent_activity()
         self.updateGeometry()
         self._commit_stream_row_layout()
         self.layout_height_changed.emit()
 
     def set_execute_records(self, records: list[ExecuteRunRecord]) -> None:
         """Replace execute cards (transcript reload or live sync)."""
-        if self._execute_group is None:
-            return
-        self._execute_records = {r["id"]: r for r in records}
-        cards = self._execute_group.sync_records(records)
-        for card in cards:
-            if not card.property("_execute_click_wired"):
-                card.clicked.connect(self._on_execute_card_clicked)
-                card.setProperty("_execute_click_wired", True)
-        self.updateGeometry()
-        self._commit_stream_row_layout()
-        self.layout_height_changed.emit()
+        incoming = {record["id"]: record for record in records}
+        for record_id in list(self._execute_records):
+            if record_id in incoming:
+                continue
+            group = self._execute_group_by_record.pop(record_id, None)
+            if group is not None:
+                self._execute_groups.remove(group)
+                if self._assistant_outer is not None:
+                    self._assistant_outer.removeWidget(group)
+                group.deleteLater()
+            self._execute_records.pop(record_id, None)
+        for record in records:
+            self.upsert_execute_record(record)
 
     def execute_record(self, record_id: str) -> ExecuteRunRecord | None:
         """Return one stored execute record by id."""
@@ -766,10 +866,17 @@ class ChatMessageBubble(QWidget):
 
     def upsert_subagent_record(self, record: SubagentRunRecord) -> None:
         """Create or update one subagent card."""
-        if self._subagent_group is None:
-            return
         self._subagent_records[record["id"]] = record
-        card = self._subagent_group.upsert_record(record)
+        group = self._subagent_group_by_record.get(record["id"])
+        if group is None:
+            self._close_active_thought()
+            group = SubagentTaskGroup(self)
+            self._subagent_groups.append(group)
+            self._subagent_group_by_record[record["id"]] = group
+            if self._subagent_group is None:
+                self._subagent_group = group
+            self._move_before_answer(group)
+        card = group.upsert_record(record)
         if not card.property("_subagent_click_wired"):
             card.clicked.connect(self._on_subagent_card_clicked)
             card.setProperty("_subagent_click_wired", True)
@@ -780,12 +887,32 @@ class ChatMessageBubble(QWidget):
 
     def set_subagent_records(self, records: list[SubagentRunRecord]) -> None:
         """Replace subagent cards (transcript reload)."""
-        if self._subagent_group is None:
-            return
         enriched = enrich_subagent_records(records, session_id=self._subagent_session_id)
-        self._subagent_records = {r["id"]: r for r in enriched}
-        cards = self._subagent_group.sync_records(enriched)
-        for card in cards:
+        incoming_ids = {record["id"] for record in enriched}
+        for record_id in list(self._subagent_records):
+            if record_id in incoming_ids:
+                continue
+            group = self._subagent_group_by_record.pop(record_id, None)
+            if group is not None:
+                self._subagent_groups.remove(group)
+                if self._assistant_outer is not None:
+                    self._assistant_outer.removeWidget(group)
+                group.deleteLater()
+            self._subagent_records.pop(record_id, None)
+        new_records = [record for record in enriched if record["id"] not in self._subagent_records]
+        if new_records:
+            self._close_active_thought()
+            group = SubagentTaskGroup(self)
+            self._subagent_groups.append(group)
+            if self._subagent_group is None:
+                self._subagent_group = group
+            self._move_before_answer(group)
+            for record in new_records:
+                self._subagent_group_by_record[record["id"]] = group
+        self._subagent_records = {record["id"]: record for record in enriched}
+        for record in enriched:
+            group = self._subagent_group_by_record[record["id"]]
+            card = group.upsert_record(record)
             if not card.property("_subagent_click_wired"):
                 card.clicked.connect(self._on_subagent_card_clicked)
                 card.setProperty("_subagent_click_wired", True)
@@ -800,70 +927,119 @@ class ChatMessageBubble(QWidget):
 
     def refresh_subagent_steps(self) -> None:
         """Reload activity steps from disk for active subagent cards."""
-        if self._subagent_group is None or not self._subagent_records:
+        if not self._subagent_records:
             return
         enriched = enrich_subagent_records(
             self.subagent_records(), session_id=self._subagent_session_id
         )
         self._subagent_records = {r["id"]: r for r in enriched}
         for record in enriched:
-            self._subagent_group.upsert_record(record)
+            group = self._subagent_group_by_record.get(record["id"])
+            if group is not None:
+                group.upsert_record(record)
         self.updateGeometry()
         self._commit_stream_row_layout()
         self.layout_height_changed.emit()
 
     def refresh_subagent_activity(self) -> None:
-        """Hide generic activity row while subagent or tool cards are the loader."""
+        """Show the loader at the active chronological phase boundary."""
         if self.has_pending_confirmation():
             self.hide_activity()
             return
-        if self._subagent_group is None:
-            return
-        if (
-            self._subagent_records
-            and self._thought_section is not None
-            and self._thought_section.has_text()
-            and self._thought_section.duration_seconds() is None
-        ):
-            self._thought_section.finalize_thinking(collapse=True)
+        has_interrupt_cards = (
+            bool(self._subagent_records)
+            or bool(self._tool_activity_records)
+            or bool(self._execute_records)
+        )
+        if has_interrupt_cards:
+            self._close_active_thought()
         if self.loader_active_count() > 0:
             self.hide_activity()
             return
-        if self._subagent_records:
+        if has_interrupt_cards:
             self._subagents_all_complete = True
-        if self.is_activity_visible() and "subagent" in self.activity_message().lower():
             if self._answer_started:
                 self.hide_activity()
-            else:
-                self.show_activity("Working…")
+            elif self._activity_row is not None:
+                self._move_before_answer(self._activity_row)
+                self.show_activity("Thinking…")
 
-    def set_tool_activity_records(self, records: list[ToolActivityRecord]) -> None:
+    def _target_tool_activity_group(self, *, force_new: bool) -> ToolActivityGroup:
+        """Return the group a new tool call should join, creating one at a cycle boundary.
+
+        A contiguous run of tool calls batches into one group; a new thought phase
+        appended after the last group was created starts a fresh group so each
+        thought/tool cycle stays in strict chronological order. ``force_new`` is used
+        by transcript reload, which interleaves each record between restored thoughts.
+        """
+        thought_count = len(self._thought_sections)
+        if self._tool_activity_groups and not force_new:
+            last = self._tool_activity_groups[-1]
+            if self._tool_activity_group_boundary.get(id(last), -1) == thought_count:
+                return last
+        group = ToolActivityGroup(self)
+        self._tool_activity_groups.append(group)
+        if self._tool_activity_group is None:
+            self._tool_activity_group = group
+        self._tool_activity_group_boundary[id(group)] = thought_count
+        self._move_before_answer(group)
+        return group
+
+    def set_tool_activity_records(
+        self, records: list[ToolActivityRecord], *, force_new_group: bool = False
+    ) -> None:
         """Replace tool activity cards (transcript reload or live sync)."""
-        if self._tool_activity_group is None:
-            return
-        self._tool_activity_records = {r["id"]: r for r in records}
-        self._tool_activity_group.sync_records(records)
+        incoming = {record["id"]: record for record in records}
+        new_ids = [
+            record_id for record_id in incoming if record_id not in self._tool_activity_records
+        ]
+        for record_id in new_ids:
+            self._close_active_thought()
+            group = self._target_tool_activity_group(force_new=force_new_group)
+            self._tool_activity_group_by_record[record_id] = group
+
+        removed_ids = set(self._tool_activity_records) - set(incoming)
+        for record_id in removed_ids:
+            self._tool_activity_group_by_record.pop(record_id, None)
+        self._tool_activity_records = incoming
+
+        for group in list(self._tool_activity_groups):
+            group_records = [
+                record
+                for record_id, record in incoming.items()
+                if self._tool_activity_group_by_record.get(record_id) is group
+            ]
+            group.sync_records(group_records)
+            if group_records:
+                continue
+            self._tool_activity_groups.remove(group)
+            if self._assistant_outer is not None:
+                self._assistant_outer.removeWidget(group)
+            group.deleteLater()
+        self._tool_activity_group = (
+            self._tool_activity_groups[0] if self._tool_activity_groups else None
+        )
         self.refresh_subagent_activity()
         self.updateGeometry()
         self._commit_stream_row_layout()
         self.layout_height_changed.emit()
 
-    def upsert_tool_activity_record(self, record: ToolActivityRecord) -> None:
-        """Create or update one tool activity card."""
-        if self._tool_activity_group is None:
-            return
-        self._tool_activity_records[record["id"]] = record
-        self._tool_activity_group.upsert_record(record)
-        self.refresh_subagent_activity()
-        self.updateGeometry()
-        self._commit_stream_row_layout()
-        self.layout_height_changed.emit()
+    def upsert_tool_activity_record(
+        self, record: ToolActivityRecord, *, separate_group: bool = False
+    ) -> None:
+        """Create or update one tool activity card.
+
+        ``separate_group`` is used by transcript reload, which places each restored
+        record between its restored thought sections and so needs a group per record.
+        Live streaming passes the full contiguous run through ``set_tool_activity_records``.
+        """
+        records = dict(self._tool_activity_records)
+        records[record["id"]] = record
+        self.set_tool_activity_records(list(records.values()), force_new_group=separate_group)
 
     def tool_activity_active_count(self) -> int:
         """Return running main-agent tool activity cards."""
-        if self._tool_activity_group is None:
-            return 0
-        return self._tool_activity_group.active_count()
+        return sum(group.active_count() for group in self._tool_activity_groups)
 
     def loader_active_count(self) -> int:
         """Return warming/running subagent cards plus running tool activity cards."""
@@ -875,9 +1051,7 @@ class ChatMessageBubble(QWidget):
 
     def subagent_active_count(self) -> int:
         """Return warming or running subagent cards."""
-        if self._subagent_group is None:
-            return 0
-        return self._subagent_group.active_count()
+        return sum(group.active_count() for group in self._subagent_groups)
 
     def _on_subagent_card_clicked(self, record_id: str) -> None:
         self.subagent_card_clicked.emit(record_id)
@@ -1251,36 +1425,23 @@ class ChatMessageBubble(QWidget):
 
     def set_parts(self, *, thinking: str, content: str, collapse_thinking: bool = True) -> None:
         """Replace thinking and answer text."""
-        from services.ai.chat.thinking_sections import unpack_thinking_phases
+        from services.ai.chat.thinking_sections import unpack_thinking_sections
 
-        primary = thinking
-        post = ""
-        if (
-            self._post_subagent_thought_section is not None
-            and self._post_subagent_thought_section.has_text()
-        ):
-            primary = self._thought_section.text() if self._thought_section else thinking
-            post = self._post_subagent_thought_section.text()
-        else:
-            primary, post = unpack_thinking_phases(thinking)
-        if self._thought_section is not None:
-            self._thought_section.set_text(primary)
-            if primary.strip():
-                self._thought_section.finalize_thinking(collapse=collapse_thinking)
+        incoming_sections = unpack_thinking_sections(thinking)
+        existing_sections = [section for section in self._thought_sections if section.has_text()]
+        if len(existing_sections) <= 1:
+            while len(self._thought_sections) < len(incoming_sections):
+                self._append_thought_section()
+            for index, section in enumerate(self._thought_sections):
+                text = incoming_sections[index] if index < len(incoming_sections) else ""
+                section.set_text(text)
+        for section in self._thought_sections:
+            if section.has_text():
+                section.finalize_thinking(collapse=collapse_thinking)
             else:
-                self._thought_section.setVisible(False)
-        if post.strip():
-            post_duration = (
-                self._post_subagent_thought_section.duration_seconds()
-                if self._post_subagent_thought_section is not None
-                else None
-            )
-            section = self._ensure_post_subagent_thought_section()
-            section.set_text(post)
-            if post_duration is not None and post_duration > 0:
-                section.set_duration_seconds(post_duration)
-            section.finalize_thinking(collapse=collapse_thinking)
-            self._subagents_all_complete = True
+                section.setVisible(False)
+        self._active_thought_section_ref = None
+        self._subagents_all_complete = len(self._thought_sections) > 1
         if self._markdown_body is not None:
             self._markdown_body.set_markdown(content)
         elif self._user_section is not None:

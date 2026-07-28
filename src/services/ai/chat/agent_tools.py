@@ -7,7 +7,8 @@ from services.ai.chat.agent_registry import get_agent_def
 MUTATE_TOOL = "postmark_workspace_mutate"
 EXECUTE_TOOL = "postmark_workspace_execute"
 IMPORT_TOOL = "postmark_import"
-_WRITE_TOOLS = frozenset({MUTATE_TOOL, EXECUTE_TOOL, IMPORT_TOOL})
+COLLECTION_DRAFT_TOOL = "postmark_collection_draft"
+_WRITE_TOOLS = frozenset({MUTATE_TOOL, EXECUTE_TOOL, IMPORT_TOOL, COLLECTION_DRAFT_TOOL})
 
 MUTATING_MAX_ITERATIONS = 15
 

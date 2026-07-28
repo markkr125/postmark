@@ -9,6 +9,7 @@ from PySide6.QtCore import QObject, Qt, QThread, Slot
 
 from services.ai.ai_config import AiConfig
 from services.ai.chat.agent_registry import DEFAULT_AGENT_ID
+from services.ai.chat.attachments.store import store_attachments
 from services.ai.chat.budget_status import connection_budget_status
 from services.ai.chat.run_registry import AiChatRunContext
 from services.ai.chat.session_service import (
@@ -313,6 +314,9 @@ class _AiChatControllerMixin(_AiChatRunsMixin, _AiChatTurnFinalizeMixin, _AiChat
     def _on_ai_message_submitted(self, text: str) -> None:
         """Handle a user message: persist, stream assistant reply."""
         panel = self._right_sidebar.ai_chat_panel
+        # Taken before any early return, so a refused send cannot leave attachments
+        # staged for the next turn, whose prompt would not reference them.
+        attachment_sources = panel.take_pending_attachment_sources()
         entry = panel.current_model_entry()
         if entry is None:
             return
@@ -344,6 +348,10 @@ class _AiChatControllerMixin(_AiChatRunsMixin, _AiChatTurnFinalizeMixin, _AiChat
 
         if self._chat_run_registry.is_running(session_id):
             return
+
+        # Copy and convert attachments before the run: the prompt already names them
+        # by URI, and the session id needed to place the copies exists only now.
+        store_attachments(session_id, attachment_sources)
 
         user_row = AiChatSessionService.record_user_message(
             session_id,

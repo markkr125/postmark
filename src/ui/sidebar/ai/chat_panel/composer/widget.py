@@ -364,6 +364,20 @@ class AiChatComposer(QWidget):
         """Return attached file paths."""
         return list(self._attachments)
 
+    def clear_attachments(self) -> None:
+        """Drop every attachment chip, typically after a send."""
+        if not self._attachments:
+            return
+        self._attachments.clear()
+        while self._attachments_layout.count() > 1:
+            item = self._attachments_layout.takeAt(0)
+            widget = item.widget() if item is not None else None
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+        self._attachments_row.hide()
+        self.attachments_changed.emit(self.attachments())
+
     def model_button_label(self) -> str:
         """Plain-text model button label for tests."""
         parts = self._model_button_parts()
@@ -386,7 +400,7 @@ class AiChatComposer(QWidget):
             return
         if not self._send_btn.isEnabled():
             return
-        if not self.plain_text():
+        if not self.plain_text() and not self._attachments:
             return
         self.submit_requested.emit()
 

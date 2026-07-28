@@ -314,6 +314,7 @@ def test_build_conversation_passes_sdk_contract(
         "postmark_wiki_query",
         "postmark_workspace_query",
         "postmark_datetime",
+        "postmark_document_import",
         "task_tool_set",
         "delegate",
     }

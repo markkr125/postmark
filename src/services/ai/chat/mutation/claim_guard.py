@@ -37,6 +37,56 @@ UNVERIFIED_WRITE_NOTE = (
     "created."
 )
 
+FABRICATED_LINK_NOTE = (
+    "⚠️ **Removed a collection link that was not created in this turn.** The assistant "
+    "referenced a collection that no tool produced here, so the link was stripped — it "
+    "may point at an unrelated collection from earlier in this chat."
+)
+
+# Markdown link whose target is a collection deep-link, capturing the label and id.
+_COLLECTION_LINK = re.compile(r"\[([^\]\n]*)\]\(postmark://collection/(\d+)[^)\n]*\)")
+_BARE_COLLECTION_URI = re.compile(r"postmark://collection/(\d+)")
+
+
+def collection_ids_in_observation(text: str) -> set[int]:
+    """Return collection ids that an observation reports as really created."""
+    if not observation_indicates_write(text or ""):
+        return set()
+    return {int(match) for match in _BARE_COLLECTION_URI.findall(text or "")}
+
+
+def strip_unbacked_collection_links(content: str, produced_ids: set[int]) -> tuple[str, bool]:
+    """Replace collection links the turn never created with their plain label.
+
+    A fabricated ``postmark://collection/<id>`` is indistinguishable from a real
+    one and can land on an unrelated collection, so the link is removed while the
+    surrounding sentence is left intact.
+
+    Returns:
+        The cleaned text and whether anything was stripped.
+    """
+    text = content or ""
+    stripped = False
+
+    def _replace_link(match: re.Match[str]) -> str:
+        nonlocal stripped
+        if int(match.group(2)) in produced_ids:
+            return match.group(0)
+        stripped = True
+        return match.group(1) or "the collection"
+
+    text = _COLLECTION_LINK.sub(_replace_link, text)
+
+    def _replace_bare(match: re.Match[str]) -> str:
+        nonlocal stripped
+        if int(match.group(1)) in produced_ids:
+            return match.group(0)
+        stripped = True
+        return "(link removed)"
+
+    text = _BARE_COLLECTION_URI.sub(_replace_bare, text)
+    return text, stripped
+
 
 def claims_workspace_write(content: str) -> bool:
     """Return True when *content* asserts a completed import or collection create."""
@@ -91,8 +141,11 @@ def unverified_write_note(content: str, *, write_observed: bool) -> str | None:
 
 
 __all__ = [
+    "FABRICATED_LINK_NOTE",
     "UNVERIFIED_WRITE_NOTE",
     "claims_workspace_write",
+    "collection_ids_in_observation",
     "observation_indicates_write",
+    "strip_unbacked_collection_links",
     "unverified_write_note",
 ]

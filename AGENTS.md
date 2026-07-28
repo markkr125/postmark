@@ -159,7 +159,7 @@ src/
 ├── main.py                        # Entry point — configure_before_qapplication + QApplication + init_db()
 ├── qt_app_init.py                 # Hi-DPI bootstrap (before first QApplication; tests + app)
 ├── database/                      # Engine, models, repository
-│   ├── data_paths.py              # project_root(), postmark_user_data_dir(), user_history_root()
+│   ├── data_paths.py              # project_root(), postmark_user_data_dir(), user_history_root(), session_attachments_dir()
 │   ├── database.py                # init_db(), get_session(), migration; reconcile_orphans on startup
 │   └── models/
 │       ├── base.py                # DeclarativeBase
@@ -212,6 +212,13 @@ src/
 │               └── ai_chat_message_model.py     # AiChatMessageModel (transcript index)
 ├── services/                      # Service layer (UI ↔ DB bridge)
 │   ├── collection_service.py      # CollectionService (static methods)
+│   ├── document_import/           # PDF/DOCX extraction for AI document uploads
+│   │   ├── models.py              # ExtractedDocument TypedDicts + warnings + DocumentImportError
+│   │   ├── pdf_extract.py         # pypdf text + embedded images
+│   │   ├── docx_extract.py        # python-docx body-order walk (table cells) + zip media reconcile
+│   │   ├── ocr.py                 # normalize_png + optional rapidocr (extra `ocr`) + ImageCollector
+│   │   ├── to_markdown.py         # ExtractedDocument -> Markdown (page markers, tables, [image N] markers)
+│   │   └── extract.py             # path policy + dispatch
 │   ├── ai/                        # AI / LLM provider configuration (OpenHands SDK)
 │   │   ├── provider_catalog.py    # Static provider/model catalog (display defaults)
 │   │   ├── reasoning_effort.py    # Reasoning-effort vocabulary + Ollama/LiteLLM helpers
@@ -260,8 +267,16 @@ src/
 │   │       │   │   ├── data_ops/      # environment/globals/snippet/saved_response + session (active env, history, version restore)
 │   │       │   │   └── tool.py        # Action/Observation/Executor + dispatch
 │   │       │   ├── workspace_import/  # postmark_import (OpenAPI/WSDL/Postman/cURL)
-│   │       │   │   ├── apply.py       # shared ImportService apply + bridge events
-│   │       │   │   └── tool.py        # Action url|path|text|curl + Executor
+│   │       │   │   ├── apply.py       # ImportService apply + optional root-name suffix + bridge events
+│   │       │   │   ├── turn_guard.py  # suppress duplicate source imports within one chat turn
+│   │       │   │   └── tool.py        # Action url|path|text|curl + optional collection_name_suffix
+│   │       │   ├── document_import/   # postmark_document_import (read one uploaded chunk)
+│   │       │   │   └── tool.py        # Action uri + chunk (+ path to upload on demand); chunk X of Y + next_step + vision ImageContent
+│   │       │   ├── collection_draft/  # postmark_collection_draft (one chunk-sized request batch per call)
+│   │       │   │   ├── state.py       # per-session CollectionDraft store
+│   │       │   │   ├── build.py       # draft -> ParsedCollection / ImportResult
+│   │       │   │   ├── ops.py         # start/add_requests/status/finish/discard
+│   │       │   │   └── tool.py        # Action/Observation/Executor; only finish writes
 │   │       │   ├── workspace_execute/ # postmark_workspace_execute (Agent send/run)
 │   │       │   │   ├── tool.py        # Action/Observation + thin executor
 │   │       │   │   └── dispatch.py    # operation dispatch → execution/* helpers
@@ -286,8 +301,14 @@ src/
 │   │       │   └── runner/        # run_agent_collection + run_agent_iterations (non-Qt)
 │   │       ├── agent_tools.py     # tools_for_turn / max_iterations_for_turn (Ask/Plan/Agent)
 │   │       ├── confirmation_payload.py # pending_actions_payload for Approve chrome
+│   │       ├── attachments/       # Composer files copied in, converted to Markdown, read in chunks
+│   │       │   ├── models.py      # StoredAttachment + postmark://uploaded/<name>.md vocabulary
+│   │       │   ├── chunks.py      # split_markdown / chunk_at — bounded ordered DocumentChunk slices
+│   │       │   ├── screenshots.py # vision flag; per-chunk images OR lazy cached OCR fallback
+│   │       │   └── store.py       # store/list/resolve/read_markdown; attachments.json; ai_attachments/<hex>/
+│   │       ├── provider_errors.py # summarize_provider_error — one-line transcript text for SDK/provider blobs
 │   │       ├── response_text.py   # Turn-scoped thinking/answer extraction from SDK messages + stream chunks
-│   │       ├── thinking_sections.py # Pack/unpack primary vs post-subagent thinking in one SQLite column
+│   │       ├── thinking_sections.py # Pack/unpack chronological thinking phases in one SQLite column
 │   │       ├── compaction.py      # CHAT_CONDENSER_MAX_* constants for LLMSummarizingCondenser
 │   │       ├── context_usage.py   # ContextUsageService + breakdown TypedDicts + SQLite fallback
 │   │       ├── context_usage_sdk.py # OpenHands SDK View token accounting + compaction diagnostics
@@ -431,6 +452,7 @@ src/
     │   │   │   │   ├── widget.py  # AiChatComposer — attachments, input, mode/model, send/stop
     │   │   │   │   ├── input.py   # ComposerInput — prompt editor (Escape → cancel in edit mode)
     │   │   │   │   ├── model_picker_button.py  # ModelPickerButton
+    │   │   │   │   ├── attachments.py  # compose_prompt_with_attachments — paths into prompt body
     │   │   │   │   └── budget_banner.py  # AiChatBudgetBanner (aiChatBudgetBanner)
     │   │   │   ├── context_ring_button.py  # ContextUsageRingButton (aiChatContextRing)
     │   │   │   ├── context_popup_mode_pill.py  # ContextPopupModePill (aiChatContextPopupMode)
@@ -720,7 +742,8 @@ tests/
 │   │       ├── test_streaming_table.py
 │   │       ├── test_markdown_content_height.py
 │   │       ├── test_markdown_content_links.py  # postmark:// deep-links vs https external
-│   │       └── test_bubble_stream_row_height.py
+│   │       ├── test_bubble_stream_row_height.py
+│   │       └── test_composer_attachments.py  # attachment paths appended to the prompt
 │   └── services/                  # Service layer tests
 │       ├── test_service.py
 │       ├── test_environment_service.py
@@ -783,6 +806,20 @@ tests/
 │       │   ├── test_mutation_bridge.py # enqueue/drain GUI bridge
 │       │   ├── test_mutation_auto_approve.py # whitelist CRUD + Phase 2 catalog
 │       │   ├── test_workspace_mutate_collections.py # mutate CRUD + assertion_set
+│       │   ├── test_document_import_tool.py # chunk paging, coverage, URI resolution, on-demand upload
+│       │   ├── test_chat_attachment_chunks.py # chunk size/order/coverage; fences never split
+│       │   ├── test_chat_attachment_screenshots.py # vision gate: images vs lazy cached OCR fallback
+│       │   ├── test_chat_attachment_store.py # copy-in, Markdown conversion, URIs, session-delete cleanup
+│       │   ├── test_provider_errors.py    # malformed tool call + unreachable provider summaries
+│       │   ├── test_collection_draft_tool.py # incremental draft ops, finish persistence, risk mapping
+│       │   ├── test_fabricated_link_guard.py # strip collection links no tool produced this turn
+│   ├── document_import/               # PDF/DOCX extraction service tests
+│   │   ├── fixtures/sample.pdf
+│   │   ├── test_extract_pdf.py
+│   │   ├── test_extract_docx.py
+│   │   ├── test_ocr.py
+│   │   ├── test_path_policy.py
+│   │   └── test_to_markdown.py
 │       │   ├── test_workspace_mutate_local.py # local scripts + secrets/auth/env/snippet mutate
 │       │   ├── test_workspace_mutate_session.py # active env, history delete, import, version restore, folder events
 │       │   ├── test_workspace_mutate_debug_metadata.py # breakpoints/watches merge mutate
@@ -811,6 +848,7 @@ tests/
     ├── main_window/
     │   └── test_ai_chat_controller.py  # AI chat controller + concurrent run registry paths
     │   └── test_ai_chat_deeplink.py  # postmark:// deep-link navigation + focus_section
+    │   └── test_ai_chat_attachments.py # attached document copied in and delivered to the model
     │   └── test_main_window_ai_session_restore.py  # Persist + reopen last chat session on startup
     │   └── test_ai_chat_registry_streaming.py # E2E incremental streaming via ChatRunRegistry
     │   └── test_ai_concurrent_runs.py  # E2E concurrent runs: New chat, session switch, docked send

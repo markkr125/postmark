@@ -26,7 +26,10 @@ _TOOL_ACTIVITY_NAMES = frozenset(
     {
         "postmark_workspace_query",
         "postmark_datetime",
+        "postmark_document_import",
+        "postmark_collection_draft",
         "postmark_import",
+        "postmark_workspace_import",
         "postmark_workspace_mutate",
         "postmark_workspace_execute",
     }
@@ -115,6 +118,12 @@ def _title_detail_for_action(tool_name: str, action_event: object) -> tuple[str,
         if not detail:
             detail = operation
         return title, detail
+    if tool_name == "postmark_document_import":
+        return "Read document", detail or "document"
+    if tool_name == "postmark_collection_draft":
+        operation = str(getattr(action, "operation", "") or "").strip()
+        title = "Create collection" if operation == "finish" else "Build collection"
+        return title, detail or operation
     kind = kind_from_action_event(action_event)
     title = (
         kind_label(kind) if kind else tool_name.removeprefix("postmark_").replace("_", " ").title()
@@ -131,6 +140,13 @@ def _needs_confirmation(tool_name: str, action_event: object) -> bool:
         return False
     kind = kind_from_action_event(action_event)
     if kind in {"mutate:update:auth", "mutate:update:environment_secret"}:
+        return True
+    raw_risk = getattr(action_event, "security_risk", None)
+    risk_value = getattr(raw_risk, "value", raw_risk)
+    risk = str(risk_value or "").rsplit(".", 1)[-1].upper()
+    if risk == "LOW":
+        return False
+    if risk in {"HIGH", "UNKNOWN"}:
         return True
     return not is_auto_approved(kind)
 
@@ -162,8 +178,8 @@ class ToolActivityTracker:
         self._last_reject_ids: list[str] = []
 
     def records(self) -> list[ToolActivityRecord]:
-        """Return visible activity records for the current turn."""
-        return _visible_records(self._records)
+        """Return immutable snapshots of visible records for queued delivery."""
+        return [record.copy() for record in _visible_records(self._records)]
 
     def ingest(self, event: object) -> list[ToolActivityRecord]:
         """Update state from one SDK event; return records that changed."""
@@ -251,13 +267,11 @@ class ToolActivityTracker:
         if tool_name not in _TOOL_ACTIVITY_NAMES:
             return []
         tool_call_id = str(getattr(event, "tool_call_id", "") or "").strip()
-        record_id = tool_call_id or ""
-        record = self._records.get(record_id)
+        record = self._records.get(tool_call_id)
         if record is None:
             for candidate in self._records.values():
                 if candidate["tool_name"] == tool_name and candidate["status"] == "running":
                     record = candidate
-                    record_id = candidate["id"]
                     break
         if record is None:
             return []

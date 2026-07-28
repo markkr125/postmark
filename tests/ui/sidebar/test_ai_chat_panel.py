@@ -529,6 +529,66 @@ def test_set_send_enabled_respects_models(qapp: QApplication, qtbot) -> None:
     assert not panel._send_btn.isEnabled()
 
 
+def test_docked_send_forwards_attachments_by_uri(qapp: QApplication, qtbot) -> None:
+    """Attached files must reach the agent, named by upload URI rather than path."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    composer = panel._docked_composer
+    composer.restore_text("Can you turn this PDF into a collection?")
+    composer._attachments.append("/home/marik/Downloads/spec.pdf")
+    composer._add_attachment_chip("/home/marik/Downloads/spec.pdf")
+
+    submitted: list[str] = []
+    panel.message_submitted.connect(submitted.append)
+    panel._on_docked_send()
+
+    assert len(submitted) == 1
+    assert "Can you turn this PDF into a collection?" in submitted[0]
+    assert "- spec.pdf -> postmark://uploaded/spec.md" in submitted[0]
+    assert "/home/marik/Downloads" not in submitted[0]
+    assert composer.attachments() == []
+    assert not composer._attachments_row.isVisible()
+
+
+def test_docked_send_hands_source_paths_to_the_controller(qapp: QApplication, qtbot) -> None:
+    """The controller needs the real paths to copy the files into the session."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    composer = panel._docked_composer
+    composer._attachments.append("/home/marik/Downloads/spec.pdf")
+    composer._add_attachment_chip("/home/marik/Downloads/spec.pdf")
+    panel._on_docked_send()
+
+    assert panel.take_pending_attachment_sources() == ["/home/marik/Downloads/spec.pdf"]
+    # Taken exactly once, so a later turn cannot re-copy a stale attachment.
+    assert panel.take_pending_attachment_sources() == []
+
+
+def test_docked_send_allows_attachment_without_typed_text(qapp: QApplication, qtbot) -> None:
+    """An attachment alone is a valid send."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    composer = panel._docked_composer
+    composer._attachments.append("/tmp/spec.docx")
+    composer._add_attachment_chip("/tmp/spec.docx")
+
+    submitted: list[str] = []
+    panel.message_submitted.connect(submitted.append)
+    panel._on_docked_send()
+
+    assert submitted and "- spec.docx -> postmark://uploaded/spec.md" in submitted[0]
+
+
+def test_docked_send_ignores_empty_composer(qapp: QApplication, qtbot) -> None:
+    """No text and no attachments still sends nothing."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    submitted: list[str] = []
+    panel.message_submitted.connect(submitted.append)
+    panel._on_docked_send()
+    assert submitted == []
+
+
 def _enabled_entry(entry_id: str, label: str, model: str) -> AiModelEntry:
     return {
         "id": entry_id,

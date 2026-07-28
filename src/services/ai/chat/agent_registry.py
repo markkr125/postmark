@@ -9,6 +9,8 @@ import openhands.tools.task.definition  # noqa: F401 — registers TaskToolSet
 from services.ai.chat.subagent_registry import register_postmark_subagents
 from services.ai.chat.tools.datetime_query import register_datetime_query_tool
 from services.ai.chat.tools.delegate_tool import register_postmark_delegate_tool
+from services.ai.chat.tools.collection_draft.tool import register_collection_draft_tool
+from services.ai.chat.tools.document_import.tool import register_document_import_tool
 from services.ai.chat.tools.wiki_query import register_wiki_query_tool
 from services.ai.chat.tools.workspace_execute import register_workspace_execute_tool
 from services.ai.chat.tools.workspace_import import register_workspace_import_tool
@@ -39,11 +41,33 @@ _WIKI_SYSTEM_PROMPT = (
     "to_tz=local for 'to my local timezone'). "
     "When importing OpenAPI/Swagger, WSDL, Postman, cURL, a URL, or a file into the "
     "workspace, call postmark_import with exactly one of url, path, text, or curl. "
+    "Call it exactly once per source in a user turn. If the user asks to append text to "
+    "the imported collection name, pass collection_name_suffix in that same import call; "
+    "never import once to inspect the name and then import the source again. "
     "Call postmark_import yourself — never hand an import to a subagent via delegate: the "
     "researcher subagents have no import tool, so a delegated import silently does nothing. "
     "Never report an import you did not actually perform — claim collections were created "
     "only when postmark_import itself returned ok: true, and link each created collection "
-    "by name using the postmark://collection/<id> values from its deep_links output. "
+    "by copying its named collection_links entry. The visible link label must be the "
+    "collection name: never expose a raw postmark:// URI, use the URI as link text, or add "
+    "an ID/link column. "
+    "When the user attaches a PDF/DOCX, Postmark uploads it, converts it to Markdown, and "
+    "lists it in their message as postmark://uploaded/<name>.md. Read it in chunks: with "
+    "one attachment call postmark_document_import with chunk=1 and omit uri, batch the "
+    "endpoints once their method, path, and request example/parameters have been read, "
+    "then read chunk=2, and so on until the final chunk. Response documentation may "
+    "continue after a request is ready; add that request now instead of postponing every "
+    "batch until the end. Never create endpoints merely named in a table of contents. "
+    "Never try to read the whole document at once and never skip a chunk. "
+    "Build the collection with postmark_collection_draft: "
+    "operation=start once, operation=add_requests once per document chunk, and "
+    "operation=finish last. Never emit a whole Postman collection JSON for a document. "
+    "If you lose track of what you already added, call operation=status. "
+    "Only postmark_collection_draft operation=finish creates the collection, and only its "
+    "observation gives you the real collection id and link. "
+    "Never claim an import happened without ok: true. Never state or link a collection id "
+    "that did not come from a tool observation in this same turn — do not reuse ids, names, "
+    "or name suffixes from earlier turns in this chat. "
     "For questions about how Postmark works (UI, workflows, settings, scripting, debugging), "
     "call postmark_wiki_query with short keywords before answering — do not guess exact "
     "file paths, and do not invent menu items or shortcuts. "
@@ -198,6 +222,8 @@ def _register_defaults() -> None:
     register_workspace_mutate_tool()
     register_workspace_execute_tool()
     register_workspace_import_tool()
+    register_document_import_tool()
+    register_collection_draft_tool()
     register_postmark_delegate_tool()
     register_postmark_subagents()
     register_postmark_agent(
@@ -212,6 +238,8 @@ def _register_defaults() -> None:
                 "postmark_workspace_mutate",
                 "postmark_workspace_execute",
                 "postmark_import",
+                "postmark_document_import",
+                "postmark_collection_draft",
                 "task_tool_set",
                 "delegate",
             ),

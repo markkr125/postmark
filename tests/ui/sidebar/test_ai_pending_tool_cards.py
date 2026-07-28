@@ -8,6 +8,7 @@ from ui.sidebar.ai.chat_panel.panel import AiChatPanel
 from ui.sidebar.ai.message_bubble import ChatMessageBubble
 from ui.sidebar.ai.message_bubble.confirm.card import PendingToolCard
 from ui.sidebar.ai.message_bubble.confirm.group import PendingToolGroup
+from ui.widgets.busy_spinner import BrailleSpinner
 
 
 def test_pending_card_emits_approve_and_reject(qapp: QApplication, qtbot) -> None:
@@ -41,11 +42,19 @@ def test_pending_card_emits_approve_and_reject(qapp: QApplication, qtbot) -> Non
 
     allow = bubble.findChild(QPushButton, "aiChatPendingAllow")
     reject = bubble.findChild(QPushButton, "aiChatPendingReject")
-    assert allow is not None and reject is not None
+    spinner = bubble.findChild(BrailleSpinner, "busyChipSpinner")
+    assert allow is not None and reject is not None and spinner is not None
+    initial_frame = spinner.frame_index()
     allow.click()
     reject.click()
     assert approved == [True]
-    assert rejected == [True]
+    assert rejected == []
+    assert detail.text().endswith(" — Starting…")
+    assert not allow.isEnabled()
+    assert not reject.isEnabled()
+    assert not spinner.isHidden()
+    qtbot.wait(120)
+    assert spinner.frame_index() != initial_frame
 
 
 def test_pending_always_allow_adds_rule(qapp: QApplication, qtbot, monkeypatch) -> None:
@@ -124,3 +133,33 @@ def test_pending_hides_activity_row(qapp: QApplication, qtbot) -> None:
     assert not bubble.is_activity_visible()
     bubble.show_activity("Waiting for approval…")
     assert not bubble.is_activity_visible()
+
+
+def test_confirmation_flushes_buffered_thinking_before_closing_phase(
+    qapp: QApplication,
+    qtbot,
+) -> None:
+    """Coalesced pre-tool thinking stays above approval instead of crossing its boundary."""
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    panel.begin_assistant_stream()
+    panel.append_assistant_chunk("Buffered plan before tool.", "")
+    panel.show_confirmation(
+        {
+            "actions": [
+                {
+                    "tool_call_id": "tool-buffered",
+                    "title": "Create request",
+                    "detail": "Health",
+                }
+            ]
+        }
+    )
+    bubble = panel._streaming_bubble
+    assert bubble is not None
+    primary = bubble._thought_section
+    assert primary is not None
+    assert primary.text() == "Buffered plan before tool."
+    assert primary.duration_seconds() is not None
+    assert len(bubble._thought_sections) == 1

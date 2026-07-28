@@ -22,11 +22,13 @@ class ActionEvent:
         action: object,
         *,
         tool_call_id: str = "tc1",
+        security_risk: str | None = None,
     ) -> None:
         """Initialize stand-in action event fields."""
         self.tool_name = tool_name
         self.action = action
         self.tool_call_id = tool_call_id
+        self.security_risk = security_risk
 
 
 class ObservationEvent:
@@ -72,6 +74,57 @@ def test_confirm_gated_import_shows_no_card_until_approved(monkeypatch: pytest.M
     changed = tracker.on_confirmation_approved(["import-1"])
     assert len(changed) == 1
     assert changed[0]["status"] == "running"
+    assert tracker.records()[0]["status"] == "running"
+
+
+def test_sdk_import_alias_runs_after_unknown_risk_is_approved() -> None:
+    """SDK-emitted workspace-import alias participates in the activity lifecycle."""
+    action = SimpleNamespace(
+        url="https://example.com/openapi.yaml",
+        human_preview=lambda: "https://example.com/openapi.yaml",
+        summary="",
+    )
+    tracker = ToolActivityTracker()
+    event = ActionEvent(
+        "postmark_workspace_import",
+        action,
+        tool_call_id="sdk-import",
+        security_risk="UNKNOWN",
+    )
+    assert tracker.ingest(event) == []
+    assert tracker.records() == []
+    tracker.on_confirmation_approved(["sdk-import"])
+    records = tracker.records()
+    assert len(records) == 1
+    assert records[0]["status"] == "running"
+    assert records[0]["title"] == "Import workspace"
+
+
+def test_low_risk_mutate_runs_without_local_auto_approve(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Tracker follows SDK LOW risk instead of predicting an approval pause."""
+    monkeypatch.setattr(
+        "services.ai.chat.tool_activity_events.is_auto_approved",
+        lambda _kind: False,
+    )
+    action = SimpleNamespace(
+        action="rename",
+        entity="collection",
+        fields={"name": "Hotel Booking API 7"},
+        human_preview=lambda: "Hotel Booking API 7",
+        summary="",
+    )
+    tracker = ToolActivityTracker()
+    changed = tracker.ingest(
+        ActionEvent(
+            "postmark_workspace_mutate",
+            action,
+            tool_call_id="low-risk-rename",
+            security_risk="LOW",
+        )
+    )
+    assert len(changed) == 1
     assert tracker.records()[0]["status"] == "running"
 
 
@@ -186,6 +239,28 @@ def test_readonly_query_completes_on_observation() -> None:
             tool_call_id="q-1",
         )
     )
+    assert tracker.records()[0]["status"] == "completed"
+
+
+def test_records_are_snapshots_for_queued_gui_delivery() -> None:
+    """A queued running payload cannot mutate before the GUI consumes it."""
+    action = SimpleNamespace(
+        scope="overview",
+        goals=None,
+        human_preview=lambda: "overview",
+        summary="",
+    )
+    tracker = ToolActivityTracker()
+    tracker.ingest(ActionEvent("postmark_workspace_query", action, tool_call_id="q-queued"))
+    queued_running = tracker.records()
+    tracker.ingest(
+        ObservationEvent(
+            "postmark_workspace_query",
+            TextObservation("collections: 2"),
+            tool_call_id="q-queued",
+        )
+    )
+    assert queued_running[0]["status"] == "running"
     assert tracker.records()[0]["status"] == "completed"
 
 

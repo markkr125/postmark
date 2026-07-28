@@ -955,7 +955,10 @@ def test_reattach_replays_background_buffers(qapp: QApplication, qtbot) -> None:
         status: str = "",
         subagent_records: object = None,
         tool_activity_records: object = None,
+        thinking_phases: object = None,
+        activity_timeline: object = None,
     ) -> None:
+        del subagent_records, tool_activity_records, thinking_phases, activity_timeline
         resume_calls.append((thinking, content, status))
 
     panel.resume_assistant_stream = _resume  # type: ignore[method-assign]

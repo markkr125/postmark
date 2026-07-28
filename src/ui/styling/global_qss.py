@@ -1833,25 +1833,69 @@ def build_global_qss(p: ThemePalette) -> str:
     QWidget[objectName="aiChatToolActivityGroup"] {{
         background: transparent;
     }}
-    QFrame[objectName="aiChatToolActivityCard"] {{
-        background: {p["bg_alt"]};
-        border: 1px solid {p["border"]};
-        border-radius: 0;
+    QWidget[objectName="aiChatToolActivityGroupHeader"] {{
+        background: transparent;
+    }}
+    QToolButton[objectName="aiChatToolActivityGroupChevron"] {{
+        background: transparent;
+        border: none;
+        padding: 0;
+        color: {p["text_muted"]};
+    }}
+    QToolButton[objectName="aiChatToolActivityGroupChevron"]:hover {{
+        color: {p["text"]};
+    }}
+    QLabel[objectName="aiChatToolActivityGroupSummary"] {{
+        background: transparent;
+        border: none;
+        color: {p["text_muted"]};
+        font-size: 12px;
+        font-weight: 500;
+        padding: 0;
+        margin: 0;
+    }}
+    QLabel[objectName="aiChatToolActivityGroupSummary"][failed="true"] {{
+        color: {p["danger"]};
+    }}
+    QLabel[objectName="aiChatToolActivityGroupTiming"] {{
+        background: transparent;
+        border: none;
+        color: {p["text_muted"]};
+        font-size: 11px;
+        padding: 0;
+        margin: 0;
+    }}
+    QWidget[objectName="aiChatToolActivityGroupRows"] {{
+        background: transparent;
+    }}
+    QWidget[objectName="aiChatToolActivityCard"] {{
+        background: transparent;
     }}
     QLabel[objectName="aiChatToolActivityTitle"] {{
         background: transparent;
         border: none;
         color: {p["text"]};
         font-size: 13px;
-        font-weight: 600;
+        font-weight: 500;
         padding: 0;
         margin: 0;
+    }}
+    QLabel[objectName="aiChatToolActivityTitle"][failed="true"] {{
+        color: {p["danger"]};
     }}
     QLabel[objectName="aiChatToolActivityDetail"] {{
         background: transparent;
         border: none;
         color: {p["text_muted"]};
         font-size: 12px;
+        padding: 0;
+        margin: 0;
+    }}
+    QLabel[objectName="aiChatToolActivityDuration"] {{
+        background: transparent;
+        border: none;
+        color: {p["text_muted"]};
+        font-size: 11px;
         padding: 0;
         margin: 0;
     }}

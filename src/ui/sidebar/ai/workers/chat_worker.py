@@ -13,6 +13,7 @@ from services.ai.chat.compaction import (
     CHAT_CONDENSER_DIAGNOSTIC_USAGE_FRACTION,
     log_compaction_diagnostics,
 )
+from services.ai.chat.provider_errors import summarize_provider_error
 from services.ai.chat.confirmation_payload import (
     is_waiting_for_confirmation,
     pending_actions_payload,
@@ -21,9 +22,13 @@ from services.ai.chat.context_usage import (
     ContextUsageService,
     metrics_from_conversation,
 )
-from services.ai.chat.mutation.claim_guard import observation_indicates_write
+from services.ai.chat.mutation.claim_guard import (
+    collection_ids_in_observation,
+    observation_indicates_write,
+)
 from services.ai.chat.mutation.write_ledger import (
     clear_workspace_writes,
+    record_collection_ids,
     record_workspace_write,
 )
 from services.ai.chat.response_text import (
@@ -37,6 +42,8 @@ from services.ai.chat.tool_activity_events import (
     ToolActivityTracker,
     tool_call_ids_from_confirmation_payload,
 )
+from services.ai.chat.attachments.screenshots import set_session_vision
+from services.ai.chat.tools.workspace_import.turn_guard import clear_import_turn
 from services.ai.provider_catalog import effective_run_context_tokens
 
 if TYPE_CHECKING:
@@ -91,6 +98,7 @@ _MUTATE_EXECUTE_TOOLS = frozenset(
         "postmark_workspace_mutate",
         "postmark_workspace_execute",
         "postmark_import",
+        "postmark_workspace_import",
     }
 )
 
@@ -188,6 +196,10 @@ class AiChatWorker(QObject):
         self._content_buffer = ""
         self._compaction_status_emitted = False
         clear_workspace_writes(session_id)
+        clear_import_turn(session_id)
+        # Document screenshots are attached per chunk only for a model that can
+        # read them, so the tool needs the active model's capability.
+        set_session_vision(session_id, bool(entry.get("vision")))
         self._subagent_tracker = SubagentEventTracker(session_id=session_id)
         self._tool_activity_tracker = ToolActivityTracker()
         self._confirmation_decision = None
@@ -424,8 +436,13 @@ class AiChatWorker(QObject):
                     self.tool_activity_updated.emit(self._tool_activity_tracker.records())
                 if _is_mutate_or_execute_observation(event):
                     # Mid-turn drain so Allow UI / tree / Output update promptly.
-                    if observation_indicates_write(_observation_text(event)):
+                    observation_text = _observation_text(event)
+                    if observation_indicates_write(observation_text):
                         record_workspace_write(self._session_id)
+                        record_collection_ids(
+                            self._session_id,
+                            collection_ids_in_observation(observation_text),
+                        )
                     self.notify_mutation_bridge_ready()
                 status = getattr(event, "status", None)
                 if status is not None:
@@ -517,7 +534,9 @@ class AiChatWorker(QObject):
             )
             conv = None
         except Exception as exc:
-            logger.exception("AI chat run failed")
+            summary = summarize_provider_error(str(exc))
+            logger.warning("AI chat run failed: %s", summary)
+            logger.debug("Full AI chat failure", exc_info=True)
             if self._stop_requested:
                 self._emit_failure(conv, _STOPPED_MESSAGE)
             else:

@@ -9,7 +9,7 @@ from typing import Any
 
 from sqlalchemy import delete, select
 
-from database.data_paths import session_disk_dir
+from database.data_paths import session_attachments_dir, session_disk_dir
 from database.database import get_session
 
 from .model.ai_chat_message_model import AiChatMessageModel
@@ -141,8 +141,9 @@ def archive_session(session_id: str, *, archived: bool = True) -> dict[str, Any]
 
 
 def delete_session(session_id: str) -> bool:
-    """Delete message rows, the session row, and the SDK disk directory."""
+    """Delete message rows, the session row, and both on-disk session directories."""
     disk_path = session_disk_dir(session_id)
+    attachments_path = session_attachments_dir(session_id)
     with get_session() as session:
         row = session.get(AiChatSessionModel, session_id)
         if row is None:
@@ -154,6 +155,8 @@ def delete_session(session_id: str) -> bool:
         session.commit()
     if disk_path.is_dir():
         shutil.rmtree(disk_path)
+    if attachments_path.is_dir():
+        shutil.rmtree(attachments_path, ignore_errors=True)
     return True
 
 

@@ -223,6 +223,7 @@ tests/
 │   │   │   ├── test_thought_layout_reentrancy.py
 │   │   │   ├── test_bubble_stream_row_height.py
 │   │   │   ├── test_chat_composer.py
+│   │   │   ├── test_composer_attachments.py  # attachment paths appended to the submitted prompt
 │   │   │   └── test_user_message_collapse.py
 │   │   └── widgets/
 │   │       ├── test_text_format_helpers.py
@@ -272,7 +273,7 @@ tests/
 │       │   ├── test_budget_status.py
 │       │   ├── test_chat_run_limits.py
 │       │   ├── test_chat_run_registry.py
-│       │   ├── test_chat_run_registry_streaming.py  # Registry incremental streaming + anti-lambda guard
+│       │   ├── test_chat_run_registry_streaming.py  # Registry incremental streaming, chronological background reattach + anti-lambda guard
 │       │   ├── test_ai_config.py
 │       │   ├── test_model_metadata.py
 │       │   ├── test_run_context_choices.py
@@ -307,6 +308,18 @@ tests/
 │       │   ├── test_confirmation_payload.py  # human_preview + Approve title/detail (no raw tool names)
 │       │   ├── test_agent_tools_for_turn.py  # Ask/Plan/Agent tools_for_turn (Agent always has write tools)
 │       │   ├── test_agent_import_tool.py  # postmark_import Action schema + ImportService executor
+│       │   ├── test_document_import_tool.py  # chunk paging, coverage, URI resolution, on-demand upload
+│       │   ├── test_chat_attachment_chunks.py # chunk size/order/coverage; fences never split
+│       │   ├── test_chat_attachment_screenshots.py # vision gate: images vs lazy cached OCR fallback
+│       │   ├── test_chat_attachment_store.py # copy-in, Markdown conversion, URIs, session-delete cleanup
+│       │   ├── test_provider_errors.py       # malformed tool call + unreachable provider summaries
+│   ├── document_import/               # PDF/DOCX extraction service tests
+│   │   ├── fixtures/sample.pdf
+│   │   ├── test_extract_pdf.py
+│   │   ├── test_extract_docx.py
+│   │   ├── test_ocr.py
+│   │   ├── test_path_policy.py
+│   │   └── test_to_markdown.py
 │       │   ├── test_workspace_security.py  # PostmarkWorkspaceSecurityAnalyzer + policy
 │       │   ├── test_mutation_bridge.py  # enqueue/drain mutation GUI events
 │       │   ├── test_mutation_auto_approve.py  # whitelist add/remove/clear + Phase 2 kinds
@@ -369,6 +382,7 @@ tests/
    ├── main_window/
    │   └── test_ai_chat_controller.py  # AI chat controller + concurrent run registry paths
    │   └── test_ai_chat_deeplink.py  # postmark:// deep-link navigation (request/collection/script/tab/history/environment/saved_response) + focus_section; unknown/stale/missing/unsupported-focus/history-busy show status tip
+   │   └── test_ai_chat_attachments.py # attached document copied in and delivered to the model
    │   └── test_main_window_ai_session_restore.py  # Persist + reopen last chat session on startup
    │   └── test_ai_chat_registry_streaming.py  # E2E registry→controller→panel incremental streaming
    │   └── test_ai_concurrent_runs.py  # E2E New chat / session switch + parallel send flows
@@ -425,7 +439,7 @@ tests/
 │   ├── test_ai_chat_worker_confirm_loop.py  # P0-W: real run() WAITING→Approve/Reject/Stop; preview_url env-sub + draft/replay
 │   ├── test_ai_execute_cards.py  # Execute result cards → history?focus=response / request deeplink
 │   ├── test_ai_pending_tool_cards.py  # Inline Allow/Reject/Always allow cards on streaming bubble
-│   ├── test_ai_tool_activity_cards.py # Main-agent tool activity cards + execute handoff
+│   ├── test_ai_tool_activity_cards.py # Tool activity cards, execute handoff, multi-cycle chronological phases
 │   ├── test_ai_session_history_popup.py  # Virtualized list; RUNNING_ROLE; ⋯ menu click routing; rename/delete dialogs
 │   ├── test_ai_active_run_badge.py  # Header aiChatActiveRunsBadge count pill
 │   ├── test_session_transcript_load.py  # Async session switch + lazy markdown; post-load settle skips work while pinned

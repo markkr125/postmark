@@ -84,6 +84,7 @@ _READ_ONLY_TOOLS = frozenset(
         "postmark_wiki_query",
         "postmark_workspace_query",
         "postmark_datetime",
+        "postmark_document_import",
         "delegate",
         "task",
         "task_tracker",
@@ -96,7 +97,18 @@ _READ_ONLY_TOOLS = frozenset(
 
 _MUTATE_TOOL = "postmark_workspace_mutate"
 _EXECUTE_TOOL = "postmark_workspace_execute"
-_IMPORT_TOOL = "postmark_import"
+_IMPORT_TOOLS = frozenset({"postmark_import", "postmark_workspace_import"})
+_DRAFT_TOOL = "postmark_collection_draft"
+_DRAFT_WRITE_OPERATION = "finish"
+
+
+def draft_operation_is_write(operation: str | None) -> bool:
+    """Return True only for the draft operation that persists a collection.
+
+    Every other draft operation mutates in-memory state, so gating them behind
+    Approve would put a confirmation card in front of each added request.
+    """
+    return str(operation or "").strip().lower() == _DRAFT_WRITE_OPERATION
 
 
 def _get_settings() -> QSettings:
@@ -182,7 +194,7 @@ def kind_from_tool_args(
     """Build a catalog kind from tool name + action fields."""
     if tool_name in _READ_ONLY_TOOLS:
         return None
-    if tool_name == _IMPORT_TOOL:
+    if tool_name in _IMPORT_TOOLS or tool_name == _DRAFT_TOOL:
         return "mutate:create:import"
     if tool_name == _MUTATE_TOOL:
         if not action or not entity:
@@ -259,13 +271,14 @@ def _fields_have_secret_env_writes(fields: dict[str, object]) -> bool:
 
 def is_mutate_or_execute_tool(tool_name: str) -> bool:
     """Return True for Postmark mutate/execute/import tool names."""
-    return tool_name in {_MUTATE_TOOL, _EXECUTE_TOOL, _IMPORT_TOOL}
+    return tool_name in {_MUTATE_TOOL, _EXECUTE_TOOL, _DRAFT_TOOL, *_IMPORT_TOOLS}
 
 
 __all__ = [
     "CATALOG",
     "add_rule",
     "clear_rules",
+    "draft_operation_is_write",
     "is_auto_approved",
     "is_mutate_or_execute_tool",
     "kind_from_action_event",

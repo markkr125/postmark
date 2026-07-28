@@ -20,8 +20,9 @@ def apply_workspace_import(
     *,
     fields: dict[str, Any],
     mutation_id: str,
+    collection_name_suffix: str = "",
 ) -> WorkspaceMutateObservation:
-    """Import collections/environments via ImportService; enqueue UI refresh."""
+    """Import collections/environments, optionally suffixing root collection names."""
     from pathlib import Path
 
     from services.import_service import ImportService
@@ -53,11 +54,31 @@ def apply_workspace_import(
         for ref in (summary_dict.get("imported_collections") or [])
         if isinstance(ref, dict) and ref.get("id")
     ]
-    deep_links = [f"postmark://collection/{ref['id']}" for ref in created]
+    suffix = collection_name_suffix.strip()
+    rename_warnings: list[str] = []
+    if suffix and created:
+        from services.collection_service import CollectionService
+
+        for ref in created:
+            collection_id = ref["id"]
+            if not isinstance(collection_id, int):
+                continue
+            old_name = str(ref["name"]).strip()
+            new_name = f"{old_name} {suffix}".strip()
+            try:
+                CollectionService.rename_collection(collection_id, new_name)
+                ref["name"] = new_name
+            except Exception as exc:
+                rename_warnings.append(
+                    f"Could not rename imported collection {ref['id']}: {type(exc).__name__}"
+                )
+    collection_links = [f"[{ref['name']}](postmark://collection/{ref['id']})" for ref in created]
     summary = (
         f"Imported {coll_count} collection(s), {req_count} request(s), {env_count} environment(s)"
     )
-    warnings = [str(e) for e in errors[:10]]
+    if suffix and created and not rename_warnings:
+        summary += f"; added {suffix!r} to {len(created)} root collection name(s)"
+    warnings = [str(e) for e in errors[:10]] + rename_warnings
     enqueue_mutation_event(
         {
             "type": "mutated",
@@ -93,7 +114,11 @@ def apply_workspace_import(
     ]
     if created:
         lines.append(f"imported_collections: {created}")
-        lines.append(f"deep_links: {deep_links}")
+        lines.append(f"collection_links: {collection_links}")
+        lines.append(
+            "next_step: Import is complete. Do not import this source again in this turn; "
+            "use imported_collections and collection_links for any follow-up."
+        )
     if warnings:
         lines.append(f"errors: {warnings}")
     return mutate_obs("\n".join(lines) + "\n")

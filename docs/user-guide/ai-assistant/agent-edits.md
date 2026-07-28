@@ -44,6 +44,7 @@ With your approval (or auto-approve), Agent can:
 ### Collections and requests
 
 - Create, update, rename, move, or delete **collections** and **requests**
+- Rename a **collection** with `rename` or `update` + `name` (folder title)
 - Duplicate a **request**
 - Replace a request’s **Assertions** rows
 - Update method, URL, headers, params, body, description, scripts, and **auth** (placeholders only — see Safety)
@@ -70,7 +71,11 @@ With your approval (or auto-approve), Agent can:
 
 ### Import
 
-- **Import** collections/environments from text, cURL, URL, or a file/folder path — including **OpenAPI / Swagger** (JSON or YAML) and **WSDL** (SOAP operations). Prefer asking in Agent mode (e.g. “make a collection from this OpenAPI URL”); the import action pauses for **Allow**.
+- **Import** collections/environments from text, cURL, URL, or a file/folder path — including **OpenAPI / Swagger** (JSON or YAML) and **WSDL** (SOAP operations). You can request a suffix in the same operation (for example, “import this OpenAPI and add `10` to the collection name”); Postmark imports once and names the new root accordingly. The import action pauses for **Allow**.
+- **Import from messy PDF/DOCX** — in **Agent** mode, attach a PDF or Word doc with the paperclip and ask for a collection. Postmark copies the file into the chat's own storage and converts it to Markdown. If your model supports images, it is shown the screenshots for the part it is reading; if not, Postmark reads the text out of them for it instead. The assistant then works through that copy in chunks, adding the fully described endpoints from each chunk to a draft in one bounded batch; a name in the table of contents is not enough, and a definition that continues onto the next chunk is read through before it is added. Only the final step, which creates the collection, pauses for **Allow**. Working in chunks keeps the document out of your message, while batching each chunk avoids replaying that text once per endpoint and exhausting the model's context.
+
+  Because Postmark reads its own copy, the conversation keeps working if you later move, rename, or delete the original, and editing the original mid-run cannot shift the document under it. Copies are deleted with the chat. Your file path is never sent to the model or the AI provider — it only sees the file name and the contents. Very long documents are sent up to a limit, and the assistant reads any remainder page by page.
+- **Links you can trust** — if the assistant mentions a collection it did not actually create in that reply, Postmark removes the link and adds a warning. A link in an assistant message always points at something real.
 
 ### Snippets and saved examples
 

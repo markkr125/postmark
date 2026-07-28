@@ -1032,7 +1032,8 @@ class ScriptEditorPane(QWidget):
                 available = bool(RuntimeSettings.validate_deno(path)["available"])
             except Exception:  # never nag if the probe itself fails
                 available = True
-            self._runtime_probe_done.emit(available)
+            with contextlib.suppress(RuntimeError):
+                self._runtime_probe_done.emit(available)
 
         threading.Thread(target=_probe, daemon=True).start()
 

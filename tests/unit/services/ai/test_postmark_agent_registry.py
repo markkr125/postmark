@@ -22,6 +22,8 @@ def test_default_agent_registered() -> None:
         "postmark_workspace_mutate",
         "postmark_workspace_execute",
         "postmark_import",
+        "postmark_document_import",
+        "postmark_collection_draft",
         "task_tool_set",
         "delegate",
     )
@@ -34,6 +36,16 @@ def test_default_agent_registered() -> None:
     assert "postmark_workspace_execute" in defn.system_prompt
     assert "postmark_import" in defn.system_prompt
     assert "OpenAPI" in defn.system_prompt
+    assert "collection_name_suffix" in defn.system_prompt
+    assert "exactly once per source" in defn.system_prompt
+    assert "never expose a raw postmark:// URI" in defn.system_prompt
+    assert "postmark_document_import" in defn.system_prompt
+    # An attached document is stored as Markdown and too long to read at once, so
+    # the agent must be told to page through it and build as it goes.
+    assert "attaches a PDF/DOCX" in defn.system_prompt
+    assert "postmark://uploaded/" in defn.system_prompt
+    assert "chunk=1" in defn.system_prompt
+    assert "never skip a chunk" in defn.system_prompt
     assert "never invent wall-clock times" in defn.system_prompt
     assert "Unix seconds" in defn.system_prompt
     assert "delegate" in defn.system_prompt

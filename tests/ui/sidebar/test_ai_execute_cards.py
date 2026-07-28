@@ -139,3 +139,57 @@ def test_execute_card_run_collection(qapp: QApplication, qtbot) -> None:
     )
     bubble._on_execute_card_clicked("ex5")
     assert seen == [("collection", 15, "runs")]
+
+
+def test_two_execute_cycles_keep_result_cards_in_chronological_slots(
+    qapp: QApplication,
+    qtbot,
+) -> None:
+    """Repeated executes append around their own follow-up thought phases."""
+    bubble = ChatMessageBubble("assistant", "")
+    qtbot.addWidget(bubble)
+    bubble.append_thinking("Prepare first send.")
+    first_thought = bubble._thought_section
+    assert first_thought is not None
+    first: ExecuteRunRecord = {
+        "id": "execute-cycle-1",
+        "operation": "send_request",
+        "label": "Sent first",
+        "status": "completed",
+        "status_code": 200,
+        "url": "https://example.com/first",
+        "history_entry_id": 1,
+        "request_id": 1,
+        "local_script_id": None,
+        "collection_id": None,
+        "script_phase": None,
+    }
+    bubble.upsert_execute_record(first)
+    bubble.append_thinking("Inspect first response.")
+    second_thought = bubble._active_thought_section_ref
+    assert second_thought is not None
+    second: ExecuteRunRecord = {
+        "id": "execute-cycle-2",
+        "operation": "send_request",
+        "label": "Sent second",
+        "status": "completed",
+        "status_code": 201,
+        "url": "https://example.com/second",
+        "history_entry_id": 2,
+        "request_id": 2,
+        "local_script_id": None,
+        "collection_id": None,
+        "script_phase": None,
+    }
+    bubble.upsert_execute_record(second)
+    bubble.append_thinking("Inspect second response.")
+    third_thought = bubble._active_thought_section_ref
+    assert third_thought is not None
+
+    outer = bubble._assistant_outer
+    assert outer is not None
+    first_group, second_group = bubble._execute_groups
+    assert outer.indexOf(first_thought) < outer.indexOf(first_group)
+    assert outer.indexOf(first_group) < outer.indexOf(second_thought)
+    assert outer.indexOf(second_thought) < outer.indexOf(second_group)
+    assert outer.indexOf(second_group) < outer.indexOf(third_thought)

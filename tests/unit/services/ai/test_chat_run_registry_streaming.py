@@ -15,7 +15,7 @@ from PySide6.QtWidgets import QApplication
 
 from services.ai.ai_config import AiModelEntry
 from services.ai.chat.response_text import AssistantParts
-from services.ai.chat.run_registry import ChatRunHandle, ChatRunRegistry
+from services.ai.chat.run_registry import AiChatRunContext, ChatRunHandle, ChatRunRegistry
 from ui.sidebar.ai import AiChatPanel
 from ui.sidebar.ai.message_bubble import ChatMessageBubble
 from ui.sidebar.ai.workers.chat_worker import AiChatWorker
@@ -283,6 +283,60 @@ def test_registry_buffers_chunks_while_background_session(
     assert panel.streaming_assistant_text() == handle_b.content_buffer
     registry.cancel_all()
     qtbot.waitUntil(lambda: registry.count_running() == 0, timeout=3000)
+
+
+def test_background_reattach_preserves_thought_tool_thought_order(
+    qapp: QApplication,
+    qtbot,
+) -> None:
+    """Registry timeline retains interrupt boundaries while a session is hidden."""
+    session_id = "background-timeline"
+    registry = ChatRunRegistry()
+    context = AiChatRunContext(session_id, 1, "inspect", 1, "model")
+    handle = ChatRunHandle(
+        context=context,
+        thread=None,  # type: ignore[arg-type]
+        worker=None,  # type: ignore[arg-type]
+        thread_generation=1,
+        bridge=None,  # type: ignore[arg-type]
+    )
+    registry._handles[session_id] = handle
+    registry._on_chunk(session_id, 1, "Plan query.", "")
+    registry._on_tool_activity_updated(
+        session_id,
+        1,
+        [
+            {
+                "id": "query-1",
+                "tool_name": "postmark_workspace_query",
+                "title": "Query workspace",
+                "detail": "overview",
+                "status": "completed",
+            }
+        ],
+    )
+    registry._on_chunk(session_id, 1, "Inspect result.", "")
+
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.resume_assistant_stream(
+        handle.thinking_buffer,
+        handle.content_buffer,
+        tool_activity_records=handle.tool_activity_records,
+        thinking_phases=handle.thinking_phases,
+        activity_timeline=handle.activity_timeline,
+    )
+    bubble = panel._streaming_bubble
+    assert bubble is not None
+    first_thought, second_thought = bubble._thought_sections
+    tool_group = bubble._tool_activity_groups[0]
+    outer = bubble._assistant_outer
+    assert outer is not None
+    assert first_thought.text() == "Plan query."
+    assert second_thought.text() == "Inspect result."
+    assert outer.indexOf(first_thought) < outer.indexOf(tool_group)
+    assert outer.indexOf(tool_group) < outer.indexOf(second_thought)
+    registry._handles.pop(session_id, None)
 
 
 def _install_staged_token_conversation(monkeypatch: pytest.MonkeyPatch) -> None:

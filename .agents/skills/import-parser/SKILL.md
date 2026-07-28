@@ -27,6 +27,10 @@ and is shared by file load, paste, and URL fetch. Agent import is the dedicated
 OpenHands tool ``postmark_import`` (Action: ``url`` | ``path`` | ``text`` | ``curl``),
 not a mutate entity.
 
+**PDF/DOCX messy docs** are not a new `ImportResult` parser: in Agent mode the
+assistant calls read-only `postmark_document_import` to extract text and
+screenshots, then synthesizes Postman JSON and calls `postmark_import` once.
+
 ## TypedDict schemas (`services/import_parser/models.py`)
 
 All parsers must return data conforming to these TypedDicts:

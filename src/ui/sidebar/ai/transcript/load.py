@@ -31,6 +31,80 @@ def parse_message_sent_at(raw: object) -> datetime | None:
         return None
 
 
+def _restore_activity_records_in_event_order(
+    bubble: ChatMessageBubble,
+    *,
+    session_id: str,
+    messages: list[AiChatMessageDict],
+    msg_index: int,
+    events: list[Any],
+    subagent_records: list[Any],
+    tool_records: list[Any],
+    execute_records: list[Any],
+) -> None:
+    """Restore tool, execute, and subagent cards in their SDK event order."""
+    from services.ai.chat.execute_events import records_from_observation_text
+    from services.ai.chat.subagent_events import (
+        SubagentEventTracker,
+        _slice_events_for_turn,
+        _turn_index_for_message,
+    )
+
+    subagent_by_id = {str(record["id"]): record for record in subagent_records}
+    tool_by_id = {str(record["id"]): record for record in tool_records}
+    execute_by_id = {str(record["id"]): record for record in execute_records}
+    ordered: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+
+    def append(kind: str, record_id: str) -> None:
+        key = (kind, record_id)
+        if record_id and key not in seen:
+            seen.add(key)
+            ordered.append(key)
+
+    turn_index = _turn_index_for_message(messages, msg_index)
+    turn_events = _slice_events_for_turn(events, turn_index)
+    subagent_tracker = SubagentEventTracker(session_id=session_id)
+    for event in turn_events:
+        for changed in subagent_tracker.ingest(event):
+            record_id = str(changed.get("id") or "")
+            if record_id in subagent_by_id:
+                append("subagent", record_id)
+
+        tool_call_id = str(getattr(event, "tool_call_id", "") or "")
+        if tool_call_id in tool_by_id:
+            append("tool", tool_call_id)
+        if tool_call_id in execute_by_id:
+            append("execute", tool_call_id)
+
+        if type(event).__name__ != "ObservationEvent":
+            continue
+        if str(getattr(event, "tool_name", "") or "") != "postmark_workspace_execute":
+            continue
+        observation = getattr(event, "observation", None)
+        text = str(
+            getattr(observation, "text", None) or getattr(observation, "content", None) or ""
+        )
+        record = records_from_observation_text(text, tool_call_id=tool_call_id)
+        if record is not None and record["id"] in execute_by_id:
+            append("execute", record["id"])
+
+    for record_id in tool_by_id:
+        append("tool", record_id)
+    for record_id in subagent_by_id:
+        append("subagent", record_id)
+    for record_id in execute_by_id:
+        append("execute", record_id)
+
+    for kind, record_id in ordered:
+        if kind == "tool":
+            bubble.upsert_tool_activity_record(tool_by_id[record_id], separate_group=True)
+        elif kind == "subagent":
+            bubble.upsert_subagent_record(subagent_by_id[record_id])
+        else:
+            bubble.upsert_execute_record(execute_by_id[record_id])
+
+
 class _ChatPanelTranscriptLoadMixin:
     """Chunked transcript rebuild and lazy-markdown session switches."""
 
@@ -218,9 +292,10 @@ class _ChatPanelTranscriptLoadMixin:
         """Build one transcript row from a persisted message dict."""
         role: ChatRole = "user" if msg["role"] == "user" else "assistant"
         stored_thinking = str(msg.get("thinking") or "")
-        from services.ai.chat.thinking_sections import unpack_thinking_phases
+        from services.ai.chat.thinking_sections import unpack_thinking_sections
 
-        thinking, post_subagent_thinking = unpack_thinking_phases(stored_thinking)
+        thinking_sections = unpack_thinking_sections(stored_thinking)
+        thinking = thinking_sections[0] if thinking_sections else ""
         duration = msg.get("thinking_duration_seconds")
         duration_seconds = int(duration) if isinstance(duration, int) and duration > 0 else None
         post_duration_raw = msg.get("post_thinking_duration_seconds")
@@ -280,41 +355,45 @@ class _ChatPanelTranscriptLoadMixin:
                     events = iter_session_events(session_id)
                     self._session_events_cache = events
                 bubble.set_subagent_session_id(session_id)
-                bubble.set_subagent_records(
-                    records_for_assistant_turn(
-                        session_id,
-                        pricing_messages,
-                        msg_index,
-                        events=events,
-                    )
+                subagent_records = records_for_assistant_turn(
+                    session_id,
+                    pricing_messages,
+                    msg_index,
+                    events=events,
                 )
                 from services.ai.chat.tool_activity_events import (
                     records_for_assistant_turn as tool_activity_records_for_turn,
                 )
 
-                bubble.set_tool_activity_records(
-                    tool_activity_records_for_turn(
-                        session_id,
-                        pricing_messages,
-                        msg_index,
-                        events=events,
-                    )
+                tool_records = tool_activity_records_for_turn(
+                    session_id,
+                    pricing_messages,
+                    msg_index,
+                    events=events,
                 )
                 from services.ai.chat.execute_events import (
                     records_for_assistant_turn as execute_records_for_turn,
                 )
 
-                bubble.set_execute_records(
-                    execute_records_for_turn(
-                        session_id,
-                        pricing_messages,
-                        msg_index,
-                        events=events,
-                    )
+                execute_records = execute_records_for_turn(
+                    session_id,
+                    pricing_messages,
+                    msg_index,
+                    events=events,
                 )
-            if post_subagent_thinking.strip():
-                bubble.restore_post_subagent_thinking(
-                    post_subagent_thinking,
+                _restore_activity_records_in_event_order(
+                    bubble,
+                    session_id=session_id,
+                    messages=pricing_messages,
+                    msg_index=msg_index,
+                    events=events,
+                    subagent_records=subagent_records,
+                    tool_records=tool_records,
+                    execute_records=execute_records,
+                )
+            if len(thinking_sections) > 1:
+                bubble.restore_additional_thinking_sections(
+                    thinking_sections[1:],
                     duration_seconds=post_duration_seconds,
                 )
         return cast(ChatMessageBubble, bubble)

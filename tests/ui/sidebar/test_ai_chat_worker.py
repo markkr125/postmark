@@ -42,6 +42,20 @@ def _entry() -> AiModelEntry:
     }
 
 
+def test_set_run_keeps_the_prompt_verbatim(qapp: QApplication) -> None:
+    """The turn sends what the user wrote; documents are read from storage instead."""
+    session_id = "00000000-0000-4000-8000-0000000000fe"
+    worker = AiChatWorker()
+    prompt = "Import this\n\nAttached files:\n- spec.pdf -> postmark://uploaded/spec.md"
+    worker.set_run(
+        session_id=session_id,
+        entry=_entry(),
+        agent_id="postmark-assistant",
+        text=prompt,
+    )
+    assert worker._text == prompt
+
+
 def _install_fake_conversation(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
     captured: dict[str, object] = {"closed": False}
 

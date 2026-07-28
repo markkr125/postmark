@@ -42,8 +42,10 @@ class ExecuteResultGroup(QWidget):
             self._layout.removeWidget(card)
             card.deleteLater()
         cards: list[ExecuteResultCard] = []
-        for record in records:
-            cards.append(self.upsert_record(record))
+        for index, record in enumerate(records):
+            card = self.upsert_record(record)
+            self._layout.insertWidget(index, card)
+            cards.append(card)
         self._sync_visibility()
         return cards
 

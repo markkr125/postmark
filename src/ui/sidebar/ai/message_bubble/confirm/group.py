@@ -34,7 +34,7 @@ class PendingToolGroup(QWidget):
         self._allow_all = QPushButton("Allow all")
         self._allow_all.setObjectName("aiChatPendingAllow")
         self._allow_all.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._allow_all.clicked.connect(self.approve_requested.emit)
+        self._allow_all.clicked.connect(self._on_approve)
         footer_row.addWidget(self._allow_all)
 
         self._reject_all = QPushButton("Reject all")
@@ -62,6 +62,9 @@ class PendingToolGroup(QWidget):
         kinds = _unique_kinds(actions)
         multi = len(actions) > 1
         self._footer.setVisible(multi)
+        for button in (self._allow_all, self._reject_all, self._always_all):
+            button.setEnabled(True)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
         self._always_all.setEnabled(bool(kinds))
         if len(kinds) == 1:
             self._always_all.setText(f"Always allow: {kind_label(kinds[0])}")
@@ -95,7 +98,7 @@ class PendingToolGroup(QWidget):
             card = PendingToolCard(self)
             card.apply_action(action, show_buttons=show_buttons)
             if show_buttons:
-                card.approve_requested.connect(self.approve_requested.emit)
+                card.approve_requested.connect(self._on_approve)
                 card.reject_requested.connect(self.reject_requested.emit)
                 card.always_allow_requested.connect(self._on_always_allow)
             self._layout.insertWidget(insert_at + index, card)
@@ -105,6 +108,15 @@ class PendingToolGroup(QWidget):
         """Persist whitelist rules for pending kinds, then Approve."""
         for kind in _unique_kinds(self._actions):
             add_rule(kind)
+        self._on_approve()
+
+    def _on_approve(self) -> None:
+        """Show immediate starting feedback before worker confirmation clears."""
+        for card in self._cards:
+            card.set_starting()
+        for button in (self._allow_all, self._reject_all, self._always_all):
+            button.setEnabled(False)
+            button.setCursor(Qt.CursorShape.ArrowCursor)
         self.approve_requested.emit()
 
 

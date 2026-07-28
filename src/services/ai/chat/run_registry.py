@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 from dataclasses import dataclass, field
+from typing import Literal, TypedDict
 
 from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
 
@@ -19,6 +20,13 @@ from services.ai.chat.chat_run_limits import (
 from ui.sidebar.ai.workers.chat_worker import AiChatWorker
 
 MAX_CONCURRENT_CHAT_RUNS = DEFAULT_MAX_CONCURRENT_CHAT_RUNS
+
+
+class RunActivityEntry(TypedDict):
+    """One ordered interrupt boundary retained for background reattachment."""
+
+    kind: Literal["tool", "subagent"]
+    record_id: str
 
 
 @dataclass
@@ -47,6 +55,8 @@ class ChatRunHandle:
     status_text: str = ""
     subagent_records: list[SubagentRunRecord] = field(default_factory=list)
     tool_activity_records: list[ToolActivityRecord] = field(default_factory=list)
+    thinking_phases: list[str] = field(default_factory=lambda: [""])
+    activity_timeline: list[RunActivityEntry] = field(default_factory=list)
 
 
 class _WorkerSignalBridge(QObject):
@@ -394,6 +404,12 @@ class ChatRunRegistry(QObject):
                 handle.thinking_buffer,
                 thinking_delta,
             )
+            if not handle.thinking_phases:
+                handle.thinking_phases.append("")
+            handle.thinking_phases[-1] = merge_stream_text(
+                handle.thinking_phases[-1],
+                thinking_delta,
+            )
         if content_delta:
             handle.content_buffer = merge_stream_text(
                 handle.content_buffer,
@@ -418,7 +434,17 @@ class ChatRunRegistry(QObject):
         if handle is None or handle.context.run_generation != run_generation:
             return
         if isinstance(records, list):
+            previous_ids = {record["id"] for record in handle.subagent_records}
             handle.subagent_records = records  # type: ignore[assignment]
+            self._append_activity_boundaries(
+                handle,
+                "subagent",
+                [
+                    str(record.get("id") or "")
+                    for record in records
+                    if isinstance(record, dict) and record.get("id") not in previous_ids
+                ],
+            )
         self.subagent_updated.emit(session_id, run_generation, records)
 
     def _on_tool_activity_updated(
@@ -431,8 +457,34 @@ class ChatRunRegistry(QObject):
         if handle is None or handle.context.run_generation != run_generation:
             return
         if isinstance(records, list):
+            previous_ids = {record["id"] for record in handle.tool_activity_records}
             handle.tool_activity_records = records  # type: ignore[assignment]
+            self._append_activity_boundaries(
+                handle,
+                "tool",
+                [
+                    str(record.get("id") or "")
+                    for record in records
+                    if isinstance(record, dict) and record.get("id") not in previous_ids
+                ],
+            )
         self.tool_activity_updated.emit(session_id, run_generation, records)
+
+    @staticmethod
+    def _append_activity_boundaries(
+        handle: ChatRunHandle,
+        kind: Literal["tool", "subagent"],
+        record_ids: list[str],
+    ) -> None:
+        """Append new activity slots and open a thinking phase after each."""
+        known = {(entry["kind"], entry["record_id"]) for entry in handle.activity_timeline}
+        for record_id in record_ids:
+            key = (kind, record_id)
+            if not record_id or key in known:
+                continue
+            handle.activity_timeline.append({"kind": kind, "record_id": record_id})
+            handle.thinking_phases.append("")
+            known.add(key)
 
     def _on_usage(self, session_id: str, run_generation: int, metrics: object) -> None:
         handle = self._handles.get(session_id)

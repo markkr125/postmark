@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from ui.styling.icons import phi
+from ui.widgets.busy_spinner import BrailleSpinner
 
 
 class PendingActionDict(TypedDict, total=False):
@@ -68,11 +69,20 @@ class PendingToolCard(QFrame):
         header_row.addWidget(self._title, 1)
         root.addWidget(header)
 
-        self._detail = QLabel(self)
+        detail_row = QWidget(self)
+        detail_layout = QHBoxLayout(detail_row)
+        detail_layout.setContentsMargins(0, 0, 0, 0)
+        detail_layout.setSpacing(6)
+        self._starting_spinner = BrailleSpinner(detail_row)
+        self._starting_spinner.hide()
+        detail_layout.addWidget(self._starting_spinner, 0, Qt.AlignmentFlag.AlignTop)
+
+        self._detail = QLabel(detail_row)
         self._detail.setObjectName("aiChatPendingToolDetail")
         self._detail.setWordWrap(True)
         self._detail.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        root.addWidget(self._detail)
+        detail_layout.addWidget(self._detail, 1)
+        root.addWidget(detail_row)
 
         buttons = QWidget(self)
         buttons.setObjectName("aiChatPendingToolButtons")
@@ -131,6 +141,8 @@ class PendingToolCard(QFrame):
 
         self._title.setText(title)
         self._detail.setText(detail)
+        self._starting_spinner.stop()
+        self._starting_spinner.hide()
         self._icon.setPixmap(
             phi(
                 "warning-circle" if destructive else "shield-warning",
@@ -151,6 +163,16 @@ class PendingToolCard(QFrame):
             self._always.setText("Always allow")
         self._buttons.setVisible(show_buttons)
         self.show()
+
+    def set_starting(self) -> None:
+        """Disable approval controls and show immediate execution feedback."""
+        for button in (self._allow, self._reject, self._always):
+            button.setEnabled(False)
+            button.setCursor(Qt.CursorShape.ArrowCursor)
+        self._starting_spinner.show()
+        self._starting_spinner.start()
+        if not self._detail.text().endswith(" — Starting…"):
+            self._detail.setText(f"{self._detail.text()} — Starting…")
 
 
 __all__ = ["PendingActionDict", "PendingToolCard"]

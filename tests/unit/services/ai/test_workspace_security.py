@@ -60,6 +60,11 @@ class TestWorkspaceSecurityAnalyzer:
         analyzer = PostmarkWorkspaceSecurityAnalyzer()
         assert analyzer.security_risk(_event("postmark_workspace_query")) == SecurityRisk.LOW
 
+    def test_document_import_is_low(self) -> None:
+        """Read-only document import is always LOW."""
+        analyzer = PostmarkWorkspaceSecurityAnalyzer()
+        assert analyzer.security_risk(_event("postmark_document_import")) == SecurityRisk.LOW
+
     def test_auto_approve_lowers_risk(self) -> None:
         """Whitelisted kind becomes LOW (skips ConfirmRisky pause)."""
         assert add_rule("mutate:create:collection")
@@ -68,6 +73,14 @@ class TestWorkspaceSecurityAnalyzer:
             _event("postmark_workspace_mutate", action="create", entity="collection")
         )
         assert risk == SecurityRisk.LOW
+
+    def test_sdk_import_alias_uses_import_confirmation_kind(self) -> None:
+        """Workspace-import event alias is HIGH until import is whitelisted."""
+        analyzer = PostmarkWorkspaceSecurityAnalyzer()
+        event = _event("postmark_workspace_import")
+        assert analyzer.security_risk(event) == SecurityRisk.HIGH
+        assert add_rule("mutate:create:import")
+        assert analyzer.security_risk(event) == SecurityRisk.LOW
 
     def test_mixed_batch_concept(self) -> None:
         """Only auto-approved kinds drop to LOW; others stay HIGH."""

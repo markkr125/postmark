@@ -6,8 +6,13 @@ import logging
 from typing import TYPE_CHECKING, cast, Literal
 
 from services.ai.chat.context_usage import ContextUsageSdkMetrics
-from services.ai.chat.mutation.claim_guard import unverified_write_note
-from services.ai.chat.mutation.write_ledger import take_workspace_write
+from services.ai.chat.mutation.claim_guard import (
+    FABRICATED_LINK_NOTE,
+    strip_unbacked_collection_links,
+    unverified_write_note,
+)
+from services.ai.chat.mutation.write_ledger import take_collection_ids, take_workspace_write
+from services.ai.chat.provider_errors import summarize_provider_error
 from services.ai.chat.response_text import pick_richest_text
 from services.ai.chat.thinking_sections import resolve_thinking_for_persist
 from services.ai.chat.run_registry import AiChatRunContext
@@ -47,7 +52,12 @@ class _AiChatTurnFinalizeMixin:
         content = pick_richest_text(content, panel_content)
         # Applied to the *final* text: an earlier append could be dropped here by
         # pick_richest_text choosing the panel's streamed copy instead.
+        content, link_stripped = strip_unbacked_collection_links(
+            content, take_collection_ids(session_id)
+        )
         note = unverified_write_note(content, write_observed=take_workspace_write(session_id))
+        if note is None and link_stripped:
+            note = FABRICATED_LINK_NOTE
         if note is not None:
             content = f"{content.rstrip()}\n\n{note}" if content.strip() else note
         panel.end_assistant_stream(content, thinking=thinking)
@@ -179,8 +189,10 @@ class _AiChatTurnFinalizeMixin:
             logger.info("AI chat stopped by user")
             display = self._compose_failure_transcript(body, "Stopped.")
         else:
-            logger.warning("AI chat failed: %s", message)
-            display = self._compose_failure_transcript(body, self._format_chat_error(message))
+            summary = summarize_provider_error(message)
+            logger.warning("AI chat failed: %s", summary)
+            logger.debug("Full AI chat failure: %s", message)
+            display = self._compose_failure_transcript(body, f"Error: {summary}")
         panel.end_assistant_stream(display, thinking=thinking)
         thinking_duration, post_thinking_duration = panel.last_assistant_thinking_durations()
         self._persist_assistant_turn(
@@ -209,8 +221,7 @@ class _AiChatTurnFinalizeMixin:
     @staticmethod
     def _format_chat_error(message: str) -> str:
         """Format a provider error for the chat bubble."""
-        text = message.strip()
-        return f"Error: {text}" if text else "Error: Unknown error"
+        return f"Error: {summarize_provider_error(message)}"
 
 
 __all__ = ["_AiChatTurnFinalizeMixin"]

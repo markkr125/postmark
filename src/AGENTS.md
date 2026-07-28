@@ -134,7 +134,17 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   `QueuedConnection` (defers delivery until `worker.run()` returns and breaks
   streaming). Bridge includes `subagent_updated` for delegation lifecycle,
   `tool_activity_updated` for main-agent tool rows (query/datetime/import/mutate/execute;
-  excludes wiki/delegate), plus
+  excludes wiki/delegate). Assistant activity is append-only and chronological:
+  approval chrome immediately finalizes the active thought, approved tools replace it
+  with an explicit running card, later reasoning opens a fresh thought block, and each
+  subsequent tool cycle gets a new card group below that reasoning. The tracker accepts
+  the SDK-emitted `postmark_workspace_import` alias as well as the registered
+  `postmark_import` name, and uses the `ActionEvent.security_risk` actually chosen by the
+  SDK to distinguish approval pauses from immediately executing LOW-risk actions.
+  When a card becomes terminal, the shared `AssistantActivityRow` moves immediately
+  below it and shows **Thinking…** until the next reasoning or answer chunk, avoiding
+  a blank post-tool gap. Thinking persistence supports any number of separator-packed
+  phases. Plus
   `confirmation_needed` / `confirmation_cleared` / `mutation_bridge_ready` for
   Agent workspace Approve chrome and GUI bridge drain. Worker stubs
   `approve_confirmation()` / `reject_confirmation(reason)` are invoked from the
@@ -156,8 +166,10 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   History flyout).
   `_AiChatRunsMixin` (`ui/main_window/ai_chat_runs.py`) routes worker signals by
   `session_id` + `run_generation`; only the visible session streams into
-  `AiChatPanel`; background sessions buffer chunks on `ChatRunHandle` and persist
-  on finish.   `_drain_mutation_bridge()` delegates to
+  `AiChatPanel`; background sessions buffer chunks plus ordered
+  `RunActivityEntry` interrupt boundaries / `thinking_phases` on `ChatRunHandle`
+  so reattachment preserves thought → tool/subagent → thought chronology, then
+  persist on finish. `_drain_mutation_bridge()` delegates to
   `ui/main_window/mutation_drain/drain_mutation_bridge()` on
   finish / confirmation clear / `mutation_bridge_ready` (open_target →
   `_on_workspace_target_requested`, mutated → collection/local tree refresh +
@@ -231,9 +243,76 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   only.
   **`postmark_import`** (`tools/workspace_import/`) is the dedicated OpenHands
   tool for OpenAPI/Swagger, WSDL, Postman, cURL, URL, or file import — Action
-  fields `url`|`path`|`text`|`curl` (exactly one); executor calls
-  `apply_workspace_import` → `ImportService`; Approve kind
+  fields `url`|`path`|`text`|`curl` (exactly one) plus optional
+  `collection_name_suffix` (renames imported roots in the same call); executor
+  calls `apply_workspace_import` → `ImportService`. `turn_guard.py`, cleared by
+  `AiChatWorker.set_run`, returns the first successful result instead of importing
+  an identical source twice in one user turn. Observations expose ready-to-copy
+  named `collection_links`, not a separate raw deep-link list. Approve kind
   `mutate:create:import`. Import is **not** a mutate entity.
+  **`postmark_document_import`** (`tools/document_import/`) is a read-only
+  OpenHands tool that reads **one chunk** of an uploaded document: Action `uri`
+  (`postmark://uploaded/<name>.md`, used only to choose among multiple uploads)
+  plus `chunk` (1-based). A single upload resolves even if a small model supplies
+  a damaged URI, because there is no ambiguity. Every observation ends with
+  `chunk X of Y` and a `next_step` line telling the agent to batch endpoints once
+  their method, path, and request example/parameters have been read; response
+  docs may continue into a later chunk, while TOC-only names never count. A whole
+  spec does not
+  fit in context, and letting the model pick page ranges made coverage depend on
+  its judgement, so the document is divided once by `attachments/chunks.py` and
+  reading to the end is a matter of counting. `path` is accepted only for a file
+  the user named but did not attach; it is uploaded on demand and then chunked
+  the same way. DOCX images are walked in body order including table cells and
+  nested tables, then reconciled against `word/media/*` so header/footer/text-box
+  images still appear (flagged as unpositioned). The stored Markdown holds only an
+  `[image N]` marker per screenshot; the PNG goes to
+  `<markdown-stem>/images/image-N.png`. **The `vision` flag on the model entry is
+  the only switch** (published per session by `AiChatWorker.set_run`, read by
+  `attachments/screenshots.py`): a vision model gets the chunk's screenshots as SDK
+  `ImageContent`, capped at `MAX_CHUNK_IMAGES`; anything else gets text recognised
+  from them placed under each marker. OCR is the **fallback only** — it never runs
+  for a vision model, which reads the screenshot far better than OCR does. It is
+  therefore done lazily at read time, for the chunk's images only, and cached in
+  `images/ocr.json`; upload does no OCR at all (`rapidocr` + `onnxruntime`,
+  optional Poetry extra `ocr` — install with `poetry install --extras ocr`;
+  without it a non-vision model gets the bare marker). Images are collected
+  through `ocr.ImageCollector`, which drops repeats by SHA-256 of the normalized
+  PNG and images under `MIN_IMAGE_PIXELS`, warning in both cases so nothing
+  disappears silently.
+
+  **`postmark_collection_draft`** (`tools/collection_draft/`) builds a collection
+  incrementally with a deliberately narrow model-facing schema: `start`,
+  `add_requests` (one atomic batch of at most 20 endpoints), `status`, `finish`,
+  `discard`.   There are no legacy single-request/folder operations or top-level
+  method/URL/body fields for the model to choose accidentally. The Action and its
+  nested `DraftRequestInput` set `extra="ignore"` and keep every field optional:
+  models emit `path` for `url`, a header object instead of rows, and stray fields
+  like `target_id`, so a `model_validator` folds `path`→`url` and header objects
+  into `key`/`value` rows while real validation (name/method/url) happens in
+  `ops.py` as recoverable `ok: false` observations rather than hard Pydantic
+  errors. Each nested request accepts a JSON object/array body directly; `ops.py`
+  serializes it, avoiding fragile escaped JSON strings that small models
+  abbreviate with `...`. Batching
+  is critical: replaying a 10–12K-character observation once per endpoint caused
+  excessive provider calls and token usage. A request `body` is capped at
+  `MAX_BODY_CHARS` (4000, `ops.py`): pasting a full nested response example into a
+  request body produced giant tool-call JSON small models malformed, so an
+  oversized body comes back as a recoverable `body_too_large` observation instead.
+  Draft state lives per session in
+  `collection_draft/state.py`, not in the model's context, so a drifting agent
+  calls `status` and resumes. Only `finish` writes — it assembles a
+  `ParsedCollection` and persists through `ImportService.import_parsed`, returning
+  the real collection id. Every other operation is LOW risk (see
+  `auto_approve.draft_operation_is_write`), otherwise each added request would
+  raise its own Approve card. This exists because asking a small model for one
+  complete Postman JSON fails silently and it narrates success instead.
+
+  **Fabricated link guard** — `claim_guard.strip_unbacked_collection_links`
+  removes any `postmark://collection/<id>` in the final message whose id no
+  observation produced this turn, tracked via `write_ledger.record_collection_ids`.
+  Phrase-matching alone is insufficient: a model can claim a write in wording the
+  regexes miss while still emitting a link that opens an unrelated collection.
   **`postmark_workspace_query`** (`tools/workspace_query/`) reads the user's
   collections, requests, environments, run history, and open-tab state on demand.
   **Shared send orchestration** lives in `services/ai/chat/execution/`

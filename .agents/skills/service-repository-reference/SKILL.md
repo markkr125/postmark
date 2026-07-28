@@ -406,7 +406,8 @@ threshold but does not block sends.
 |--------|---------|
 | `ChatRunRegistry` | Start/cancel runs; fan-out worker signals with `session_id` + `run_generation` |
 | `_WorkerSignalBridge` | Per-run `@Slot` QObject wiring worker→registry (no lambdas on `QueuedConnection`) |
-| `ChatRunHandle` | Per-run buffers (`thinking_buffer`, `content_buffer`, `status_text`, `pending_sdk_metrics`) + `bridge` |
+| `ChatRunHandle` | Per-run buffers (`thinking_buffer`, `content_buffer`, `status_text`, `pending_sdk_metrics`) plus ordered `thinking_phases` / `activity_timeline` snapshots for chronological background-session reattachment + `bridge` |
+| `RunActivityEntry` | Ordered background interrupt boundary: `kind` (`tool` / `subagent`) + stable `record_id` |
 | `AiChatRunContext` | `session_id`, `user_message_id`, `user_text`, `run_generation`, `model_id` |
 | `running_sessions_changed` | Qt signal when the running set changes (header badge + history `RUNNING_ROLE`) |
 

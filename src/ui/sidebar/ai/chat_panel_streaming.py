@@ -15,6 +15,8 @@ from PySide6.QtWidgets import QApplication, QLayout, QWidget
 from shiboken6 import Shiboken
 
 from services.ai.chat.response_text import pick_richest_text
+from services.ai.chat.subagent_events import SubagentRunRecord
+from services.ai.chat.tool_activity_events import ToolActivityRecord
 from ui.sidebar.ai.chat_panel.scroll import _ChatPanelScrollMixin
 from ui.sidebar.ai.chat_panel.scroll.scroll import _TURN_SCROLL_MARGIN_PX
 from ui.sidebar.ai.transcript.window import _ChatPanelTranscriptWindowMixin
@@ -424,6 +426,7 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
             self._streaming_bubble.begin_streaming()
             self._streaming_bubble.clear_subagent_cards()
             self._streaming_bubble.clear_execute_cards()
+            self._streaming_bubble.clear_tool_activity_cards()
             self._streaming_bubble.clear_pending_confirmation()
             self._attach_streaming_bubble_height_hook(self._streaming_bubble)
             self._streaming_bubble.show_activity(_ACTIVITY_DEFAULT_MESSAGE)
@@ -450,17 +453,63 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
         status: str = "",
         subagent_records: object | None = None,
         tool_activity_records: object | None = None,
+        thinking_phases: object | None = None,
+        activity_timeline: object | None = None,
     ) -> None:
         """Reattach streaming UI for a session with an in-flight background run."""
         self.begin_assistant_stream()
-        if isinstance(subagent_records, list):
-            cast(Any, self).deliver_subagent_update(subagent_records)
-        if isinstance(tool_activity_records, list):
-            cast(Any, self).deliver_tool_activity_update(tool_activity_records)
-        if thinking or content:
-            self.append_assistant_chunk(thinking, content)
-            self._flush_pending_chunks()
-        elif status:
+        bubble = self._streaming_bubble
+        if (
+            bubble is not None
+            and isinstance(thinking_phases, list)
+            and isinstance(activity_timeline, list)
+        ):
+            phases = [str(phase) for phase in thinking_phases]
+            raw_tools = tool_activity_records if isinstance(tool_activity_records, list) else []
+            raw_subagents = subagent_records if isinstance(subagent_records, list) else []
+            tool_by_id: dict[str, ToolActivityRecord] = {}
+            for record in raw_tools:
+                if isinstance(record, dict) and record.get("id"):
+                    tool_by_id[str(record["id"])] = cast(ToolActivityRecord, record)
+            subagent_by_id: dict[str, SubagentRunRecord] = {}
+            for record in raw_subagents:
+                if isinstance(record, dict) and record.get("id"):
+                    subagent_by_id[str(record["id"])] = cast(SubagentRunRecord, record)
+            applied_tools: set[str] = set()
+            applied_subagents: set[str] = set()
+            if phases and phases[0]:
+                bubble.append_thinking(phases[0])
+            for index, entry in enumerate(activity_timeline):
+                if not isinstance(entry, dict):
+                    continue
+                record_id = str(entry.get("record_id") or "")
+                kind = str(entry.get("kind") or "")
+                if kind == "tool" and record_id in tool_by_id:
+                    bubble.upsert_tool_activity_record(tool_by_id[record_id], separate_group=True)
+                    applied_tools.add(record_id)
+                elif kind == "subagent" and record_id in subagent_by_id:
+                    bubble.upsert_subagent_record(subagent_by_id[record_id])
+                    applied_subagents.add(record_id)
+                if index + 1 < len(phases) and phases[index + 1]:
+                    bubble.append_thinking(phases[index + 1])
+            for record_id, record in tool_by_id.items():
+                if record_id not in applied_tools:
+                    bubble.upsert_tool_activity_record(record, separate_group=True)
+            for record_id, record in subagent_by_id.items():
+                if record_id not in applied_subagents:
+                    bubble.upsert_subagent_record(record)
+            if content:
+                self._stream_content_started = True
+                bubble.append_content(content)
+        else:
+            if isinstance(subagent_records, list):
+                cast(Any, self).deliver_subagent_update(subagent_records)
+            if isinstance(tool_activity_records, list):
+                cast(Any, self).deliver_tool_activity_update(tool_activity_records)
+            if thinking or content:
+                self.append_assistant_chunk(thinking, content)
+                self._flush_pending_chunks()
+        if not thinking and not content and status:
             cast(Any, self).deliver_activity_status(status)
 
     @Slot(str, str)
@@ -501,6 +550,14 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
         self._cancel_activity_timer()
         if (thinking_delta or content_delta) and bubble.loader_active_count() == 0:
             bubble.hide_activity()
+
+        if (
+            thinking_delta
+            and (bubble._subagent_records or bubble._tool_activity_records)
+            and bubble.loader_active_count() == 0
+            and not bubble._subagents_all_complete
+        ):
+            bubble.refresh_subagent_activity()
 
         bubble.set_defer_layout_height_changed(True)
         if bubble._markdown_body is not None:

@@ -12,6 +12,7 @@ import threading
 
 _lock = threading.Lock()
 _sessions: set[str] = set()
+_collection_ids: dict[str, set[int]] = {}
 
 
 def record_workspace_write(session_id: str) -> None:
@@ -32,16 +33,35 @@ def take_workspace_write(session_id: str) -> bool:
         return wrote
 
 
+def record_collection_ids(session_id: str, ids: set[int]) -> None:
+    """Record collection ids this turn actually created, for link verification."""
+    if not session_id or not ids:
+        return
+    with _lock:
+        _collection_ids.setdefault(session_id, set()).update(ids)
+
+
+def take_collection_ids(session_id: str) -> set[int]:
+    """Return and clear the collection ids produced by *session_id* this turn."""
+    if not session_id:
+        return set()
+    with _lock:
+        return _collection_ids.pop(session_id, set())
+
+
 def clear_workspace_writes(session_id: str) -> None:
-    """Drop any stale mark for *session_id* (call at turn start)."""
+    """Drop any stale marks for *session_id* (call at turn start)."""
     if not session_id:
         return
     with _lock:
         _sessions.discard(session_id)
+        _collection_ids.pop(session_id, None)
 
 
 __all__ = [
     "clear_workspace_writes",
+    "record_collection_ids",
     "record_workspace_write",
+    "take_collection_ids",
     "take_workspace_write",
 ]
