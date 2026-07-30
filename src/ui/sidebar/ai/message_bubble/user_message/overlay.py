@@ -254,11 +254,16 @@ class StickyUserPromptOverlay(QWidget):
         collapsible: bool,
     ) -> None:
         """Mirror anchor prompt text/time without relying on nested row layout."""
+        from ui.sidebar.ai.chat_panel.composer.attachments import split_prompt_attachments
+
         text_changed = text != self._text
         self._text = text
         self._sent_at = sent_at
         self._collapsible = collapsible
-        self._label.setText(text)
+        # The attachment trailer renders as chips on the transcript row; the
+        # sticky prompt shows the body only.
+        body, _attachments = split_prompt_attachments(text)
+        self._label.setText(body)
         if text_changed:
             self._expanded = not collapsible
         self._footer.set_sent_at(sent_at)
@@ -352,7 +357,7 @@ class StickyUserPromptOverlay(QWidget):
 
     def _needs_collapse(self, inner_width: int) -> bool:
         """Return whether the current text needs collapse at *inner_width*."""
-        if inner_width <= 0 or not self._text.strip():
+        if inner_width <= 0 or not self._label.text().strip():
             return False
         return self._natural_label_height(inner_width) > self._collapsed_cap_height(inner_width)
 

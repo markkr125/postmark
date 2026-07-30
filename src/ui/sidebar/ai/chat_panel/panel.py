@@ -9,18 +9,23 @@ from PySide6.QtGui import QCloseEvent, QHideEvent, QResizeEvent, QShowEvent
 from PySide6.QtWidgets import QLabel, QLayout, QPushButton, QScrollArea, QVBoxLayout, QWidget
 
 from services.ai.ai_config import AiModelEntry, model_entry_enabled
+from services.ai.chat.attachments.store import read_markdown, resolve_attachment
 from services.ai.chat.session_service import AiChatMessageDict
 from services.ai.chat.subagent_events import SubagentRunRecord
 from services.ai.chat.tool_activity_events import ToolActivityRecord
 from ui.sidebar.ai.agent_mode_popup import AiAgentModePopup
 from ui.sidebar.ai.chat_panel.composer import AiChatComposer
-from ui.sidebar.ai.chat_panel.composer.attachments import compose_prompt_with_attachments
+from ui.sidebar.ai.chat_panel.composer.attachments import (
+    attachment_sizes_from_sources,
+    compose_prompt_with_attachments,
+)
 from ui.sidebar.ai.chat_panel.composer.budget_banner import AiChatBudgetBanner
 from ui.sidebar.ai.chat_panel.context_usage_panel import _ChatPanelContextUsageMixin
 from ui.sidebar.ai.chat_panel.inline_edit import _ChatPanelInlineEditMixin
 from ui.sidebar.ai.chat_panel_streaming import _ChatPanelStreamingMixin
 from ui.sidebar.ai.chat_transcript_loading_row import ChatTranscriptLoadingOverlay
 from ui.sidebar.ai.message_bubble import ChatMessageBubble
+from ui.sidebar.ai.message_bubble.user_message.attachments import AttachmentMarkdownDialog
 from ui.sidebar.ai.model_picker_popup import AiModelPickerPopup
 from ui.sidebar.ai.subagent_detail_dialog import SubagentDetailDialog
 from ui.styling.icons import phi
@@ -259,6 +264,7 @@ class AiChatPanel(
         )
 
         self._subagent_detail_dialog: SubagentDetailDialog | None = None
+        self._attachment_markdown_dialog: AttachmentMarkdownDialog | None = None
 
         self.set_models([])
         self._reset_context_usage_chrome()
@@ -630,7 +636,12 @@ class AiChatPanel(
         prompt = compose_prompt_with_attachments(text, attachments)
         # Held for the controller, which copies them once the session id exists.
         self._pending_attachment_sources = list(attachments)
-        self.add_message("user", prompt, sent_at=datetime.now(tz=UTC))
+        self.add_message(
+            "user",
+            prompt,
+            sent_at=datetime.now(tz=UTC),
+            attachment_sizes=attachment_sizes_from_sources(attachments),
+        )
         self._docked_composer.clear_input()
         self._docked_composer.clear_attachments()
         self.message_submitted.emit(prompt)
@@ -734,6 +745,25 @@ class AiChatPanel(
         """Connect fork/edit affordances for one user transcript row."""
         bubble.user_fork_requested.connect(self._on_user_bubble_fork)
         bubble.user_edit_requested.connect(self._on_user_bubble_edit)
+        bubble.attachment_clicked.connect(self._on_attachment_clicked)
+
+    def _ensure_attachment_markdown_dialog(self) -> AttachmentMarkdownDialog:
+        """Create the attachment markdown viewer on first use."""
+        if self._attachment_markdown_dialog is None:
+            self._attachment_markdown_dialog = AttachmentMarkdownDialog(self)
+        return self._attachment_markdown_dialog
+
+    def _on_attachment_clicked(self, reference: str) -> None:
+        """Open the markdown viewer for the clicked attachment reference."""
+        session_id = getattr(self, "_virtual_session_id", None) or self._context_session_id
+        if not session_id or not reference:
+            return
+        entry = resolve_attachment(session_id, reference)
+        if entry is None:
+            return
+        markdown = read_markdown(entry)
+        name = str(entry.get("name") or reference)
+        self._ensure_attachment_markdown_dialog().open_attachment(name, markdown)
 
     def _edit_sticky_prompt(self, anchor: ChatMessageBubble) -> None:
         """Begin inline edit in the sticky overlay for the mirrored user row."""

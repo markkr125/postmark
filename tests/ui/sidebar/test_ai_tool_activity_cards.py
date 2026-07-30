@@ -806,8 +806,13 @@ def test_thought_between_calls_starts_a_new_group(qapp: QApplication, qtbot) -> 
     assert len(bubble._tool_activity_groups) == 2
 
 
-def test_reload_separate_group_keeps_records_interleaved(qapp: QApplication, qtbot) -> None:
-    """Transcript reload gives each record its own group for positional interleaving."""
+def test_reload_collapses_contiguous_records_into_one_group(qapp: QApplication, qtbot) -> None:
+    """Transcript reload collapses a contiguous run of tool calls into one group.
+
+    A restored run must match the live-streaming layout: contiguous tool calls share
+    one collapsed group, and only a restored thought phase between two calls starts
+    a fresh group so each thought/tool cycle stays in chronological order.
+    """
     bubble = ChatMessageBubble("assistant", "", thinking="Plan.")
     qtbot.addWidget(bubble)
     bubble.upsert_tool_activity_record(
@@ -817,8 +822,7 @@ def test_reload_separate_group_keeps_records_interleaved(qapp: QApplication, qtb
             "title": "Query",
             "detail": "a",
             "status": "completed",
-        },
-        separate_group=True,
+        }
     )
     bubble.upsert_tool_activity_record(
         {
@@ -827,7 +831,22 @@ def test_reload_separate_group_keeps_records_interleaved(qapp: QApplication, qtb
             "title": "Import",
             "detail": "b",
             "status": "completed",
-        },
-        separate_group=True,
+        }
+    )
+    # A contiguous run (no thought between the two calls) is one collapsed group.
+    assert len(bubble._tool_activity_groups) == 1
+    assert set(bubble._tool_activity_groups[0]._cards) == {"r1", "r2"}
+
+    # A restored thought phase between cycles starts a new group for later calls.
+    bubble.append_thinking("Evaluate first result.")
+    bubble.upsert_tool_activity_record(
+        {
+            "id": "r3",
+            "tool_name": "postmark_workspace_query",
+            "title": "Query",
+            "detail": "c",
+            "status": "completed",
+        }
     )
     assert len(bubble._tool_activity_groups) == 2
+    assert set(bubble._tool_activity_groups[1]._cards) == {"r3"}

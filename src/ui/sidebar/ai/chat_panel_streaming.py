@@ -303,6 +303,7 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
         sent_at: datetime | None = None,
         lazy_markdown: bool = False,
         message_id: int | None = None,
+        attachment_sizes: dict[str, int] | None = None,
     ) -> ChatMessageBubble:
         """Append a message bubble to the transcript."""
         if role == "user" and self._open_stream_generation == 0:
@@ -315,6 +316,7 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
             thinking_duration_seconds=thinking_duration_seconds,
             sent_at=sent_at,
             lazy_markdown=lazy_markdown,
+            attachment_sizes=attachment_sizes,
         )
         self._ensure_virtual_spacers()
         assert self._bottom_virtual_spacer is not None
@@ -485,7 +487,7 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
                 record_id = str(entry.get("record_id") or "")
                 kind = str(entry.get("kind") or "")
                 if kind == "tool" and record_id in tool_by_id:
-                    bubble.upsert_tool_activity_record(tool_by_id[record_id], separate_group=True)
+                    bubble.upsert_tool_activity_record(tool_by_id[record_id])
                     applied_tools.add(record_id)
                 elif kind == "subagent" and record_id in subagent_by_id:
                     bubble.upsert_subagent_record(subagent_by_id[record_id])
@@ -494,7 +496,7 @@ class _ChatPanelStreamingMixin(_ChatPanelTranscriptWindowMixin, _ChatPanelScroll
                     bubble.append_thinking(phases[index + 1])
             for record_id, record in tool_by_id.items():
                 if record_id not in applied_tools:
-                    bubble.upsert_tool_activity_record(record, separate_group=True)
+                    bubble.upsert_tool_activity_record(record)
             for record_id, record in subagent_by_id.items():
                 if record_id not in applied_subagents:
                     bubble.upsert_subagent_record(record)

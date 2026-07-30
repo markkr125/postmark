@@ -82,3 +82,48 @@ def test_begin_inline_edit_scrolls_user_row_to_top(qapp: QApplication, qtbot) ->
     expected = max(0, y - 8)
     assert abs(bar.value() - expected) <= 12
     panel.end_inline_edit(restore_bubble=True)
+
+
+def test_inline_edit_lifts_attachment_trailer_into_chips(qapp: QApplication, qtbot) -> None:
+    """Edit must not dump the Attached files trailer into the compact text field.
+
+    Regression: the full composed prompt (including long ``postmark://`` URI lines)
+    was restored into the inline input, where it overlapped Agent / Cancel / Send
+    and looked mangled. The body stays in the editor; attachments become chips.
+    """
+    from PySide6.QtWidgets import QPushButton
+
+    prompt = (
+        "Turn this pdf into a collection please\n\n"
+        "Attached files:\n"
+        "- Agoda Standard Pull Spec v1.34 (5) (1).pdf -> "
+        "postmark://uploaded/Agoda_Standard_Pull_Spec_v1.34_5_1.md"
+    )
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.resize(420, 600)
+    panel.show()
+    panel.add_message("user", prompt, message_id=11)
+    assert panel.begin_inline_edit(11) is True
+    state = panel._inline_edit
+    assert state is not None
+    composer = state.composer
+
+    assert composer.plain_text() == "Turn this pdf into a collection please"
+    assert "postmark://" not in composer.input_widget().toPlainText()
+    assert "Attached files:" not in composer.input_widget().toPlainText()
+
+    chips = composer.findChildren(QPushButton, "aiChatAttachmentChip")
+    assert len(chips) == 1
+    assert chips[0].text().startswith("Agoda")
+    assert "postmark://uploaded/Agoda_Standard_Pull_Spec_v1.34_5_1.md" in chips[0].toolTip()
+    assert not composer._attachments_row.isHidden()
+
+    fired: list[tuple[int, str]] = []
+    panel.user_edit_submitted.connect(lambda mid, text: fired.append((mid, text)))
+    panel._on_inline_edit_submit()
+    assert len(fired) == 1
+    assert fired[0][0] == 11
+    assert "Turn this pdf into a collection please" in fired[0][1]
+    assert "postmark://uploaded/Agoda_Standard_Pull_Spec_v1.34_5_1.md" in fired[0][1]
+    panel.end_inline_edit(restore_bubble=True)

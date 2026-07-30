@@ -223,7 +223,7 @@ tests/
 │   │   │   ├── test_thought_layout_reentrancy.py
 │   │   │   ├── test_bubble_stream_row_height.py
 │   │   │   ├── test_chat_composer.py
-│   │   │   ├── test_composer_attachments.py  # attachment paths appended to the submitted prompt
+│   │   │   ├── test_composer_attachments.py  # attachment paths + prompt-trailer lift/compose for edit
 │   │   │   └── test_user_message_collapse.py
 │   │   └── widgets/
 │   │       ├── test_text_format_helpers.py
@@ -440,6 +440,7 @@ tests/
 │   ├── test_ai_execute_cards.py  # Execute result cards → history?focus=response / request deeplink
 │   ├── test_ai_pending_tool_cards.py  # Inline Allow/Reject/Always allow cards on streaming bubble
 │   ├── test_ai_tool_activity_cards.py # Tool activity cards, execute handoff, multi-cycle chronological phases
+│   ├── test_ai_user_message_attachments.py  # User-bubble attachment chips: trailer → chips above prompt, sizes, legacy paths
 │   ├── test_ai_session_history_popup.py  # Virtualized list; RUNNING_ROLE; ⋯ menu click routing; rename/delete dialogs
 │   ├── test_ai_active_run_badge.py  # Header aiChatActiveRunsBadge count pill
 │   ├── test_session_transcript_load.py  # Async session switch + lazy markdown; post-load settle skips work while pinned
@@ -458,7 +459,7 @@ tests/
    │       ├── test_subagent_detail_dialog.py  # SubagentDetailDialog task + markdown reply
    │       ├── test_thought_streaming_bounce.py  # E2E: thinking block grows monotonically, no bounce/oscillation
    │       ├── test_user_message_actions.py
-   │       ├── test_inline_edit_message.py
+   │       ├── test_inline_edit_message.py  # Inline edit + attachment trailer → chips (not mangled text)
    │       ├── test_inline_edit_sticky_host.py  # Inline edit composer reparented into sticky overlay
    │       ├── test_context_usage_integration.py
    │       ├── test_context_thread_safety.py

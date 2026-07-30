@@ -474,15 +474,7 @@ class SubagentDetailDialog(QDialog):
         viewport = self._scroll.viewport()
         if viewport is None or viewport.width() <= 0:
             return
-        width = viewport.width()
-        needs_rerender = self._reply.width() <= 1 or self._reply.width() != width
-        if self._reply.width() != width:
-            self._reply.setFixedWidth(width)
-        markdown = self._reply.markdown()
-        if markdown and needs_rerender and not self._reply.is_streaming():
-            self._reply.set_markdown(markdown)
-        else:
-            self._reply.resync_height_for_footer()
+        self._reply.sync_to_viewport_width(viewport.width())
 
     def _build_step_row(self, step: SubagentActivityStep) -> QWidget:
         """Build one icon + summary row for the activity list."""

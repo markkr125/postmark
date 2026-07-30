@@ -194,6 +194,9 @@ clock, e.g. ``Jun 7, 2:39 PM``). New sends pass ``sent_at=datetime.now(UTC)``;
 ``created_at``. **Edit message** (actions menu, first row) opens an inline
 ``AiChatComposer`` on the bubble with per-send settings restored from
 ``send_*`` columns (legacy sessions use ``infer_send_snapshot_fallback``).
+Any ``Attached files:`` trailer is lifted out of the text field into
+``aiChatAttachmentChip`` rows (same split as the read-only bubble); submit
+recomposes the trailer via ``composed_prompt()``.
 Resubmit truncates later transcript rows and regenerates the assistant reply.
 While inline edit is active, scrolling the edited user bubble off the top of the
 viewport reparents the single live ``AiChatComposer`` into the sticky overlay

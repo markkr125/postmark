@@ -182,8 +182,16 @@ Main-agent tools (not wiki/delegate) emit in-flight rows via
   stripped unless a tool observation in that turn produced its id
   (`claim_guard.strip_unbacked_collection_links`). Do not rely on phrasing regexes
   alone; models evade them.
+- **Write ledger must recognize every write tool** — use the single
+  `auto_approve.is_mutate_or_execute_tool` source of truth (via
+  `claim_guard.observation_records_write`). A private second list in the chat
+  worker missed `postmark_collection_draft`, so every successful draft `finish`
+  still produced the false "No workspace change was actually made" warning and
+  stripped the real collection link. For multi-step draft tools, only the
+  persisting step (finish / `mutation_id:` marker) may record a write.
 - **Outcomes** — reuse `observation_indicates_write` for import/mutate/execute
-  (zero import counts with `ok: true` = error).
+  (zero import counts with `ok: true` = error); draft tools gate through
+  `observation_records_write` so non-finish ops never count.
 - **Execute** — tool row suppressed on observation; `ExecuteResultCard` from bridge.
 - **Fast read-only** — `postmark_datetime` cards under ~400ms (completed only) are suppressed unless error.
 - **Chronological thinking phases** — showing Approve chrome finalizes the active thought

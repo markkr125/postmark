@@ -12,6 +12,12 @@ from services.ai.ai_config import AiConfig, AiModelEntry, model_entry_enabled
 from services.ai.provider_catalog import effective_run_context_tokens, format_run_context_tokens
 from services.ai.reasoning_effort import clamp_effort, default_effort_for, format_reasoning_effort
 from ui.sidebar.ai.agent_mode_popup import AgentModeButton
+from ui.sidebar.ai.chat_panel.composer.attachments import (
+    PromptAttachment,
+    compose_prompt_with_attachments,
+    compose_prompt_with_prompt_attachments,
+    split_prompt_attachments,
+)
 from ui.sidebar.ai.chat_panel.composer.input import ComposerInput
 from ui.sidebar.ai.chat_panel.composer.model_picker_button import (
     _NO_ENABLED_MODELS_TEXT,
@@ -52,12 +58,14 @@ class AiChatComposer(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
         self._attachments: list[str] = []
+        self._prompt_attachments: list[PromptAttachment] = []
         self._models: list[AiModelEntry] = []
         self._current_model_id: str | None = None
         self._reasoning_effort: str | None = None
         self._agent_id: str | None = None
         self._run_busy = False
         self._compact = False
+        self._edit_mode = False
         self._embedded = False
         self._configured_model_count = 0
 
@@ -171,7 +179,7 @@ class AiChatComposer(QWidget):
         self._compact = compact
         self._context_ring.setVisible(not compact)
         self._upload_btn.setVisible(not compact)
-        self._attachments_row.setVisible(not compact and bool(self._attachments))
+        self._sync_attachments_row_visibility()
 
     def set_embedded(self, embedded: bool) -> None:
         """Strip docked chrome when the composer lives inside a user bubble."""
@@ -195,12 +203,14 @@ class AiChatComposer(QWidget):
 
     def set_edit_mode(self, enabled: bool) -> None:
         """Show cancel affordance and wire Escape on the input."""
+        self._edit_mode = enabled
         self._input.set_edit_mode(enabled)
         self._cancel_btn.setVisible(enabled)
         if enabled:
             self._cancel_btn.setFlat(False)
         else:
             self._cancel_btn.setFlat(True)
+        self._sync_attachments_row_visibility()
 
     def set_models(self, entries: list[AiModelEntry]) -> None:
         """Store enabled models and refresh selection."""
@@ -238,8 +248,19 @@ class AiChatComposer(QWidget):
         self._send_btn.setEnabled(enabled and bool(self._models))
 
     def restore_text(self, text: str) -> None:
-        """Put prompt text into the input and focus it."""
-        self._input.setPlainText(text)
+        """Put the prompt body into the input; lift any attachment trailer into chips.
+
+        Inline edit used to dump the composed ``Attached files:`` trailer into the
+        compact text field, where long URI lines overlapped Agent / Cancel / Send.
+        The trailer is lifted into chips the same way the read-only bubble shows it,
+        and :meth:`composed_prompt` writes it back on submit.
+        """
+        body, attachments = split_prompt_attachments(text)
+        self.clear_attachments()
+        self._input.setPlainText(body)
+        for attachment in attachments:
+            self._add_prompt_attachment(attachment)
+        self._sync_attachments_row_visibility()
         self._input.setFocus()
 
     def clear_input(self) -> None:
@@ -247,8 +268,17 @@ class AiChatComposer(QWidget):
         self._input.clear()
 
     def plain_text(self) -> str:
-        """Return trimmed prompt text."""
+        """Return trimmed prompt body text (without the attachment trailer)."""
         return self._input.toPlainText().strip()
+
+    def composed_prompt(self) -> str:
+        """Return the full prompt including any attachment trailer for send/edit."""
+        body = self.plain_text()
+        if self._prompt_attachments:
+            return compose_prompt_with_prompt_attachments(body, self._prompt_attachments)
+        if self._attachments:
+            return compose_prompt_with_attachments(body, self._attachments)
+        return body
 
     def current_model_id(self) -> str | None:
         """Return the selected model id."""
@@ -361,14 +391,15 @@ class AiChatComposer(QWidget):
         self._context_ring.set_usage(used_tokens, total_tokens)
 
     def attachments(self) -> list[str]:
-        """Return attached file paths."""
+        """Return attached file paths (docked composer uploads)."""
         return list(self._attachments)
 
     def clear_attachments(self) -> None:
         """Drop every attachment chip, typically after a send."""
-        if not self._attachments:
+        if not self._attachments and not self._prompt_attachments:
             return
         self._attachments.clear()
+        self._prompt_attachments.clear()
         while self._attachments_layout.count() > 1:
             item = self._attachments_layout.takeAt(0)
             widget = item.widget() if item is not None else None
@@ -393,6 +424,13 @@ class AiChatComposer(QWidget):
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
+    def _sync_attachments_row_visibility(self) -> None:
+        """Show the chip row for docked uploads or inline-edit restored trailers."""
+        has = bool(self._attachments) or bool(self._prompt_attachments)
+        # Compact mode hides the row on the docked composer, but inline edit is
+        # also compact and must still show restored attachment chips.
+        self._attachments_row.setVisible(has and (not self._compact or self._edit_mode))
+
     def _on_submit(self) -> None:
         """Emit submit or stop depending on run state."""
         if self._run_busy:
@@ -400,7 +438,7 @@ class AiChatComposer(QWidget):
             return
         if not self._send_btn.isEnabled():
             return
-        if not self.plain_text() and not self._attachments:
+        if not self.plain_text() and not self._attachments and not self._prompt_attachments:
             return
         self.submit_requested.emit()
 
@@ -414,23 +452,55 @@ class AiChatComposer(QWidget):
                 self._add_attachment_chip(path)
                 added = True
         if added:
-            self._attachments_row.setVisible(not self._compact and bool(self._attachments))
+            self._sync_attachments_row_visibility()
             self.attachments_changed.emit(self.attachments())
 
     def _add_attachment_chip(self, path: str) -> None:
-        chip = QPushButton(f"{Path(path).name}  x")
+        name = Path(path).name
+        chip = QPushButton(f"{self._elided_chip_name(name)}  x")
         chip.setObjectName("aiChatAttachmentChip")
         chip.setCursor(Qt.CursorShape.PointingHandCursor)
         chip.setToolTip(f"Remove {path}")
         chip.clicked.connect(lambda: self._remove_attachment(path, chip))
         self._attachments_layout.insertWidget(self._attachments_layout.count() - 1, chip)
 
+    def _add_prompt_attachment(self, attachment: PromptAttachment) -> None:
+        """Add a chip for an attachment already stored in the session (edit restore)."""
+        if any(row.reference == attachment.reference for row in self._prompt_attachments):
+            return
+        self._prompt_attachments.append(attachment)
+        chip = QPushButton(f"{self._elided_chip_name(attachment.name)}  x")
+        chip.setObjectName("aiChatAttachmentChip")
+        chip.setCursor(Qt.CursorShape.PointingHandCursor)
+        chip.setToolTip(f"Remove {attachment.name}\n{attachment.reference}")
+        chip.clicked.connect(lambda: self._remove_prompt_attachment(attachment, chip))
+        self._attachments_layout.insertWidget(self._attachments_layout.count() - 1, chip)
+
+    def _elided_chip_name(self, name: str) -> str:
+        """Shorten long filenames so chips stay compact in the composer row."""
+        # Match the read-only user-bubble chip max width (~200px of text).
+        metrics = self.fontMetrics()
+        return metrics.elidedText(name, Qt.TextElideMode.ElideMiddle, 200)
+
     def _remove_attachment(self, path: str, chip: QPushButton) -> None:
         if path in self._attachments:
             self._attachments.remove(path)
         chip.setParent(None)
         chip.deleteLater()
-        self._attachments_row.setVisible(not self._compact and bool(self._attachments))
+        self._sync_attachments_row_visibility()
+        self.attachments_changed.emit(self.attachments())
+
+    def _remove_prompt_attachment(
+        self,
+        attachment: PromptAttachment,
+        chip: QPushButton,
+    ) -> None:
+        self._prompt_attachments = [
+            row for row in self._prompt_attachments if row.reference != attachment.reference
+        ]
+        chip.setParent(None)
+        chip.deleteLater()
+        self._sync_attachments_row_visibility()
         self.attachments_changed.emit(self.attachments())
 
     def _entry_by_id(self, model_id: str) -> AiModelEntry | None:

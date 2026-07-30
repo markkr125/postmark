@@ -56,6 +56,7 @@ class ChatMessageBubble(QWidget):
     workspace_target_requested = Signal(str, int, str)
     confirmation_approve_requested = Signal()
     confirmation_reject_requested = Signal()
+    attachment_clicked = Signal(str)
 
     def __init__(
         self,
@@ -66,6 +67,7 @@ class ChatMessageBubble(QWidget):
         thinking_duration_seconds: int | None = None,
         sent_at: datetime | None = None,
         lazy_markdown: bool = False,
+        attachment_sizes: dict[str, int] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         """Build a row for *role* showing *text* and optional *thinking*."""
@@ -135,7 +137,9 @@ class ChatMessageBubble(QWidget):
             frame_layout.setContentsMargins(12, 6, 12, 6)
             frame_layout.setSpacing(0)
             self._user_section = UserMessageSection(text, frame)
+            self._user_section.set_attachment_sizes(attachment_sizes)
             self._user_section.layout_height_changed.connect(self._on_user_message_layout_changed)
+            self._user_section.attachment_clicked.connect(self.attachment_clicked.emit)
             frame_layout.addWidget(self._user_section)
             self._user_footer = UserMessageFooterRow(frame)
             self._user_footer.set_sent_at(sent_at)
@@ -964,16 +968,17 @@ class ChatMessageBubble(QWidget):
                 self._move_before_answer(self._activity_row)
                 self.show_activity("Thinking…")
 
-    def _target_tool_activity_group(self, *, force_new: bool) -> ToolActivityGroup:
+    def _target_tool_activity_group(self) -> ToolActivityGroup:
         """Return the group a new tool call should join, creating one at a cycle boundary.
 
-        A contiguous run of tool calls batches into one group; a new thought phase
-        appended after the last group was created starts a fresh group so each
-        thought/tool cycle stays in strict chronological order. ``force_new`` is used
-        by transcript reload, which interleaves each record between restored thoughts.
+        A contiguous run of tool calls batches into one group; once a new thought
+        phase is appended after the last group was created, the next tool call starts
+        a fresh group so each thought/tool cycle stays in strict chronological order.
+        Live streaming and transcript reload both feed records through here, so a
+        restored run collapses into the same single group it had while streaming.
         """
         thought_count = len(self._thought_sections)
-        if self._tool_activity_groups and not force_new:
+        if self._tool_activity_groups:
             last = self._tool_activity_groups[-1]
             if self._tool_activity_group_boundary.get(id(last), -1) == thought_count:
                 return last
@@ -985,9 +990,7 @@ class ChatMessageBubble(QWidget):
         self._move_before_answer(group)
         return group
 
-    def set_tool_activity_records(
-        self, records: list[ToolActivityRecord], *, force_new_group: bool = False
-    ) -> None:
+    def set_tool_activity_records(self, records: list[ToolActivityRecord]) -> None:
         """Replace tool activity cards (transcript reload or live sync)."""
         incoming = {record["id"]: record for record in records}
         new_ids = [
@@ -995,7 +998,7 @@ class ChatMessageBubble(QWidget):
         ]
         for record_id in new_ids:
             self._close_active_thought()
-            group = self._target_tool_activity_group(force_new=force_new_group)
+            group = self._target_tool_activity_group()
             self._tool_activity_group_by_record[record_id] = group
 
         removed_ids = set(self._tool_activity_records) - set(incoming)
@@ -1024,18 +1027,18 @@ class ChatMessageBubble(QWidget):
         self._commit_stream_row_layout()
         self.layout_height_changed.emit()
 
-    def upsert_tool_activity_record(
-        self, record: ToolActivityRecord, *, separate_group: bool = False
-    ) -> None:
+    def upsert_tool_activity_record(self, record: ToolActivityRecord) -> None:
         """Create or update one tool activity card.
 
-        ``separate_group`` is used by transcript reload, which places each restored
-        record between its restored thought sections and so needs a group per record.
-        Live streaming passes the full contiguous run through ``set_tool_activity_records``.
+        Transcript reload walks the ordered records and calls this once per record;
+        the thought-phase boundary check in ``_target_tool_activity_group`` keeps a
+        contiguous run in one group and starts a new group only when a restored
+        thought phase appeared between two calls. Live streaming instead passes the
+        full contiguous run through ``set_tool_activity_records``.
         """
         records = dict(self._tool_activity_records)
         records[record["id"]] = record
-        self.set_tool_activity_records(list(records.values()), force_new_group=separate_group)
+        self.set_tool_activity_records(list(records.values()))
 
     def tool_activity_active_count(self) -> int:
         """Return running main-agent tool activity cards."""
@@ -1417,6 +1420,7 @@ class ChatMessageBubble(QWidget):
             chrome += frame_layout.spacing() * (visible_rows - 1)
         if self._user_section is not None:
             chrome += self._user_section.toggle_row_height_for_width(label_width)
+            chrome += self._user_section.attachment_row_height()
         return chrome
 
     def append_text(self, text: str) -> None:

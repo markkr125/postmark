@@ -435,6 +435,16 @@ standard object names:
 | `aiModelPickerProvider` | `QLabel` | *(unused)* — provider shown as bold ``QListWidget`` group headers instead |
 | `aiChatAttachments` | `QWidget` | Attachment chips row (hidden when empty) |
 | `aiChatAttachmentChip` | `QPushButton` | Removable file attachment chip |
+| `aiChatUserAttachments` | `QWidget` | Transcript user-bubble attachment chip row above the prompt (subtle hairline divider) |
+| `aiChatUserAttachmentChip` | `QFrame` | Clickable file chip (icon + name + size); left-click emits `attachment_clicked` → opens `AttachmentMarkdownDialog` |
+| `aiChatUserAttachmentChipIcon` | `QLabel` | File-type glyph inside a user-bubble chip |
+| `aiChatUserAttachmentChipName` | `QLabel` | Elided filename inside a user-bubble chip |
+| `aiChatUserAttachmentChipSize` | `QLabel` | Muted size label inside a user-bubble chip |
+| `aiChatAttachmentMarkdownDialog` | `QDialog` (`AttachmentMarkdownDialog`) | Non-modal viewer for one upload's stored Markdown: file-name title + scrollable stock `MarkdownContent` (`aiChatAssistantText`, same as subagent reply) + Close; opened from a user-bubble chip click via `resolve_attachment` + `read_markdown` |
+| `aiChatAttachmentMarkdownTitle` | `QLabel` | File-name heading in the attachment Markdown viewer |
+| `aiChatAttachmentMarkdownScroll` | `QScrollArea` | Scroll host for the attachment Markdown body (mirrors `aiChatSubagentDetailScroll`) |
+| `aiChatAttachmentMarkdownScrollViewport` | `QWidget` | Viewport of the attachment Markdown scroll area |
+| `aiChatAttachmentMarkdownClose` | `QPushButton` | Close button in the attachment Markdown viewer |
 | `aiSessionHistoryPopup` | `QFrame` | Session history popover (title-row clock button); width ``AI_SESSION_HISTORY_POPUP_WIDTH_EM`` × em; async ``SessionListLoader`` + debounced SQL search |
 | `aiSessionSearch` | `QLineEdit` | Session history search field |
 | `aiSessionHistoryList` | `QListView` | Virtualized session list (`SessionHistoryListModel` + `SessionHistoryRowDelegate`); hover ⋯ opens actions flyout; fixed 44px row height |

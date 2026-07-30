@@ -7,12 +7,17 @@ import pytest
 from services.ai.chat.mutation.claim_guard import (
     UNVERIFIED_WRITE_NOTE,
     claims_workspace_write,
+    collection_ids_in_observation,
     observation_indicates_write,
+    observation_records_write,
+    strip_unbacked_collection_links,
     unverified_write_note,
 )
 from services.ai.chat.mutation.write_ledger import (
     clear_workspace_writes,
+    record_collection_ids,
     record_workspace_write,
+    take_collection_ids,
     take_workspace_write,
 )
 
@@ -22,6 +27,43 @@ _REAL_FABRICATED_MESSAGE = (
     "✅ The OpenAPI file has been imported.\n"
     "Four collections were created, containing eight requests in total.\n"
     "You can find them on the left-hand side of the UI."
+)
+
+_DRAFT_TOOL = "postmark_collection_draft"
+_IMPORT_TOOL = "postmark_import"
+_QUERY_TOOL = "postmark_workspace_query"
+
+# Verbatim finish observation from conversation 5d197805 (collection 723).
+_REAL_DRAFT_FINISH_OBSERVATION = (
+    "ok: true\n"
+    "mutation_id: cfc4e73ebb8a\n"
+    "summary: Created collection 'Agoda Standard Pull Spec v1.34 (5) (1)' "
+    "with 7 request(s)\n"
+    "action: create\n"
+    "entity: import\n"
+    "collections_imported: 1\n"
+    "requests_imported: 7\n"
+    "imported_collections: [{'id': 723, 'name': "
+    "'Agoda Standard Pull Spec v1.34 (5) (1)'}]\n"
+    "collection_links: "
+    "['[Agoda Standard Pull Spec v1.34 (5) (1)](postmark://collection/723)']\n"
+    "next_step: The collection exists. Reply using the collection_links label "
+    "above; never invent a collection id or link.\n"
+)
+
+_REAL_DRAFT_START_OBSERVATION = (
+    "ok: true\ndraft: Agoda Standard Pull Spec v1.34 (5) (1)\nrequests: 0\n"
+    "note: This draft supersedes any earlier import in this chat. Build it only "
+    "from the document you are reading now.\n"
+    "next_step: call operation=add_requests with a requests array, then "
+    "operation=finish. JSON bodies must be objects or arrays, not encoded strings.\n"
+)
+
+_REAL_DRAFT_ADD_OBSERVATION = "ok: true\nadded: ['GET Get Booking Details']\nrequests: 1\n"
+
+_REAL_FINAL_MESSAGE = (
+    "I've created the collection: "
+    "[Agoda Standard Pull Spec v1.34 (5) (1)](postmark://collection/723)"
 )
 
 
@@ -155,6 +197,79 @@ class TestObservationIndicatesWrite:
         write_observed = observation_indicates_write(_REAL_OK_IMPORT_OBSERVATION)
         assert (
             unverified_write_note(_REAL_FABRICATED_MESSAGE, write_observed=write_observed) is None
+        )
+
+
+class TestObservationRecordsWrite:
+    """Write-ledger membership uses the shared tool predicate + draft finish gate."""
+
+    def test_draft_finish_records_a_write(self) -> None:
+        """A successful draft finish is the observation that creates the collection."""
+        assert observation_records_write(_DRAFT_TOOL, _REAL_DRAFT_FINISH_OBSERVATION) is True
+        assert collection_ids_in_observation(_REAL_DRAFT_FINISH_OBSERVATION) == {723}
+
+    def test_draft_start_does_not_record(self) -> None:
+        """Staging a draft must not silence the unverified-write guard."""
+        assert observation_records_write(_DRAFT_TOOL, _REAL_DRAFT_START_OBSERVATION) is False
+
+    def test_draft_add_requests_does_not_record(self) -> None:
+        """Adding requests only mutates in-memory draft state."""
+        assert observation_records_write(_DRAFT_TOOL, _REAL_DRAFT_ADD_OBSERVATION) is False
+
+    def test_import_still_records(self) -> None:
+        """postmark_import success continues to count."""
+        assert observation_records_write(_IMPORT_TOOL, _REAL_OK_IMPORT_OBSERVATION) is True
+
+    def test_read_only_tool_does_not_record(self) -> None:
+        """Workspace query must never enter the write ledger."""
+        assert observation_records_write(_QUERY_TOOL, "ok: true\ncollections: 3\n") is False
+
+    def test_draft_finish_ok_false_does_not_record(self) -> None:
+        """A failed finish (with mutation_id absent or ok: false) is not a write."""
+        failed = "ok: false\nerror: draft_empty\nhint: Add at least one request.\n"
+        assert observation_records_write(_DRAFT_TOOL, failed) is False
+        failed_with_id = "ok: false\nmutation_id: deadbeef\nerror: IntegrityError\nmessage: boom\n"
+        assert observation_records_write(_DRAFT_TOOL, failed_with_id) is False
+
+    def test_draft_finish_zero_counts_does_not_record(self) -> None:
+        """All-zero import counts mean nothing was persisted."""
+        zero = (
+            "ok: true\n"
+            "mutation_id: deadbeef\n"
+            "collections_imported: 0\n"
+            "requests_imported: 0\n"
+            "environments_imported: 0\n"
+        )
+        assert observation_records_write(_DRAFT_TOOL, zero) is False
+
+    def test_finish_turn_does_not_flag_or_strip_real_link(self) -> None:
+        """End-to-end: finish observation backs the claim and keeps the real link."""
+        session = "draft-finish-session"
+        clear_workspace_writes(session)
+        if observation_records_write(_DRAFT_TOOL, _REAL_DRAFT_FINISH_OBSERVATION):
+            record_workspace_write(session)
+            record_collection_ids(
+                session, collection_ids_in_observation(_REAL_DRAFT_FINISH_OBSERVATION)
+            )
+        assert take_workspace_write(session) is True
+        produced = take_collection_ids(session)
+        assert produced == {723}
+        assert unverified_write_note(_REAL_FINAL_MESSAGE, write_observed=True) is None
+        cleaned, stripped = strip_unbacked_collection_links(_REAL_FINAL_MESSAGE, produced)
+        assert stripped is False
+        assert "postmark://collection/723" in cleaned
+
+    def test_claim_after_only_start_still_flagged(self) -> None:
+        """Guard stays intact when the model claims create after only staging."""
+        session = "draft-start-only-session"
+        clear_workspace_writes(session)
+        for text in (_REAL_DRAFT_START_OBSERVATION, _REAL_DRAFT_ADD_OBSERVATION):
+            if observation_records_write(_DRAFT_TOOL, text):
+                record_workspace_write(session)
+        assert take_workspace_write(session) is False
+        assert (
+            unverified_write_note(_REAL_FINAL_MESSAGE, write_observed=False)
+            == UNVERIFIED_WRITE_NOTE
         )
 
 

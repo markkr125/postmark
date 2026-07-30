@@ -9,10 +9,16 @@ from __future__ import annotations
 
 import re
 
+from services.ai.chat.mutation.auto_approve import is_mutate_or_execute_tool
+
 _COUNT = r"(?:\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)"
 
 # Count fields emitted by an import observation; all-zero means nothing changed.
 _COUNT_FIELDS = ("collections_imported", "requests_imported", "environments_imported")
+
+# Only finish emits mutation_id; start/add_requests/status/discard must not count.
+_DRAFT_TOOL = "postmark_collection_draft"
+_MUTATION_ID_MARKER = "mutation_id:"
 
 # Past-tense completion claims only. Forward-looking ("I'll import", "you can
 # import") and failure reports ("the import failed") must NOT match, or a
@@ -123,6 +129,23 @@ def observation_indicates_write(text: str) -> bool:
     return not (counts and not any(counts))
 
 
+def observation_records_write(tool_name: str, text: str) -> bool:
+    """Return whether this tool observation should enter the write ledger.
+
+    Uses :func:`is_mutate_or_execute_tool` as the single source of truth for
+    which tools can write. For ``postmark_collection_draft``, only a finish
+    observation (identified by the ``mutation_id:`` marker) counts — start /
+    add_requests / status / discard must not, or a model claiming success after
+    only staging would silence the unverified-write guard.
+    """
+    if not is_mutate_or_execute_tool(tool_name):
+        return False
+    body = text or ""
+    if tool_name == _DRAFT_TOOL and _MUTATION_ID_MARKER not in body:
+        return False
+    return observation_indicates_write(body)
+
+
 def unverified_write_note(content: str, *, write_observed: bool) -> str | None:
     """Return a warning note when a write is claimed but none was observed.
 
@@ -146,6 +169,7 @@ __all__ = [
     "claims_workspace_write",
     "collection_ids_in_observation",
     "observation_indicates_write",
+    "observation_records_write",
     "strip_unbacked_collection_links",
     "unverified_write_note",
 ]

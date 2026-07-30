@@ -2288,6 +2288,83 @@ def build_global_qss(p: ThemePalette) -> str:
     QWidget[objectName="aiChatAttachments"] {{
         background: transparent;
     }}
+    QWidget[objectName="aiChatUserAttachments"] {{
+        background: transparent;
+        border-bottom: 1px solid {"rgba(255,255,255,0.06)" if p is DARK_PALETTE else "rgba(0,0,0,0.05)"};
+    }}
+    QFrame[objectName="aiChatUserAttachmentChip"] {{
+        background: {p["bg_alt"]};
+        border: 1px solid {p["border"]};
+        border-radius: 6px;
+    }}
+    QFrame[objectName="aiChatUserAttachmentChip"]:hover {{
+        background: {"rgba(255,255,255,0.06)" if p is DARK_PALETTE else "rgba(0,0,0,0.04)"};
+        border-color: {p["accent"]};
+    }}
+    QLabel[objectName="aiChatUserAttachmentChipIcon"] {{
+        background: transparent;
+        border: none;
+        padding: 0;
+    }}
+    QLabel[objectName="aiChatUserAttachmentChipName"] {{
+        background: transparent;
+        border: none;
+        color: {p["text"]};
+        font-size: 12px;
+        font-weight: 500;
+        padding: 0;
+    }}
+    QLabel[objectName="aiChatUserAttachmentChipSize"] {{
+        background: transparent;
+        border: none;
+        color: {p["text_muted"]};
+        font-size: 11px;
+        padding: 0;
+    }}
+    QDialog[objectName="aiChatAttachmentMarkdownDialog"] {{
+        background: {p["bg"]};
+    }}
+    QLabel[objectName="aiChatAttachmentMarkdownTitle"] {{
+        background: transparent;
+        border: none;
+        color: {p["text"]};
+        font-size: 16px;
+        font-weight: 600;
+    }}
+    /* Mirror SubagentDetailDialog reply scroll so MarkdownContent paints the same. */
+    QScrollArea[objectName="aiChatAttachmentMarkdownScroll"] {{
+        border: none;
+        border-right: none;
+        background: transparent;
+    }}
+    QScrollArea[objectName="aiChatAttachmentMarkdownScroll"] > QWidget {{
+        border: none;
+        border-right: none;
+        background: transparent;
+    }}
+    QWidget[objectName="aiChatAttachmentMarkdownScrollViewport"] {{
+        border: none;
+        border-right: none;
+        background: transparent;
+    }}
+    QScrollArea[objectName="aiChatAttachmentMarkdownScroll"] > QWidget > QWidget {{
+        background: transparent;
+        border: none;
+    }}
+    QPushButton[objectName="aiChatAttachmentMarkdownClose"] {{
+        border: 1px solid {p["border"]};
+        padding: 4px 14px;
+        font-size: 11px;
+        min-height: 28px;
+        border-radius: 4px;
+        background: transparent;
+        color: {p["text"]};
+    }}
+    QPushButton[objectName="aiChatAttachmentMarkdownClose"]:hover {{
+        background: {"rgba(255,255,255,0.08)" if p is DARK_PALETTE else "rgba(0,0,0,0.06)"};
+        border-color: {p["accent"]};
+        color: {p["text"]};
+    }}
     QPushButton[objectName="aiChatAttachmentChip"] {{
         background: {p["bg_alt"]};
         border: 1px solid {p["border"]};

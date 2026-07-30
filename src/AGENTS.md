@@ -219,6 +219,25 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   `send_snapshot_from_message` / `infer_send_snapshot_fallback`.
   `edit_user_message_and_rewind` updates the user row, deletes later messages,
   and rewinds SDK disk state before the controller resubmits on the same bubble.
+  User bubbles never show the composed `Attached files:` trailer as prose:
+  `UserMessageSection` lifts it out with
+  `composer/attachments.split_prompt_attachments` and renders it as
+  `user_message/attachments/UserMessageAttachmentRow` chips (icon + name + size)
+  above the prompt; `text()` still returns the full prompt so edit/fork
+  round-trips the trailer. Inline edit does the same lift:
+  `AiChatComposer.restore_text` splits the trailer into removable
+  `aiChatAttachmentChip` rows (`_prompt_attachments`) and puts only the
+  body in the input; `composed_prompt()` rewrites the trailer on submit.
+  Compact docked composers still hide the chip row, but compact + edit mode
+  keeps it visible. Chip sizes arrive via the bubble's
+  `attachment_sizes` — from source paths on send
+  (`attachment_sizes_from_sources`) and from the session store on restore
+  (`attachment_sizes_from_session`). A left-click on a chip emits
+  `attachment_clicked(reference)` up `_AttachmentChip → UserMessageAttachmentRow
+  → UserMessageSection → ChatMessageBubble`; the panel's `_on_attachment_clicked`
+  resolves the session attachment (`attachments.store.resolve_attachment`) and
+  opens `user_message/attachments/AttachmentMarkdownDialog` with its stored
+  Markdown (`read_markdown`).
   Postmark agent/tool registries
   (`agent_registry.py`, `tool_registry.py`, `tools/wiki_query.py`,
   `tools/datetime_query/`, `tools/workspace_query/`, `tools/delegate_tool.py`,
@@ -311,8 +330,12 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   **Fabricated link guard** — `claim_guard.strip_unbacked_collection_links`
   removes any `postmark://collection/<id>` in the final message whose id no
   observation produced this turn, tracked via `write_ledger.record_collection_ids`.
-  Phrase-matching alone is insufficient: a model can claim a write in wording the
-  regexes miss while still emitting a link that opens an unrelated collection.
+  The write ledger uses shared `auto_approve.is_mutate_or_execute_tool` (via
+  `claim_guard.observation_records_write`); for `postmark_collection_draft` only
+  a finish observation (the `mutation_id:` marker) counts as a write — start /
+  add_requests must not silence the unverified-write note. Phrase-matching alone
+  is insufficient: a model can claim a write in wording the regexes miss while
+  still emitting a link that opens an unrelated collection.
   **`postmark_workspace_query`** (`tools/workspace_query/`) reads the user's
   collections, requests, environments, run history, and open-tab state on demand.
   **Shared send orchestration** lives in `services/ai/chat/execution/`

@@ -44,7 +44,8 @@ A one-line **summarized** notice may appear after long conversations when the SD
 
 Use the **⋯** menu on user or assistant messages:
 
-- **Edit message** (user) — rewind and resubmit from that turn
+- **Edit message** (user) — rewind and resubmit from that turn. Attachments stay as
+  chips above the editor (not raw file references in the text), same as in the transcript.
 - **Fork chat** — start a new session from this point
 - **Copy message** — copy markdown source
 
@@ -57,8 +58,12 @@ send — you do not have to type anything.
 
 When you send, Postmark copies each PDF or Word document into the chat's own storage and
 converts it to Markdown. Your message carries a short reference to that copy rather than
-the file's path or its contents. The assistant then reads the copy a chunk at a time, so a
-long specification does not have to fit into a single message.
+the file's path or its contents. In the transcript, the sent message shows the attachments
+as file chips above your text — type icon, file name, and size — never the internal
+reference. Click a chip to open a window showing the Markdown Postmark made from that
+upload, so you can see exactly what the assistant was handed. The assistant then reads
+the copy a chunk at a time, so a long specification does not have to fit into a single
+message.
 
 How screenshots inside the document are handled depends on the model you picked. If it
 supports images, it is shown the screenshots themselves for the part it is reading, which

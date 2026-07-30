@@ -7,7 +7,8 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtGui import QResizeEvent, QShowEvent
 from PySide6.QtWidgets import QPushButton, QSizePolicy, QVBoxLayout, QWidget
-
+from ui.sidebar.ai.chat_panel.composer.attachments import split_prompt_attachments
+from ui.sidebar.ai.message_bubble.user_message.attachments import UserMessageAttachmentRow
 from ui.sidebar.ai.message_bubble.user_message.fade import UserMessageBottomFade
 from ui.sidebar.ai.message_bubble.wrapping_label import _WrappingLabel
 
@@ -24,6 +25,7 @@ class UserMessageSection(QWidget):
     """Wrapped user prompt with optional collapsed preview and Show more/less."""
 
     layout_height_changed = Signal()
+    attachment_clicked = Signal(str)
 
     def __init__(self, text: str = "", parent: QWidget | None = None) -> None:
         """Build the label host, fade overlay, and expand/collapse toggle."""
@@ -34,13 +36,17 @@ class UserMessageSection(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
 
+        self._attachments_row = UserMessageAttachmentRow(self)
+        self._attachments_row.attachment_clicked.connect(self.attachment_clicked.emit)
+        layout.addWidget(self._attachments_row)
+
         self._label_host = QWidget(self)
         self._label_host.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         host_layout = QVBoxLayout(self._label_host)
         host_layout.setContentsMargins(0, 0, 0, 0)
         host_layout.setSpacing(0)
 
-        self._label = _WrappingLabel(text, self._label_host)
+        self._label = _WrappingLabel("", self._label_host)
         self._label.setObjectName("aiChatUserMessageText")
         host_layout.addWidget(self._label)
 
@@ -59,20 +65,41 @@ class UserMessageSection(QWidget):
         self._toggle.hide()
         layout.addWidget(self._toggle, 0, Qt.AlignmentFlag.AlignLeft)
 
+        self._full_text = ""
+        self._attachment_sizes: dict[str, int] = {}
         self._expanded = True
         self._collapsible = False
         self._overlay_clamp_active = False
         self._viewport_label_cap: int | None = None
         self._last_layout_width = -1
         self._initial_layout_done = False
+        self.set_text(text)
 
     def text(self) -> str:
-        """Return the full user prompt text."""
-        return self._label.text()
+        """Return the full user prompt text, including the attachment trailer."""
+        return self._full_text
+
+    def set_attachment_sizes(self, sizes: dict[str, int] | None) -> None:
+        """Provide byte sizes keyed by attachment reference for chip labels."""
+        self._attachment_sizes = dict(sizes or {})
+        self._render_prompt()
 
     def set_text(self, text: str) -> None:
         """Replace the user prompt text and refresh collapse state."""
-        self._label.setText(text)
+        self._full_text = text
+        self._render_prompt()
+
+    def _render_prompt(self) -> None:
+        """Render the prompt body in the label and attachments as chips.
+
+        The composed ``Attached files:`` trailer is lifted out of the visible
+        prose: it renders as a chip row above the text, while the full prompt
+        (trailer included) stays available for edit/fork via :meth:`text`.
+        """
+        body, attachments = split_prompt_attachments(self._full_text)
+        self._attachments_row.set_attachments(attachments, self._attachment_sizes)
+        self._label.setText(body)
+        self._label_host.setVisible(bool(body.strip()))
         self._refresh_collapse_layout(force=True)
 
     def label_widget(self) -> _WrappingLabel:
@@ -120,6 +147,21 @@ class UserMessageSection(QWidget):
         layout = self.layout()
         spacing = layout.spacing() if layout is not None else 0
         return self._toggle.sizeHint().height() + spacing
+
+    def attachment_row_height(self) -> int:
+        """Return the chip row height plus its layout gap, when attachments render.
+
+        The chip row sits above the prompt label inside this section, so its height
+        is non-label chrome that the bubble must add to its fixed row height —
+        otherwise the row is clamped too short and the chip hairline overlaps the
+        prompt text.
+        """
+        if not self._attachments_row.isVisibleTo(self):
+            return 0
+        row_h = self._attachments_row.sizeHint().height()
+        layout = self.layout()
+        spacing = layout.spacing() if layout is not None else 0
+        return max(0, row_h) + spacing
 
     def set_reflow_deferred(self, deferred: bool) -> None:
         """Defer width reflow on the prompt label during pane resize."""
@@ -191,7 +233,7 @@ class UserMessageSection(QWidget):
 
     def _needs_collapse(self, width: int) -> bool:
         """Return whether *width* forces a collapsed preview for the current text."""
-        if width <= 0 or not self.text().strip():
+        if width <= 0 or not self._label.text().strip():
             return False
         return self._natural_label_height(width) > self._collapsed_cap_height(width)
 

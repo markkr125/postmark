@@ -452,7 +452,7 @@ src/
     │   │   │   │   ├── widget.py  # AiChatComposer — attachments, input, mode/model, send/stop
     │   │   │   │   ├── input.py   # ComposerInput — prompt editor (Escape → cancel in edit mode)
     │   │   │   │   ├── model_picker_button.py  # ModelPickerButton
-    │   │   │   │   ├── attachments.py  # compose_prompt_with_attachments — paths into prompt body
+    │   │   │   │   ├── attachments.py  # compose/split prompt attachment trailer + chip size resolvers
     │   │   │   │   └── budget_banner.py  # AiChatBudgetBanner (aiChatBudgetBanner)
     │   │   │   ├── context_ring_button.py  # ContextUsageRingButton (aiChatContextRing)
     │   │   │   ├── context_popup_mode_pill.py  # ContextPopupModePill (aiChatContextPopupMode)
@@ -512,7 +512,10 @@ src/
     │   │   │   │   ├── actions_popup.py # AiAssistantMessageActionsPopup — Fork chat / Copy message
     │   │   │   │   └── action_option_row.py # Shared ActionOptionRow hover rows
     │   │   │   └── user_message/        # UserMessageSection, footer, actions popup, sticky overlay
-    │   │   │       ├── section.py
+    │   │   │       ├── section.py       # Prompt body + attachment chip row (trailer lifted out of prose)
+    │   │   │       ├── attachments/     # UserMessageAttachmentRow — clickable file chips above the prompt
+    │   │   │       │   ├── row.py
+    │   │   │       │   └── markdown_dialog.py # AttachmentMarkdownDialog — non-modal viewer for an upload's Markdown
     │   │   │       ├── footer.py
     │   │   │       ├── actions_popup.py  # Edit message + Fork chat
     │   │   │       ├── fade.py
@@ -869,6 +872,7 @@ tests/
     │   ├── test_ai_tool_activity_cards.py # Main-agent tool activity cards + execute handoff
     │   ├── test_ai_session_history_popup.py
     │   ├── test_ai_active_run_badge.py
+    │   ├── test_ai_user_message_attachments.py  # User-bubble attachment chips (trailer → chips, sizes, legacy)
     │   ├── test_sidebar.py
     │   ├── test_left_sidebar.py
     │   ├── test_left_sidebar_global_history.py

@@ -312,7 +312,7 @@ class _ChatPanelInlineEditMixin:  # type: ignore[misc]
         state = self._inline_edit
         if state is None:
             return
-        text = state.composer.plain_text()
+        text = state.composer.composed_prompt()
         if not text:
             return
         panel.user_edit_submitted.emit(state.message_id, text)  # type: ignore[attr-defined]
@@ -322,7 +322,7 @@ class _ChatPanelInlineEditMixin:  # type: ignore[misc]
         panel = cast("AiChatPanel", self)
         if self._inline_edit is not None and self._inline_edit.message_id == message_id:
             state = self._inline_edit
-            state.bubble.set_user_message_text(state.composer.plain_text())
+            state.bubble.set_user_message_text(state.composer.composed_prompt())
             self.end_inline_edit(restore_bubble=False)
         to_remove: list[ChatMessageBubble] = []
         for bubble in list(panel._bubble_by_message_id.values()):  # type: ignore[attr-defined]

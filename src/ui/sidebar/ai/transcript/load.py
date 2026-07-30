@@ -98,7 +98,7 @@ def _restore_activity_records_in_event_order(
 
     for kind, record_id in ordered:
         if kind == "tool":
-            bubble.upsert_tool_activity_record(tool_by_id[record_id], separate_group=True)
+            bubble.upsert_tool_activity_record(tool_by_id[record_id])
         elif kind == "subagent":
             bubble.upsert_subagent_record(subagent_by_id[record_id])
         else:
@@ -306,6 +306,18 @@ class _ChatPanelTranscriptLoadMixin:
         )
         sent_at = parse_message_sent_at(msg.get("created_at"))
         lazy = self._transcript_load_lazy_markdown and role == "assistant" and not force_render
+        attachment_sizes: dict[str, int] | None = None
+        if role == "user":
+            from ui.sidebar.ai.chat_panel.composer.attachments import (
+                ATTACHMENT_HEADER,
+                LEGACY_ATTACHMENT_HEADER,
+                attachment_sizes_from_session,
+            )
+
+            content = str(msg.get("content") or "")
+            session_id = getattr(self, "_virtual_session_id", None) or ""
+            if session_id and (ATTACHMENT_HEADER in content or LEGACY_ATTACHMENT_HEADER in content):
+                attachment_sizes = attachment_sizes_from_session(session_id)
         bubble = self.add_message(  # type: ignore[attr-defined,no-any-return]
             role,
             msg["content"],
@@ -314,6 +326,7 @@ class _ChatPanelTranscriptLoadMixin:
             sent_at=sent_at if role == "user" else None,
             lazy_markdown=lazy,
             message_id=msg["id"],
+            attachment_sizes=attachment_sizes,
         )
         if role == "assistant":
             from services.ai.chat.message_usage import (

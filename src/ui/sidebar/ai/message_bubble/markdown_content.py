@@ -186,6 +186,27 @@ class MarkdownContent(QWidget):
         self._invalidate_measured_height()
         self._sync_height(force=True)
 
+    def sync_to_viewport_width(self, width: int) -> None:
+        """Pin this body to a host scroll-viewport width and re-render if needed.
+
+        Host dialogs that hold a ``MarkdownContent`` inside a non-resizable
+        ``QScrollArea`` (subagent detail, attachment markdown viewer) must give
+        the body a real pixel width before the document can lay out — otherwise
+        it measures at width 0 and paints nothing. This is the single shared
+        implementation of that contract; re-render only when the width actually
+        changed so streaming content is never needlessly rebuilt.
+        """
+        if width <= 0:
+            return
+        needs_rerender = self.width() <= 1 or self.width() != width
+        if self.width() != width:
+            self.setFixedWidth(width)
+        markdown = self._markdown
+        if markdown and needs_rerender and not self.is_streaming():
+            self.set_markdown(markdown)
+        else:
+            self.resync_height_for_footer()
+
     def set_markdown_lazy(self, text: str) -> None:
         """Store markdown source and defer the expensive HTML pipeline."""
         self._streaming = False
@@ -631,8 +652,14 @@ class MarkdownContent(QWidget):
         painter.drawLine(0, y, self.width(), y)
 
     def paintEvent(self, event) -> None:
-        """Paint the owned ``QTextDocument`` and any active text selection."""
-        del event
+        """Paint the owned ``QTextDocument`` and any active text selection.
+
+        ``WA_OpaquePaintEvent`` means Qt skips painting the parent behind us, so
+        every exposed pixel must be filled here. Without that fill, partial
+        updates (scrolling a tall document in a dialog) stack text onto black
+        uninitialized backing-store pixels and read as mangled overlapping
+        glyphs — the same ``MarkdownContent`` used by the subagent reply pane.
+        """
         width = max(1, self.width())
         if int(self._document.textWidth()) != width:
             self._document.setTextWidth(width)
@@ -645,7 +672,12 @@ class MarkdownContent(QWidget):
             if self.height() != target:
                 QTimer.singleShot(0, self._repair_height_from_paint)
         painter = QPainter(self)
+        # Clear the exposed region before drawing so partial updates never stack.
+        # Use the app theme bg (not a raw QPalette role) so dialog hosts match the
+        # chat panel / subagent reply pane behind ``aiChatAssistantText``.
+        painter.fillRect(event.rect(), QColor(current_palette()["bg"]))
         ctx = QAbstractTextDocumentLayout.PaintContext()
+        ctx.clip = QRectF(event.rect())
         selection = self._selection_paint_context()
         if selection is not None:
             ctx.selections = [selection]

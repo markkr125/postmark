@@ -22,9 +22,10 @@ from services.ai.chat.context_usage import (
     ContextUsageService,
     metrics_from_conversation,
 )
+from services.ai.chat.mutation.auto_approve import is_mutate_or_execute_tool
 from services.ai.chat.mutation.claim_guard import (
     collection_ids_in_observation,
-    observation_indicates_write,
+    observation_records_write,
 )
 from services.ai.chat.mutation.write_ledger import (
     clear_workspace_writes,
@@ -93,18 +94,8 @@ def _safe_close(conv: BaseConversation | None) -> None:
         logger.exception("AI chat conversation close failed")
 
 
-_MUTATE_EXECUTE_TOOLS = frozenset(
-    {
-        "postmark_workspace_mutate",
-        "postmark_workspace_execute",
-        "postmark_import",
-        "postmark_workspace_import",
-    }
-)
-
-
 def _is_mutate_or_execute_observation(event: object) -> bool:
-    """Return True for ObservationEvents from mutate/execute tools."""
+    """Return True for ObservationEvents from mutate/execute/draft/import tools."""
     name = type(event).__name__
     if name != "ObservationEvent":
         try:
@@ -115,7 +106,7 @@ def _is_mutate_or_execute_observation(event: object) -> bool:
         except Exception:
             return False
     tool_name = str(getattr(event, "tool_name", "") or "")
-    return tool_name in _MUTATE_EXECUTE_TOOLS
+    return is_mutate_or_execute_tool(tool_name)
 
 
 def _observation_text(event: object) -> str:
@@ -437,7 +428,8 @@ class AiChatWorker(QObject):
                 if _is_mutate_or_execute_observation(event):
                     # Mid-turn drain so Allow UI / tree / Output update promptly.
                     observation_text = _observation_text(event)
-                    if observation_indicates_write(observation_text):
+                    tool_name = str(getattr(event, "tool_name", "") or "")
+                    if observation_records_write(tool_name, observation_text):
                         record_workspace_write(self._session_id)
                         record_collection_ids(
                             self._session_id,
