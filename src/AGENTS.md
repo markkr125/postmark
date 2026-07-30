@@ -307,22 +307,28 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   method/URL/body fields for the model to choose accidentally. The Action and its
   nested `DraftRequestInput` set `extra="ignore"` and keep every field optional:
   models emit `path` for `url`, a header object instead of rows, and stray fields
-  like `target_id`, so a `model_validator` folds `path`→`url` and header objects
-  into `key`/`value` rows while real validation (name/method/url) happens in
-  `ops.py` as recoverable `ok: false` observations rather than hard Pydantic
-  errors. Each nested request accepts a JSON object/array body directly; `ops.py`
-  serializes it, avoiding fragile escaped JSON strings that small models
-  abbreviate with `...`. Batching
-  is critical: replaying a 10–12K-character observation once per endpoint caused
-  excessive provider calls and token usage. A request `body` is capped at
-  `MAX_BODY_CHARS` (4000, `ops.py`): pasting a full nested response example into a
-  request body produced giant tool-call JSON small models malformed, so an
-  oversized body comes back as a recoverable `body_too_large` observation instead.
-  Draft state lives per session in
-  `collection_draft/state.py`, not in the model's context, so a drifting agent
-  calls `status` and resumes. Only `finish` writes — it assembles a
-  `ParsedCollection` and persists through `ImportService.import_parsed`, returning
-  the real collection id. Every other operation is LOW risk (see
+  like `target_id`, so a `model_validator` folds `path`→`url` and header/param
+  objects into `key`/`value`(/`description`) rows while real validation
+  (name/method/url) happens in `ops.py` as recoverable `ok: false` observations
+  rather than hard Pydantic errors. Each nested request accepts a JSON
+  object/array body directly; `ops.py` serializes it, avoiding fragile escaped
+  JSON strings that small models abbreviate with `...`. Batching is critical:
+  replaying a 10–12K-character observation once per endpoint caused excessive
+  provider calls and token usage. Caps: request `body` `MAX_BODY_CHARS` (4000,
+  hard reject), descriptions/scripts truncated at 8000 with a `warnings:` line,
+  params at 40/request. Enrichment fields: markdown collection/request
+  `description`, query `params` (with per-row descriptions), collection/request
+  `pre_script`/`test_script`. Script language comes from
+  `collection_draft/config.py` `draft_script_language()` (QSettings
+  `ai/draft_script_language`, default `python`; Settings → AI → Agents combo);
+  emitted `scripts`/`events` dicts carry `language`/`pre_language`/`test_language`.
+  At finish, `build.py` rewrites URL placeholders `{var}` / `:var` / `<var>` to
+  `{{var}}` and auto-creates missing collection variables (bodies never scanned).
+  Draft state lives per session in `collection_draft/state.py`, not in the model's
+  context, so a drifting agent calls `status` and resumes. Only `finish` writes —
+  it assembles a `ParsedCollection` and persists through
+  `ImportService.import_parsed`, returning the real collection id plus an
+  `enrichment:` summary. Every other operation is LOW risk (see
   `auto_approve.draft_operation_is_write`), otherwise each added request would
   raise its own Approve card. This exists because asking a small model for one
   complete Postman JSON fails silently and it narrates success instead.
@@ -535,6 +541,14 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   subprocess via :file:`_py_sandbox.py`; subprocess env sets ``POSTMARK_SANDBOX=1``
   via :func:`restricted_python_subprocess_env` so ``services`` package inits skip
   OpenHands/Deno re-exports).
+  Python ``pm.require("local:…py")`` is resolved on the host via
+  ``local_script_modules.resolve_required`` / ``py_runtime.local_module_sources``
+  and injected as a ``local_modules`` map into the Pyodide payload
+  (:file:`pyodide_run.mjs` → ``__pm_local_modules_json`` / ``pm_bootstrap.py``),
+  the RestrictedPython sandbox payload (:file:`_py_sandbox.py` loader +
+  ``_Pm.require`` ``local:`` branch), and the Python debug payload
+  (:file:`debug/py_debug.py`). There is no static ``import`` between Python
+  local scripts (JS/TS mirror only).
   :class:`JSRuntime` delegates execution to :class:`DenoRuntime` and provides
   bootstrap and vendor file loaders.  JavaScript parse for the linter and
   gutter uses Esprima via :mod:`esprima_deno` (Deno subprocess;

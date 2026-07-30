@@ -194,10 +194,14 @@ class PyodideRuntime:
     @staticmethod
     def execute(script: str, context: ScriptInput) -> dict[str, Any]:
         """Run *script* and return a raw dict (may include ``error`` or ``__done__``)."""
-        from services.scripting.py_runtime import detect_pm_require_py_specs
+        from services.scripting.py_runtime import (
+            detect_pm_require_py_specs,
+            local_module_sources,
+        )
 
         try:
             specs = [s.pip_spec for s in detect_pm_require_py_specs(script)]
+            local_modules = local_module_sources(script)
         except ValueError as exc:
             return _err(str(exc))
 
@@ -228,6 +232,7 @@ class PyodideRuntime:
             "context": dict(context),
             "pm_require": specs,
             "pypi_index_urls": pypi_index_urls,
+            "local_modules": local_modules,
         }
         line = (json.dumps(payload, default=str) + "\n").encode("utf-8")
 

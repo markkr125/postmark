@@ -274,7 +274,8 @@ src/
 │   │       │   │   └── tool.py        # Action uri + chunk (+ path to upload on demand); chunk X of Y + next_step + vision ImageContent
 │   │       │   ├── collection_draft/  # postmark_collection_draft (one chunk-sized request batch per call)
 │   │       │   │   ├── state.py       # per-session CollectionDraft store
-│   │       │   │   ├── build.py       # draft -> ParsedCollection / ImportResult
+│   │       │   │   ├── config.py      # draft_script_language QSettings (default python)
+│   │       │   │   ├── build.py       # draft -> ParsedCollection; URL {{var}} rewrite + auto variables
 │   │       │   │   ├── ops.py         # start/add_requests/status/finish/discard
 │   │       │   │   └── tool.py        # Action/Observation/Executor; only finish writes
 │   │       │   ├── workspace_execute/ # postmark_workspace_execute (Agent send/run)
@@ -759,6 +760,7 @@ tests/
 │       ├── test_pm_api_schema_drift.py
 │       ├── test_script_linter.py
 │       ├── test_script_sandbox.py
+│       ├── test_script_local_py_require.py
 │       ├── test_script_service.py
 │       ├── test_script_vendor.py
 │       ├── test_script_vendor_libs.py
@@ -815,6 +817,7 @@ tests/
 │       │   ├── test_chat_attachment_store.py # copy-in, Markdown conversion, URIs, session-delete cleanup
 │       │   ├── test_provider_errors.py    # malformed tool call + unreachable provider summaries
 │       │   ├── test_collection_draft_tool.py # incremental draft ops, finish persistence, risk mapping
+│       │   ├── test_collection_draft_enrichment.py # params/descriptions/scripts/vars/language setting
 │       │   ├── test_fabricated_link_guard.py # strip collection links no tool produced this turn
 │   ├── document_import/               # PDF/DOCX extraction service tests
 │   │   ├── fixtures/sample.pdf

@@ -17,6 +17,7 @@ from openhands.sdk.tool.tool import (
     ToolExecutor,
 )
 from services.ai.chat.tools.collection_draft import ops
+from services.ai.chat.tools.collection_draft.config import draft_script_language
 from services.ai.chat.workspace_snapshot import resolve_workspace_session_id
 
 if TYPE_CHECKING:
@@ -26,16 +27,28 @@ COLLECTION_DRAFT_TOOL_NAME = "postmark_collection_draft"
 
 DraftOperation = Literal["start", "add_requests", "status", "finish", "discard"]
 
-COLLECTION_DRAFT_DESCRIPTION = """Build a Postmark collection from bounded batches of requests, then create it in one approved step. Use this for documents (PDF/DOCX) or any source that has no machine-readable spec.
+
+def _collection_draft_description(script_language: str) -> str:
+    """Return the tool description with the configured script language interpolated."""
+    return f"""Build a Postmark collection from bounded batches of requests, then create it in one approved step. Use this for documents (PDF/DOCX) or any source that has no machine-readable spec.
 
 Workflow:
-1. ``operation=start`` with ``name`` (and optional ``source``, ``variables``).
-2. ``operation=add_requests`` with up to 20 fully defined endpoints. Each entry takes ``name``, ``method``, ``url`` (``path`` also accepted), and optional ``folder``, ``headers`` (an object or key/value rows), ``body``, ``description``. Send JSON bodies as objects, NOT escaped JSON strings. Use one batch per document chunk, or one final batch after every chunk is read. Do not add endpoints merely named in a table of contents.
+1. ``operation=start`` with ``name``, and optional ``source``, ``variables``, markdown ``description`` (document front-matter: authentication, endpoint conventions, required headers, response/error vocabulary, timeouts), plus collection-level ``pre_script`` / ``test_script`` for shared mechanical contracts.
+2. ``operation=add_requests`` with up to 20 fully defined endpoints. Each entry takes ``name``, ``method``, ``url`` (``path`` also accepted), and optional ``folder``, ``headers`` (object or key/value rows), ``params`` (query-string rows with per-parameter ``description``), ``body``, markdown ``description`` (endpoint prose + parameter tables for body fields), ``pre_script``, ``test_script``. Send JSON bodies as objects, NOT escaped JSON strings. Use one batch per document chunk. Do not add endpoints merely named in a table of contents.
 3. ``operation=status`` at any time to see what the draft already contains.
 4. ``operation=finish`` to create the collection. This is the only step that writes and asks for Approve. It returns the real collection id and link.
 
+Guidance:
+- Distill the document's introductory/convention chapters into the collection ``description`` at ``start``.
+- Put query-string parameters in ``params`` (copying each parameter's documented description into the row), not embedded in the URL query string. Body parameters belong in the request ``description`` as a markdown table.
+- URL placeholders in any convention (``{{var}}``, ``:var``, ``<var>``) are rewritten to ``{{{{var}}}}`` at finish; missing collection variables are created automatically.
+- Scripts are written in **{script_language}** (the app setting for draft-import scripts). Use only mechanical contracts the document itself defines (response envelope fields, documented status codes, signatures) — never invent logic. Check the scripting-api quickref via ``postmark_wiki_query`` before writing ``pm.*`` code. Shared assertions belong in the collection-level script at ``start``; endpoint-specific ones on the request. Shared helper logic may be extracted into a local script via ``postmark_workspace_mutate`` (``local_script`` create) and required with ``pm.require("local:<folder>/<name>.ext")``; report each created script (name, ``postmark://script/<id>`` link, require path) in your final reply.
+
 ``operation=discard`` throws the draft away. Requires Agent mode.
 """
+
+
+COLLECTION_DRAFT_DESCRIPTION = _collection_draft_description("python")
 
 
 class DraftRequestInput(BaseModel):
@@ -76,6 +89,14 @@ class DraftRequestInput(BaseModel):
             "rows like [{'key':'Accept','value':'application/json'}]."
         ),
     )
+    params: list[dict[str, Any]] | dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Optional query-string parameters as an object or rows like "
+            "[{'key':'page','value':'1','description':'Page number'}]. "
+            "Copy each parameter's documented description into the row."
+        ),
+    )
     body: dict[str, Any] | list[Any] | str | None = Field(
         default=None,
         description=(
@@ -83,16 +104,36 @@ class DraftRequestInput(BaseModel):
             "escaped JSON string and never abbreviate it with ellipses."
         ),
     )
-    description: str | None = Field(default=None, description="Optional request notes.")
+    description: str | None = Field(
+        default=None,
+        description=(
+            "Markdown request notes: endpoint prose plus its parameter table "
+            "(Parameter/Type/Required/Description) and notes. Body params go here; "
+            "query-string params go in params."
+        ),
+    )
+    pre_script: str | None = Field(
+        default=None,
+        description="Optional pre-request script for documented computed values only.",
+    )
+    test_script: str | None = Field(
+        default=None,
+        description=(
+            "Optional post-response script for documented response contracts only "
+            "(envelope fields, status codes, mandatory fields)."
+        ),
+    )
 
     @model_validator(mode="after")
     def _normalize(self) -> Self:
-        """Fold ``path`` into ``url`` and header objects into ``key``/``value`` rows."""
+        """Fold ``path`` into ``url`` and header/param objects into key/value rows."""
         if not self.url and self.path:
             self.url = self.path
         self.path = None
         if isinstance(self.headers, dict):
             self.headers = [{"key": str(k), "value": str(v)} for k, v in self.headers.items()]
+        if isinstance(self.params, dict):
+            self.params = [{"key": str(k), "value": str(v)} for k, v in self.params.items()]
         return self
 
 
@@ -119,7 +160,11 @@ class CollectionDraftAction(Action):
     )
     description: str | None = Field(
         default=None,
-        description="Optional notes for the request or the collection.",
+        description=(
+            "Markdown collection description distilled from the document's front-matter: "
+            "authentication, endpoint conventions, required headers, response/error "
+            "vocabulary, timeouts — whatever the document defines."
+        ),
     )
     source: str | None = Field(
         default=None,
@@ -129,6 +174,17 @@ class CollectionDraftAction(Action):
     variables: list[dict[str, Any]] | None = Field(
         default=None,
         description="Collection variables for start, e.g. [{'key':'baseUrl','value':''}].",
+    )
+    pre_script: str | None = Field(
+        default=None,
+        description="Optional collection-level pre-request script (shared across requests).",
+    )
+    test_script: str | None = Field(
+        default=None,
+        description=(
+            "Optional collection-level post-response script for shared documented "
+            "response contracts."
+        ),
     )
     requests: list[DraftRequestInput] | None = Field(
         default=None,
@@ -167,6 +223,8 @@ class CollectionDraftAction(Action):
             "description": self.description,
             "source": self.source,
             "variables": self.variables,
+            "pre_script": self.pre_script,
+            "test_script": self.test_script,
             "requests": [
                 request.model_dump(exclude_none=True) for request in (self.requests or [])
             ],
@@ -228,9 +286,10 @@ class PostmarkCollectionDraftTool(
         if params:
             msg = f"{COLLECTION_DRAFT_TOOL_NAME} does not accept parameters"
             raise ValueError(msg)
+        language = draft_script_language()
         return [
             cls(
-                description=COLLECTION_DRAFT_DESCRIPTION,
+                description=_collection_draft_description(language),
                 action_type=CollectionDraftAction,
                 observation_type=CollectionDraftObservation,
                 executor=CollectionDraftExecutor(),

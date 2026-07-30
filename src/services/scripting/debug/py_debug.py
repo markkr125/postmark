@@ -50,16 +50,27 @@ def debug_execute(
     The sandbox sets up a trace function that pauses at breakpoints and
     communicates via the IPC protocol.
     """
-    from services.scripting.py_runtime import _apply_result, _empty_output
+    from services.scripting.py_runtime import (
+        _apply_result,
+        _empty_output,
+        _error_output,
+        local_module_sources,
+    )
 
     output = _empty_output()
     start = time.monotonic()
+
+    try:
+        local_modules = local_module_sources(script)
+    except ValueError as exc:
+        return _error_output(str(exc), (time.monotonic() - start) * 1000)
 
     payload = (
         json.dumps(
             {
                 "script": script,
                 "context": context,
+                "local_modules": local_modules,
                 "debug": {
                     "breakpoints": protocol.effective_breakpoints(),
                 },

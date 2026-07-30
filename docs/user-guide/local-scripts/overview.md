@@ -33,7 +33,11 @@ Request **Scripts** tabs cannot `import` from the local tree. Load modules with:
 const fmt = pm.require("local:utils/format.js");
 ```
 
-Path completion works here too.
+```python
+helpers = pm.require("local:utils/helpers.py")
+```
+
+Path completion works here too. Python hosts may only require `.py` local scripts (not JS/TS).
 
 ## Run and debug as entry
 
@@ -57,4 +61,5 @@ const helper = pm.require("local:legacy/helper.cjs");
 
 - [Local scripts hub](README.md)
 - [External packages (JavaScript)](../scripting/javascript/external-packages.md)
+- [External packages (Python)](../scripting/python/external-packages.md)
 - [Snippets](../scripting/snippets.md)

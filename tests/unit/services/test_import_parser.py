@@ -201,6 +201,7 @@ class TestParseCollectionFile:
         assert variables[0]["key"] == "host"
         events = coll.get("events")
         assert events is not None
+        assert isinstance(events, list)
         assert events[0]["listen"] == "prerequest"
 
     def test_folder_variables_extracted(self, tmp_path: Path) -> None:

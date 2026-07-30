@@ -65,7 +65,7 @@ class ParsedCollection(TypedDict):
     name: str
     items: list[ParsedFolder | ParsedRequest]
     description: NotRequired[str | None]
-    events: NotRequired[list[dict[str, Any]] | None]
+    events: NotRequired[list[dict[str, Any]] | dict[str, Any] | None]
     variables: NotRequired[list[dict[str, Any]] | None]
     auth: NotRequired[dict[str, Any] | None]
 

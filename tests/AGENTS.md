@@ -253,6 +253,7 @@ tests/
 │       ├── test_debug_script_metadata.py
 │       ├── test_debug_metadata_persist_host.py
 │       ├── test_script_sandbox.py  # xdist_group restricted_python_sandbox
+│       ├── test_script_local_py_require.py  # Python pm.require("local:…") RestrictedPython + payloads
 │       ├── test_script_service.py
 │       ├── test_script_vendor.py
 │       ├── test_script_vendor_libs.py

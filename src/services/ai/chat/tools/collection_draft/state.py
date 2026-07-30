@@ -24,8 +24,11 @@ class DraftRequest:
     url: str
     folder_path: tuple[str, ...] = ()
     headers: list[dict[str, Any]] = field(default_factory=list)
+    params: list[dict[str, Any]] = field(default_factory=list)
     body: str = ""
     description: str = ""
+    pre_script: str = ""
+    test_script: str = ""
 
 
 @dataclass
@@ -38,6 +41,8 @@ class CollectionDraft:
     variables: list[dict[str, Any]] = field(default_factory=list)
     folders: list[tuple[str, ...]] = field(default_factory=list)
     requests: list[DraftRequest] = field(default_factory=list)
+    pre_script: str = ""
+    test_script: str = ""
 
     def folder_exists(self, path: tuple[str, ...]) -> bool:
         """Return True when *path* was already declared or is the root."""

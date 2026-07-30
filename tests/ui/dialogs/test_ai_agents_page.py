@@ -23,12 +23,14 @@ def _clear_agent_settings() -> Iterator[None]:
     settings.remove("ai/max_concurrent_runs")
     settings.remove("ai/max_parallel_subagents")
     settings.remove("ai/agent_auto_approve_rules")
+    settings.remove("ai/draft_script_language")
     settings.sync()
     clear_rules()
     yield
     settings.remove("ai/max_concurrent_runs")
     settings.remove("ai/max_parallel_subagents")
     settings.remove("ai/agent_auto_approve_rules")
+    settings.remove("ai/draft_script_language")
     settings.sync()
     clear_rules()
 
@@ -54,6 +56,25 @@ def test_agents_page_parallel_subagents_spin(qapp: QApplication, qtbot) -> None:
     spin.setValue(7)
     ctrl.apply()
     assert max_parallel_subagents() == 7
+
+
+def test_agents_page_draft_script_language_combo(qapp: QApplication, qtbot) -> None:
+    """Agents page exposes draft-import script language, defaulting to Python."""
+    from PySide6.QtWidgets import QComboBox
+
+    from services.ai.chat.tools.collection_draft.config import draft_script_language
+
+    page, ctrl = build_ai_agents_page(lambda: None)
+    qtbot.addWidget(page)
+    combo = page.findChild(QComboBox, "aiAgentsDraftScriptLanguageCombo")
+    assert combo is not None
+    assert combo.currentData() == "python"
+    assert draft_script_language() == "python"
+    index = combo.findData("javascript")
+    assert index >= 0
+    combo.setCurrentIndex(index)
+    ctrl.apply()
+    assert draft_script_language() == "javascript"
 
 
 def test_agents_page_persists_on_apply(qapp: QApplication, qtbot) -> None:
@@ -102,5 +123,7 @@ def test_initial_category_agents(qapp: QApplication, qtbot) -> None:
     qtbot.addWidget(dialog)
     current = dialog._cat_tree.currentItem()
     assert current is not None and current.text(0) == "Agents"
+    assert dialog._stack.currentIndex() == dialog._page_indices["ai_agents"]
+    assert dialog._ai_agents_controller is not None
     assert dialog._stack.currentIndex() == dialog._page_indices["ai_agents"]
     assert dialog._ai_agents_controller is not None

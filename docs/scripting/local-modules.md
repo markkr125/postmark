@@ -92,4 +92,28 @@ pm.test("adds", () => {
 
 ## Python local scripts
 
-Python locals are not part of the JS mirror. Use `pm.require("local:…py")` from request/folder hosts only.
+Python locals are **not** part of the JS/Deno mirror. There is no static
+`import` between `.py` local scripts.
+
+Use `pm.require("local:…py")` from:
+
+- Python **request / folder** pre-request and test scripts
+- Python **local script** tabs (same runtime path)
+
+```python
+helpers = pm.require("local:utils/helpers.py")
+pm.variables.set("sum", str(helpers.add(2, 3)))
+```
+
+Rules:
+
+- Paths must end in `.py` (case-sensitive, path-safe tree names).
+- Only `.py` modules may be required from a Python host (not `.js` / `.ts` / `.cjs`).
+- The host resolves a transitive `pm.require("local:…")` closure and injects
+  sources into both Python runtimes (Pyodide preferred; RestrictedPython
+  fallback) and the Python debug payload.
+- Modules are **cached per run** — repeated `pm.require` of the same path
+  returns the same module object.
+- Import cycles raise at resolve time (same as JS `pm.require("local:…")`).
+- Breakpoints inside required modules are **not** supported on the
+  RestrictedPython debug path (frames map to the entry `<script>` only).

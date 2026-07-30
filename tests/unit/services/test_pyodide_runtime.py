@@ -44,6 +44,28 @@ def test_basic_python_runs() -> None:
     assert out["variable_changes"]["v"] == "4"
 
 
+def test_pm_require_local_module() -> None:
+    """``pm.require("local:…py")`` resolves and runs under Pyodide."""
+    from database.models.local_scripts.local_script_repository import (
+        create_folder,
+        create_script,
+    )
+
+    root = create_folder("lib")
+    create_script(
+        root.id,
+        "helpers",
+        language="python",
+        content="def add(a, b):\n    return a + b\n",
+    )
+    out = PyodideRuntime.execute(
+        'h = pm.require("local:lib/helpers.py")\npm.variables.set("v", str(h.add(2, 3)))\n',
+        _MIN_CTX,
+    )
+    assert out.get("error") is None
+    assert out["variable_changes"]["v"] == "5"
+
+
 @pytest.mark.skipif(
     not os.environ.get("POSTMARK_PYODIDE_NETWORK"),
     reason="micropip hits PyPI; set POSTMARK_PYODIDE_NETWORK=1 to enable",

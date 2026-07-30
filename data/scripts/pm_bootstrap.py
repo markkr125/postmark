@@ -14,6 +14,7 @@ import math
 import re
 import sys
 import time
+import types
 import uuid
 from base64 import b64decode, b64encode
 from datetime import UTC, datetime
@@ -1279,23 +1280,24 @@ class _Pm:
         return wrapped
 
     def require(self, spec: str) -> Any:
-        """Postman-style ``pm.require``: resolve a PyPI spec to an imported module.
+        """Postman-style ``pm.require``: local scripts or a PyPI package.
 
-        Tries direct name variants first (lowercase, ``-`` → ``_``), then
-        falls back to package metadata (``top_level.txt`` / installed file
-        layout) so distributions whose PyPI name differs from the import
-        name still work — e.g. ``PyJWT`` ships as ``jwt`` and ``pyyaml``
-        ships as ``yaml``.
+        ``local:…`` paths are resolved from ``__pm_local_modules_json``
+        (host-injected closure). Other specs use micropip-installed packages
+        via ``importlib``.
         """
-        if spec.split("==", 1)[0].strip().lower() == "cheerio":
+        if not isinstance(spec, str):
+            msg = "pm.require: specifier must be a string"
+            raise RuntimeError(msg)
+        stripped = spec.strip()
+        if stripped.startswith("local:"):
+            return _load_local_module(stripped[len("local:") :], self)
+        if stripped.split("==", 1)[0].strip().lower() == "cheerio":
             msg = "pm.require('cheerio') is not bundled; use pm.require('npm:cheerio') in JavaScript"
             raise RuntimeError(msg)
         import importlib
 
-        if not isinstance(spec, str):
-            msg = "pm.require: specifier must be a string"
-            raise RuntimeError(msg)
-        name_part = spec.split("==", 1)[0].strip()
+        name_part = stripped.split("==", 1)[0].strip()
 
         candidates: list[str] = []
         seen: set[str] = set()
@@ -1343,6 +1345,69 @@ class _Pm:
                 continue
         msg = f"pm.require({spec!r}): could not import (tried {candidates}): {last_err}"
         raise RuntimeError(msg) from last_err
+
+
+_LOCAL_MOD_NAME_RE = re.compile(r"[^A-Za-z0-9_]+")
+_LOCAL_MODULE_CACHE: dict[str, types.ModuleType] = {}
+_LOCAL_MODULE_REGISTRY: dict[str, str] | None = None
+
+
+def _local_module_registry() -> dict[str, str]:
+    """Parse host-injected ``__pm_local_modules_json`` once per run."""
+    global _LOCAL_MODULE_REGISTRY
+    if _LOCAL_MODULE_REGISTRY is not None:
+        return _LOCAL_MODULE_REGISTRY
+    raw = globals().get("__pm_local_modules_json", "{}")
+    try:
+        data = json.loads(raw) if isinstance(raw, str) else {}
+    except json.JSONDecodeError:
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    _LOCAL_MODULE_REGISTRY = {str(k): str(v) for k, v in data.items()}
+    return _LOCAL_MODULE_REGISTRY
+
+
+def _sanitize_local_mod_name(rel_path: str) -> str:
+    """Build a collision-resistant ``sys.modules`` key from a virtual local path.
+
+    A short human-readable stem is kept for debugging; a path digest suffix
+    ensures ``lib/a-b.py`` and ``lib/a_b.py`` never share a module name.
+    """
+    path = rel_path.strip()
+    cleaned = _LOCAL_MOD_NAME_RE.sub("_", path).strip("_") or "module"
+    digest = sha256(path.encode("utf-8")).hexdigest()[:12]
+    return f"pm_local_{cleaned[:48]}_{digest}"
+
+
+def _load_local_module(rel_path: str, pm_obj: _Pm) -> types.ModuleType:
+    """Compile and cache a ``local:`` module from the host registry."""
+    path = rel_path.strip()
+    sources = _local_module_registry()
+    if not path.endswith(".py"):
+        valid = ", ".join(sorted(sources)) or "(none)"
+        msg = f"pm.require: local path {path!r} must end with .py (available: {valid})"
+        raise RuntimeError(msg)
+    if path in _LOCAL_MODULE_CACHE:
+        return _LOCAL_MODULE_CACHE[path]
+    source = sources.get(path)
+    if source is None:
+        valid = ", ".join(sorted(sources)) or "(none)"
+        msg = f"pm.require: no local script at {path!r} (available: {valid})"
+        raise RuntimeError(msg)
+    mod_name = _sanitize_local_mod_name(path)
+    mod = types.ModuleType(mod_name)
+    ns = mod.__dict__
+    ns["pm"] = pm_obj
+    ns["__name__"] = mod_name
+    try:
+        exec(compile(source, f"<local:{path}>", "exec"), ns)
+    except Exception as e:
+        msg = f"pm.require('local:{path}'): {e}"
+        raise RuntimeError(msg) from e
+    sys.modules[mod_name] = mod
+    _LOCAL_MODULE_CACHE[path] = mod
+    return mod
 
 
 def collect_pm_output() -> dict[str, Any]:

@@ -205,6 +205,12 @@ async function main() {
 
   const ctxStr = JSON.stringify(inp.context || {});
   await pyodide.runPythonAsync(`__pm_context_json = ${JSON.stringify(ctxStr)}`);
+  const localMods = inp.local_modules && typeof inp.local_modules === "object"
+    ? inp.local_modules
+    : {};
+  await pyodide.runPythonAsync(
+    `__pm_local_modules_json = ${JSON.stringify(JSON.stringify(localMods))}`,
+  );
   await pyodide.runPythonAsync(bootstrapSrc);
   await pyodide.runPythonAsync("init_pm()");
   await pyodide.runPythonAsync("__pm_user_script_line0 = 0");

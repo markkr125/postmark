@@ -390,6 +390,8 @@ standard object names:
 | `aiAgentsConcurrentRunsSpin` | `QSpinBox` | Settings → AI → Agents advisory concurrent-run threshold |
 | `aiAgentsConcurrentRunsLabel` | `QLabel` | Settings → AI → Agents concurrent-run row label |
 | `aiAgentsMaxParallelSubagentsSpin` | `QSpinBox` | Settings → AI → Agents hard cap for parallel `delegate` subagents per turn (QSettings `ai/max_parallel_subagents`) |
+| `aiAgentsDraftScriptLanguageCombo` | `QComboBox` | Settings → AI → Agents language for AI-generated draft-import scripts (QSettings `ai/draft_script_language`, default python) |
+| `aiAgentsDraftScriptLanguageLabel` | `QLabel` | Settings → AI → Agents draft-import script language row label |
 | `aiAgentsAutoApproveList` | `QListWidget` | Settings → AI → Agents: kinds that skip Approve in Agent mode |
 | `aiAgentsAutoApproveList` | `QListWidget` | Settings → AI → Agents auto-approved action kinds |
 | `aiAgentsAutoApproveAdd` | `QPushButton` | Add a catalog kind to the auto-approve whitelist |

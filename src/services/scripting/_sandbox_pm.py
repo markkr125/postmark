@@ -6,6 +6,7 @@ import json
 import re
 import sys
 import xml.etree.ElementTree as _ET
+from collections.abc import Callable
 from typing import Any
 
 from services.scripting._sandbox_pm_assertions import _Expectation
@@ -185,7 +186,12 @@ _PM_BUILTIN_MODULE_NAMES: frozenset[str] = frozenset(
 class _Pm:
     """Root ``pm`` object injected into user scripts."""
 
-    def __init__(self, context: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        context: dict[str, Any],
+        *,
+        local_module_loader: Callable[[str], Any] | None = None,
+    ) -> None:
         self.info = _PmInfo(context.get("info", {}))
         resp = context.get("response")
         self._is_pre_request: bool = resp is None
@@ -210,6 +216,7 @@ class _Pm:
         self._test_source_name: str | None = None
         self._send_count = 0
         self.test = _PmTestCallable(self)
+        self._local_module_loader = local_module_loader
 
     def expect(self, value: Any) -> _Expectation:
         return _Expectation(value)
@@ -226,20 +233,30 @@ class _Pm:
         return self.send_request(spec, callback)
 
     def require(self, spec: str) -> Any:
-        """Postman-style ``pm.require`` restricted to bundled modules.
+        """Postman-style ``pm.require`` for bundled modules and ``local:`` scripts.
 
-        Only names in :data:`_PM_BUILTIN_MODULE_NAMES` may be imported.  Without
-        this allowlist a script could call ``pm.require("os")`` /
-        ``pm.require("subprocess")`` and reach arbitrary host modules, escaping
-        the RestrictedPython sandbox (AST-level ``import`` blocking does not
-        cover ``importlib`` invoked on the script's behalf).
+        ``local:…`` paths are resolved by the host-injected
+        ``local_module_loader`` (DB-backed local scripts). Other names must be
+        in :data:`_PM_BUILTIN_MODULE_NAMES` — without that allowlist a script
+        could call ``pm.require("os")`` / ``pm.require("subprocess")`` and
+        escape the RestrictedPython sandbox.
         """
         import importlib
 
         if not isinstance(spec, str):
             msg = "pm.require: specifier must be a string"
             raise RuntimeError(msg)
-        name_part = spec.split("==", 1)[0].strip().lower()
+        stripped = spec.strip()
+        if stripped.startswith("local:"):
+            loader = self._local_module_loader
+            if loader is None:
+                msg = (
+                    "pm.require('local:…') is not available on this runtime "
+                    "(no local module loader was provided)."
+                )
+                raise RuntimeError(msg)
+            return loader(stripped[len("local:") :])
+        name_part = stripped.split("==", 1)[0].strip().lower()
         if name_part == "cheerio":
             msg = (
                 "pm.require('cheerio') is not bundled; use pm.require('npm:cheerio') in JavaScript"

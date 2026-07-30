@@ -154,6 +154,15 @@ Main-agent tools (not wiki/delegate) emit in-flight rows via
   narrow — do not retain legacy `add_request` / `add_folder` alternatives. Nested
   request bodies accept JSON objects/arrays directly and are serialized app-side;
   escaped JSON strings invite small models to abbreviate them with invalid `...`.
+  The liberal schema also accepts query `params` (with per-row descriptions),
+  markdown descriptions, and `pre_script`/`test_script`. Script language is the
+  `ai/draft_script_language` setting (default python), interpolated into the tool
+  description at create time. Shared assertions go in the collection-level script;
+  shared helpers may use `postmark_workspace_mutate` local_script create +
+  `pm.require("local:…")` (works for Python and JS/TS).
+- **Normalize placeholders app-side.** Do not ask the model to rewrite URL
+  templates — `build.py` converts `{var}` / `:var` / `<var>` to `{{var}}` and
+  auto-creates missing collection variables at finish (never scan bodies).
 - **Be liberal in what a tool Action accepts.** Small models emit natural field
   variations — `path` for `url`, a header object instead of `key`/`value` rows, a
   stray `target_id` copied from other tools. A strict Action schema turns a

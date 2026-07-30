@@ -113,6 +113,41 @@ def detect_pm_require_py_specs(source: str) -> list[PmPyRequireSpec]:
     return list(seen.values())
 
 
+def local_module_sources(script: str) -> dict[str, str]:
+    """Resolve ``pm.require('local:…')`` closure; return ``{rel_path: source}``.
+
+    Returns an empty dict immediately when *script* contains no
+    ``pm.require("local:…")`` literals (avoids a full local-script table scan
+    on every send).
+
+    Raises:
+        ValueError: Missing path, import cycle, cross-language import, or
+            module limit exceeded (from :func:`resolve_required`).
+    """
+    from services.scripting.local_script_modules import (
+        iter_pm_require_local_paths_py,
+        resolve_required,
+    )
+
+    if not iter_pm_require_local_paths_py(script):
+        return {}
+    return {rel: mod.source for rel, mod in resolve_required(script, "python").items()}
+
+
+def _error_output(msg: str, elapsed_ms: float = 0.0) -> ScriptOutput:
+    """Return a ``ScriptOutput`` with a single ``(runtime error)`` test row."""
+    output = _empty_output()
+    output["test_results"] = [
+        {
+            "name": "(runtime error)",
+            "passed": False,
+            "error": msg,
+            "duration_ms": elapsed_ms,
+        }
+    ]
+    return output
+
+
 def _use_pyodide() -> bool:
     """Return True when the Pyodide + Deno path should run :meth:`PyRuntime.execute`."""
     from services.scripting.runtime_settings import RuntimeSettings
@@ -186,7 +221,21 @@ def _run_restricted_subprocess(script: str, context: ScriptInput) -> ScriptOutpu
     start = time.monotonic()
     output = _empty_output()
 
-    payload = json.dumps({"script": script, "context": context}) + "\n"
+    try:
+        local_modules = local_module_sources(script)
+    except ValueError as exc:
+        return _error_output(str(exc), (time.monotonic() - start) * 1000)
+
+    payload = (
+        json.dumps(
+            {
+                "script": script,
+                "context": context,
+                "local_modules": local_modules,
+            }
+        )
+        + "\n"
+    )
 
     # Build a minimal environment — only PATH for finding Python.
     src_root = str(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))

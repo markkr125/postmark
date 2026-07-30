@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QComboBox,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -38,6 +39,10 @@ from services.ai.chat.subagent_limits import (
     max_parallel_subagents,
     set_max_parallel_subagents,
 )
+from services.ai.chat.tools.collection_draft.config import (
+    draft_script_language,
+    set_draft_script_language,
+)
 
 
 @dataclass
@@ -46,6 +51,7 @@ class AiAgentsPageWidgets:
 
     max_concurrent_spin: QSpinBox
     max_parallel_subagents_spin: QSpinBox
+    draft_script_language_combo: QComboBox
     auto_approve_list: QListWidget
     auto_approve_add: QPushButton
     auto_approve_remove: QPushButton
@@ -61,6 +67,7 @@ class AiAgentsPageController:
         self._on_changed = on_changed
         widgets.max_concurrent_spin.valueChanged.connect(on_changed)
         widgets.max_parallel_subagents_spin.valueChanged.connect(on_changed)
+        widgets.draft_script_language_combo.currentIndexChanged.connect(on_changed)
         widgets.auto_approve_add.clicked.connect(self._on_add_rule)
         widgets.auto_approve_remove.clicked.connect(self._on_remove_selected)
         widgets.auto_approve_remove_all.clicked.connect(self._on_remove_all)
@@ -77,12 +84,21 @@ class AiAgentsPageController:
         parallel.blockSignals(True)
         parallel.setValue(max_parallel_subagents())
         parallel.blockSignals(False)
+        combo = self._widgets.draft_script_language_combo
+        combo.blockSignals(True)
+        code = draft_script_language()
+        index = combo.findData(code)
+        combo.setCurrentIndex(index if index >= 0 else 0)
+        combo.blockSignals(False)
         self._reload_auto_approve_list()
 
     def apply(self) -> None:
         """Persist current widget state."""
         set_max_concurrent_chat_runs(self._widgets.max_concurrent_spin.value())
         set_max_parallel_subagents(self._widgets.max_parallel_subagents_spin.value())
+        language = self._widgets.draft_script_language_combo.currentData()
+        if isinstance(language, str) and language:
+            set_draft_script_language(language)
         # Auto-approve rules are written immediately on Add/Remove.
 
     def _reload_auto_approve_list(self) -> None:
@@ -216,6 +232,32 @@ def build_ai_agents_page(
     parallel_help.setWordWrap(True)
     layout.addWidget(parallel_help)
 
+    language_row = QHBoxLayout()
+    language_label = QLabel("Draft import script language:")
+    language_label.setObjectName("aiAgentsDraftScriptLanguageLabel")
+    language_row.addWidget(language_label)
+    language_combo = QComboBox()
+    language_combo.setObjectName("aiAgentsDraftScriptLanguageCombo")
+    language_combo.addItem("Python", "python")
+    language_combo.addItem("JavaScript", "javascript")
+    language_combo.addItem("TypeScript", "typescript")
+    language_combo.setToolTip(
+        "Language used for pre-request and post-response scripts the AI generates "
+        "when importing a document into a collection."
+    )
+    language_row.addWidget(language_combo)
+    language_row.addStretch()
+    layout.addLayout(language_row)
+
+    language_help = QLabel(
+        "Applies to scripts generated during PDF/DOCX (and similar) collection "
+        "drafts. Defaults to Python. Change only if you prefer JavaScript or "
+        "TypeScript for those scripts."
+    )
+    language_help.setObjectName("mutedLabel")
+    language_help.setWordWrap(True)
+    layout.addWidget(language_help)
+
     auto_heading = QLabel("Auto-approved Agent actions")
     auto_heading.setObjectName("sectionLabel")
     layout.addWidget(auto_heading)
@@ -256,6 +298,7 @@ def build_ai_agents_page(
     widgets = AiAgentsPageWidgets(
         max_concurrent_spin=concurrent_spin,
         max_parallel_subagents_spin=parallel_spin,
+        draft_script_language_combo=language_combo,
         auto_approve_list=auto_list,
         auto_approve_add=add_btn,
         auto_approve_remove=remove_btn,
