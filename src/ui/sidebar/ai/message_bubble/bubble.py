@@ -308,6 +308,8 @@ class ChatMessageBubble(QWidget):
     def _user_message_layout_hint(self) -> QSize:
         """Return measured user-row size from wrapped text, not slack-inflated layout."""
         width = self._transcript_row_layout_width()
+        if self._inline_composer is not None:
+            return QSize(max(1, width), max(1, self._inline_composer_row_height(width)))
         label_width = self._user_message_label_width(width)
         if self._user_section is None:
             return QSize(max(1, width), 1)
@@ -323,15 +325,82 @@ class ChatMessageBubble(QWidget):
             height = laid_out
         return QSize(max(1, width), height)
 
+    def _inline_composer_content_height(self, content_width: int) -> int:
+        """Return the preferred height of the embedded inline edit composer."""
+        composer = self._inline_composer
+        if composer is None:
+            return 1
+        label_width = self._user_message_label_width(content_width)
+        if label_width > 0:
+            composer.setFixedWidth(label_width)
+        composer.updateGeometry()
+        return max(
+            1,
+            composer.sizeHint().height(),
+            composer.minimumSizeHint().height(),
+        )
+
+    def _inline_composer_row_height(self, content_width: int) -> int:
+        """Return bubble height needed to host the inline edit composer."""
+        composer_h = self._inline_composer_content_height(content_width)
+        _, top, _, bottom = self._user_frame_layout_margins()
+        frame_h = top + bottom + composer_h
+        outer = self.layout()
+        if outer is None:
+            return frame_h
+        margins = outer.contentsMargins()
+        return frame_h + margins.top() + margins.bottom()
+
+    def _clear_user_frame_fixed_height(self) -> None:
+        """Release an edit-time fixed height on the user bubble frame."""
+        frame = self._user_frame
+        if frame is None:
+            return
+        frame.setMinimumHeight(0)
+        frame.setMaximumHeight(_QWIDGET_MAX_HEIGHT)
+
+    def _apply_inline_composer_height_constraint(self) -> None:
+        """Pin the user frame and row to the live inline composer height.
+
+        The frame uses a vertical ``Fixed`` policy, so growing only the outer
+        bubble leaves the composer clipped. Both widgets must be resized when
+        the prompt input auto-grows during edit.
+        """
+        composer = self._inline_composer
+        frame = self._user_frame
+        if composer is None or frame is None:
+            return
+        width = self._transcript_row_layout_width()
+        composer_h = self._inline_composer_content_height(width)
+        _, top, _, bottom = self._user_frame_layout_margins()
+        frame_h = top + bottom + composer_h
+        outer = self.layout()
+        outer_tb = 0
+        if outer is not None:
+            margins = outer.contentsMargins()
+            outer_tb = margins.top() + margins.bottom()
+        bubble_h = frame_h + outer_tb
+        frame.setMinimumHeight(0)
+        frame.setMaximumHeight(_QWIDGET_MAX_HEIGHT)
+        frame.setFixedHeight(frame_h)
+        self.setMinimumHeight(0)
+        self.setMaximumHeight(_QWIDGET_MAX_HEIGHT)
+        self.setFixedHeight(bubble_h)
+        self.updateGeometry()
+
     def sync_user_message_height_constraint(self) -> None:
         """Clamp transcript user rows to their measured content height."""
         if self._role != "user":
             return
-        self.setMinimumHeight(0)
-        self.setMaximumHeight(_QWIDGET_MAX_HEIGHT)
-        hint = self._user_message_layout_hint()
-        self.setFixedHeight(hint.height())
-        self.updateGeometry()
+        if self._inline_composer is not None:
+            self._apply_inline_composer_height_constraint()
+        else:
+            self._clear_user_frame_fixed_height()
+            self.setMinimumHeight(0)
+            self.setMaximumHeight(_QWIDGET_MAX_HEIGHT)
+            hint = self._user_message_layout_hint()
+            self.setFixedHeight(hint.height())
+            self.updateGeometry()
         panel = self._ancestor_chat_panel()
         if (
             panel is not None
@@ -406,6 +475,8 @@ class ChatMessageBubble(QWidget):
             return False
         frame_layout.addWidget(composer)
         self._inline_composer = composer
+        composer.show()
+        self.sync_user_message_height_constraint()
         self.layout_height_changed.emit()
         return True
 
@@ -419,6 +490,7 @@ class ChatMessageBubble(QWidget):
             frame_layout.removeWidget(composer)
         composer.setParent(None)
         self._inline_composer = None
+        self._clear_user_frame_fixed_height()
         self.layout_height_changed.emit()
         return composer
 
@@ -431,6 +503,8 @@ class ChatMessageBubble(QWidget):
             return
         frame_layout.addWidget(composer)
         self._inline_composer = composer
+        composer.show()
+        self.sync_user_message_height_constraint()
         self.layout_height_changed.emit()
 
     def end_inline_composer(self, *, restore_text: str | None) -> None:
@@ -448,6 +522,7 @@ class ChatMessageBubble(QWidget):
             self._user_section.set_text(restore_text)
         self._user_section.show()
         self._user_footer.show()
+        self.sync_user_message_height_constraint()
         self.layout_height_changed.emit()
 
     def sent_at(self) -> datetime | None:

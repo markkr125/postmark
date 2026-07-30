@@ -127,3 +127,62 @@ def test_inline_edit_lifts_attachment_trailer_into_chips(qapp: QApplication, qtb
     assert "Turn this pdf into a collection please" in fired[0][1]
     assert "postmark://uploaded/Agoda_Standard_Pull_Spec_v1.34_5_1.md" in fired[0][1]
     panel.end_inline_edit(restore_bubble=True)
+
+
+def test_inline_edit_grows_with_newlines_and_keeps_cancel_visible(
+    qapp: QApplication, qtbot
+) -> None:
+    """Inline edit must expand the user row like the docked composer.
+
+    Regression: the bubble stayed clamped to the read-only label height, so
+    Shift+Enter lines were clipped inside the fixed frame and Cancel's bottom
+    edge was cut off by ``aiChatMessageUser``.
+    """
+    from PySide6.QtCore import QPoint, QRect
+    from PySide6.QtWidgets import QPushButton
+
+    panel = AiChatPanel()
+    qtbot.addWidget(panel)
+    panel.resize(420, 700)
+    panel.show()
+    qtbot.waitExposed(panel)
+    prompt = (
+        "Turn this pdf into a collection please\n\n"
+        "Attached files:\n"
+        "- Agoda Standard Pull Spec v1.34 (5) (1).pdf -> "
+        "postmark://uploaded/Agoda_Standard_Pull_Spec_v1.34_5_1.md"
+    )
+    bubble = panel.add_message("user", prompt, message_id=21)
+    qapp.processEvents()
+    assert panel.begin_inline_edit(21) is True
+    state = panel._inline_edit
+    assert state is not None
+    composer = state.composer
+    cancel = composer.findChild(QPushButton, "aiChatEditCancel")
+    assert cancel is not None and cancel.isVisible()
+
+    def _cancel_fully_visible() -> bool:
+        top_left = cancel.mapTo(bubble, QPoint(0, 0))
+        bottom_right = cancel.mapTo(bubble, QPoint(cancel.width(), cancel.height()))
+        cancel_rect = QRect(top_left, bottom_right)
+        bubble_rect = QRect(0, 0, bubble.width(), bubble.height())
+        return cancel_rect.intersected(bubble_rect) == cancel_rect
+
+    qapp.processEvents()
+    assert bubble._inline_composer is composer
+    assert bubble.height() >= composer.sizeHint().height()
+    assert _cancel_fully_visible()
+
+    inp = composer.input_widget()
+    initial_input_h = inp.height()
+    initial_bubble_h = bubble.height()
+    inp.setPlainText("\n".join(f"line {i}" for i in range(8)))
+    qapp.processEvents()
+    panel._on_inline_edit_composer_layout_changed()
+    qapp.processEvents()
+
+    assert inp.height() > initial_input_h
+    assert bubble.height() > initial_bubble_h
+    assert composer.height() >= inp.height()
+    assert _cancel_fully_visible()
+    panel.end_inline_edit(restore_bubble=True)

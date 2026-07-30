@@ -117,6 +117,10 @@ class _ChatPanelInlineEditMixin:  # type: ignore[misc]
         state = self._inline_edit
         if state is None:
             return
+        # Grow the in-bubble row with the auto-growing prompt input; sticky
+        # hosting measures the composer separately in overlay_edit_host.
+        if state.bubble._inline_composer is not None:
+            state.bubble.sync_user_message_height_constraint()
         state.bubble.layout_height_changed.emit()
         cast("AiChatPanel", self)._sync_sticky_turn_prompt()  # type: ignore[attr-defined]
 
