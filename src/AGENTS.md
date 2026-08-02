@@ -1113,18 +1113,17 @@ into `%Y-%m-%d %H:%M` strings for the UI.
   **Environments** tabs are saved as ``{"type": "environments"}`` (no id)
   and recreated on restore in their saved order.
   **Deferred tab materialisation:** `session_restore.begin_session_restore`
-  (via delayed `_restore_tabs()`) restores tabs in one-tab delayed batches
-  after `CollectionWidget.load_finished` so the GUI thread stays responsive.
-  The local-scripts tree is also lazy: `MainWindow` starts
-  `local_scripts_widget._start_fetch()` only when
-  `LeftSidebar.panel_activated("local_scripts")` fires.
-  Request tabs
-  with `method` and `name` in the session data are created as
-  lightweight tab-bar chips stored in `_deferred_tabs`; the editor and
-  viewer widgets are built on first selection via
-  `_materialise_deferred_tab()`.  Old-format entries (without
-  `method`/`name`) fall back to eager `_open_request()` for backward
-  compatibility.  Deleted requests/collections are silently skipped.
+  (via delayed `_restore_tabs()`) runs after `CollectionWidget.load_finished`.
+  A parallel `SessionPrefetchWorker` bulk-loads request rows, breadcrumbs,
+  local scripts, and folder names on a background thread (sync on offscreen
+  platform in tests).  All deferred chips (requests, folders, local scripts,
+  old-format requests enriched from prefetch) restore in one batched pass with
+  `tab_bar.blockSignals(True)` — no 25 ms inter-tab pacing.  Draft tabs
+  restore in a single eager batch after chips.  `_materialise_deferred_tab()`
+  and `_materialise_deferred_folder_tab()` read the prefetch cache first.
+  `_finish_session_restore` activates the saved tab and materialises it when
+  deferred.  `_session_prefetch_result` stays available for later tab opens
+  until `closeEvent`.
   Draft (unsaved) tabs are serialized with `type: "draft"` and an inline
   snapshot of the editor state (`get_request_data()` + `draft_name`).
   On restore, `_restore_draft()` calls `_open_draft_request()` and

@@ -307,7 +307,7 @@ HistoryPanel.delete_requested(int entry_id)
 CollectionWidget.load_finished
   → MainWindow._on_load_finished (main stack + menu/status)
   → QTimer.singleShot(150, MainWindow._restore_tabs)
-    → session_restore.begin_session_restore (batched tab restore, 1 tab per tick)
+    → session_restore.begin_session_restore (batched deferred chips + parallel prefetch)
   → MainWindow.session_restore_finished
   → QTimer.singleShot(750, MainWindow._start_ai_model_backfill)
     (skipped when all models tiers_checked)

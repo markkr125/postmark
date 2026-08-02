@@ -40,7 +40,7 @@ _engine: Engine | None = None
 _SessionLocal: sessionmaker[Session] | None = None
 
 
-def init_db(db_path: Path | None = None) -> None:
+def init_db(db_path: Path | None = None, *, reconcile: bool = True) -> None:
     """Create the database engine, run DDL, and prepare the session factory.
 
     Safe to call multiple times: if the engine already exists, returns
@@ -50,6 +50,9 @@ def init_db(db_path: Path | None = None) -> None:
     At application startup, call before any database access. If *db_path* is
     ``None`` the default location ``<project_root>/data/database/main.db`` is
     used.
+
+    When *reconcile* is ``False``, history orphan reconcile is skipped so the
+    GUI thread can paint first; run :func:`reconcile_history_orphans` later.
     """
     global _engine, _SessionLocal
 
@@ -85,9 +88,17 @@ def init_db(db_path: Path | None = None) -> None:
     from database.models.request_history import body_store
 
     body_store.migrate_legacy_paths_and_files()
-    body_store.reconcile_orphans()
+    if reconcile:
+        body_store.reconcile_orphans()
 
     logger.info("Database initialised: %s", database_url)
+
+
+def reconcile_history_orphans() -> None:
+    """Reconcile history body files with SQLite metadata (safe to run in background)."""
+    from database.models.request_history import body_store
+
+    body_store.reconcile_orphans()
 
 
 # ---------------------------------------------------------------------------

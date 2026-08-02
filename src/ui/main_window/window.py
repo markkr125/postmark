@@ -119,8 +119,16 @@ class MainWindow(
         self._restoring_session: bool = False
         self._session_restore_started: bool = False
         self._session_restore_state = None
-
-        # Per-tab state: tab-bar index -> TabContext
+        self._session_prefetch_result = None
+        self._session_prefetch_ready = False
+        self._session_prefetch_thread: QThread | None = None
+        self._session_prefetch_worker: QObject | None = None
+        self._history_reconcile_thread: QThread | None = None
+        self._history_reconcile_worker: QObject | None = None
+        self._variable_map_cache: dict[
+            tuple[int | None, int | None, int | None], dict[str, Any]
+        ] = {}
+        self._env_sidebar_refreshed = False
         self._tabs: dict[int, TabContext] = {}
         # Deferred (not-yet-materialised) request tabs restored from session
         self._deferred_tabs: dict[int, dict] = {}
@@ -274,6 +282,14 @@ class MainWindow(
         """Lazy-load expensive left-sidebar pages when first opened."""
         if panel == "local_scripts":
             self.local_scripts_widget._start_fetch()
+        self._ensure_env_sidebar_refreshed()
+
+    def _ensure_env_sidebar_refreshed(self) -> None:
+        """Load environment list on first use (deferred from ``MainWindow`` init)."""
+        if getattr(self, "_env_sidebar_refreshed", False):
+            return
+        self._env_selector.refresh()
+        self._env_sidebar_refreshed = True
 
     def _start_local_project_config_sync(self) -> None:
         """Sync the Deno local-script mirror on a background thread (non-blocking startup)."""
@@ -354,7 +370,12 @@ class MainWindow(
             timer.stop()
             timer.deleteLater()
         self._startup_timers.clear()
-        for attr in ("_local_project_thread", "_ai_backfill_thread"):
+        for attr in (
+            "_local_project_thread",
+            "_ai_backfill_thread",
+            "_session_prefetch_thread",
+            "_history_reconcile_thread",
+        ):
             thread = getattr(self, attr)
             if thread is None:
                 continue
@@ -364,7 +385,14 @@ class MainWindow(
             setattr(self, attr, None)
         self._local_project_worker = None
         self._ai_backfill_worker = None
+        self._session_prefetch_worker = None
+        self._history_reconcile_worker = None
         self._cleanup_ai_chat_threads()
+
+    def _clear_session_prefetch_cache(self) -> None:
+        """Drop prefetch payloads after startup workers are stopped."""
+        self._session_prefetch_result = None
+        self._session_prefetch_ready = False
 
     def _move_to_mouse_screen(self) -> None:
         """Center the window on the monitor that the cursor is on."""
@@ -677,7 +705,6 @@ class MainWindow(
         self._left_nav_splitter.setStretchFactor(0, 4)
         self._left_nav_splitter.setStretchFactor(1, 1)
         self._left_nav_splitter.setSizes([520, 160])
-        self._env_selector.refresh()
 
         self._left_sidebar.set_content(self._left_nav_splitter)
 
@@ -774,10 +801,39 @@ class MainWindow(
         self.menuBar().show()
         self.statusBar().show()
 
+        self._schedule_startup_task(0, self._start_history_reconcile)
         # Let the main UI paint and accept input before restore/background startup work.
         self._schedule_startup_task(150, self._restore_active_chat_session)
         self._schedule_startup_task(150, self._restore_tabs)
         self._schedule_startup_task(750, self._start_ai_model_backfill)
+
+    def _start_history_reconcile(self) -> None:
+        """Run history orphan reconcile off the critical splash path."""
+        from ui.main_window.startup_workers import HistoryReconcileWorker
+
+        if (
+            self._history_reconcile_thread is not None
+            and self._history_reconcile_thread.isRunning()
+        ):
+            return
+
+        thread = QThread(self)
+        worker = HistoryReconcileWorker()
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(lambda: self._clear_history_reconcile_refs())
+
+        self._history_reconcile_thread = thread
+        self._history_reconcile_worker = worker
+        thread.start()
+
+    def _clear_history_reconcile_refs(self) -> None:
+        """Drop history reconcile thread refs after the worker exits."""
+        self._history_reconcile_thread = None
+        self._history_reconcile_worker = None
 
     def _on_collections_refresh_finished(self) -> None:
         """Re-highlight the active tab's tree row after a sidebar tree rebuild."""
@@ -1005,6 +1061,7 @@ class MainWindow(
         self.collection_widget.shutdown_fetch()
         self.local_scripts_widget.shutdown_fetch()
         self._cleanup_startup_threads()
+        self._clear_session_prefetch_cache()
         self._cleanup_send_thread()
         self._console_panel.cleanup()
 

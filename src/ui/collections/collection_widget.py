@@ -526,6 +526,10 @@ class CollectionWidget(QWidget):
         """Select and scroll to the item with the given ID and type."""
         self._tree_widget.select_item_by_id(item_id, item_type)
 
+    def is_item_selected(self, item_id: int, item_type: str) -> bool:
+        """Return ``True`` when the tree row for *item_id* is already current."""
+        return self._tree_widget.is_item_selected(item_id, item_type)
+
     def selected_collection_id(self) -> int | None:
         """Return the ID of the currently selected collection, or ``None``."""
         return self._header._selected_collection_id

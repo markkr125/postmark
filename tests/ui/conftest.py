@@ -116,6 +116,19 @@ def _inline_local_project_config_sync(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(MainWindow, "_start_local_project_config_sync", lambda self: None)
 
 
+@pytest.fixture(autouse=True)
+def _inline_history_reconcile(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Run history reconcile synchronously in UI tests (no stray QThread on teardown)."""
+    from ui.main_window import MainWindow
+
+    def _sync_reconcile(self: MainWindow) -> None:
+        from database.database import reconcile_history_orphans
+
+        reconcile_history_orphans()
+
+    monkeypatch.setattr(MainWindow, "_start_history_reconcile", _sync_reconcile)
+
+
 def make_collection_dict(
     collections: list[dict[str, Any]],
 ) -> dict[str, Any]:

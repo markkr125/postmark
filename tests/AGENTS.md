@@ -203,6 +203,7 @@ tests/
 │   │   ├── test_data_paths.py
 │   │   ├── test_request_history_body_store.py
 │   │   └── test_request_history_repository.py
+│   │   └── test_fetch_requests_by_ids.py  # Bulk request/breadcrumb prefetch APIs
 │   ├── local_scripts/             # Script filename display helpers
 │   │   └── test_script_filename.py
 │   ├── ui/                        # UI helpers (may need qapp for Qt types)
@@ -394,6 +395,8 @@ tests/
    │   └── test_ai_chat_registry_streaming.py  # E2E registry→controller→panel incremental streaming
    │   └── test_ai_concurrent_runs.py  # E2E New chat / session switch + parallel send flows
    │   └── test_session_history_switch.py  # MainWindow session history switch during transcript load
+   │   └── test_session_restore_perf.py  # Batched chip restore + prefetch cache materialisation
+   │   └── test_tab_settle_cache.py  # Variable map cache on tab re-select
    ├── test_main_window.py        # Top-level MainWindow smoke tests
    ├── test_main_window_tabs_navigation.py # Wrapped tab deck shortcuts + search tests
    ├── test_main_window_tab_nav_history.py # Go menu tab activation back/forward

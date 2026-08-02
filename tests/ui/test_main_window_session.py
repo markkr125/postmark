@@ -101,7 +101,9 @@ class TestPersistOpenTabs:
         saved = window._tab_settings_manager.load_open_tabs()
         assert saved is not None
         assert len(saved["tabs"]) == 1
-        assert saved["tabs"][0] == {"type": "folder", "id": coll.id}
+        assert saved["tabs"][0]["type"] == "folder"
+        assert saved["tabs"][0]["id"] == coll.id
+        assert saved["tabs"][0]["name"] == "FolderColl"
 
     def test_persist_records_mixed_tabs(self, qapp: QApplication, qtbot) -> None:
         """_persist_open_tabs handles a mix of request and folder tabs."""
@@ -670,9 +672,10 @@ class TestDraftSessionPersistence:
         finish_main_window_startup(window)
 
         assert window._tab_bar.count() == 2
-        # Tab 0: persisted request
-        assert window._tabs[0].request_id == req.id
-        # Tab 1: draft
+        # Tab 0: old-format persisted request restores as a deferred chip
+        assert 0 in window._deferred_tabs
+        assert window._deferred_tabs[0]["request_id"] == req.id
+        # Tab 1: draft (eager, active)
         assert window._tabs[1].request_id is None
         assert window._tab_bar.currentIndex() == 1
 

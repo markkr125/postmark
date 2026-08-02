@@ -131,7 +131,84 @@ def main() -> None:
 
     profiler.disable()
 
-    _snapshot("Phase 4 — load_finished + restore_tabs", t4, mem4)
+    _snapshot("Phase 4 — load_finished + restore_tabs (flush)", t4, mem4)
+
+    # -- Phase 4b: restore with real startup timers ----------------------
+    mem4b = _rss_mb()
+    t4b = time.perf_counter()
+
+    tab_settings_manager.save_open_tabs(
+        {
+            "tabs": [
+                {"type": "request", "id": rid, "method": "GET", "name": f"Request {i}"}
+                for i, rid in enumerate(request_ids)
+            ],
+            "active": 0,
+        }
+    )
+    window2 = MainWindow(
+        theme_manager=theme_manager,
+        tab_settings_manager=tab_settings_manager,
+    )
+    window2.collection_widget.load_finished.emit()
+    deadline = t4b + 5.0
+    while getattr(window2, "_session_restore_state", None) is not None:
+        app.processEvents()
+        if time.perf_counter() > deadline:
+            break
+
+    _snapshot("Phase 4b — restore (real QTimer batching)", t4b, mem4b)
+    window2.close()
+
+    # -- Phase 6: materialize from prefetch cache vs cold DB -------------
+    mem6 = _rss_mb()
+    t6 = time.perf_counter()
+
+    from services.collection_service import CollectionService
+
+    prefetch = CollectionService.fetch_requests_by_ids(request_ids[: min(5, len(request_ids))])
+    cold_ms = 0.0
+    for rid in request_ids[: min(5, len(request_ids))]:
+        t_c = time.perf_counter()
+        CollectionService.get_request(rid)
+        cold_ms += (time.perf_counter() - t_c) * 1000.0
+    cache_ms = 0.0
+    for rid in request_ids[: min(5, len(request_ids))]:
+        t_c = time.perf_counter()
+        _ = prefetch.get(rid)
+        cache_ms += (time.perf_counter() - t_c) * 1000.0
+
+    print(
+        f"\n  Phase 6 — prefetch dict lookup ({min(5, len(request_ids))} ids): "
+        f"{cache_ms:.2f} ms total"
+    )
+    print(f"  Phase 6 — sequential get_request: {cold_ms:.2f} ms total")
+
+    _snapshot("Phase 6 — prefetch vs cold (5 ids)", t6, mem6)
+
+    # -- Phase 7: tab switch settle (active tab already materialized) ----
+    if window._tab_bar.count() > 1:
+        mem7 = _rss_mb()
+        t7 = time.perf_counter()
+        window._tab_bar.setCurrentIndex(1)
+        window._on_tab_changed(1)
+        window._flush_tab_change()
+        _snapshot("Phase 7 — tab switch settle (index 1)", t7, mem7)
+
+    # -- Phase 3b: MainWindow init cProfile ------------------------------
+    print("\n--- Phase 3 MainWindow.__init__ cProfile Top 20 (cumulative) ---")
+    init_profiler = cProfile.Profile()
+    init_profiler.enable()
+    MainWindow(
+        theme_manager=theme_manager,
+        tab_settings_manager=TabSettingsManager(app),
+    )
+    init_profiler.disable()
+    init_stream = io.StringIO()
+    init_stats = pstats.Stats(init_profiler, stream=init_stream)
+    init_stats.sort_stats("cumulative")
+    init_stats.print_stats(20)
+    print(init_stream.getvalue())
 
     # -- Phase 5: show() -------------------------------------------------
     mem5 = _rss_mb()
@@ -175,6 +252,17 @@ def main() -> None:
 
     print(f"  Pair (editor+viewer): ~{per_editor + per_viewer:.1f} MB each")
     print(f"  Estimated {num_tabs} tab pairs: ~{(per_editor + per_viewer) * num_tabs:.1f} MB")
+
+    editor_profiler = cProfile.Profile()
+    editor_profiler.enable()
+    RequestEditorWidget()
+    editor_profiler.disable()
+    print("\n--- RequestEditorWidget.__init__ cProfile Top 15 (tottime) ---")
+    editor_stream = io.StringIO()
+    editor_stats = pstats.Stats(editor_profiler, stream=editor_stream)
+    editor_stats.sort_stats("tottime")
+    editor_stats.print_stats(15)
+    print(editor_stream.getvalue())
 
     # -- Top 30 profiled functions in Phase 4 ----------------------------
     print("\n--- Phase 4 cProfile Top 30 (cumulative) ---")

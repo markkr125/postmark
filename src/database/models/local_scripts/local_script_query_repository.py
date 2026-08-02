@@ -90,6 +90,35 @@ def fetch_local_script_contents_for_ids(
         return [by_id[i] for i in ids if i in by_id]
 
 
+def fetch_local_script_load_dicts_by_ids(ids: Sequence[int]) -> dict[int, dict[str, Any]]:
+    """Return editor load payloads keyed by local script id."""
+    if not ids:
+        return {}
+    with get_session() as session:
+        stmt = select(
+            LocalScriptModel.id,
+            LocalScriptModel.name,
+            LocalScriptModel.language,
+            LocalScriptModel.module_format,
+            LocalScriptModel.content,
+            LocalScriptModel.debug_metadata,
+        ).where(LocalScriptModel.id.in_(ids))
+        rows = session.execute(stmt).all()
+        result: dict[int, dict[str, Any]] = {}
+        for sid, name, language, module_format, content, debug_metadata in rows:
+            payload: dict[str, Any] = {
+                "id": int(sid),
+                "name": str(name or ""),
+                "language": language or "javascript",
+                "module_format": module_format or "esm",
+                "content": content or "",
+            }
+            if isinstance(debug_metadata, dict):
+                payload["debug_metadata"] = debug_metadata
+            result[int(sid)] = payload
+        return result
+
+
 def get_script_by_id(script_id: int) -> LocalScriptModel | None:
     """Return the script row for *script_id*, or ``None``."""
     with get_session() as session:

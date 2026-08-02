@@ -15,9 +15,10 @@ from typing import TYPE_CHECKING, Any, cast
 from PySide6.QtCore import QTimer
 
 from services.collection_service import CollectionService, RequestLoadDict
-from services.local_script_service import LocalScriptService
+from services.local_script_service import LocalScriptLoadDict, LocalScriptService
 from ui.local_scripts.local_script_editor_widget import LocalScriptEditorWidget
 from ui.local_scripts.script_filename import script_display_name
+from ui.main_window.session_restore.prefetch import SessionPrefetchResult
 from ui.request.navigation.tab_manager import TabContext, allocate_tab_nav_token
 from ui.request.request_editor import RequestEditorWidget
 from ui.request.response_viewer import ResponseViewerWidget
@@ -83,6 +84,9 @@ class _TabControllerMixin:
     _restoring_session: bool
     _deferred_tabs: dict[int, dict]
     _tab_change_debounce: QTimer
+    _variable_map_cache: dict[tuple[int | None, int | None, int | None], dict[str, Any]]
+    _session_prefetch_result: SessionPrefetchResult | None
+    _session_prefetch_ready: bool
     _left_sidebar: LeftSidebar
     _right_sidebar: RightSidebar
     _env_selector: EnvironmentSidebarPanel
@@ -117,6 +121,48 @@ class _TabControllerMixin:
     def _record_tab_activation(self, index: int) -> None: ...
     def _seed_tab_nav_after_restore(self) -> None: ...
     def _purge_tab_nav_token(self, token: int) -> None: ...
+
+    def _prefetch_result(self) -> SessionPrefetchResult | None:
+        """Return the session prefetch payload when ready."""
+        result = getattr(self, "_session_prefetch_result", None)
+        return result if isinstance(result, SessionPrefetchResult) else None
+
+    def _resolve_request_load_dict(self, request_id: int) -> RequestLoadDict | None:
+        """Load request editor data from prefetch cache or the database."""
+        cached = self._prefetch_result()
+        if cached is not None and request_id in cached.requests:
+            return cached.requests[request_id]
+        request = CollectionService.get_request(request_id)
+        if request is None:
+            return None
+        return RequestLoadDict(
+            name=request.name,
+            method=request.method,
+            url=request.url,
+            body=request.body,
+            request_parameters=request.request_parameters,
+            headers=request.headers,
+            description=request.description,
+            scripts=request.scripts or request.events,
+            body_mode=request.body_mode,
+            body_options=request.body_options,
+            auth=request.auth,
+        )
+
+    def _resolve_request_breadcrumb(self, request_id: int) -> list[dict[str, Any]]:
+        """Load breadcrumb path from prefetch cache or the database."""
+        cached = self._prefetch_result()
+        if cached is not None and request_id in cached.breadcrumbs:
+            return cached.breadcrumbs[request_id]
+        return CollectionService.get_request_breadcrumb(request_id)
+
+    def _resolve_local_script_load_dict(self, script_id: int) -> dict[str, Any] | None:
+        """Load local script editor data from prefetch cache or the database."""
+        cached = self._prefetch_result()
+        if cached is not None and script_id in cached.local_scripts:
+            return dict(cached.local_scripts[script_id])
+        data = LocalScriptService.get_script_load_dict(script_id)
+        return dict(data) if data is not None else None
 
     # ------------------------------------------------------------------
     # Open request
@@ -327,7 +373,7 @@ class _TabControllerMixin:
             self._tab_bar.blockSignals(False)
 
         self._tabs[idx] = ctx
-        editor.load_script(data)
+        editor.load_script(cast(LocalScriptLoadDict, data))
         self._bind_local_script_autosave(editor, script_id)
         editor.dirty_changed.connect(self._sync_save_btn)
         editor.dirty_changed.connect(self._on_local_script_dirty_changed)
@@ -584,7 +630,12 @@ class _TabControllerMixin:
         # -- Breadcrumb ------------------------------------------------
         if ctx is not None and ctx.tab_type == "folder":
             if ctx.collection_id is not None:
-                crumbs = CollectionService.get_collection_breadcrumb(ctx.collection_id)
+                cached = getattr(ctx, "_breadcrumb_cache", None)
+                if cached is not None:
+                    crumbs = cached
+                else:
+                    crumbs = CollectionService.get_collection_breadcrumb(ctx.collection_id)
+                    ctx._breadcrumb_cache = crumbs  # type: ignore[attr-defined]
                 self._breadcrumb_bar.set_path(crumbs)
             else:
                 self._breadcrumb_bar.clear()
@@ -603,8 +654,14 @@ class _TabControllerMixin:
                 if cached is not None:
                     crumbs = cached
                     del ctx._cached_crumbs  # type: ignore[attr-defined]
+                    ctx._breadcrumb_cache = crumbs  # type: ignore[attr-defined]
                 else:
-                    crumbs = CollectionService.get_request_breadcrumb(ctx.request_id)
+                    breadcrumb_cache = getattr(ctx, "_breadcrumb_cache", None)
+                    if breadcrumb_cache is not None:
+                        crumbs = breadcrumb_cache
+                    else:
+                        crumbs = self._resolve_request_breadcrumb(ctx.request_id)
+                        ctx._breadcrumb_cache = crumbs  # type: ignore[attr-defined]
                 self._breadcrumb_bar.set_path(crumbs)
             elif ctx.draft_name is not None:
                 self._breadcrumb_bar.set_path(
@@ -649,10 +706,16 @@ class _TabControllerMixin:
         if ctx.tab_type == "environments":
             return
         if ctx.tab_type == "folder" and ctx.collection_id is not None:
+            if self.collection_widget.is_item_selected(ctx.collection_id, "folder"):
+                return
             self.collection_widget.select_and_scroll_to(ctx.collection_id, "folder")
         elif ctx.tab_type == "local_script" and ctx.local_script_id is not None:
+            if self.local_scripts_widget.is_item_selected(ctx.local_script_id, "script"):
+                return
             self.local_scripts_widget.select_and_scroll_to(ctx.local_script_id, "script")
         elif ctx.request_id is not None:
+            if self.collection_widget.is_item_selected(ctx.request_id, "request"):
+                return
             self.collection_widget.select_and_scroll_to(ctx.request_id, "request")
 
     # ------------------------------------------------------------------
@@ -672,7 +735,17 @@ class _TabControllerMixin:
             ctx = self._tabs.get(idx)
             if ctx is not None:
                 if ctx.tab_type == "folder" and ctx.collection_id is not None:
-                    tabs_list.append({"type": "folder", "id": ctx.collection_id})
+                    _method, folder_name = self._tab_bar.tab_request_info(idx)
+                    if not folder_name:
+                        coll = CollectionService.get_collection(ctx.collection_id)
+                        folder_name = coll.name if coll is not None else ""
+                    tabs_list.append(
+                        {
+                            "type": "folder",
+                            "id": ctx.collection_id,
+                            "name": folder_name or "",
+                        }
+                    )
                 elif ctx.tab_type == "environments":
                     tabs_list.append({"type": "environments"})
                 elif ctx.tab_type == "local_script" and ctx.local_script_id is not None:
@@ -732,6 +805,14 @@ class _TabControllerMixin:
                                 "module_format": info.get("module_format", "esm"),
                             }
                         )
+                    elif info.get("type") == "folder":
+                        tabs_list.append(
+                            {
+                                "type": "folder",
+                                "id": info["collection_id"],
+                                "name": info.get("name", ""),
+                            }
+                        )
                     else:
                         tabs_list.append(
                             {
@@ -765,18 +846,19 @@ class _TabControllerMixin:
     def _restore_request_deferred(self, entry: dict, request_id: int) -> None:
         """Create a lightweight tab chip for a persisted request tab.
 
-        If the session entry contains ``method`` and ``name`` (new format),
-        the chip is created without any database query.  Otherwise we fall
-        back to eager loading via :meth:`_open_request`.
+        Uses persisted ``method``/``name`` when present; otherwise fills from
+        the session prefetch cache or a single DB read (never eager editor build).
         """
         method = entry.get("method")
         name = entry.get("name")
-        if not isinstance(method, str) or not isinstance(name, str):
-            # Old format — fall back to eager loading
-            self._open_request(request_id, push_history=False, is_preview=False)
-            return
+        if not isinstance(method, str) or not isinstance(name, str) or not method or not name:
+            req_data = self._resolve_request_load_dict(request_id)
+            if req_data is None:
+                logger.warning("Deferred request id=%s not found, skipping restore", request_id)
+                return
+            method = str(req_data.get("method") or "GET")
+            name = str(req_data.get("name") or "")
 
-        # Block signals while adding the tab to avoid premature events.
         self._tab_bar.blockSignals(True)
         try:
             idx = self._tab_bar.add_request_tab(
@@ -792,6 +874,35 @@ class _TabControllerMixin:
             "request_id": request_id,
             "method": method,
             "name": name,
+            "nav_token": allocate_tab_nav_token(),
+        }
+
+    def _restore_folder_deferred(self, entry: dict, collection_id: int) -> None:
+        """Create a lightweight folder tab chip without loading the editor."""
+        name = entry.get("name")
+        if not isinstance(name, str) or not name.strip():
+            cached = self._prefetch_result()
+            if cached is not None and collection_id in cached.folder_names:
+                name = cached.folder_names[collection_id]
+            else:
+                collection = CollectionService.get_collection(collection_id)
+                if collection is None:
+                    logger.warning(
+                        "Deferred folder id=%s not found, skipping restore", collection_id
+                    )
+                    return
+                name = collection.name
+
+        self._tab_bar.blockSignals(True)
+        try:
+            idx = self._tab_bar.add_folder_tab(str(name), path=None)
+        finally:
+            self._tab_bar.blockSignals(False)
+
+        self._deferred_tabs[idx] = {
+            "type": "folder",
+            "collection_id": collection_id,
+            "name": str(name),
             "nav_token": allocate_tab_nav_token(),
         }
 
@@ -819,6 +930,98 @@ class _TabControllerMixin:
             "nav_token": allocate_tab_nav_token(),
         }
 
+    def _materialise_deferred_folder_tab(self, index: int, info: dict) -> None:
+        """Build the folder editor on first selection of a deferred folder chip."""
+        collection_id: int = info["collection_id"]
+        collection = CollectionService.get_collection(collection_id)
+        if collection is None:
+            logger.warning("Deferred folder id=%s not found, removing tab", collection_id)
+            raw_token = info.get("nav_token")
+            if isinstance(raw_token, int):
+                self._purge_tab_nav_token(raw_token)
+            self._tab_bar.remove_request_tab(index)
+            self._reindex_tabs_after_close(index)
+            return
+
+        from ui.request.folder_editor import FolderEditorWidget
+
+        data: dict[str, Any] = {
+            "name": collection.name,
+            "description": collection.description,
+            "auth": collection.auth,
+            "events": collection.events,
+            "variables": collection.variables,
+        }
+        request_count = CollectionService.get_folder_request_count(collection_id)
+        recent_requests = CollectionService.get_recent_requests(collection_id)
+        created_at = (
+            collection.created_at.strftime("%Y-%m-%d %H:%M") if collection.created_at else None
+        )
+        updated_at = (
+            collection.updated_at.strftime("%Y-%m-%d %H:%M") if collection.updated_at else None
+        )
+
+        folder_editor = FolderEditorWidget()
+        self._editor_stack.addWidget(folder_editor)
+
+        saved_token = info.get("nav_token")
+        nav_token = saved_token if isinstance(saved_token, int) else None
+        ctx = TabContext(
+            tab_type="folder",
+            collection_id=collection_id,
+            folder_editor=folder_editor,
+            opened_order=self._next_tab_open_order(),
+            nav_token=nav_token,
+        )
+        self._tabs[index] = ctx
+        folder_editor.collection_changed.connect(self._on_folder_auto_save)
+        folder_editor.debug_step_requested.connect(self._on_debug_step)
+
+        folder_editor.load_collection(
+            data,
+            collection_id=collection_id,
+            request_count=request_count,
+            created_at=created_at,
+            updated_at=updated_at,
+            recent_requests=recent_requests,
+        )
+
+        from services.run_history_service import RunHistoryService
+
+        folder_editor.load_runs(RunHistoryService.get_runs(collection_id))
+
+        crumbs = CollectionService.get_collection_breadcrumb(collection_id)
+        folder_path = (
+            " / ".join(str(c.get("name", "")) for c in crumbs if c.get("name")) if crumbs else None
+        )
+        ctx._breadcrumb_cache = crumbs  # type: ignore[attr-defined]
+        self._tab_bar.update_tab(index, name=data.get("name", ""), path=folder_path)
+
+    def _on_session_prefetch_late_arrival(self) -> None:
+        """Apply prefetch payloads to deferred chips when data arrives after restore."""
+        cached = self._prefetch_result()
+        if cached is None:
+            return
+        for idx, info in list(self._deferred_tabs.items()):
+            if info.get("type") == "folder":
+                collection_id = info.get("collection_id")
+                if isinstance(collection_id, int) and collection_id in cached.folder_names:
+                    name = cached.folder_names[collection_id]
+                    info["name"] = name
+                    self._tab_bar.update_tab(idx, name=name)
+                continue
+            request_id = info.get("request_id")
+            if not isinstance(request_id, int):
+                continue
+            if request_id not in cached.requests:
+                continue
+            row = cached.requests[request_id]
+            method = str(row.get("method") or info.get("method") or "GET")
+            name = str(row.get("name") or info.get("name") or "")
+            info["method"] = method
+            info["name"] = name
+            self._tab_bar.update_tab(idx, method=method, name=name)
+
     def _materialise_deferred_tab(self, index: int) -> None:
         """Build the editor and viewer for a deferred tab on first selection.
 
@@ -835,11 +1038,14 @@ class _TabControllerMixin:
         if info.get("type") == "local_script":
             self._materialise_deferred_local_script(index, info)
             return
+        if info.get("type") == "folder":
+            self._materialise_deferred_folder_tab(index, info)
+            return
 
         request_id: int = info["request_id"]
 
-        request = CollectionService.get_request(request_id)
-        if request is None:
+        req_data = self._resolve_request_load_dict(request_id)
+        if req_data is None:
             logger.warning("Deferred request id=%s not found, removing tab", request_id)
             raw_token = info.get("nav_token")
             if isinstance(raw_token, int):
@@ -847,20 +1053,6 @@ class _TabControllerMixin:
             self._tab_bar.remove_request_tab(index)
             self._reindex_tabs_after_close(index)
             return
-
-        req_data: RequestLoadDict = {
-            "name": request.name,
-            "method": request.method,
-            "url": request.url,
-            "body": request.body,
-            "request_parameters": request.request_parameters,
-            "headers": request.headers,
-            "description": request.description,
-            "scripts": request.scripts or request.events,
-            "body_mode": request.body_mode,
-            "body_options": request.body_options,
-            "auth": request.auth,
-        }
 
         editor = RequestEditorWidget()
         viewer = ResponseViewerWidget()
@@ -895,11 +1087,12 @@ class _TabControllerMixin:
 
         # Fetch breadcrumb once — reused by both the tab tooltip and
         # _on_tab_changed (via _cached_crumbs) to avoid a duplicate query.
-        crumbs = CollectionService.get_request_breadcrumb(request_id)
+        crumbs = self._resolve_request_breadcrumb(request_id)
         request_path = (
             " / ".join(str(c.get("name", "")) for c in crumbs if c.get("name")) if crumbs else None
         )
         ctx._cached_crumbs = crumbs  # type: ignore[attr-defined]
+        ctx._breadcrumb_cache = crumbs  # type: ignore[attr-defined]
 
         self._tab_bar.update_tab(
             index,
@@ -911,7 +1104,7 @@ class _TabControllerMixin:
     def _materialise_deferred_local_script(self, index: int, info: dict) -> None:
         """Build the local script editor on first selection of a deferred tab chip."""
         script_id: int = info["script_id"]
-        data = LocalScriptService.get_script_load_dict(script_id)
+        data = self._resolve_local_script_load_dict(script_id)
         if data is None:
             logger.warning("Deferred local script id=%s not found, removing tab", script_id)
             raw_token = info.get("nav_token")
@@ -935,7 +1128,7 @@ class _TabControllerMixin:
         )
         self._tabs[index] = ctx
 
-        editor.load_script(data)
+        editor.load_script(cast(LocalScriptLoadDict, data))
         self._bind_local_script_autosave(editor, script_id)
         editor.dirty_changed.connect(self._sync_save_btn)
         editor.dirty_changed.connect(self._on_local_script_dirty_changed)

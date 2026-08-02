@@ -219,3 +219,22 @@ User clicks Send (with scripts)
   --> ConsolePanel.append_message() for each console log
   --> Apply variable_changes to local_overrides
 ```
+
+## 7. Session tab restore (startup)
+
+After the collection tree loads, persisted tabs reopen without slow-motion pacing.
+
+```text
+CollectionWidget.load_finished
+  --> MainWindow._on_load_finished()
+    --> session_restore.begin_session_restore()
+      1. _plan_session_restore() — parse QSettings session JSON
+      2. SessionPrefetchWorker (QThread + ThreadPoolExecutor)
+         --> fetch_requests_by_ids / fetch_request_breadcrumbs_by_ids
+         --> fetch_local_script_load_dicts_by_ids / fetch_collection_names_by_ids
+         <-- SessionPrefetchResult on MainWindow._session_prefetch_result
+      3. _restore_all_deferred() — all tab chips in one batch (blockSignals)
+      4. _restore_all_drafts() — draft editors in one batch
+      5. _finalize_session_restore() — activate saved tab, materialise if deferred
+         --> _materialise_deferred_tab() reads prefetch cache first
+```

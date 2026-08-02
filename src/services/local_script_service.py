@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any, TypedDict
+from typing import Any, TypedDict, cast
 
 from database.database import get_session
 from database.models.local_scripts.local_script_query_repository import (
     fetch_all_local_scripts_tree,
     fetch_local_script_contents_for_ids,
+    fetch_local_script_load_dicts_by_ids,
     get_local_script_breadcrumb,
     get_script_by_id,
 )
@@ -110,6 +111,14 @@ class LocalScriptService:
     ) -> list[tuple[int, str, str]]:
         """Return ``(id, name, content)`` for the given local script ids."""
         return fetch_local_script_contents_for_ids(ids)
+
+    @staticmethod
+    def fetch_local_script_load_dicts_by_ids(
+        ids: list[int],
+    ) -> dict[int, LocalScriptLoadDict]:
+        """Bulk-load editor payloads keyed by local script id."""
+        raw = fetch_local_script_load_dicts_by_ids(ids)
+        return {sid: cast(LocalScriptLoadDict, data) for sid, data in raw.items()}
 
     @staticmethod
     def get_script_load_dict(script_id: int) -> LocalScriptLoadDict | None:

@@ -46,6 +46,9 @@ cross-layer data interchange.
 | `get_request_variable_chain_detailed(request_id)` | `dict[str, tuple[str, int]]` | Variables with source collection IDs |
 | `get_collection_variable_chain_detailed(collection_id)` | `dict[str, tuple[str, int]]` | Variables from collection's parent chain with source IDs |
 | `get_request_breadcrumb(request_id)` | `list[dict[str, Any]]` | Ancestor path for breadcrumb bar |
+| `fetch_requests_by_ids(ids)` | `dict[int, dict[str, Any]]` | Bulk `RequestLoadDict`-shaped rows for session prefetch |
+| `fetch_request_breadcrumbs_by_ids(ids)` | `dict[int, list[dict[str, Any]]]` | Bulk breadcrumb paths keyed by request id |
+| `fetch_collection_names_by_ids(ids)` | `dict[int, str]` | Folder display names for deferred folder chips |
 | `get_collection_breadcrumb(collection_id)` | `list[dict[str, Any]]` | Ancestor path for collection breadcrumb |
 | `get_saved_responses_for_request(request_id)` | `list[dict[str, Any]]` | Saved responses for a request |
 | `request_ids_with_saved_responses(ids)` | `set[int]` | Batched presence: which request ids have ≥1 saved example |
@@ -128,6 +131,7 @@ Metadata in SQLite; bodies/snapshots via `body_store.py` under
 |----------|---------|---------|
 | `fetch_all_local_scripts_tree()` | `dict[str, Any]` | Nested tree; script nodes include ``module_format`` |
 | `fetch_local_script_contents_for_ids(ids)` | `list[tuple[int, str, str]]` | Bulk ``(id, name, content)`` for search |
+| `fetch_local_script_load_dicts_by_ids(ids)` | `dict[int, dict[str, Any]]` | Bulk editor load payloads for session prefetch |
 | `get_script_by_id(script_id)` | `LocalScriptModel \| None` | PK lookup |
 | `get_local_script_breadcrumb(script_id)` | `list[dict[str, Any]]` | Breadcrumb segments |
 
@@ -165,6 +169,9 @@ directly to the repository with no added logic.
 | `get_collection_inherited_auth(collection_id)` | Passthrough |
 | `get_request_variable_chain(request_id)` | Passthrough |
 | `get_request_breadcrumb(request_id)` | Passthrough |
+| `fetch_requests_by_ids(ids)` | Passthrough bulk load dicts for session prefetch |
+| `fetch_request_breadcrumbs_by_ids(ids)` | Passthrough bulk breadcrumbs |
+| `fetch_collection_names_by_ids(ids)` | Passthrough folder names for deferred chips |
 | `get_collection_breadcrumb(collection_id)` | Passthrough |
 | `get_folder_request_count(collection_id)` | Passthrough |
 | `get_recent_requests(collection_id, ...)` | Passthrough |
@@ -538,6 +545,7 @@ All methods are `@staticmethod`.  UI must use this module, not `database/`.
 | `fetch_local_script_contents_for_ids(ids)` | ``(id, name, content)`` tuples for bulk search |
 | `list_virtual_paths(*, language)` | Virtual paths for ``pm.require("local:…")`` autocomplete |
 | `get_script_load_dict(script_id)` | Editor open payload (see ``LocalScriptLoadDict``) |
+| `fetch_local_script_load_dicts_by_ids(ids)` | Bulk editor payloads for session prefetch |
 | `create_script(folder_id, name, *, language, module_format="esm", content)` | Create script |
 | `rename_script(script_id, new_name, *, language?, module_format?)` | Rename + ref rewrite |
 | `save_script_content(script_id, content, language?, module_format?)` | Persist buffer |

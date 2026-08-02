@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from datetime import datetime
-from typing import Any, TypedDict
+from typing import Any, TypedDict, cast
 
 from database.models.collections.collection_query_repository import (
     count_all_collections,
@@ -17,9 +17,12 @@ from database.models.collections.collection_query_repository import (
     count_collection_requests,
     fetch_all_collections,
     fetch_assertion_counts_for_ids,
+    fetch_collection_names_by_ids,
     fetch_folder_scripts_for_ids,
+    fetch_request_breadcrumbs_by_ids,
     fetch_request_fields_for_ids,
     fetch_request_scripts_for_ids,
+    fetch_requests_by_ids,
     get_collection_breadcrumb,
     get_collection_by_id,
     get_collection_inherited_auth,
@@ -229,6 +232,24 @@ class CollectionService:
     def get_request(request_id: int) -> RequestModel | None:
         """Look up a single request by primary key."""
         return get_request_by_id(request_id)
+
+    @staticmethod
+    def fetch_requests_by_ids(ids: list[int]) -> dict[int, RequestLoadDict]:
+        """Bulk-load :class:`RequestLoadDict` rows keyed by request id."""
+        raw = fetch_requests_by_ids(ids)
+        return {rid: cast(RequestLoadDict, data) for rid, data in raw.items()}
+
+    @staticmethod
+    def fetch_request_breadcrumbs_by_ids(
+        ids: list[int],
+    ) -> dict[int, list[dict[str, Any]]]:
+        """Bulk-load request breadcrumb paths keyed by request id."""
+        return fetch_request_breadcrumbs_by_ids(ids)
+
+    @staticmethod
+    def fetch_collection_names_by_ids(ids: list[int]) -> dict[int, str]:
+        """Return display names for folder collection ids."""
+        return fetch_collection_names_by_ids(ids)
 
     @staticmethod
     def fetch_request_scripts_for_ids(

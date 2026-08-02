@@ -354,6 +354,50 @@ class CollectionTree(_TreeActionsMixin, QWidget):
 
     def set_collections(self, data: dict[str, Any]) -> None:
         """Replace the entire tree contents from a nested collection dict."""
+        if len(data) >= 25:
+            self.set_collections_incremental(data)
+            return
+        self._set_collections_sync(data)
+
+    def set_collections_incremental(
+        self,
+        data: dict[str, Any],
+        *,
+        budget_ms: float = 8.0,
+    ) -> None:
+        """Replace tree contents in time slices so large forests stay responsive."""
+        import time
+
+        from PySide6.QtWidgets import QApplication
+
+        self._tree.blockSignals(True)
+        try:
+            self._tree.clear()
+            sorted_roots = sorted(data.items(), key=lambda kv: kv[1]["name"].lower(), reverse=False)
+            slice_start = time.perf_counter()
+            for _key, value in sorted_roots:
+                root_item = QTreeWidgetItem(self._tree, [value["name"]])
+                root_item.setChildIndicatorPolicy(
+                    QTreeWidgetItem.ChildIndicatorPolicy.ShowIndicator
+                )
+                root_item.setData(0, ROLE_ITEM_ID, value.get("id"))
+                root_item.setData(0, ROLE_ITEM_TYPE, value.get("type"))
+                root_item.setData(1, ROLE_ITEM_TYPE, value.get("type"))
+                self._apply_item_properties(root_item, value)
+                self._add_items(root_item, value.get("children", {}))
+                if (time.perf_counter() - slice_start) * 1000.0 >= budget_ms:
+                    app = QApplication.instance()
+                    if app is not None:
+                        self._tree.blockSignals(False)
+                        app.processEvents()
+                        self._tree.blockSignals(True)
+                    slice_start = time.perf_counter()
+        finally:
+            self._tree.blockSignals(False)
+        self._update_stack_visibility()
+
+    def _set_collections_sync(self, data: dict[str, Any]) -> None:
+        """Synchronously rebuild the entire tree (small collection sets)."""
         self._tree.blockSignals(True)
         try:
             self._tree.clear()
@@ -450,6 +494,16 @@ class CollectionTree(_TreeActionsMixin, QWidget):
             parent = parent.parent()
         self._tree.setCurrentItem(target)
         self._tree.scrollToItem(target, QTreeWidget.ScrollHint.EnsureVisible)
+
+    def is_item_selected(self, item_id: int, item_type: str) -> bool:
+        """Return ``True`` when *item_id* / *item_type* is already the current row."""
+        current = self._tree.currentItem()
+        if current is None:
+            return False
+        if current.data(0, ROLE_ITEM_ID) != item_id:
+            return False
+        stored_type = current.data(0, ROLE_ITEM_TYPE)
+        return bool(stored_type == item_type)
 
     def start_rename_by_id(self, item_id: int, item_type: str) -> None:
         """Select the item and immediately enter in-place rename mode."""

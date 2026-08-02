@@ -42,6 +42,41 @@ class _VariableControllerMixin:
 
     def _current_tab_context(self) -> TabContext | None: ...
 
+    @staticmethod
+    def _variable_map_collection_id(
+        request_id: int | None,
+        variable_collection_id: int | None,
+    ) -> int | None:
+        """Return the collection id used when resolving draft/history variable maps."""
+        if request_id is not None:
+            return None
+        return variable_collection_id
+
+    def _combined_variable_map_for_tab(
+        self,
+        env_id: int | None,
+        request_id: int | None,
+        *,
+        collection_id: int | None = None,
+    ) -> dict[str, Any]:
+        """Return the combined variable map, using the session cache when possible."""
+        cache_key = (
+            env_id,
+            request_id,
+            collection_id if request_id is None else None,
+        )
+        cache = getattr(self, "_variable_map_cache", {})
+        if cache_key in cache:
+            return dict(cache[cache_key])
+        variables = EnvironmentService.build_combined_variable_detail_map(
+            env_id,
+            request_id,
+            collection_id=collection_id if request_id is None else None,
+        )
+        cache[cache_key] = dict(variables)
+        self._variable_map_cache = cache
+        return variables
+
     def _refresh_variable_map(
         self,
         editor: RequestEditorWidget,
@@ -63,7 +98,7 @@ class _VariableControllerMixin:
         variables sidebar.
         """
         env_id = self._env_selector.current_environment_id()
-        variables = EnvironmentService.build_combined_variable_detail_map(
+        variables = self._combined_variable_map_for_tab(
             env_id,
             request_id,
             collection_id=collection_id if request_id is None else None,
@@ -81,20 +116,11 @@ class _VariableControllerMixin:
 
         editor.set_variable_map(variables)
 
-    @staticmethod
-    def _variable_map_collection_id(
-        request_id: int | None,
-        variable_collection_id: int | None,
-    ) -> int | None:
-        """Return the collection id used for variable resolution on draft tabs."""
-        if request_id is not None:
-            return None
-        return variable_collection_id
-
     def _on_environment_changed(self, _env_id: object) -> None:
         """Refresh variable maps in all open request editors."""
         from ui.widgets.variable_popup import VariablePopup
 
+        self._variable_map_cache = {}
         VariablePopup.set_has_environment(self._env_selector.current_environment_id() is not None)
         for ctx in self._tabs.values():
             if ctx.tab_type == "request" and ctx.editor is not None:
@@ -268,6 +294,10 @@ class _VariableControllerMixin:
         history_load_detail: bool = True,
     ) -> None:
         """Update the right sidebar panels for the active tab."""
+        ensure_env = getattr(self, "_ensure_env_sidebar_refreshed", None)
+        if callable(ensure_env):
+            ensure_env()
+
         if ctx is None:
             ctx = self._current_tab_context()
         env_id = self._env_selector.current_environment_id()
@@ -280,6 +310,11 @@ class _VariableControllerMixin:
         if ctx.tab_type == "environments":
             self._right_sidebar.clear()
             return
+
+        history_panel_open = (
+            self._right_sidebar.active_panel == "history" and self._right_sidebar.panel_open
+        )
+        effective_history_detail = history_load_detail and history_panel_open
 
         if ctx.tab_type == "folder":
             variables = EnvironmentService.build_combined_variable_detail_map(env_id, None)
@@ -302,7 +337,7 @@ class _VariableControllerMixin:
         elif (
             ctx.tab_type == "request" and ctx.editor is not None and ctx.response_viewer is not None
         ):
-            variables = EnvironmentService.build_combined_variable_detail_map(
+            variables = self._combined_variable_map_for_tab(
                 env_id,
                 ctx.request_id,
                 collection_id=ctx.variable_collection_id if ctx.request_id is None else None,
@@ -366,7 +401,7 @@ class _VariableControllerMixin:
                 request_id=ctx.request_id,
                 request_name=request_name,
                 is_persisted_request=is_persisted_request,
-                load_detail=history_load_detail,
+                load_detail=effective_history_detail,
                 from_deleted_request_history=from_deleted_request_history,
             )
         elif ctx.tab_type == "local_script":

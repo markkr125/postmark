@@ -48,7 +48,7 @@ if __name__ == "__main__":
     app.aboutToQuit.connect(lambda: LspRegistry.instance().shutdown())
 
     # Initialise the database before any widget accesses it
-    init_db()
+    init_db(reconcile=False)
 
     window = MainWindow(
         theme_manager=theme_manager,

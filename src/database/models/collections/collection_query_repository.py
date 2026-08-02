@@ -138,6 +138,153 @@ def get_request_by_id(request_id: int) -> RequestModel | None:
         )
 
 
+def _request_row_to_load_dict(
+    *,
+    name: str,
+    method: str,
+    url: str | None,
+    body: str | None,
+    request_parameters: Any,
+    headers: Any,
+    description: str | None,
+    scripts: Any,
+    events: Any,
+    body_mode: str | None,
+    body_options: Any,
+    auth: Any,
+) -> dict[str, Any]:
+    """Build a :class:`RequestLoadDict`-shaped dict from scalar columns."""
+    payload: dict[str, Any] = {
+        "name": name,
+        "method": method,
+        "url": url or "",
+        "body": body,
+        "request_parameters": request_parameters,
+        "headers": headers,
+        "description": description,
+        "scripts": scripts if isinstance(scripts, dict) else (events if events else None),
+        "body_mode": body_mode,
+        "body_options": body_options if isinstance(body_options, dict) else None,
+        "auth": auth if isinstance(auth, dict) else None,
+    }
+    return payload
+
+
+def fetch_requests_by_ids(ids: Sequence[int]) -> dict[int, dict[str, Any]]:
+    """Return :class:`RequestLoadDict`-shaped rows keyed by request id.
+
+    Uses a single ``SELECT … WHERE id IN (…)`` per call.  Safe to invoke
+    concurrently from worker threads (WAL mode; one session per call).
+    """
+    if not ids:
+        return {}
+    with get_session() as session:
+        stmt = select(
+            RequestModel.id,
+            RequestModel.name,
+            RequestModel.method,
+            RequestModel.url,
+            RequestModel.body,
+            RequestModel.request_parameters,
+            RequestModel.headers,
+            RequestModel.description,
+            RequestModel.scripts,
+            RequestModel.events,
+            RequestModel.body_mode,
+            RequestModel.body_options,
+            RequestModel.auth,
+        ).where(RequestModel.id.in_(ids))
+        rows = session.execute(stmt).all()
+        result: dict[int, dict[str, Any]] = {}
+        for (
+            rid,
+            name,
+            method,
+            url,
+            body,
+            request_parameters,
+            headers,
+            description,
+            scripts,
+            events,
+            body_mode,
+            body_options,
+            auth,
+        ) in rows:
+            result[int(rid)] = _request_row_to_load_dict(
+                name=str(name or ""),
+                method=str(method or "GET"),
+                url=url,
+                body=body,
+                request_parameters=request_parameters,
+                headers=headers,
+                description=description,
+                scripts=scripts,
+                events=events,
+                body_mode=body_mode,
+                body_options=body_options,
+                auth=auth,
+            )
+        return result
+
+
+def fetch_request_breadcrumbs_by_ids(ids: Sequence[int]) -> dict[int, list[dict[str, Any]]]:
+    """Return breadcrumb paths for multiple requests in one pass.
+
+    Loads the full collection parent map once, then resolves each request
+    path without per-id collection queries.
+    """
+    if not ids:
+        return {}
+    with get_session() as session:
+        req_stmt = select(
+            RequestModel.id,
+            RequestModel.name,
+            RequestModel.collection_id,
+        ).where(RequestModel.id.in_(ids))
+        req_rows = list(session.execute(req_stmt).all())
+        if not req_rows:
+            return {}
+
+        coll_stmt = select(
+            CollectionModel.id,
+            CollectionModel.name,
+            CollectionModel.parent_id,
+        )
+        coll_map: dict[int, tuple[str, int | None]] = {
+            int(cid): (str(name or ""), pid) for cid, name, pid in session.execute(coll_stmt).all()
+        }
+
+        def _collection_path(collection_id: int) -> list[dict[str, Any]]:
+            path: list[dict[str, Any]] = []
+            current_id: int | None = collection_id
+            while current_id is not None:
+                entry = coll_map.get(current_id)
+                if entry is None:
+                    break
+                cname, parent_id = entry
+                path.append({"id": current_id, "name": cname, "type": "folder"})
+                current_id = parent_id
+            path.reverse()
+            return path
+
+        result: dict[int, list[dict[str, Any]]] = {}
+        for rid, rname, collection_id in req_rows:
+            crumbs = _collection_path(int(collection_id))
+            crumbs.append({"id": int(rid), "name": str(rname or ""), "type": "request"})
+            result[int(rid)] = crumbs
+        return result
+
+
+def fetch_collection_names_by_ids(ids: Sequence[int]) -> dict[int, str]:
+    """Return ``{collection_id: name}`` for folder tab chip restore."""
+    if not ids:
+        return {}
+    with get_session() as session:
+        stmt = select(CollectionModel.id, CollectionModel.name).where(CollectionModel.id.in_(ids))
+        return {int(cid): str(name or "") for cid, name in session.execute(stmt).all()}
+
+
 def fetch_request_scripts_for_ids(
     ids: Sequence[int],
 ) -> list[tuple[int, str, dict[str, Any] | None, dict[str, Any] | list[Any] | None]]:

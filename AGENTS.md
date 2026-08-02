@@ -442,7 +442,10 @@ src/
     │   ├── mutation_drain/        # drain_mutation_bridge — mutate/execute GUI side effects
     │   ├── ai_chat_turn_finalize.py # _AiChatTurnFinalizeMixin — persist/stop/fail assistant turns
     │   ├── ai_chat_title.py       # _AiChatTitleMixin — AiChatTitleWorker lifecycle
-    │   ├── session_restore.py   # Delayed, batched session tab restore after load_finished
+    │   ├── session_restore/   # Batched deferred tab chips + parallel session prefetch
+    │   │   ├── types.py       # classify_restore_entry, partition_restore_queue
+    │   │   ├── prefetch.py    # SessionPrefetchWorker (ThreadPoolExecutor)
+    │   │   └── restore.py     # begin/flush/restore_tabs_synchronous
     │   ├── startup_workers.py   # LocalProjectConfigWorker + AiModelBackfillWorker — delayed startup workers off GUI thread
     │   ├── tab_nav/               # Tab activation back/forward stacks
     │   │   ├── history.py         # _TabNavHistoryMixin — Go menu Ctrl+Alt+arrows
@@ -747,6 +750,7 @@ tests/
 │   │   ├── test_data_paths.py
 │   │   ├── test_request_history_body_store.py
 │   │   └── test_request_history_repository.py
+│   │   └── test_fetch_requests_by_ids.py
 │   ├── ui/                        # UI helper unit tests (may need qapp)
 │   │   └── sidebar/ai/            # Chat markdown renderer tests
 │   │       ├── test_chat_markdown_fence_split.py
@@ -874,6 +878,8 @@ tests/
     │   └── test_ai_chat_registry_streaming.py # E2E incremental streaming via ChatRunRegistry
     │   └── test_ai_concurrent_runs.py  # E2E concurrent runs: New chat, session switch, docked send
     │   └── test_session_history_switch.py  # MainWindow session history switch during transcript load
+    │   └── test_session_restore_perf.py  # Batched chip restore + prefetch materialisation
+    │   └── test_tab_settle_cache.py  # Variable map cache on tab re-select
     ├── test_main_window.py
     ├── test_main_window_tabs_navigation.py # Wrapped tab deck shortcuts + search tests
     ├── test_main_window_tab_nav_history.py # Go menu tab activation back/forward

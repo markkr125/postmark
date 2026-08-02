@@ -18,6 +18,19 @@ class LocalProjectConfigWorker(QObject):
         self.finished.emit()
 
 
+class HistoryReconcileWorker(QObject):
+    """Run history orphan reconcile off the GUI startup path."""
+
+    finished = Signal()
+
+    def run(self) -> None:
+        """Reconcile on-disk history bodies with SQLite metadata."""
+        from database.database import reconcile_history_orphans
+
+        reconcile_history_orphans()
+        self.finished.emit()
+
+
 class AiModelBackfillWorker(QObject):
     """Runs the one-time LiteLLM tier backfill off the GUI thread.
 
@@ -36,4 +49,4 @@ class AiModelBackfillWorker(QObject):
         self.finished.emit(models)
 
 
-__all__ = ["AiModelBackfillWorker", "LocalProjectConfigWorker"]
+__all__ = ["AiModelBackfillWorker", "HistoryReconcileWorker", "LocalProjectConfigWorker"]
