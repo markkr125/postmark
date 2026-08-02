@@ -18,7 +18,7 @@ import types
 import uuid
 from base64 import b64decode, b64encode
 from datetime import UTC, datetime
-from hashlib import md5, sha256
+from hashlib import md5, sha256, sha512
 from typing import Any
 from urllib.parse import quote, urlencode
 
@@ -1502,14 +1502,21 @@ _SAFE_STDLIB: dict[str, Any] = {
     "b64encode": b64encode, "b64decode": b64decode,
     "hashlib_md5": lambda d: md5(d.encode() if isinstance(d, str) else d).hexdigest(),
     "hashlib_sha256": lambda d: sha256(d.encode() if isinstance(d, str) else d).hexdigest(),
+    "hashlib_sha512": lambda d: sha512(d.encode() if isinstance(d, str) else d).hexdigest(),
     "hashlib_hmac_sha256": lambda d, k: hmac.new(
         k.encode() if isinstance(k, str) else k,
         d.encode() if isinstance(d, str) else d,
         "sha256",
     ).hexdigest(),
+    "hashlib_hmac_sha512": lambda d, k: hmac.new(
+        k.encode() if isinstance(k, str) else k,
+        d.encode() if isinstance(d, str) else d,
+        "sha512",
+    ).hexdigest(),
     "uuid_v4": lambda: str(uuid.uuid4()),
     "datetime_now": lambda: datetime.now(tz=UTC).isoformat(),
     "datetime_utcnow": lambda: datetime.now(tz=UTC).isoformat(),
+    "unix_timestamp": lambda: int(datetime.now(tz=UTC).timestamp()),
     "url_quote": quote, "url_urlencode": urlencode,
 }
 # fmt: on

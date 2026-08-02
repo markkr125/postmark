@@ -56,7 +56,9 @@ _REAL_DRAFT_START_OBSERVATION = (
     "note: This draft supersedes any earlier import in this chat. Build it only "
     "from the document you are reading now.\n"
     "next_step: call operation=add_requests with a requests array, then "
-    "operation=finish. JSON bodies must be objects or arrays, not encoded strings.\n"
+    "operation=finish. For POST/PUT/PATCH, include the documented request "
+    "input (body and/or params) — a parameter table in description is not "
+    "enough; re-add endpoints you warned about.\n"
 )
 
 _REAL_DRAFT_ADD_OBSERVATION = "ok: true\nadded: ['GET Get Booking Details']\nrequests: 1\n"

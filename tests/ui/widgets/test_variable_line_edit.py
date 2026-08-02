@@ -86,6 +86,22 @@ class TestPaintEvent:
         w.show()
         w.repaint()
 
+    def test_password_echo_with_variable_restores_echo_mode(
+        self, qapp: QApplication, qtbot
+    ) -> None:
+        """Password fields with ``{{var}}`` paint cleartext then restore Password echo.
+
+        Without this, Password mask bullets are drawn under the cleartext
+        variable overlay (the nauseating double-render in Basic Auth).
+        """
+        w = VariableLineEdit()
+        qtbot.addWidget(w)
+        w.setEchoMode(QLineEdit.EchoMode.Password)
+        w.setText("{{password}}")
+        w.show()
+        w.repaint()
+        assert w.echoMode() == QLineEdit.EchoMode.Password
+
 
 class TestPopup:
     """Tests for variable popup display on hover."""

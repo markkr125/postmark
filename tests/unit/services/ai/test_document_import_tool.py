@@ -12,7 +12,11 @@ from openhands.sdk.llm import ImageContent, TextContent
 from services.ai.chat.agent_registry import DEFAULT_AGENT_ID, get_agent_def
 from services.ai.chat.attachments.chunks import MAX_CHUNK_CHARS
 from services.ai.chat.attachments.screenshots import OCR_CACHE_NAME, set_session_vision
-from services.ai.chat.attachments.store import list_attachments, store_attachments
+from services.ai.chat.attachments.store import (
+    list_attachments,
+    set_turn_attachments,
+    store_attachments,
+)
 from services.ai.chat.mutation.auto_approve import kind_from_tool_args
 from services.ai.chat.tools.document_import.tool import (
     DOCUMENT_IMPORT_TOOL_NAME,
@@ -68,6 +72,150 @@ def uploaded_with_screenshot(tmp_path: Path) -> tuple[str, str]:
     entries = store_attachments(session_id, [str(source)])
     assert entries, "upload should have been stored"
     return session_id, entries[0]["uri"]
+
+
+def test_ambiguous_attachment_lists_available_documents(tmp_path: Path) -> None:
+    """With several uploads and no current-turn hint, the error names each one."""
+    from docx import Document
+
+    session_id = uuid4().hex
+    for name in ("first.docx", "second.docx"):
+        document = Document()
+        document.add_paragraph(f"1. Endpoint in {name}")
+        source = tmp_path / name
+        document.save(str(source))
+        store_attachments(session_id, [str(source)])
+
+    text, is_error = _observation_text(DocumentImportAction(chunk=1), session_id)
+    assert is_error
+    assert "ambiguous_attachment" in text
+    assert "first.docx" in text
+    assert "second.docx" in text
+    assert "postmark://uploaded/first.md" in text
+    assert "postmark://uploaded/second.md" in text
+
+    # The listed URI resolves on retry.
+    text, is_error = _observation_text(
+        DocumentImportAction(uri="postmark://uploaded/second.md", chunk=1), session_id
+    )
+    assert not is_error
+    assert "second.docx" in text
+
+
+def test_current_message_attachment_wins_without_uri(tmp_path: Path) -> None:
+    """A PDF attached earlier must not block reading the docx just attached.
+
+    This is the real failure: the user attaches a second document and says
+    "import this" — the model omits ``uri`` as instructed, and the read must
+    land on the new file, not error as ambiguous.
+    """
+    from docx import Document
+
+    session_id = uuid4().hex
+    uris: list[str] = []
+    for name in ("old-spec.docx", "new-guide.docx"):
+        document = Document()
+        document.add_paragraph(f"1. Endpoint in {name}")
+        source = tmp_path / name
+        document.save(str(source))
+        uris.extend(entry["uri"] for entry in store_attachments(session_id, [str(source)]))
+
+    # The second message attached new-guide.docx; the tool call omits uri.
+    set_turn_attachments(session_id, [uris[1]])
+    text, is_error = _observation_text(DocumentImportAction(chunk=1), session_id)
+    assert not is_error
+    assert "new-guide.docx" in text
+    assert "old-spec.docx" not in text
+
+    # A follow-up message with no attachment clears the preference; the model
+    # still has the uri from earlier chunk headers, and the error lists both.
+    set_turn_attachments(session_id, [])
+    text, is_error = _observation_text(DocumentImportAction(chunk=1), session_id)
+    assert is_error
+    assert "ambiguous_attachment" in text
+
+
+def test_earlier_document_stays_readable_by_uri(tmp_path: Path) -> None:
+    """PDF first, DOCX second, then "back to the PDF" — the old file still reads.
+
+    The follow-up message has no attachment, so the turn preference is empty;
+    the model passes the PDF's URI from the transcript (chunk headers and the
+    original message both carry it) and the read lands on the right document.
+    """
+    from docx import Document
+
+    session_id = uuid4().hex
+    uris: list[str] = []
+    for name in ("first-spec.docx", "second-guide.docx"):
+        document = Document()
+        document.add_paragraph(f"1. Endpoint in {name}")
+        source = tmp_path / name
+        document.save(str(source))
+        uris.extend(entry["uri"] for entry in store_attachments(session_id, [str(source)]))
+
+    # Turn 2 attached the docx — uri-less reads go there.
+    set_turn_attachments(session_id, [uris[1]])
+    text, is_error = _observation_text(DocumentImportAction(chunk=1), session_id)
+    assert not is_error
+    assert "second-guide.docx" in text
+
+    # Turn 3 attaches nothing and asks about the first document again.
+    set_turn_attachments(session_id, [])
+    text, is_error = _observation_text(DocumentImportAction(uri=uris[0], chunk=1), session_id)
+    assert not is_error
+    assert "first-spec.docx" in text
+
+
+def test_two_documents_in_one_message_are_listed_for_choice(tmp_path: Path) -> None:
+    """PDF + DOCX attached together: no silent pick — both are offered by URI.
+
+    The model sees both URIs in that same message's trailer, so the error is a
+    nudge to read them one at a time, not a dead end.
+    """
+    from docx import Document
+
+    session_id = uuid4().hex
+    uris: list[str] = []
+    for name in ("alpha.docx", "beta.docx"):
+        document = Document()
+        document.add_paragraph(f"1. Endpoint in {name}")
+        source = tmp_path / name
+        document.save(str(source))
+        uris.extend(entry["uri"] for entry in store_attachments(session_id, [str(source)]))
+
+    # Both arrived with the current message — no single "current" document.
+    set_turn_attachments(session_id, uris)
+    text, is_error = _observation_text(DocumentImportAction(chunk=1), session_id)
+    assert is_error
+    assert "ambiguous_attachment" in text
+    assert "alpha.docx" in text
+    assert "beta.docx" in text
+
+    # Each one reads fine once the model passes its URI from the trailer.
+    for uri, name in zip(uris, ("alpha.docx", "beta.docx"), strict=True):
+        text, is_error = _observation_text(DocumentImportAction(uri=uri, chunk=1), session_id)
+        assert not is_error
+        assert name in text
+
+
+def test_reattaching_the_same_file_does_not_duplicate(tmp_path: Path) -> None:
+    """Re-sending the same document must not make single-reference reads ambiguous."""
+    from docx import Document
+
+    document = Document()
+    document.add_paragraph("1. Endpoint list")
+    source = tmp_path / "spec.docx"
+    document.save(str(source))
+
+    session_id = uuid4().hex
+    first = store_attachments(session_id, [str(source)])
+    second = store_attachments(session_id, [str(source)])
+    assert len(list_attachments(session_id)) == 1
+    assert second[0]["uri"] == first[0]["uri"]
+
+    text, is_error = _observation_text(DocumentImportAction(chunk=1), session_id)
+    assert not is_error
+    assert "ambiguous_attachment" not in text
 
 
 def test_first_chunk_reports_progress_and_next_step(uploaded: tuple[str, str]) -> None:
@@ -217,7 +365,22 @@ def test_non_vision_model_receives_recognised_text_instead(
 def test_action_preview_names_the_document_and_chunk() -> None:
     """Cards show the document name and which chunk is being read."""
     action = DocumentImportAction(uri="postmark://uploaded/spec.md", chunk=3)
-    assert action.human_preview() == "Read spec.md (chunk 3)"
+    assert action.human_preview() == "spec.md (chunk 3)"
+
+
+def test_action_preview_uses_turn_attachment_original_name() -> None:
+    """When uri is omitted, the card uses the original upload filename."""
+    set_turn_attachments(
+        "turn-label-session",
+        ["postmark://uploaded/1_Hotel_Guide.md"],
+        names=["1 Hotel Implementation Guide_V12.0.docx"],
+    )
+    try:
+        action = DocumentImportAction(chunk=1)
+        assert action.display_name() == "1 Hotel Implementation Guide_V12.0.docx"
+        assert action.human_preview() == "1 Hotel Implementation Guide_V12.0.docx (chunk 1)"
+    finally:
+        set_turn_attachments("turn-label-session", [])
 
 
 def test_read_only_no_confirmation() -> None:

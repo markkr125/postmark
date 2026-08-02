@@ -104,9 +104,15 @@ Main-agent tools (not wiki/delegate) emit in-flight rows via
 - **Document import** — `postmark_document_import` is read-only (LOW risk, no
   Approve). It serves one chunk of an uploaded Markdown document per call: Action
   `uri` + `chunk`, observation ending in `chunk X of Y` plus a `next_step` line.
-  Screenshots for that chunk ride along as `ImageContent` when the session's model
-  has vision (`attachments/screenshots.py`), capped per chunk; otherwise OCR text
-  is placed under each `[image N]` marker.
+  Activity cards show the original upload name (`Guide.docx`), not
+  ``attached document`` — send-time `set_turn_attachments(..., names=…)` plus the
+  observation `document:` rewrite. Screenshots for that chunk ride along as
+  `ImageContent` when the session's model has vision (`attachments/screenshots.py`),
+  capped per chunk; otherwise OCR text is placed under each `[image N]` marker.
+  Agent turns use `MUTATING_MAX_ITERATIONS` (50) so a long chunk×draft loop does
+  not die early; if the SDK still hits `MaxIterationsReached`, the chat worker
+  asks Continue / Stop (reuse Approve chrome) instead of failing with
+  "No response from model". Continue runs another `arun()` (fresh budget).
 - **Let the existing capability flag decide, and give it one meaning.** The model
   entry already records `vision`; that flag alone chooses images *or* OCR. Sending
   both was doing a worse job twice — a vision model reads the screenshot better
@@ -149,17 +155,42 @@ Main-agent tools (not wiki/delegate) emit in-flight rows via
   cannot emit it, there is no error, and it reports success anyway. The opposite
   extreme is also broken: one tool round-trip per endpoint replays the current
   document observation until context explodes. Build with
-  `postmark_collection_draft operation=add_requests`, one atomic bounded batch per
+  `postmark_collection_draft operation=add_requests`, one soft-accept bounded batch per
   document chunk, and let `finish` write. Keep the model-facing operation enum
   narrow — do not retain legacy `add_request` / `add_folder` alternatives. Nested
   request bodies accept JSON objects/arrays directly and are serialized app-side;
   escaped JSON strings invite small models to abbreviate them with invalid `...`.
+  Soft-caps truncate oversized bodies/params/responses with `warnings:`; bad
+  items are listed in `skipped:` — do not fail the whole batch for one bad endpoint.
+  An empty `requests: []` (TOC / prose chunk) is a soft no-op (`ok: true`,
+  `added: []`) so the tool card stays green — only a non-list `requests` value
+  is `requests_required`. Soft-skip individual bad
+  items (`skipped:`) when a name/url/method is missing; only return `ok: false`
+  for structural failures (`no_draft`, every item skipped, auth/
+  signature hard errors). Atomic whole-batch rejection produced red "1 failed"
+  cards while the agent continued and dropped endpoints. Tool activity cards
+  rewrite their detail from the observation (`Added N · body truncated — …`) so
+  the user sees soft-trims and skips without opening the raw tool log.
   The liberal schema also accepts query `params` (with per-row descriptions),
-  markdown descriptions, and `pre_script`/`test_script`. Script language is the
-  `ai/draft_script_language` setting (default python), interpolated into the tool
-  description at create time. Shared assertions go in the collection-level script;
-  shared helpers may use `postmark_workspace_mutate` local_script create +
-  `pm.require("local:…")` (works for Python and JS/TS).
+  markdown descriptions, `pre_script`/`test_script`, collection `auth`,
+  `default_headers`, saved `responses` examples, and a `signature` object naming
+  a reviewed recipe kind. Script language is the `ai/draft_script_language`
+  setting (default python), interpolated into the tool description at create
+  time. Shared assertions go in the collection-level script; shared helpers may
+  use `postmark_workspace_mutate` local_script create + `pm.require("local:…")`
+  (works for Python and JS/TS).
+- **Signatures via recipe library — never model-written crypto.** When a document
+  (or OpenAPI `securitySchemes`) requires a signature/HMAC header, pass
+  `signature.kind` (`sha256_apikey_secret_timestamp`, `hmac_sha256`) and let
+  `collection_draft/recipes/` emit the reviewed pre-request script. Unknown kinds
+  and unsafe header/var override names (injection into generated scripts) are
+  recoverable errors; algorithms not in the library get a description note
+  only. OpenAPI import (`openapi/security.py`) maps Hotelbeds-style Api-key +
+  X-Signature pairs to the SHA-256 recipe (sanitized names), plain
+  apiKey/basic/bearer to collection auth, and Expedia-style Authorization+apikey
+  with no schemes to variables + an “algorithm not specified” note (no fabricated
+  script). oauth2/OIDC / multi-alternative OR / AND of unrelated schemes → note
+  only.
 - **Normalize placeholders app-side.** Do not ask the model to rewrite URL
   templates — `build.py` converts `{var}` / `:var` / `<var>` to `{{var}}` and
   auto-creates missing collection variables at finish (never scan bodies).
@@ -172,12 +203,21 @@ Main-agent tools (not wiki/delegate) emit in-flight rows via
   normalize aliases in a `model_validator`, and move real validation into the
   executor/ops layer where failures come back as recoverable `ok: false`
   observations, not hard errors.
-- **Cap fields a small model can balloon.** A model may paste a whole nested
-  response example into a request `body`, producing a huge deeply-nested tool
-  argument it then malformed (stray `{`/trailing comma) — rejected server-side
-  before any Postmark code runs. Cap `body` (`MAX_BODY_CHARS`) so a valid-but-huge
-  body comes back as a recoverable `body_too_large` observation instead of a giant
-  argument to fumble.
+- **Cap fields a small model can balloon — soft-trim, don't fail the batch.** A
+  model may paste a whole nested response example into a request `body`. Cap
+  `body` (`MAX_BODY_CHARS`), params, responses, variables, and default_headers by
+  truncating/trimming with `warnings:` on an `ok: true` observation so sibling
+  requests still land and the tool card stays green.
+  Request body cap is `MAX_BODY_CHARS` (16000).
+  **POST/PUT/PATCH without request input stay (loud warning, never skip)** —
+  models often put only a parameter table in `description` and omit both `body`
+  and `params`. Skipping those wiped entire batches (and their saved responses)
+  when the model re-issued the same table-only batch and finished with an empty
+  collection. Keep the request with a `NO request body/params …` warning so the
+  card shows it and the agent can re-add the endpoint with real input. Accept
+  JSON objects/arrays **or** XML/text strings for `body`; query-only POSTs may
+  omit `body` when `params` (or `?` in the URL) is present. Recover a fenced
+  JSON/XML example from `description` when present.
 - **A TOC is an index, not endpoint evidence.** Only add requests whose method,
   path, and request example/parameters have actually been read. Response docs may
   continue into another chunk; that must not postpone every request until the end.

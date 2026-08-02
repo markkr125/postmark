@@ -306,7 +306,7 @@ def test_worker_stop_before_confirm_loop_no_hang(
         return real_payload(conv)
 
     monkeypatch.setattr(
-        "ui.sidebar.ai.workers.chat_worker.pending_actions_payload",
+        "ui.sidebar.ai.workers.chat_worker_confirm.pending_actions_payload",
         _payload_then_cancel,
     )
 

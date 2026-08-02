@@ -440,7 +440,7 @@ Registry fan-out signals also include `confirmation_needed(session_id, run_gener
 | `drain_mutation_events()` / `enqueue_mutation_event` | GUI-thread drain of mutate/execute side-effect queue; mutate → reload open editors + `refresh_collections` |
 | `PostmarkWorkspaceSecurityAnalyzer` | Mutate/execute HIGH unless auto-approved; wiki/query LOW |
 | `apply_confirmation_policy(conversation, send_mode=…)` | Agent+mutations → ConfirmRisky; else NeverConfirm |
-| `tools_for_turn` / `max_iterations_for_turn` (`agent_tools.py`) | Ask/Plan always read-only; Agent gains mutate/execute only when setting on |
+| `tools_for_turn` / `max_iterations_for_turn` (`agent_tools.py`) | Ask/Plan always read-only; Agent gains write tools; Agent `max_iteration_per_run` at least `MUTATING_MAX_ITERATIONS` (50) |
 | `pending_actions_payload(conversation)` (`confirmation_payload.py`) | Build Approve-card payload (`title`/`detail`/`url`/`risk`; `tool_name` debug-only) from unmatched pending tool actions |
 | `run_shared_send` / `run_agent_send_*` (`execution/`) | Non-Qt send/replay/scripts path + `redact_send_result` for agent observations |
 | `WorkspaceMutateAction` / `WorkspaceExecuteAction` (`tools/workspace_mutate`, `workspace_execute`) | Agent write ops (collections + `events`, local scripts, env/globals/active_environment, history delete, import, script_version restore, debug_metadata breakpoints/watches, allowlisted settings, auth placeholders, snippets, saved examples) + send/run_scripts/run_local_script/run_collection/run_iterations/fetch_graphql_schema/generate_snippet/export_workspace_artifact/oauth_get_token v1; pause for Approve unless auto-approved; auth/environment_secret/oauth_get_token never Always-allow |

@@ -17,6 +17,7 @@ from openhands.sdk.tool.tool import (
     ToolExecutor,
 )
 from services.ai.chat.attachments.chunks import DocumentChunk, chunk_at
+from services.ai.chat.attachments.models import StoredAttachment
 from services.ai.chat.attachments.screenshots import (
     chunk_ocr_text,
     chunk_screenshots,
@@ -37,7 +38,7 @@ DOCUMENT_IMPORT_TOOL_NAME = "postmark_document_import"
 
 DOCUMENT_IMPORT_DESCRIPTION = """Read an uploaded API document (PDF/DOCX converted to Markdown) one chunk at a time, so you can rebuild it as a collection. Read-only.
 
-Attached documents are listed in the user's message as `postmark://uploaded/<name>.md`. With one attachment, OMIT `uri` on every call — Postmark resolves it without making you repeat an identifier. Pass `uri` only to choose among several attachments. Screenshots appear as `[image N]` markers: if your model can see images they are attached to the response, otherwise text recognised from them is placed under each marker.
+Attached documents are listed in the user's message as `postmark://uploaded/<name>.md`. OMIT `uri` when the chat has one attachment OR the user's latest message attached the document — Postmark resolves it without making you repeat an identifier. Pass `uri` only to read an older attachment; if a call returns `ambiguous_attachment`, the observation lists every available `name -> uri` — retry with the URI from the user's latest message. Screenshots appear as `[image N]` markers: if your model can see images they are attached to the response, otherwise text recognised from them is placed under each marker.
 
 Call with `chunk=1` first. Every response ends with `chunk X of Y`. As soon as a chunk has shown an endpoint's method, path, and request example (or complete request parameters when no example exists), call postmark_collection_draft `operation=add_requests`; response parameters/examples do not need to finish first. Then request `chunk=X+1`. Do not add endpoints merely named in a table of contents. Repeat until `chunk Y of Y`; do not skip chunks or postpone every request until the final chunk.
 
@@ -64,10 +65,14 @@ _ERROR_HINTS: dict[str, str] = {
 }
 
 
-def _format_document_error(code: str) -> str:
+def _format_document_error(code: str, *, entries: list[StoredAttachment] | None = None) -> str:
     """Return a machine- and human-readable failure observation."""
     hint = _ERROR_HINTS.get(code, "Pass the postmark://uploaded/ URI from the user's message.")
-    return f"ok: false\nerror: {code}\nhint: {hint}\n"
+    lines = ["ok: false", f"error: {code}", f"hint: {hint}"]
+    if entries:
+        listing = ", ".join(f"{entry.get('name')} -> {entry.get('uri')}" for entry in entries)
+        lines.append(f"available: {listing}")
+    return "\n".join(lines) + "\n"
 
 
 def _render_chunk(
@@ -145,21 +150,21 @@ class DocumentImportAction(Action):
 
     def display_name(self) -> str:
         """Return the document label for activity cards."""
-        from services.ai.chat.attachments.models import uri_document_name
+        from pathlib import Path
 
-        document = uri_document_name(self.uri or "")
-        if document:
-            return document
+        from services.ai.chat.attachments.store import label_for_document_reference
+
+        label = label_for_document_reference(self.uri or self.path)
+        if label:
+            return label
         raw = (self.path or "").strip()
         if raw:
-            from pathlib import Path
-
             return Path(raw).name
         return "attached document"
 
     def human_preview(self) -> str:
         """Return a short human-readable preview for UI cards."""
-        return f"Read {self.display_name()} (chunk {self.chunk})"
+        return f"{self.display_name()} (chunk {self.chunk})"
 
     @property
     def visualize(self) -> Text:
@@ -198,7 +203,9 @@ class DocumentImportExecutor(ToolExecutor):
         entry = resolve_attachment(session_id, reference)
         if entry is None:
             code = "unknown_uri" if reference else "ambiguous_attachment"
-            return DocumentImportObservation.from_text(_format_document_error(code), is_error=True)
+            return DocumentImportObservation.from_text(
+                _format_document_error(code, entries=entries), is_error=True
+            )
 
         markdown = read_markdown(entry)
         if not markdown.strip():

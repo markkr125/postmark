@@ -25,7 +25,10 @@ Built-in formats: Postman Collection/Environment JSON, cURL, raw URL,
 Detection lives in ``url_parser.try_parse_spec_text`` (OpenAPI then WSDL)
 and is shared by file load, paste, and URL fetch. Agent import is the dedicated
 OpenHands tool ``postmark_import`` (Action: ``url`` | ``path`` | ``text`` | ``curl``),
-not a mutate entity.
+not a mutate entity. OpenAPI request/response ``examples`` are mapped to saved
+responses by ``openapi/examples.py`` (first request example → body; named
+response examples → saved responses with a request snapshot; extra request
+examples → ``… — request`` variants).
 
 **PDF/DOCX messy docs** are not a new `ImportResult` parser: in Agent mode the
 assistant calls read-only `postmark_document_import` to extract text and
@@ -40,36 +43,59 @@ class ParsedSavedResponse(TypedDict):
     name: str
     status: str | None
     code: int | None
-    headers: Any
+    headers: list[dict[str, Any]] | None
     body: str | None
+    preview_language: str | None
+    original_request: dict[str, Any] | None  # Postman-shaped request snapshot
+
+class ParsedRequest(TypedDict, total=False):
+    type: str          # "request" — always set
+    name: str
+    method: str
+    url: str
+    headers: list[dict[str, Any]] | None
+    request_parameters: list[dict[str, Any]] | None
+    body: str | None
+    body_mode: str | None
+    body_options: dict[str, Any] | None
+    description: str | None
+    saved_responses: list[ParsedSavedResponse]
+    # + auth/events/scripts/settings/protocol_profile_behavior
 
 class ParsedFolder(TypedDict):
+    type: str          # "folder"
     name: str
-    variables: NotRequired[dict[str, str]]
-    auth: NotRequired[dict[str, Any]]
-    scripts: NotRequired[dict[str, str]]
-    items: list[ParsedFolder | ParsedRequest]
+    description: str | None
+    auth: dict[str, Any] | None
+    events: list[dict[str, Any]] | None
+    children: list[ParsedFolder | ParsedRequest]
+    variables: NotRequired[list[dict[str, Any]] | None]
 
 class ParsedCollection(TypedDict):
     name: str
-    variables: NotRequired[dict[str, str]]
-    auth: NotRequired[dict[str, Any]]
-    scripts: NotRequired[dict[str, str]]
     items: list[ParsedFolder | ParsedRequest]
+    description: NotRequired[str | None]
+    events: NotRequired[list[dict[str, Any]] | dict[str, Any] | None]
+    variables: NotRequired[list[dict[str, Any]] | None]
+    auth: NotRequired[dict[str, Any] | None]
 
 class ParsedEnvironment(TypedDict):
     name: str
-    values: dict[str, str]
+    values: list[dict[str, Any]]
 
 class ImportResult(TypedDict):
     collections: list[ParsedCollection]
     environments: list[ParsedEnvironment]
+    errors: list[str]
 
 class ImportSummary(TypedDict):
-    collections: int
-    requests: int
-    environments: int
+    collections_imported: int
+    requests_imported: int
+    responses_imported: int
+    environments_imported: int
+    scripts_detected: int
     errors: list[str]
+    imported_collections: list[ImportedCollectionRef]  # {id, name}
 ```
 
 ## Step-by-step: Add a new parser

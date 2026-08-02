@@ -234,6 +234,8 @@ tests/
 │       ├── test_environment_service.py
 │       ├── test_import_parser.py
 │       ├── test_openapi_parser.py  # OpenAPI 3 / Swagger 2 / YAML / URL fetch
+│       ├── test_openapi_security.py  # securitySchemes → auth/signature; $ref params; Expedia unspecified note
+│       ├── test_openapi_examples.py  # named examples → saved responses; request variants; Swagger 2
 │       ├── test_wsdl_parser.py     # WSDL 1.1 → SOAP POST collection
 │       ├── test_import_service.py
 │       ├── test_script_bridge_globals.py
@@ -252,7 +254,7 @@ tests/
 │       ├── test_pyodide_runtime.py
 │       ├── test_debug_script_metadata.py
 │       ├── test_debug_metadata_persist_host.py
-│       ├── test_script_sandbox.py  # xdist_group restricted_python_sandbox
+│       ├── test_script_sandbox.py  # xdist_group restricted_python_sandbox; SAFE_STDLIB ↔ pm_bootstrap key parity
 │       ├── test_script_local_py_require.py  # Python pm.require("local:…") RestrictedPython + payloads
 │       ├── test_script_service.py
 │       ├── test_script_vendor.py
@@ -306,14 +308,18 @@ tests/
 │       │   ├── test_workspace_query_explorer.py  # env_reach, dependencies, walkthrough, dead/token/response_drift
 │       │   ├── test_send_core_parity.py  # SharedSendCore: pre-request errors, overrides, globals, redact
 │       │   ├── test_confirmation_spike.py  # ConfirmRisky pause/resume/reject + whitelist skip
-│       │   ├── test_confirmation_payload.py  # human_preview + Approve title/detail (no raw tool names)
-│       │   ├── test_agent_tools_for_turn.py  # Ask/Plan/Agent tools_for_turn (Agent always has write tools)
+│       │   ├── test_confirmation_payload.py  # human_preview + Approve title/detail + max-iterations Continue payload
+│       │   ├── test_agent_tools_for_turn.py  # Ask/Plan/Agent tools_for_turn; Agent MUTATING_MAX_ITERATIONS=50
 │       │   ├── test_agent_import_tool.py  # postmark_import Action schema + ImportService executor
-│       │   ├── test_document_import_tool.py  # chunk paging, coverage, URI resolution, on-demand upload
+│       │   ├── test_document_import_tool.py  # chunk paging, coverage, URI resolution, turn-name card labels, on-demand upload
 │       │   ├── test_chat_attachment_chunks.py # chunk size/order/coverage; fences never split
 │       │   ├── test_chat_attachment_screenshots.py # vision gate: images vs lazy cached OCR fallback
 │       │   ├── test_chat_attachment_store.py # copy-in, Markdown conversion, URIs, session-delete cleanup
 │       │   ├── test_provider_errors.py       # malformed tool call + unreachable provider summaries
+│       │   ├── test_collection_draft_tool.py # incremental draft ops, empty-batch soft no-op, body/query-input matrix, table-only replay, finish persistence, risk mapping
+│       │   ├── test_collection_draft_enrichment.py # params/scripts/vars/auth/responses/default headers
+│       │   ├── test_collection_draft_signatures.py # recipe scripts, unknown kind, finish pre_request
+│       │   ├── test_fabricated_link_guard.py # strip collection links no tool produced this turn
 │   ├── document_import/               # PDF/DOCX extraction service tests
 │   │   ├── fixtures/sample.pdf
 │   │   ├── test_extract_pdf.py
@@ -439,8 +445,8 @@ tests/
 │   ├── test_ai_chat_worker_confirmation.py  # Approve/Reject/Stop-while-waiting slots
 │   ├── test_ai_chat_worker_confirm_loop.py  # P0-W: real run() WAITING→Approve/Reject/Stop; preview_url env-sub + draft/replay
 │   ├── test_ai_execute_cards.py  # Execute result cards → history?focus=response / request deeplink
-│   ├── test_ai_pending_tool_cards.py  # Inline Allow/Reject/Always allow cards on streaming bubble
-│   ├── test_ai_tool_activity_cards.py # Tool activity cards, execute handoff, multi-cycle chronological phases
+│   ├── test_ai_pending_tool_cards.py  # Inline Allow/Reject/Always allow + Continue/Stop max-iterations cards
+│   ├── test_ai_tool_activity_cards.py # Tool activity cards, scroll fit, empty-batch prose, execute handoff, multi-cycle chronological phases
 │   ├── test_ai_user_message_attachments.py  # User-bubble attachment chips: trailer → chips above prompt, sizes, legacy paths
 │   ├── test_ai_session_history_popup.py  # Virtualized list; RUNNING_ROLE; ⋯ menu click routing; rename/delete dialogs
 │   ├── test_ai_active_run_badge.py  # Header aiChatActiveRunsBadge count pill

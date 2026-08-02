@@ -28,8 +28,13 @@ def detect_body_language(body: str) -> str | None:
             return "json"
         except (json.JSONDecodeError, ValueError):
             pass
-    lower = text[:100].lower()
-    if lower.startswith("<?xml"):
+    lower = text[:120].lower()
+    if lower.startswith("<?xml") or (
+        text[0] == "<"
+        and not lower.startswith("<!doctype html")
+        and not lower.startswith("<html")
+        and len(text) > 2
+    ):
         return "xml"
     if lower.startswith("<!doctype html") or lower.startswith("<html"):
         return "html"
@@ -147,7 +152,8 @@ def extract_snapshot_body(snapshot: Mapping[str, Any] | None) -> tuple[str, str]
                 lang = str(raw_opts.get("language", "text"))
         return str(raw), lang
     if isinstance(body, str):
-        return body, "text"
+        lang = detect_body_language(body) or "text"
+        return body, lang
     return "", "text"
 
 

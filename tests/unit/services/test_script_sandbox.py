@@ -283,6 +283,72 @@ pm.variables.set("sig", sig)
         expected = hmac.new(b"secret", b"message", hashlib.sha256).hexdigest()
         assert result["variable_changes"]["sig"] == expected
 
+    def test_hashlib_hmac_sha512_available(self):
+        """``hashlib_hmac_sha512()`` returns correct HMAC-SHA512 hex digest."""
+        script = """
+sig = hashlib_hmac_sha512("message", "secret")
+pm.test("hmac512 type", lambda: pm.expect(sig).to.be.a("str"))
+pm.test("hmac512 length", lambda: pm.expect(len(sig)).to.equal(128))
+pm.variables.set("sig", sig)
+"""
+        result = PyRuntime.execute_restricted(script, _make_context())
+        for r in result["test_results"]:
+            assert r["passed"] is True, f"{r['name']} failed: {r['error']}"
+        import hashlib
+        import hmac
+
+        expected = hmac.new(b"secret", b"message", hashlib.sha512).hexdigest()
+        assert result["variable_changes"]["sig"] == expected
+
+    def test_hashlib_sha512_and_unix_timestamp_available(self):
+        """``hashlib_sha512`` and ``unix_timestamp`` are injected sandbox globals."""
+        script = """
+digest = hashlib_sha512("abc")
+ts = unix_timestamp()
+pm.test("sha512 length", lambda: pm.expect(len(digest)).to.equal(128))
+pm.test("unix ts int", lambda: pm.expect(isinstance(ts, int)).to.be.true)
+pm.variables.set("digest", digest)
+pm.variables.set("ts", str(ts))
+"""
+        result = PyRuntime.execute_restricted(script, _make_context())
+        for r in result["test_results"]:
+            assert r["passed"] is True, f"{r['name']} failed: {r['error']}"
+        import hashlib
+
+        assert result["variable_changes"]["digest"] == hashlib.sha512(b"abc").hexdigest()
+        assert int(result["variable_changes"]["ts"]) > 0
+
+    def test_safe_stdlib_keys_match_pm_bootstrap(self):
+        """RestrictedPython and Pyodide bootstrap expose the same shim names."""
+        import ast
+        from pathlib import Path
+
+        from services.scripting._sandbox_safe_globals import _SAFE_STDLIB
+
+        bootstrap = Path("data/scripts/pm_bootstrap.py").read_text(encoding="utf-8")
+        module = ast.parse(bootstrap)
+        bootstrap_keys: set[str] | None = None
+        for node in module.body:
+            if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                if node.target.id != "_SAFE_STDLIB":
+                    continue
+            elif isinstance(node, ast.Assign):
+                targets = [t.id for t in node.targets if isinstance(t, ast.Name)]
+                if "_SAFE_STDLIB" not in targets:
+                    continue
+            else:
+                continue
+            if not isinstance(node.value, ast.Dict):
+                continue
+            keys: set[str] = set()
+            for key_node in node.value.keys:
+                if isinstance(key_node, ast.Constant) and isinstance(key_node.value, str):
+                    keys.add(key_node.value)
+            bootstrap_keys = keys
+            break
+        assert bootstrap_keys is not None, "_SAFE_STDLIB not found in pm_bootstrap.py"
+        assert set(_SAFE_STDLIB) == bootstrap_keys
+
     def test_console_rate_limit(self):
         script = """
 for i in range(250):

@@ -2,6 +2,10 @@
 
 Draws coloured background rectangles behind each ``{{name}}`` pattern
 and shows the resolved variable details in a popup on hover.
+
+Password-echo fields that contain ``{{variables}}`` are painted as normal
+text for the variable segments so mask bullets are not drawn underneath
+the cleartext overlay (which produced a nauseating double-render).
 """
 
 from __future__ import annotations
@@ -78,12 +82,28 @@ class VariableLineEdit(QLineEdit):
 
     def paintEvent(self, event: QPaintEvent) -> None:
         """Paint the default line edit, then overlay variable highlights."""
-        super().paintEvent(event)
-
         text = self.text()
-        if "{{" not in text:
+        password_with_vars = self.echoMode() == QLineEdit.EchoMode.Password and "{{" in text
+        if password_with_vars:
+            # Password echo draws mask bullets for every character; our
+            # highlight path then draws cleartext ``{{var}}`` on top → nausea.
+            # Paint the base field as Normal for this frame only.
+            self.setUpdatesEnabled(False)
+            self.setEchoMode(QLineEdit.EchoMode.Normal)
+            try:
+                super().paintEvent(event)
+                self._paint_variable_highlights(text)
+            finally:
+                self.setEchoMode(QLineEdit.EchoMode.Password)
+                self.setUpdatesEnabled(True)
             return
 
+        super().paintEvent(event)
+        if "{{" in text:
+            self._paint_variable_highlights(text)
+
+    def _paint_variable_highlights(self, text: str) -> None:
+        """Overlay highlight pills and coloured ``{{var}}`` text."""
         matches = list(_VAR_RE.finditer(text))
         if not matches:
             return

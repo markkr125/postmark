@@ -49,6 +49,7 @@ class ToolActivityRecord(TypedDict):
     status: ToolActivityStatus
     started_at: NotRequired[float]
     completed_at: NotRequired[float]
+    output: NotRequired[str]
 
 
 def _is_action_event(event: object) -> bool:
@@ -156,6 +157,126 @@ def _write_outcome_status(text: str) -> ToolActivityStatus:
     if observation_indicates_write(text):
         return "completed"
     return "error"
+
+
+def _observation_kv(text: str) -> dict[str, str]:
+    """Parse ``key: value`` lines from a tool observation body."""
+    fields: dict[str, str] = {}
+    for line in (text or "").splitlines():
+        key, sep, value = line.partition(": ")
+        if not sep:
+            continue
+        cleaned = key.strip()
+        if cleaned and cleaned not in fields:
+            fields[cleaned] = value.strip()
+    return fields
+
+
+def _parse_list_field(raw: str | None) -> list[str] | None:
+    """Parse a Python-list-repr observation field into strings, if possible."""
+    if raw is None:
+        return None
+    text = raw.strip()
+    if not text:
+        return []
+    try:
+        import ast
+
+        value = ast.literal_eval(text)
+    except (SyntaxError, ValueError):
+        return [text]
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    return [str(value)]
+
+
+def _collection_draft_outcome_detail(preview: str, text: str) -> str:
+    """Build a user-visible detail line from a draft observation.
+
+    Soft-trim / skip outcomes stay ``ok: true`` for the model, but users need to
+    see what was truncated or skipped on the tool card (and full text in the
+    tooltip via the same detail string).
+    """
+    fields = _observation_kv(text)
+    if fields.get("ok", "").lower() == "false":
+        err = fields.get("error") or "failed"
+        hint = fields.get("hint") or fields.get("message") or ""
+        line = f"Failed: {err}"
+        return f"{line} — {hint}" if hint else line
+
+    parts: list[str] = []
+    added = _parse_list_field(fields.get("added"))
+    if added is not None:
+        if added:
+            parts.append(f"Added {len(added)}")
+        else:
+            # Soft empty batch (TOC / prose chunk) — keep the card green.
+            parts.append("No endpoints in this chunk")
+    skipped = _parse_list_field(fields.get("skipped")) or []
+    warnings = _parse_list_field(fields.get("warnings")) or []
+    if skipped:
+        if len(skipped) == 1:
+            label = skipped[0].split(" (", 1)[0].strip() or "1 request"
+            parts.append(f"skipped {label}")
+        else:
+            parts.append(f"skipped {len(skipped)}")
+    if warnings:
+        body_n = sum(1 for item in warnings if "body truncated" in item)
+        other_n = len(warnings) - body_n
+        bits: list[str] = []
+        if body_n:
+            bits.append(f"{body_n} body truncated" if body_n > 1 else "body truncated")
+        if other_n:
+            bits.append(f"{other_n} warning{'s' if other_n != 1 else ''}")
+        parts.extend(bits)
+
+    summary = fields.get("summary")
+    if summary and not parts:
+        return summary
+    if not parts:
+        return preview
+
+    head = " · ".join(parts)
+    # Empty-batch notes are already summarized in the head; skip them as extras.
+    extras = [*skipped, *warnings]
+    if extras:
+        return f"{head} — {'; '.join(extras)}"
+    return head
+
+
+def _document_import_outcome_detail(preview: str, text: str) -> str:
+    """Prefer the observation's original filename over the action's placeholder."""
+    fields = _observation_kv(text)
+    if fields.get("ok", "").lower() == "false":
+        err = fields.get("error") or "failed"
+        hint = fields.get("hint") or fields.get("message") or ""
+        line = f"Failed: {err}"
+        return f"{line} — {hint}" if hint else line
+    document = (fields.get("document") or "").strip()
+    chunk = (fields.get("chunk") or "").strip()
+    if document and chunk:
+        return f"{document} (chunk {chunk})"
+    if document:
+        return document
+    return preview
+
+
+def _enrich_detail_from_observation(tool_name: str, preview: str, text: str) -> str:
+    """Replace action preview with outcome detail when the observation is richer."""
+    body = (text or "").strip()
+    if not body:
+        return preview
+    if tool_name == "postmark_collection_draft":
+        return _collection_draft_outcome_detail(preview, body)
+    if tool_name == "postmark_document_import":
+        return _document_import_outcome_detail(preview, body)
+    fields = _observation_kv(body)
+    if fields.get("ok", "").lower() == "false":
+        err = fields.get("error") or "failed"
+        hint = fields.get("hint") or fields.get("message") or ""
+        line = f"Failed: {err}"
+        return f"{line} — {hint}" if hint else line
+    return preview
 
 
 def _visible_records(records: dict[str, ToolActivityRecord]) -> list[ToolActivityRecord]:
@@ -294,6 +415,11 @@ class ToolActivityTracker:
         else:
             record["status"] = "completed"
 
+        record["detail"] = _enrich_detail_from_observation(
+            tool_name, str(record.get("detail") or ""), text
+        )
+        if text.strip():
+            record["output"] = text
         record["completed_at"] = now
 
         if (

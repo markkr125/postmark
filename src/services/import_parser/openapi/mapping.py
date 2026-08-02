@@ -7,6 +7,17 @@ import re
 from typing import Any
 
 from services.import_parser.models import ParsedCollection, ParsedFolder, ParsedRequest
+from services.import_parser.openapi.examples import (
+    extra_request_examples,
+    request_snapshot,
+    saved_responses_from_operation,
+)
+from services.import_parser.openapi.resolve import resolve_ref
+from services.import_parser.openapi.security import (
+    apply_openapi_security,
+    merge_description,
+    merge_variables,
+)
 
 _HTTP_METHODS = frozenset({"get", "post", "put", "patch", "delete", "head", "options", "trace"})
 _PATH_PARAM_RE = re.compile(r"\{([^}/]+)\}")
@@ -25,17 +36,22 @@ def build_collection_from_openapi(
         description = str(description)
 
     base_url, variables = _base_url_and_variables(data)
-    auth = _collection_auth(data, warnings)
+    security = apply_openapi_security(data, warnings)
+    variables = merge_variables(variables, security.variables)
+    description = merge_description(description, security.description_notes)
     folders = _operations_by_tag(data, base_url, warnings)
 
     items: list[ParsedFolder | ParsedRequest] = list(folders)
-    return ParsedCollection(
+    collection = ParsedCollection(
         name=name,
         description=description,
         variables=variables or None,
-        auth=auth,
+        auth=security.auth,
         items=items,
     )
+    if security.events:
+        collection["events"] = security.events
+    return collection
 
 
 def _base_url_and_variables(
@@ -105,25 +121,8 @@ def _resolve_ref(
     *,
     depth: int = 0,
 ) -> Any:
-    """Resolve local ``#/…`` refs; leave external refs with a warning."""
-    if depth > 32 or not isinstance(node, dict):
-        return node
-    ref = node.get("$ref")
-    if not isinstance(ref, str) or not ref:
-        return node
-    if not ref.startswith("#/"):
-        warnings.append(f"Skipped external $ref: {ref}")
-        return node
-    cur: Any = doc
-    for part in ref[2:].split("/"):
-        part = part.replace("~1", "/").replace("~0", "~")
-        if not isinstance(cur, dict) or part not in cur:
-            warnings.append(f"Unresolved $ref: {ref}")
-            return node
-        cur = cur[part]
-    if isinstance(cur, dict) and "$ref" in cur:
-        return _resolve_ref(doc, cur, warnings, depth=depth + 1)
-    return cur
+    """Resolve local ``#/…`` refs (compat wrapper around :func:`resolve_ref`)."""
+    return resolve_ref(doc, node, warnings, depth=depth)
 
 
 def _operations_by_tag(
@@ -257,7 +256,11 @@ def _build_request(
             }
         )
 
-    return ParsedRequest(
+    snapshot = request_snapshot(method, url, headers, body, body_mode)
+    saved_responses = saved_responses_from_operation(doc, operation, snapshot, warnings)
+    saved_responses.extend(extra_request_examples(doc, operation, method, url, headers, warnings))
+
+    parsed = ParsedRequest(
         type="request",
         name=name,
         method=method,
@@ -268,6 +271,9 @@ def _build_request(
         body_mode=body_mode,
         description=description,
     )
+    if saved_responses:
+        parsed["saved_responses"] = saved_responses
+    return parsed
 
 
 def _param_example(param: dict[str, Any]) -> Any:
@@ -310,7 +316,7 @@ def _request_body(
                     continue
                 if mime == "application/json":
                     if not isinstance(example, str):
-                        example = json.dumps(example, indent=2)
+                        example = json.dumps(example, indent=2, default=str)
                     return str(example), "raw"
                 if mime == "application/x-www-form-urlencoded":
                     return str(example), "urlencoded"
@@ -328,7 +334,7 @@ def _request_body(
             stub = _schema_stub(schema) if isinstance(schema, dict) else {}
             if param.get("example") is not None:
                 stub = param.get("example")
-            return json.dumps(stub, indent=2), "raw"
+            return json.dumps(stub, indent=2, default=str), "raw"
     return None, None
 
 
@@ -389,81 +395,4 @@ def _schema_stub(schema: dict[str, Any], *, depth: int = 0) -> Any:
         if isinstance(enum, list) and enum:
             return enum[0]
         return "string"
-    return None
-
-
-def _collection_auth(
-    data: dict[str, Any],
-    warnings: list[str],
-) -> dict[str, Any] | None:
-    """Map the first security scheme to Postmark auth with placeholders."""
-    schemes: dict[str, Any] = {}
-    if "openapi" in data:
-        components = data.get("components")
-        if isinstance(components, dict) and isinstance(components.get("securitySchemes"), dict):
-            schemes = components["securitySchemes"]
-    else:
-        if isinstance(data.get("securityDefinitions"), dict):
-            schemes = data["securityDefinitions"]
-
-    if not schemes:
-        return None
-
-    security = data.get("security")
-    preferred: str | None = None
-    if isinstance(security, list) and security:
-        first = security[0]
-        if isinstance(first, dict) and first:
-            preferred = str(next(iter(first.keys())))
-
-    name = preferred if preferred in schemes else next(iter(schemes.keys()))
-    scheme = _resolve_ref(data, schemes.get(name), warnings)
-    if not isinstance(scheme, dict):
-        return None
-
-    stype = str(scheme.get("type") or "").lower()
-    if stype == "apiKey" or stype == "apikey":
-        key_name = str(scheme.get("name") or "X-Api-Key")
-        location = str(scheme.get("in") or "header")
-        return {
-            "type": "apikey",
-            "apikey": [
-                {"key": "key", "value": key_name, "type": "string"},
-                {"key": "value", "value": "{{apiKey}}", "type": "string"},
-                {"key": "in", "value": location, "type": "string"},
-            ],
-        }
-    if stype == "http":
-        http_scheme = str(scheme.get("scheme") or "").lower()
-        if http_scheme == "bearer":
-            return {
-                "type": "bearer",
-                "bearer": [{"key": "token", "value": "{{bearerToken}}", "type": "string"}],
-            }
-        if http_scheme == "basic":
-            return {
-                "type": "basic",
-                "basic": [
-                    {"key": "username", "value": "{{username}}", "type": "string"},
-                    {"key": "password", "value": "{{password}}", "type": "string"},
-                ],
-            }
-    if stype == "basic":
-        return {
-            "type": "basic",
-            "basic": [
-                {"key": "username", "value": "{{username}}", "type": "string"},
-                {"key": "password", "value": "{{password}}", "type": "string"},
-            ],
-        }
-    if stype == "oauth2":
-        return {
-            "type": "oauth2",
-            "oauth2": [
-                {"key": "accessToken", "value": "{{oauth_access_token}}", "type": "string"},
-                {"key": "headerPrefix", "value": "Bearer", "type": "string"},
-                {"key": "addTokenTo", "value": "header", "type": "string"},
-            ],
-        }
-    warnings.append(f"Unsupported security scheme type for collection auth: {stype!r}")
     return None

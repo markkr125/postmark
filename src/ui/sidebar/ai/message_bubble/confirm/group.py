@@ -61,12 +61,16 @@ class PendingToolGroup(QWidget):
         self._rebuild_cards(actions)
         kinds = _unique_kinds(actions)
         multi = len(actions) > 1
-        self._footer.setVisible(multi)
+        continue_prompt = any(
+            str(action.get("kind") or "") == "continue_iterations" for action in actions
+        )
+        self._footer.setVisible(multi and not continue_prompt)
         for button in (self._allow_all, self._reject_all, self._always_all):
             button.setEnabled(True)
             button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._always_all.setEnabled(bool(kinds))
-        if len(kinds) == 1:
+        self._always_all.setEnabled(bool(kinds) and not continue_prompt)
+        self._always_all.setVisible(not continue_prompt)
+        if len(kinds) == 1 and not continue_prompt:
             self._always_all.setText(f"Always allow: {kind_label(kinds[0])}")
         else:
             self._always_all.setText("Always allow")

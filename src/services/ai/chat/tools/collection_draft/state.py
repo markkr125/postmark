@@ -11,8 +11,23 @@ import threading
 from dataclasses import dataclass, field
 from typing import Any
 
+from services.ai.chat.tools.collection_draft.recipes import SignatureRecipe
+
 MAX_REQUESTS_PER_DRAFT = 400
 MAX_FOLDER_DEPTH = 5
+MAX_SAVED_RESPONSES = 12
+MAX_SAVED_RESPONSE_BODY = 6000
+
+
+@dataclass
+class DraftSavedResponse:
+    """One example response attached to a draft request."""
+
+    name: str
+    status: str = ""
+    code: int | None = None
+    headers: list[dict[str, Any]] = field(default_factory=list)
+    body: str = ""
 
 
 @dataclass
@@ -29,6 +44,7 @@ class DraftRequest:
     description: str = ""
     pre_script: str = ""
     test_script: str = ""
+    responses: list[DraftSavedResponse] = field(default_factory=list)
 
 
 @dataclass
@@ -43,6 +59,9 @@ class CollectionDraft:
     requests: list[DraftRequest] = field(default_factory=list)
     pre_script: str = ""
     test_script: str = ""
+    signature_recipe: SignatureRecipe | None = None
+    auth: dict[str, Any] | None = None
+    default_headers: list[dict[str, Any]] = field(default_factory=list)
 
     def folder_exists(self, path: tuple[str, ...]) -> bool:
         """Return True when *path* was already declared or is the root."""
@@ -74,8 +93,11 @@ def clear_draft(session_id: str) -> None:
 __all__ = [
     "MAX_FOLDER_DEPTH",
     "MAX_REQUESTS_PER_DRAFT",
+    "MAX_SAVED_RESPONSES",
+    "MAX_SAVED_RESPONSE_BODY",
     "CollectionDraft",
     "DraftRequest",
+    "DraftSavedResponse",
     "clear_draft",
     "get_draft",
     "start_draft",

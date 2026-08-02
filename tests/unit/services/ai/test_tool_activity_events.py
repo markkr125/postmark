@@ -295,3 +295,145 @@ def test_records_for_turn_events_rebuilds_terminal_states() -> None:
     records = records_for_turn_events(events)
     assert len(records) == 1
     assert records[0]["status"] == "completed"
+
+
+def test_collection_draft_soft_trim_shows_on_card_detail() -> None:
+    """Soft body truncation stays completed but surfaces on the tool card detail."""
+    action = SimpleNamespace(
+        operation="add_requests",
+        name="",
+        requests=[{}, {}],
+        human_preview=lambda: "Add 2 requests",
+        summary="",
+    )
+    tracker = ToolActivityTracker()
+    tracker.ingest(ActionEvent("postmark_collection_draft", action, tool_call_id="draft-1"))
+    tracker.ingest(
+        ObservationEvent(
+            "postmark_collection_draft",
+            TextObservation(
+                "ok: true\n"
+                "added: ['POST Search', 'GET Example']\n"
+                "requests: 2\n"
+                "warnings: [\"body truncated for 'Example'\"]\n"
+            ),
+            tool_call_id="draft-1",
+        )
+    )
+    record = tracker.records()[0]
+    assert record["status"] == "completed"
+    assert "Added 2" in record["detail"]
+    assert "body truncated" in record["detail"]
+    assert "ok: true" in record.get("output", "")
+    assert "Example" in record["detail"]
+
+
+def test_collection_draft_skip_and_failure_details() -> None:
+    """Skipped items and hard failures rewrite the card detail for the user."""
+    action = SimpleNamespace(
+        operation="add_requests",
+        name="",
+        requests=[{}, {}],
+        human_preview=lambda: "Add 2 requests",
+        summary="",
+    )
+    tracker = ToolActivityTracker()
+    tracker.ingest(ActionEvent("postmark_collection_draft", action, tool_call_id="draft-2"))
+    tracker.ingest(
+        ObservationEvent(
+            "postmark_collection_draft",
+            TextObservation(
+                "ok: true\n"
+                "added: ['POST Search']\n"
+                "requests: 1\n"
+                "skipped: ['Broken (bad_method): Use one of: GET, POST']\n"
+            ),
+            tool_call_id="draft-2",
+        )
+    )
+    soft = tracker.records()[0]
+    assert soft["status"] == "completed"
+    assert "Added 1" in soft["detail"]
+    assert "skipped Broken" in soft["detail"]
+
+    fail_action = SimpleNamespace(
+        operation="add_requests",
+        name="",
+        requests=[{}],
+        human_preview=lambda: "Add 1 requests",
+        summary="",
+    )
+    fail_tracker = ToolActivityTracker()
+    fail_tracker.ingest(
+        ActionEvent("postmark_collection_draft", fail_action, tool_call_id="draft-3")
+    )
+    fail_tracker.ingest(
+        ObservationEvent(
+            "postmark_collection_draft",
+            TextObservation(
+                "ok: false\nerror: all_skipped\nhint: No valid requests in this batch.\n"
+            ),
+            tool_call_id="draft-3",
+        )
+    )
+    failed = fail_tracker.records()[0]
+    assert failed["status"] == "error"
+    assert "Failed: all_skipped" in failed["detail"]
+    assert "No valid requests" in failed["detail"]
+
+
+def test_collection_draft_empty_batch_stays_completed() -> None:
+    """Empty requests arrays are soft no-ops — green card, clear detail."""
+    action = SimpleNamespace(
+        operation="add_requests",
+        name="",
+        requests=[],
+        human_preview=lambda: "Add 0 requests",
+        summary="",
+    )
+    tracker = ToolActivityTracker()
+    tracker.ingest(ActionEvent("postmark_collection_draft", action, tool_call_id="draft-empty"))
+    tracker.ingest(
+        ObservationEvent(
+            "postmark_collection_draft",
+            TextObservation(
+                "ok: true\n"
+                "added: []\n"
+                "requests: 1\n"
+                "note: No endpoints in this chunk — draft unchanged.\n"
+            ),
+            tool_call_id="draft-empty",
+        )
+    )
+    record = tracker.records()[0]
+    assert record["status"] == "completed"
+    assert "No endpoints in this chunk" in record["detail"]
+    assert "Failed" not in record["detail"]
+
+
+def test_document_import_detail_uses_observation_filename() -> None:
+    """Observation rewrites 'attached document' to the real upload name."""
+    action = SimpleNamespace(
+        uri=None,
+        path=None,
+        chunk=2,
+        human_preview=lambda: "attached document (chunk 2)",
+        summary="",
+    )
+    tracker = ToolActivityTracker()
+    tracker.ingest(ActionEvent("postmark_document_import", action, tool_call_id="doc-1"))
+    tracker.ingest(
+        ObservationEvent(
+            "postmark_document_import",
+            TextObservation(
+                "ok: true\n"
+                "document: 1 Hotel Implementation Guide_V12.0.docx\n"
+                "uri: postmark://uploaded/1_Hotel_Implementation_Guide_V12.0.md\n"
+                "chunk: 2 of 9\n\nbody\n"
+            ),
+            tool_call_id="doc-1",
+        )
+    )
+    record = tracker.records()[0]
+    assert record["status"] == "completed"
+    assert record["detail"] == "1 Hotel Implementation Guide_V12.0.docx (chunk 2 of 9)"

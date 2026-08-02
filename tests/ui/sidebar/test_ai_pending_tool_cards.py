@@ -163,3 +163,26 @@ def test_confirmation_flushes_buffered_thinking_before_closing_phase(
     assert primary.text() == "Buffered plan before tool."
     assert primary.duration_seconds() is not None
     assert len(bubble._thought_sections) == 1
+
+
+def test_continue_iterations_card_uses_continue_stop(qapp: QApplication, qtbot) -> None:
+    """Max-iterations prompt shows Continue / Stop and hides Always allow."""
+    from services.ai.chat.confirmation_payload import continue_iterations_payload
+
+    bubble = ChatMessageBubble("assistant", "")
+    qtbot.addWidget(bubble)
+    bubble.show_pending_confirmation(continue_iterations_payload(tool_calls=14, limit=50))
+    assert bubble.has_pending_confirmation()
+    cards = bubble.findChildren(PendingToolCard)
+    assert len(cards) == 1
+    card = cards[0]
+    title = card.findChild(QLabel, "aiChatPendingToolTitle")
+    detail = card.findChild(QLabel, "aiChatPendingToolDetail")
+    assert title is not None and title.text() == "Continue working?"
+    assert detail is not None and "14 tool calls" in detail.text()
+    allow = card.findChild(QPushButton, "aiChatPendingAllow")
+    reject = card.findChild(QPushButton, "aiChatPendingReject")
+    always = card.findChild(QPushButton, "aiChatPendingAlwaysAllow")
+    assert allow is not None and allow.text() == "Continue"
+    assert reject is not None and reject.text() == "Stop"
+    assert always is not None and always.isHidden()

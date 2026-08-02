@@ -62,6 +62,140 @@ def test_tool_activity_cards_render_and_hide_running_on_complete(
     assert bubble.findChildren(ToolActivityCard) == []
 
 
+def test_tool_activity_card_expands_full_output(qapp: QApplication, qtbot) -> None:
+    """Terminal rows with observation output expand to readable, compact prose."""
+    from PySide6.QtCore import Qt
+
+    bubble = ChatMessageBubble("assistant", "")
+    qtbot.addWidget(bubble)
+    bubble.resize(420, 600)
+    full_output = (
+        "ok: false\n"
+        "error: too_many_responses\n"
+        "hint: Use at most 12 saved response examples per request.\n"
+    )
+    bubble.set_tool_activity_records(
+        [
+            {
+                "id": "draft-1",
+                "tool_name": "postmark_collection_draft",
+                "title": "Build collection",
+                "detail": "Failed: too_many_responses — trimmed",
+                "status": "error",
+                "output": full_output,
+            }
+        ]
+    )
+    card = bubble.findChildren(ToolActivityCard)[0]
+    bubble.show()
+    assert card.can_expand()
+    assert not card._output_frame.isVisible()
+    card._expand_btn.setChecked(True)
+    qtbot.wait(10)
+    assert card._output_frame.isVisible()
+    shown = card._output.text()
+    assert "Failed — Too many saved responses" in shown
+    assert "Use at most 12 saved response examples per request." in shown
+    assert "ok: false" not in shown
+    # Short errors hug the text — no tall empty panel and no scrollbar.
+    assert card._output_frame.height() < 100
+    assert card._output_scroll.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+
+
+def test_tool_activity_card_scrolls_long_output(qapp: QApplication, qtbot) -> None:
+    """Long observation bodies scroll inside the bordered frame."""
+    from PySide6.QtCore import Qt
+
+    bubble = ChatMessageBubble("assistant", "")
+    qtbot.addWidget(bubble)
+    bubble.resize(420, 800)
+    body = "\n".join(f"line {i}: " + ("x" * 40) for i in range(80))
+    bubble.set_tool_activity_records(
+        [
+            {
+                "id": "doc-1",
+                "tool_name": "postmark_document_import",
+                "title": "Read document",
+                "detail": "chunk 3",
+                "status": "completed",
+                "output": f"ok: true\ndocument: spec.pdf\nchunk: 3 of 7\n\n{body}\n\nnext_step: continue\n",
+            }
+        ]
+    )
+    card = bubble.findChildren(ToolActivityCard)[0]
+    group = bubble._tool_activity_groups[0]
+    # Completed rows are hidden while the group summary is collapsed.
+    group.set_expanded(True)
+    bubble.show()
+    card._expand_btn.setChecked(True)
+    qtbot.wait(10)
+    assert card.isVisible()
+    assert card._output_frame.isVisible()
+    assert "line 0:" in card._output.text()
+    assert "line 79:" in card._output.text()
+    assert card._output_frame.height() == 220
+    assert card._output_scroll.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAsNeeded
+    assert card._output.height() > card._output_scroll.height()
+    # Label width must reserve scrollbar space so wrapped height matches scroll range.
+    assert card._output.width() < card._output_frame.width()
+    bar = card._output_scroll.verticalScrollBar()
+    assert bar.maximum() + card._output_scroll.viewport().height() >= card._output.height() - 1
+
+
+def test_format_tool_activity_output_empty_batch() -> None:
+    """Empty add_requests soft no-ops read as a note, not a failure."""
+    from ui.sidebar.ai.message_bubble.tool_activity.format_output import (
+        format_tool_activity_output,
+    )
+
+    text = format_tool_activity_output(
+        "ok: true\nadded: []\nrequests: 1\nnote: No endpoints in this chunk — draft unchanged.\n"
+    )
+    assert "No endpoints in this chunk" in text
+    assert "Failed" not in text
+    assert "Added 0" not in text
+
+
+def test_format_tool_activity_output_humanizes_errors() -> None:
+    """Structured observation bodies become readable prose for the expand panel."""
+    from ui.sidebar.ai.message_bubble.tool_activity.format_output import (
+        format_tool_activity_output,
+    )
+
+    text = format_tool_activity_output(
+        "ok: false\n"
+        "error: bad_request\n"
+        "hint: Request 1 (too_many_responses): 'Hotel Booking': use at most 12.\n"
+    )
+    assert text.startswith("Failed — Bad request")
+    assert "Hotel Booking" in text
+    assert "ok: false" not in text
+
+
+def test_format_tool_activity_output_keeps_document_body() -> None:
+    """Document-import chunks keep the freeform body under a short status header."""
+    from ui.sidebar.ai.message_bubble.tool_activity.format_output import (
+        format_tool_activity_output,
+    )
+
+    raw = (
+        "ok: true\n"
+        "document: Agoda.pdf\n"
+        "uri: postmark://uploaded/Agoda.md\n"
+        "chunk: 3 of 7\n"
+        "pages: 10-14\n"
+        "\n"
+        '{"cancellationPolicy": {"policies": [{"type": "flexible"}]}}\n'
+        "\n"
+        "next_step: read chunk=4\n"
+    )
+    text = format_tool_activity_output(raw)
+    assert text.startswith("Succeeded")
+    assert "document: Agoda.pdf" in text
+    assert "cancellationPolicy" in text
+    assert "Next: read chunk=4" in text
+
+
 def test_auto_executing_import_closes_thought_and_animates(
     qapp: QApplication,
     qtbot,

@@ -478,10 +478,22 @@ PY_GLOBALS: dict[str, SchemaNode] = {
         "doc": "SHA-256 hex digest",
         "signature": "(s: str)",
     },
+    "hashlib_sha512": {
+        "kind": "method",
+        "type_str": "str",
+        "doc": "SHA-512 hex digest",
+        "signature": "(s: str)",
+    },
     "hashlib_hmac_sha256": {
         "kind": "method",
         "type_str": "str",
         "doc": "HMAC-SHA256 hex digest",
+        "signature": "(data: str, key: str)",
+    },
+    "hashlib_hmac_sha512": {
+        "kind": "method",
+        "type_str": "str",
+        "doc": "HMAC-SHA512 hex digest",
         "signature": "(data: str, key: str)",
     },
     "uuid_v4": {
@@ -500,6 +512,12 @@ PY_GLOBALS: dict[str, SchemaNode] = {
         "kind": "method",
         "type_str": "datetime",
         "doc": "Current UTC datetime",
+        "signature": "()",
+    },
+    "unix_timestamp": {
+        "kind": "method",
+        "type_str": "int",
+        "doc": "Current Unix time in seconds (Python sandbox only)",
         "signature": "()",
     },
     "url_quote": {

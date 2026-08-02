@@ -273,11 +273,18 @@ src/
 │   │       │   ├── document_import/   # postmark_document_import (read one uploaded chunk)
 │   │       │   │   └── tool.py        # Action uri + chunk (+ path to upload on demand); chunk X of Y + next_step + vision ImageContent
 │   │       │   ├── collection_draft/  # postmark_collection_draft (one chunk-sized request batch per call)
-│   │       │   │   ├── state.py       # per-session CollectionDraft store
+│   │       │   │   ├── state.py       # per-session CollectionDraft store (+ signature_recipe/auth/default_headers)
 │   │       │   │   ├── config.py      # draft_script_language QSettings (default python)
-│   │       │   │   ├── build.py       # draft -> ParsedCollection; URL {{var}} rewrite + auto variables
-│   │       │   │   ├── ops.py         # start/add_requests/status/finish/discard
-│   │       │   │   └── tool.py        # Action/Observation/Executor; only finish writes
+│   │       │   │   ├── build.py       # draft -> ParsedCollection; URL {{var}} rewrite + recipe pre_request + auth/responses/headers
+│   │       │   │   ├── ops/           # start/add_requests/status/finish/discard (soft-trim caps + skip bad items)
+│   │       │   │   │   ├── limits.py  # MAX_* caps
+│   │       │   │   │   ├── normalize.py # soft-normalize auth/vars/responses/kv rows
+│   │       │   │   │   └── dispatch.py # op_* handlers
+│   │       │   │   ├── tool.py        # Action/Observation/Executor; only finish writes
+│   │       │   │   └── recipes/       # reviewed signature recipes (never model-written crypto)
+│   │       │   │       ├── base.py    # SignatureRecipe + recipe_for_kind / build_signing_script
+│   │       │   │       ├── sha256_apikey.py  # sha256_apikey_secret_timestamp (Hotelbeds)
+│   │       │   │       └── hmac_sha256.py    # hmac_sha256 (METHOD\\nURL)
 │   │       │   ├── workspace_execute/ # postmark_workspace_execute (Agent send/run)
 │   │       │   │   ├── tool.py        # Action/Observation + thin executor
 │   │       │   │   └── dispatch.py    # operation dispatch → execution/* helpers
@@ -364,7 +371,7 @@ src/
 │   │   ├── py_runtime.py          # PyRuntime — Pyodide (Deno) when vendor present, else RestrictedPython subprocess
 │   │   ├── pyodide_runtime.py     # PyodideRuntime — data/scripts/pyodide_run.mjs + vendor_pyodide + micropip / pm.require; _resolve_pypi_index_urls() embeds auth into private PyPI index URLs (micropip.set_index_urls)
 │   │   ├── _py_sandbox.py         # RestrictedPython subprocess entry (main + _execute_restricted; re-exports for tests)
-│   │   ├── _sandbox_safe_globals.py # _SAFE_BUILTINS / _SAFE_STDLIB for RestrictedPython
+│   │   ├── _sandbox_safe_globals.py # _SAFE_BUILTINS / _SAFE_STDLIB (hashlib_sha256/512, hmac, unix_timestamp, …)
 │   │   ├── _sandbox_runtime.py    # Resource limits, console capture, _write_done
 │   │   ├── _sandbox_pm_assertions.py # _Expectation chains
 │   │   ├── _sandbox_pm_models.py  # _PmRequest/_PmResponse/_HeaderList, …
@@ -412,7 +419,10 @@ src/
 │       ├── url_parser.py          # URL/raw-text auto-detect + try_parse_spec_text
 │       ├── openapi/               # OpenAPI 3 / Swagger 2 (JSON/YAML) → collection
 │       │   ├── parser.py
-│       │   └── mapping.py
+│       │   ├── mapping.py
+│       │   ├── examples.py        # request/response examples → saved responses (+ request snapshots)
+│       │   ├── resolve.py         # local $ref resolution shared by mapping + security
+│       │   └── security.py        # securitySchemes → auth / signature recipes / conservative notes
 │       └── wsdl/                  # WSDL 1.1 → SOAP POST requests
 │           ├── parser.py
 │           └── soap.py
@@ -483,6 +493,7 @@ src/
     │   │   │   └── time_format.py
     │   │   ├── workers/           # AiChatWorker + AiChatTitleWorker (QThread)
     │   │   │   ├── chat_worker.py
+    │   │   │   ├── chat_worker_confirm.py  # Approve/Continue parking mixin
     │   │   │   ├── context_usage_worker.py
     │   │   │   ├── session_load_worker.py
     │   │   │   └── title_worker.py
@@ -499,9 +510,10 @@ src/
     │   │   │   ├── activity_row.py      # AssistantActivityRow spinner row
     │   │   │   ├── wrapping_label.py    # _WrappingLabel — height-for-width QLabel
     │   │   │   ├── subagent/            # SubagentTaskCard + SubagentTaskGroup summary rows
-    │   │   │   ├── tool_activity/       # ToolActivityCard + ToolActivityGroup main-agent tool rows
+    │   │   │   ├── tool_activity/       # ToolActivityCard + ToolActivityGroup + format_output
     │   │   │   │   ├── card.py
-    │   │   │   │   └── group.py
+    │   │   │   │   ├── group.py
+    │   │   │   │   └── format_output.py # human-readable expand-panel prose
     │   │   │   ├── confirm/             # PendingToolCard + PendingToolGroup (inline Agent Approve)
     │   │   │   │   ├── card.py
     │   │   │   │   └── group.py
@@ -753,6 +765,8 @@ tests/
 │       ├── test_environment_service.py
 │       ├── test_import_parser.py
 │       ├── test_import_service.py
+│       ├── test_openapi_security.py # securitySchemes → auth/signature; Expedia unspecified note
+│       ├── test_openapi_examples.py # named examples → saved responses; request variants; Swagger 2
 │       ├── test_script_bridge_globals.py
 │       ├── test_script_debug.py
 │       ├── test_script_debug_cdp.py
@@ -816,8 +830,9 @@ tests/
 │       │   ├── test_chat_attachment_screenshots.py # vision gate: images vs lazy cached OCR fallback
 │       │   ├── test_chat_attachment_store.py # copy-in, Markdown conversion, URIs, session-delete cleanup
 │       │   ├── test_provider_errors.py    # malformed tool call + unreachable provider summaries
-│       │   ├── test_collection_draft_tool.py # incremental draft ops, finish persistence, risk mapping
-│       │   ├── test_collection_draft_enrichment.py # params/descriptions/scripts/vars/language setting
+│       │   ├── test_collection_draft_tool.py # incremental draft ops, body/query-input matrix, table-only replay, finish persistence, risk mapping
+│       │   ├── test_collection_draft_enrichment.py # params/descriptions/scripts/vars/auth/responses/headers/language
+│       │   ├── test_collection_draft_signatures.py # signature recipes, status/finish flags, e2e pre_request
 │       │   ├── test_fabricated_link_guard.py # strip collection links no tool produced this turn
 │   ├── document_import/               # PDF/DOCX extraction service tests
 │   │   ├── fixtures/sample.pdf

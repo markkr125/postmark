@@ -13,6 +13,7 @@ from services.ai.chat.attachments.store import (
     attachment_path,
     list_attachments,
     resolve_attachment,
+    set_turn_attachments,
     store_attachments,
 )
 
@@ -25,5 +26,6 @@ __all__ = [
     "handle_ordinal",
     "list_attachments",
     "resolve_attachment",
+    "set_turn_attachments",
     "store_attachments",
 ]

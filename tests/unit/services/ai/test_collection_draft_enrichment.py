@@ -176,8 +176,8 @@ def test_params_object_is_normalized(executor: CollectionDraftExecutor) -> None:
     assert keys == {"q", "limit"}
 
 
-def test_too_many_params_is_rejected(executor: CollectionDraftExecutor) -> None:
-    """Param cap returns a recoverable error and leaves the draft untouched."""
+def test_too_many_params_is_trimmed(executor: CollectionDraftExecutor) -> None:
+    """Param over-cap is trimmed with a warning; the request still lands."""
     _run(executor, operation="start", name="Spec")
     params = {f"p{i}": str(i) for i in range(MAX_PARAMS_PER_REQUEST + 1)}
     body = _run(
@@ -185,10 +185,12 @@ def test_too_many_params_is_rejected(executor: CollectionDraftExecutor) -> None:
         operation="add_requests",
         requests=[{"name": "X", "method": "GET", "url": "/x", "params": params}],
     )
-    assert "too_many_params" in body
+    assert "ok: true" in body
+    assert "params trimmed" in body
     draft = get_draft(_SESSION)
     assert draft is not None
-    assert draft.requests == []
+    assert len(draft.requests) == 1
+    assert len(draft.requests[0].params) == MAX_PARAMS_PER_REQUEST
 
 
 def test_description_and_script_truncation_warns(executor: CollectionDraftExecutor) -> None:
@@ -418,3 +420,248 @@ def test_finish_enrichment_summary_in_observation(executor: CollectionDraftExecu
     assert "variable" in body
     assert "collection scripts" in body
     assert "pm.require" in body
+
+
+def test_auth_persisted_on_finish(executor: CollectionDraftExecutor) -> None:
+    """Collection auth and credential variables survive finish."""
+    _run(
+        executor,
+        operation="start",
+        name="Authed API",
+        auth={
+            "type": "bearer",
+            "bearer": [{"key": "token", "value": "{{bearerToken}}", "type": "string"}],
+        },
+    )
+    _run(
+        executor,
+        operation="add_requests",
+        requests=[{"name": "Me", "method": "GET", "url": "/me"}],
+    )
+    body = _run(executor, operation="finish")
+    assert "auth" in body
+    collection = CollectionService.get_collection(_collection_id(body))
+    assert collection is not None
+    assert (collection.auth or {}).get("type") == "bearer"
+    keys = {str(row.get("key")) for row in (collection.variables or []) if isinstance(row, dict)}
+    assert "bearerToken" in keys
+
+
+def test_basic_auth_kv_rows_and_document_variables_persist(
+    executor: CollectionDraftExecutor,
+) -> None:
+    """Basic auth in the key/value-row shape models emit must survive finish.
+
+    Regression cover for the Agoda-style start payload: basic auth given as
+    username/password rows, plus document-defined variables with values
+    (endpoint convention ``https://myendpoint.com/v1.32/{operation}``).
+    """
+    _run(
+        executor,
+        operation="start",
+        name="Agoda-like API",
+        variables=[
+            {"key": "baseURL", "value": "https://myendpoint.com"},
+            {"key": "version", "value": "v1.32"},
+            {"key": "username", "value": ""},
+            {"key": "password", "value": ""},
+        ],
+        auth={
+            "type": "basic",
+            "basic": [
+                {"key": "username", "value": "{{username}}"},
+                {"key": "password", "value": "{{password}}"},
+            ],
+        },
+        default_headers={"Content-Type": "application/json"},
+    )
+    _run(
+        executor,
+        operation="add_requests",
+        requests=[
+            {
+                "name": "Search",
+                "method": "POST",
+                "url": "{{baseURL}}/{{version}}/hotelSearch",
+                "body": {"hotels": ["123"]},
+            }
+        ],
+    )
+    body = _run(executor, operation="finish")
+    assert "ok: true" in body
+    collection = CollectionService.get_collection(_collection_id(body))
+    assert collection is not None
+    auth = collection.auth or {}
+    assert auth.get("type") == "basic"
+    basic = auth.get("basic") or []
+    assert {"key": "username", "value": "{{username}}"} in [
+        {k: row.get(k) for k in ("key", "value")} for row in basic if isinstance(row, dict)
+    ]
+    variables = {
+        str(row.get("key")): str(row.get("value"))
+        for row in (collection.variables or [])
+        if isinstance(row, dict)
+    }
+    assert variables.get("version") == "v1.32"
+    assert variables.get("baseURL") == "https://myendpoint.com"
+    # Credentials stay empty — the user fills them once.
+    assert variables.get("username") == ""
+    assert variables.get("password") == ""
+
+
+def test_saved_responses_persisted(executor: CollectionDraftExecutor) -> None:
+    """Request response examples are stored as saved responses."""
+    _run(executor, operation="start", name="Examples API")
+    _run(
+        executor,
+        operation="add_requests",
+        requests=[
+            {
+                "name": "Get item",
+                "method": "GET",
+                "url": "/items/1",
+                "responses": [
+                    {
+                        "name": "200 OK",
+                        "status": "OK",
+                        "code": 200,
+                        "body": {"id": 1, "name": "Widget"},
+                    }
+                ],
+            }
+        ],
+    )
+    body = _run(executor, operation="finish")
+    assert "saved response" in body
+    collection = CollectionService.get_collection(_collection_id(body))
+    assert collection is not None
+    with get_session() as session:
+        requests = list(
+            session.execute(select(RequestModel).where(RequestModel.collection_id == collection.id))
+            .scalars()
+            .all()
+        )
+    assert len(requests) == 1
+    saved = list(requests[0].saved_responses or [])
+    assert len(saved) == 1
+    assert saved[0].name == "200 OK"
+    assert saved[0].code == 200
+    assert "Widget" in (saved[0].body or "")
+    assert saved[0].preview_language == "json"
+    snap = saved[0].original_request or {}
+    assert snap.get("method") == "GET"
+    assert snap.get("url", {}).get("raw") == "/items/1"
+    assert "body" not in snap
+
+
+def test_saved_response_snapshot_includes_request_body(executor: CollectionDraftExecutor) -> None:
+    """Saved examples carry the parent request body for the Request Body tab."""
+    _run(executor, operation="start", name="Search API")
+    _run(
+        executor,
+        operation="add_requests",
+        requests=[
+            {
+                "name": "Hotel Search",
+                "method": "POST",
+                "url": "/HotelSearch",
+                "body": {"hotels": ["123"], "checkIn": "2018-12-23"},
+                "responses": [
+                    {
+                        "name": "200 Successful response",
+                        "status": "OK",
+                        "code": 200,
+                        "body": {"status": "OK", "hotels": []},
+                    }
+                ],
+            }
+        ],
+    )
+    body = _run(executor, operation="finish")
+    collection = CollectionService.get_collection(_collection_id(body))
+    assert collection is not None
+    with get_session() as session:
+        requests = list(
+            session.execute(select(RequestModel).where(RequestModel.collection_id == collection.id))
+            .scalars()
+            .all()
+        )
+    saved = list(requests[0].saved_responses or [])
+    assert len(saved) == 1
+    assert saved[0].preview_language == "json"
+    snap = saved[0].original_request or {}
+    req_body = snap.get("body") or {}
+    assert req_body.get("mode") == "raw"
+    assert "hotels" in str(req_body.get("raw"))
+    assert (req_body.get("options") or {}).get("raw", {}).get("language") == "json"
+
+
+def test_default_headers_merge_request_wins(executor: CollectionDraftExecutor) -> None:
+    """Collection default headers apply; request headers override same keys."""
+    _run(
+        executor,
+        operation="start",
+        name="Headers API",
+        default_headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+    )
+    _run(
+        executor,
+        operation="add_requests",
+        requests=[
+            {
+                "name": "Create",
+                "method": "POST",
+                "url": "/items",
+                "headers": {"Accept": "application/xml"},
+                "body": {"name": "x"},
+            }
+        ],
+    )
+    body = _run(executor, operation="finish")
+    assert "default header" in body
+    collection = CollectionService.get_collection(_collection_id(body))
+    assert collection is not None
+    with get_session() as session:
+        requests = list(
+            session.execute(select(RequestModel).where(RequestModel.collection_id == collection.id))
+            .scalars()
+            .all()
+        )
+    headers = requests[0].headers or []
+    by_key = {
+        str(row.get("key")).lower(): str(row.get("value"))
+        for row in headers
+        if isinstance(row, dict)
+    }
+    assert by_key.get("content-type") == "application/json"
+    assert by_key.get("accept") == "application/xml"
+
+
+def test_too_many_saved_responses_are_trimmed(executor: CollectionDraftExecutor) -> None:
+    """More than MAX_SAVED_RESPONSES examples are trimmed with a warning."""
+    from services.ai.chat.tools.collection_draft.state import MAX_SAVED_RESPONSES
+
+    _run(executor, operation="start", name="Too many")
+    responses = [
+        {"name": f"Ex {i}", "code": 200, "body": "{}"} for i in range(MAX_SAVED_RESPONSES + 1)
+    ]
+    body = _run(
+        executor,
+        operation="add_requests",
+        requests=[
+            {
+                "name": "Get",
+                "method": "GET",
+                "url": "/x",
+                "responses": responses,
+            }
+        ],
+    )
+    assert "ok: true" in body
+    assert "saved responses trimmed" in body
+    draft = get_draft(_SESSION)
+    assert draft is not None
+    assert len(draft.requests[0].responses) == MAX_SAVED_RESPONSES

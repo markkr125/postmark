@@ -126,10 +126,11 @@ run under [src/services/scripting/_py_sandbox.py](../../src/services/scripting/_
 
 - `json_loads`, `json_dumps`
 - `re_match`, `re_search`, `re_findall`, `re_sub`
-- `hashlib_md5`, `hashlib_sha256`, `hashlib_hmac_sha256`
+- `hashlib_md5`, `hashlib_sha256`, `hashlib_sha512`,
+  `hashlib_hmac_sha256`, `hashlib_hmac_sha512`
 - `b64encode`, `b64decode`
 - `uuid_v4`
-- `datetime_now`, `datetime_utcnow`
+- `datetime_now`, `datetime_utcnow`, `unix_timestamp`
 - `url_quote`, `url_urlencode`
 - `math_ceil`, `math_floor`, `math_sqrt`, `math_pow`, `math_log`,
   `math_pi`, `math_e`

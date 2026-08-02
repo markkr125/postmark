@@ -113,6 +113,7 @@ class PendingToolCard(QFrame):
         self._buttons = buttons
 
         self._kind: str | None = None
+        self._continue_prompt = False
         self.hide()
 
     def kind(self) -> str | None:
@@ -121,6 +122,8 @@ class PendingToolCard(QFrame):
 
     def apply_action(self, action: PendingActionDict, *, show_buttons: bool) -> None:
         """Update the card from *action* and toggle per-card buttons."""
+        from services.ai.chat.confirmation_payload import CONTINUE_ITERATIONS_KIND
+
         title = (
             str(action.get("title") or action.get("kind_label") or "").strip() or "Pending action"
         )
@@ -134,6 +137,7 @@ class PendingToolCard(QFrame):
         self._kind = (
             str(kind_raw).strip() if isinstance(kind_raw, str) and kind_raw.strip() else None
         )
+        self._continue_prompt = self._kind == CONTINUE_ITERATIONS_KIND
         risk = str(action.get("risk") or "normal").strip().lower()
         destructive = risk == "destructive" or (
             self._kind is not None and self._kind.startswith("mutate:delete:")
@@ -145,7 +149,9 @@ class PendingToolCard(QFrame):
         self._starting_spinner.hide()
         self._icon.setPixmap(
             phi(
-                "warning-circle" if destructive else "shield-warning",
+                "arrow-clockwise"
+                if self._continue_prompt
+                else ("warning-circle" if destructive else "shield-warning"),
                 size=14,
             ).pixmap(14, 14)
         )
@@ -154,13 +160,22 @@ class PendingToolCard(QFrame):
         style.unpolish(self)
         style.polish(self)
 
-        self._always.setEnabled(bool(self._kind))
-        if self._kind:
-            from services.ai.chat.mutation.auto_approve import kind_label
-
-            self._always.setText(f"Always allow: {kind_label(self._kind)}")
+        if self._continue_prompt:
+            self._allow.setText("Continue")
+            self._reject.setText("Stop")
+            self._always.hide()
+            self._always.setEnabled(False)
         else:
-            self._always.setText("Always allow")
+            self._allow.setText("Allow")
+            self._reject.setText("Reject")
+            self._always.show()
+            self._always.setEnabled(bool(self._kind))
+            if self._kind:
+                from services.ai.chat.mutation.auto_approve import kind_label
+
+                self._always.setText(f"Always allow: {kind_label(self._kind)}")
+            else:
+                self._always.setText("Always allow")
         self._buttons.setVisible(show_buttons)
         self.show()
 
@@ -171,8 +186,15 @@ class PendingToolCard(QFrame):
             button.setCursor(Qt.CursorShape.ArrowCursor)
         self._starting_spinner.show()
         self._starting_spinner.start()
-        if not self._detail.text().endswith(" — Starting…"):
-            self._detail.setText(f"{self._detail.text()} — Starting…")
+        verb = "Continuing…" if self._continue_prompt else "Starting…"
+        suffix = f" — {verb}"
+        if not self._detail.text().endswith(suffix):
+            text = self._detail.text()
+            for old in (" — Starting…", " — Continuing…"):
+                if text.endswith(old):
+                    text = text[: -len(old)]
+                    break
+            self._detail.setText(f"{text}{suffix}")
 
 
 __all__ = ["PendingActionDict", "PendingToolCard"]

@@ -48,9 +48,12 @@ These are top-level builtins in the script sandbox — e.g. `datetime_now()`, no
 - `b64decode(s)` — Base64 decode
 - `hashlib_md5(s)` — MD5 hex digest
 - `hashlib_sha256(s)` — SHA-256 hex digest
+- `hashlib_sha512(s)` — SHA-512 hex digest
 - `hashlib_hmac_sha256(data, key)` — HMAC-SHA256 hex digest
+- `hashlib_hmac_sha512(data, key)` — HMAC-SHA512 hex digest
 - `uuid_v4()` — Random UUID v4 string
 - `datetime_now()` — Current UTC ISO timestamp
 - `datetime_utcnow()` — Alias for datetime_now()
+- `unix_timestamp()` — Current Unix time in seconds (int; Python sandbox only)
 - `url_quote(s)` — URL-encode a string
 - `url_urlencode(params)` — URL-encode query parameters

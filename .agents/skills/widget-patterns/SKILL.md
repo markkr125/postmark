@@ -169,6 +169,12 @@ that paints coloured pills over `{{variable}}` references.
 - `mouseMoveEvent` triggers `VariablePopup.show_variable()` after a 150ms
   `QTimer` delay when the cursor hovers over a `{{variable}}` token.
 - Pill colours come from `ui.styling.theme` — do not hardcode hex values.
+- **Password echo + variables:** Basic Auth / OAuth password fields use
+  `EchoMode.Password` with `{{password}}`. Password echo paints mask
+  bullets; the highlight path draws cleartext on top → double-render
+  “nausea”. `paintEvent` temporarily switches to `Normal` for that
+  frame when Password mode and `{{` are both present, then restores
+  Password. Do not draw cleartext overlays on top of Password echo.
 
 ## Theme module contents
 

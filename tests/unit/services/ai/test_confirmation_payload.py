@@ -5,7 +5,13 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
-from services.ai.chat.confirmation_payload import pending_actions_payload
+from services.ai.chat.confirmation_payload import (
+    CONTINUE_ITERATIONS_KIND,
+    continue_iterations_payload,
+    is_continue_iterations_payload,
+    is_max_iterations_reached,
+    pending_actions_payload,
+)
 from services.ai.chat.tools.workspace_execute.tool import WorkspaceExecuteAction
 from services.ai.chat.tools.workspace_mutate.tool import WorkspaceMutateAction
 
@@ -92,3 +98,47 @@ def test_pending_actions_payload_marks_delete_destructive(monkeypatch: Any) -> N
     row = pending_actions_payload(conv)["actions"][0]
     assert row["risk"] == "destructive"
     assert row["title"] == "Delete request"
+
+
+def test_continue_iterations_payload_counts_tool_calls() -> None:
+    """Max-iterations Continue prompt names the tool-call count and limit."""
+    payload = continue_iterations_payload(tool_calls=14, limit=50)
+    assert is_continue_iterations_payload(payload)
+    row = payload["actions"][0]
+    assert row["kind"] == CONTINUE_ITERATIONS_KIND
+    assert row["title"] == "Continue working?"
+    assert "14 tool calls" in row["detail"]
+    assert "50" in row["detail"]
+    assert not is_continue_iterations_payload({"actions": [{"kind": "mutate:create:collection"}]})
+
+
+def test_is_max_iterations_reached_only_for_that_error() -> None:
+    """Other ERROR statuses must not open the Continue prompt."""
+    from openhands.sdk import ConversationExecutionStatus
+
+    limit_event = SimpleNamespace(
+        code="MaxIterationsReached",
+        detail="Agent reached maximum iterations limit (50).",
+    )
+    other_event = SimpleNamespace(code="SomeOtherError", detail="boom")
+    ok = SimpleNamespace(
+        state=SimpleNamespace(
+            execution_status=ConversationExecutionStatus.ERROR,
+            events=[limit_event],
+        )
+    )
+    bad = SimpleNamespace(
+        state=SimpleNamespace(
+            execution_status=ConversationExecutionStatus.ERROR,
+            events=[other_event],
+        )
+    )
+    finished = SimpleNamespace(
+        state=SimpleNamespace(
+            execution_status=ConversationExecutionStatus.FINISHED,
+            events=[limit_event],
+        )
+    )
+    assert is_max_iterations_reached(ok) is True
+    assert is_max_iterations_reached(bad) is False
+    assert is_max_iterations_reached(finished) is False

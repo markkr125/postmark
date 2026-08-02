@@ -9,7 +9,7 @@ from PySide6.QtCore import QObject, Qt, QThread, Slot
 
 from services.ai.ai_config import AiConfig
 from services.ai.chat.agent_registry import DEFAULT_AGENT_ID
-from services.ai.chat.attachments.store import store_attachments
+from services.ai.chat.attachments.store import set_turn_attachments, store_attachments
 from services.ai.chat.budget_status import connection_budget_status
 from services.ai.chat.run_registry import AiChatRunContext
 from services.ai.chat.session_service import (
@@ -351,7 +351,12 @@ class _AiChatControllerMixin(_AiChatRunsMixin, _AiChatTurnFinalizeMixin, _AiChat
 
         # Copy and convert attachments before the run: the prompt already names them
         # by URI, and the session id needed to place the copies exists only now.
-        store_attachments(session_id, attachment_sources)
+        added = store_attachments(session_id, attachment_sources)
+        set_turn_attachments(
+            session_id,
+            [str(entry["uri"]) for entry in added],
+            names=[str(entry["name"]) for entry in added],
+        )
 
         user_row = AiChatSessionService.record_user_message(
             session_id,

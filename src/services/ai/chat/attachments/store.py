@@ -41,6 +41,91 @@ logger = logging.getLogger(__name__)
 
 _COPY_CHUNK = 1024 * 1024
 
+# URIs attached to the current user message, published at send time. When a
+# session holds several uploads, an empty tool reference resolves to the file
+# the user just attached instead of failing as ambiguous.
+_TURN_ATTACHMENTS: dict[str, tuple[str, ...]] = {}
+# Parallel original file names for activity-card labels (same order as URIs).
+_TURN_ATTACHMENT_NAMES: dict[str, tuple[str, ...]] = {}
+
+
+def set_turn_attachments(
+    session_id: str,
+    uris: list[str],
+    *,
+    names: list[str] | None = None,
+) -> None:
+    """Record which attachment URIs arrived with the current user message.
+
+    Optional *names* are the original upload labels (``Hotel Guide.docx``) used
+    on tool-activity cards when the model omits ``uri``.
+    """
+    if not session_id:
+        return
+    uri_tuple = tuple(uris)
+    _TURN_ATTACHMENTS[session_id] = uri_tuple
+    if names is not None and len(names) == len(uri_tuple):
+        _TURN_ATTACHMENT_NAMES[session_id] = tuple(names)
+    else:
+        _TURN_ATTACHMENT_NAMES[session_id] = tuple(
+            uri_document_name(uri) or "attached document" for uri in uri_tuple
+        )
+
+
+def guess_turn_document_name() -> str | None:
+    """Return the current turn's document label when it is unambiguous.
+
+    Used by activity cards when ``postmark_document_import`` omits ``uri`` (the
+    usual case after a single-file attach). Concurrent multi-session singles that
+    disagree return None so the card waits for the observation's ``document:``.
+    """
+    labels: list[str] = []
+    for session_id, uris in _TURN_ATTACHMENTS.items():
+        if len(uris) != 1:
+            continue
+        names = _TURN_ATTACHMENT_NAMES.get(session_id) or ()
+        if names:
+            labels.append(names[0])
+        else:
+            labels.append(uri_document_name(uris[0]) or "attached document")
+    if not labels:
+        return None
+    if len(set(labels)) == 1:
+        return labels[0]
+    return None
+
+
+def label_for_document_reference(reference: str | None) -> str | None:
+    """Return a user-facing document name for *reference*, when known.
+
+    Prefers the original upload name from the current turn (``Guide.docx``) over
+    the URI-safe Markdown stem. Empty *reference* uses the turn's single attach.
+    """
+    raw = (reference or "").strip()
+    if not raw:
+        return guess_turn_document_name()
+    wanted_md = (uri_document_name(raw) or "").lower()
+    wanted_name = Path(raw).name.strip().lower()
+    for session_id, uris in _TURN_ATTACHMENTS.items():
+        names = _TURN_ATTACHMENT_NAMES.get(session_id) or ()
+        for uri, name in zip(uris, names, strict=False):
+            if raw == uri:
+                return name
+            if wanted_md and (uri_document_name(uri) or "").lower() == wanted_md:
+                return name
+            if wanted_name and name.lower() == wanted_name:
+                return name
+    if wanted_md:
+        return wanted_md
+    return None
+
+
+def _turn_match(session_id: str, entries: list[StoredAttachment]) -> StoredAttachment | None:
+    """Return the current message's attachment when it is exactly one entry."""
+    turn = _TURN_ATTACHMENTS.get(session_id) or ()
+    matches = [entry for entry in entries if str(entry.get("uri") or "") in turn]
+    return matches[0] if len(matches) == 1 else None
+
 
 def _session_dir(session_id: str) -> Path | None:
     """Return the session's disk directory, or None when *session_id* is unusable."""
@@ -99,6 +184,26 @@ def _copy_with_digest(source: Path, target: Path) -> tuple[int, str]:
             dst.write(chunk)
     temp.replace(target)
     return size, digest.hexdigest()
+
+
+def _digest_of(source: Path) -> str | None:
+    """Return the sha256 of *source*, or None when it cannot be read."""
+    digest = hashlib.sha256()
+    try:
+        with source.open("rb") as src:
+            while chunk := src.read(_COPY_CHUNK):
+                digest.update(chunk)
+    except OSError:
+        return None
+    return digest.hexdigest()
+
+
+def _find_duplicate(entries: list[StoredAttachment], digest: str) -> StoredAttachment | None:
+    """Return the stored entry already holding *digest*, if any."""
+    for entry in entries:
+        if entry.get("sha256") == digest:
+            return entry
+    return None
 
 
 def _unique_markdown_name(entries: list[StoredAttachment], name: str) -> str:
@@ -174,6 +279,15 @@ def store_attachments(session_id: str, sources: list[str]) -> list[StoredAttachm
         except DocumentImportError as exc:
             logger.warning("Skipped attachment %s: %s", source, exc.code)
             continue
+        # Re-attaching the same file (edit, re-send, second message) must not
+        # pile up identical entries — duplicates make single-reference reads
+        # ambiguous for no user-visible reason.
+        digest = _digest_of(valid)
+        if digest is not None:
+            duplicate = _find_duplicate(entries, digest)
+            if duplicate is not None:
+                added.append(duplicate)
+                continue
         ordinal = len(entries) + 1
         target = base / ATTACHMENT_DIR_NAME / f"{ordinal:02d}{valid.suffix.lower()}"
         try:
@@ -208,6 +322,8 @@ def store_attachments(session_id: str, sources: list[str]) -> list[StoredAttachm
 def delete_session_attachments(session_id: str) -> None:
     """Remove every attachment copy for *session_id*."""
     clear_session_vision(session_id)
+    _TURN_ATTACHMENTS.pop(session_id, None)
+    _TURN_ATTACHMENT_NAMES.pop(session_id, None)
     base = _session_dir(session_id)
     if base is not None and base.is_dir():
         shutil.rmtree(base, ignore_errors=True)
@@ -242,14 +358,17 @@ def resolve_attachment(session_id: str, reference: str | None) -> StoredAttachme
     """Return the attachment *reference* names, or None when it is ambiguous.
 
     Accepts a ``postmark://uploaded/<name>.md`` URI, a ``doc:N`` handle, a file
-    name, or nothing at all when the session holds exactly one attachment.
+    name, or nothing at all. An empty reference resolves to the session's only
+    attachment, or to the one file the current user message attached.
     """
     entries = list_attachments(session_id)
     if not entries:
         return None
     raw = (reference or "").strip()
     if not raw:
-        return entries[0] if len(entries) == 1 else None
+        if len(entries) == 1:
+            return entries[0]
+        return _turn_match(session_id, entries)
 
     document = uri_document_name(raw)
     if document:
@@ -260,7 +379,9 @@ def resolve_attachment(session_id: str, reference: str | None) -> StoredAttachme
         # A model may abbreviate or damage an echoed URI. There is no ambiguity
         # when this chat owns one upload, so use that upload rather than failing a
         # deterministic read because an unnecessary identifier was malformed.
-        return entries[0] if len(entries) == 1 else None
+        if len(entries) == 1:
+            return entries[0]
+        return _turn_match(session_id, entries)
 
     ordinal = handle_ordinal(raw)
     if ordinal is not None and 1 <= ordinal <= len(entries):
@@ -276,15 +397,20 @@ def resolve_attachment(session_id: str, reference: str | None) -> StoredAttachme
             matches = [e for e in entries if str(e.get("name", "")).lower().startswith(stem)]
             if len(matches) == 1:
                 return matches[0]
-    return entries[0] if len(entries) == 1 else None
+    if len(entries) == 1:
+        return entries[0]
+    return _turn_match(session_id, entries)
 
 
 __all__ = [
     "MAX_UPLOAD_IMAGES",
     "attachment_path",
     "delete_session_attachments",
+    "guess_turn_document_name",
+    "label_for_document_reference",
     "list_attachments",
     "read_markdown",
     "resolve_attachment",
+    "set_turn_attachments",
     "store_attachments",
 ]

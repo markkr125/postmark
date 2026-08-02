@@ -46,8 +46,10 @@ class TestMaxIterationsForTurn:
 
     def test_agent_raises_budget(self) -> None:
         """Agent mode uses at least MUTATING_MAX_ITERATIONS."""
+        assert MUTATING_MAX_ITERATIONS == 50
         n = max_iterations_for_turn(DEFAULT_AGENT_ID, send_mode="agent")
         assert n >= MUTATING_MAX_ITERATIONS
+        assert n == 50
 
     def test_ask_keeps_default_budget(self) -> None:
         """Ask mode keeps a lower budget than Agent mutating turns."""

@@ -423,10 +423,13 @@ available as top-level names:
 | `b64decode(data)` | `base64` | Base64 decode |
 | `hashlib_md5(data)` | `hashlib` | MD5 hex digest |
 | `hashlib_sha256(data)` | `hashlib` | SHA-256 hex digest |
+| `hashlib_sha512(data)` | `hashlib` | SHA-512 hex digest |
 | `hashlib_hmac_sha256(data, key)` | `hmac` | HMAC-SHA256 hex digest |
+| `hashlib_hmac_sha512(data, key)` | `hmac` | HMAC-SHA512 hex digest |
 | `uuid_v4()` | `uuid` | Random UUID v4 string |
 | `datetime_now()` | `datetime` | Current UTC ISO timestamp |
 | `datetime_utcnow()` | `datetime` | Alias for `datetime_now()` |
+| `unix_timestamp()` | `datetime` | Current Unix time in seconds (`int`; **Python sandbox only** — JS uses `Date.now()`) |
 | `url_quote(s)` | `urllib.parse` | URL-encode string |
 | `url_urlencode(d)` | `urllib.parse` | URL-encode dict |
 

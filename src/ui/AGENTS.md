@@ -323,9 +323,12 @@ standard object names:
 | `aiChatActivityLabel` | `QLabel` | Muted activity caption (`Thinking…`, SDK status, long-wait escalation, subagent aggregate) |
 | `aiChatSubagentGroup` | `QWidget` (`SubagentTaskGroup`) | Vertical stack of subagent summary cards between thought block(s) and assistant markdown |
 | `aiChatToolActivityGroup` | `QWidget` (`ToolActivityGroup`) | Collapsible chronological batch of compact main-agent tool rows. Adjacent calls collapse into one summary line ("N tool calls · 2.4s") via a clickable header (`aiChatToolActivityGroupHeader`); rows expand on click. Failed and running rows stay visible even while collapsed so a run never looks dead. New calls get a new group at the end of the assistant activity timeline, so later rows never move above earlier tool-result reasoning. Cleared on `begin_assistant_stream` via `clear_tool_activity_cards()`. |
-| `aiChatToolActivityCard` | `QWidget` (`ToolActivityCard`) | One-line tool row (no per-call box): status icon (spinner while running, ✓/✕ when done), tool icon, title, single-line muted detail (full text in tooltip), and inline duration from `started_at`/`completed_at`. Failed rows tint the title/icon danger. Fixed single-line height; never use a wrapping label here — wrap height-for-width inflates the row. |
+| `aiChatToolActivityCard` | `QWidget` (`ToolActivityCard`) | One-line tool row: optional expand chevron (`aiChatToolActivityExpand`), status icon, tool icon, title, single-line muted detail, duration. When the tool observation is stored on the record (`output`), the row expands `aiChatToolActivityOutput` (bordered frame) with a word-wrapped body; short results hug content, long ones scroll inside without clipping the frame border. Height fitting is two-pass: when a scrollbar is needed, remeasure at width minus scrollbar extent so the last line is not clipped. Failed rows tint the title/icon danger. |
 | `aiChatToolActivityTitle` | `QLabel` | Compact tool title (tinted danger when failed) |
-| `aiChatToolActivityDetail` | `QLabel` | Single-line muted detail (elided to one line; full text in tooltip) |
+| `aiChatToolActivityDetail` | `QLabel` | Single-line muted detail (elided; full summary also in tooltip) |
+| `aiChatToolActivityOutput` | `QFrame` | Bordered expand panel for tool observation text |
+| `aiChatToolActivityOutputScroll` | `QScrollArea` | Scrolls long observation bodies; off when content fits |
+| `aiChatToolActivityOutputBody` | `QLabel` | Word-wrapped human-readable tool observation |
 | `aiChatToolActivityGroupHeader` | `QWidget` | Clickable summary line that toggles the group's collapsed state: chevron (`aiChatToolActivityGroupChevron`), summary (`aiChatToolActivityGroupSummary` — "N tool calls · M running · K failed", tinted danger on failure), and total duration (`aiChatToolActivityGroupTiming`) |
 | `aiChatSubagentCard` | `QFrame` (`SubagentTaskCard`) | Compact subagent row: sharp corners, accent border on hover (`cardHovered`); title, agent type, status; click opens detail dialog |
 | `aiChatExecuteGroup` | `QWidget` (`ExecuteResultGroup`) | Vertical stack of agent-execute result cards (send/replay/scripts) between pending Approve cards and assistant markdown |
@@ -337,7 +340,7 @@ standard object names:
 | `aiChatExecuteOpenIcon` | `QLabel` | Open affordance on the execute card header |
 | `aiChatExecuteStatusLabel` | `QLabel` | Muted status/URL caption under the title |
 | `aiChatPendingToolGroup` | `QWidget` (`PendingToolGroup`) | Stack of pending Agent action cards between subagent and execute cards; hides activity row while visible |
-| `aiChatPendingToolCard` | `QFrame` (`PendingToolCard`) | Inline Approve card (title + detail); accent border, `risk=destructive` for deletes. Allow immediately disables its controls and starts the shared `busyChipSpinner` beside **Starting…** until the running tool card takes over. |
+| `aiChatPendingToolCard` | `QFrame` (`PendingToolCard`) | Inline Approve card (title + detail); accent border, `risk=destructive` for deletes. Allow immediately disables its controls and starts the shared `busyChipSpinner` beside **Starting…** until the running tool card takes over. Max-iterations prompts reuse this card with **Continue** / **Stop** (Always allow hidden). |
 | `aiChatPendingToolTitle` | `QLabel` | Human kind label (e.g. Create collection) |
 | `aiChatPendingToolDetail` | `QLabel` | Friendly one-liner (name, URL, …) — not raw tool ids |
 | `aiChatPendingAllow` | `QPushButton` | Allow (or Allow all) — solid accent primary |
@@ -680,3 +683,5 @@ Every call to `blockSignals(True)` must have a matching
 >   borders on Linux.
 > - `VariablePopup` uses class-level callbacks, **not** Qt signals.
 > - `VariableLineEdit.set_variable_map()` takes `dict[str, VariableDetail]`.
+> - Password-echo `VariableLineEdit` with `{{vars}}` temporarily paints as
+>   Normal so mask bullets are not drawn under the cleartext overlay.

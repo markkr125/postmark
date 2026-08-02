@@ -1871,6 +1871,33 @@ def build_global_qss(p: ThemePalette) -> str:
     QWidget[objectName="aiChatToolActivityCard"] {{
         background: transparent;
     }}
+    QToolButton[objectName="aiChatToolActivityExpand"] {{
+        background: transparent;
+        border: none;
+        padding: 0;
+        margin: 0;
+    }}
+    QToolButton[objectName="aiChatToolActivityExpand"]:hover {{
+        background: {p["hover_bg"]};
+    }}
+    QFrame[objectName="aiChatToolActivityOutput"] {{
+        background: {p["bg_alt"]};
+        border: 1px solid {p["border"]};
+        border-radius: 4px;
+        margin: 2px 0 4px 22px;
+    }}
+    QScrollArea[objectName="aiChatToolActivityOutputScroll"] {{
+        background: transparent;
+        border: none;
+    }}
+    QLabel[objectName="aiChatToolActivityOutputBody"] {{
+        background: transparent;
+        border: none;
+        color: {p["text"]};
+        font-size: 12px;
+        padding: 0;
+        margin: 0;
+    }}
     QLabel[objectName="aiChatToolActivityTitle"] {{
         background: transparent;
         border: none;

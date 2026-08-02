@@ -134,7 +134,11 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   `QueuedConnection` (defers delivery until `worker.run()` returns and breaks
   streaming). Bridge includes `subagent_updated` for delegation lifecycle,
   `tool_activity_updated` for main-agent tool rows (query/datetime/import/mutate/execute;
-  excludes wiki/delegate). Assistant activity is append-only and chronological:
+  excludes wiki/delegate). Observation ingest rewrites card ``detail`` from the
+  tool result for ``postmark_collection_draft`` (and other ``ok: false`` writes) so
+  soft-trims / skips / failures are visible on the row; the full observation
+  body is stored on ``ToolActivityRecord.output`` for expandable tool cards.
+  Assistant activity is append-only and chronological:
   approval chrome immediately finalizes the active thought, approved tools replace it
   with an explicit running card, later reasoning opens a fresh thought block, and each
   subsequent tool cycle gets a new card group below that reasoning. The tracker accepts
@@ -153,6 +157,10 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   `confirmation_payload.pending_actions_payload` (kinds via
   `mutation.auto_approve.kind_from_action_event`; display fields `title` /
   `detail` / `url` / `risk` from Action `human_preview` / `preview_url`).
+  When OpenHands stops with `MaxIterationsReached`, the worker parks on the same
+  chrome via `continue_iterations_payload` (Continue / Stop); Continue runs
+  another `arun()` (fresh iteration budget), Stop finishes with a short note
+  instead of ``No response from model``. Other ERROR codes still fail normally.
   Execute rows include
   `resolve_execute_preview_url` (`execution/preview_url.py`): env-substituted
   when possible, then redacted for Approve chrome.
@@ -246,7 +254,9 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   `postmark_datetime` (current date/time + free-text timezone / Unix-epoch convert),
   `postmark_workspace_mutate` / `postmark_workspace_execute` / `postmark_import`
   (always registered; `tools_for_turn` exposes them in Agent mode only — Ask/Plan
-  stay read-only; write safety is Approve / auto-approve),
+  stay read-only; write safety is Approve / auto-approve;
+  `max_iterations_for_turn` raises Agent runs to `MUTATING_MAX_ITERATIONS` (50)
+  so multi-chunk document→collection builds do not die mid-import),
   OpenHands `task_tool_set` (sequential/resumable subagents), and `delegate`
   (parallel fan-out).
   Built-in subagent types: `wiki-researcher` (`postmark_wiki_query` only),
@@ -273,7 +283,10 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   OpenHands tool that reads **one chunk** of an uploaded document: Action `uri`
   (`postmark://uploaded/<name>.md`, used only to choose among multiple uploads)
   plus `chunk` (1-based). A single upload resolves even if a small model supplies
-  a damaged URI, because there is no ambiguity. Every observation ends with
+  a damaged URI, because there is no ambiguity. Tool-activity cards label the row
+  with the original upload name (`Guide.docx`), not ``attached document``: send-time
+  `set_turn_attachments(..., names=…)` feeds `human_preview`, and the observation's
+  `document:` line rewrites the detail to `Name (chunk X of Y)`. Every observation ends with
   `chunk X of Y` and a `next_step` line telling the agent to batch endpoints once
   their method, path, and request example/parameters have been read; response
   docs may continue into a later chunk, while TOC-only names never count. A whole
@@ -302,23 +315,39 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
 
   **`postmark_collection_draft`** (`tools/collection_draft/`) builds a collection
   incrementally with a deliberately narrow model-facing schema: `start`,
-  `add_requests` (one atomic batch of at most 20 endpoints), `status`, `finish`,
+  `add_requests` (one soft-accept batch of at most 20 endpoints), `status`, `finish`,
   `discard`.   There are no legacy single-request/folder operations or top-level
   method/URL/body fields for the model to choose accidentally. The Action and its
   nested `DraftRequestInput` set `extra="ignore"` and keep every field optional:
   models emit `path` for `url`, a header object instead of rows, and stray fields
   like `target_id`, so a `model_validator` folds `path`→`url` and header/param
   objects into `key`/`value`(/`description`) rows while real validation
-  (name/method/url) happens in `ops.py` as recoverable `ok: false` observations
-  rather than hard Pydantic errors. Each nested request accepts a JSON
-  object/array body directly; `ops.py` serializes it, avoiding fragile escaped
+  (name/method/url) happens in `ops/` — soft-caps truncate/trim with `warnings:`,
+  bad items are listed in `skipped:`, empty `requests: []` (or omitted) is a soft
+  no-op for TOC/prose chunks, and `ok: false` is reserved for structural failures
+  (`no_draft`, every item skipped, auth/signature hard errors, malformed
+  non-list `requests`) rather than hard Pydantic errors. Each nested request accepts a JSON
+  object/array body directly; `ops/` serializes it, avoiding fragile escaped
   JSON strings that small models abbreviate with `...`. Batching is critical:
   replaying a 10–12K-character observation once per endpoint caused excessive
-  provider calls and token usage. Caps: request `body` `MAX_BODY_CHARS` (4000,
-  hard reject), descriptions/scripts truncated at 8000 with a `warnings:` line,
-  params at 40/request. Enrichment fields: markdown collection/request
+  provider calls and token usage. Caps: request `body` `MAX_BODY_CHARS` (16000,
+  soft-truncate), descriptions/scripts truncated at 8000 with a `warnings:` line,
+  params at 40/request (trim). Enrichment fields: markdown collection/request
   `description`, query `params` (with per-row descriptions), collection/request
-  `pre_script`/`test_script`. Script language comes from
+  `pre_script`/`test_script`, optional `auth` (Postmark auth with `{{variables}}`
+  for credentials), `default_headers` (request headers override), and up to
+  `MAX_SAVED_RESPONSES` (12) saved response examples per request
+  (`MAX_SAVED_RESPONSE_BODY` 6000), each with `preview_language` sniffed from the
+  example body and an `original_request` Postman snapshot of the parent request
+  (method/url/headers/body) for the Saved Responses **Request Body** tab.
+  with a known `kind` from `collection_draft/recipes/`
+  (`sha256_apikey_secret_timestamp`, `hmac_sha256`); `ops/` validates via
+  `recipe_for_kind` (unknown → recoverable error; unsafe header/var override
+  names that could break out of generated script string literals are rejected
+  via `validate_signature_overrides`) and `build.py` prepends the
+  reviewed signing script to collection `events.pre_request` plus recipe
+  credential variables. **Never invent crypto in the model** — uncovered
+  algorithms get a description note only. Script language comes from
   `collection_draft/config.py` `draft_script_language()` (QSettings
   `ai/draft_script_language`, default `python`; Settings → AI → Agents combo);
   emitted `scripts`/`events` dicts carry `language`/`pre_language`/`test_language`.
@@ -328,10 +357,24 @@ RequestEditorWidget  ──_on_fetch_schema──►  SchemaFetchWorker (QThread
   context, so a drifting agent calls `status` and resumes. Only `finish` writes —
   it assembles a `ParsedCollection` and persists through
   `ImportService.import_parsed`, returning the real collection id plus an
-  `enrichment:` summary. Every other operation is LOW risk (see
+  `enrichment:` summary (including `signature script` when a recipe was used).
+  Every other operation is LOW risk (see
   `auto_approve.draft_operation_is_write`), otherwise each added request would
   raise its own Approve card. This exists because asking a small model for one
   complete Postman JSON fails silently and it narrates success instead.
+
+  **OpenAPI security** (`import_parser/openapi/security.py`, wired from
+  `mapping.build_collection_from_openapi`): maps `components.securitySchemes` +
+  root `security` (falls back to the first per-operation `security` when root
+  is absent). Multi-alternative OR requirements and AND of non-signature
+  schemes → description note only. Hotelbeds-style `apiKey` + signature-header
+  pair → `sha256_apikey_secret_timestamp` recipe pre-request + `{{apiKey}}`/
+  `{{secret}}` (header names sanitized before script generation). Plain
+  `apiKey` / `http basic` / `http bearer` → collection auth + credential
+  variables. Expedia-style required `Authorization` (description hints at
+  signing/docs) + `apikey`/`api_key` header or query **without** schemes →
+  variables + “algorithm not specified” description note, **no** fabricated
+  script. oauth2 / openIdConnect / mutualTLS → description note only.
 
   **Fabricated link guard** — `claim_guard.strip_unbacked_collection_links`
   removes any `postmark://collection/<id>` in the final message whose id no
